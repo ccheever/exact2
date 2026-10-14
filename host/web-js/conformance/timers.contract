@@ -1,6 +1,6 @@
 // Synthetic conformance plan: a repeating timer and derived countdowns on
 // the driver's clock.
-fn countdown(at: number, now: number): string = toString(max(0, -floor(-((at - now) / 60000))))
+fn countdown(at: number, now: number): string = max(0, -floor(-((at - now) / 60000))).toString()
 
 component Timers
   state ticks = 0

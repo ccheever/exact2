@@ -7,6 +7,17 @@ use std::fmt::Write as _;
 
 use crate::style::push_int;
 
+/// What `fieldContent` says, in the node's own space: a native text
+/// control's editor inside its chrome (LLP 1104 D5), or a box's CSS content
+/// box with the padding layout resolved (top, right, bottom, left), which
+/// the presenter places content and insets by. A native button's side its
+/// author left unsaid is `None` (JSON `null`): UIKit's own inset stays there.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ContentBox {
+    pub(crate) rect: exact_kernel::Frame,
+    pub(crate) padding: Option<[Option<f32>; 4]>,
+}
+
 /// A JSON writer for one batch.
 #[derive(Debug, Default)]
 pub struct Batch {
@@ -86,15 +97,27 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// The editor box inside a field, or an explicit clear after appearance
-    /// changes; `cell` when the field is a grouped list row's content, which
-    /// iOS draws borderless in its cell (LLP 1116.005 D2).
-    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>, cell: bool) {
-        let value = rect.map_or_else(
+    /// A node's published box (`ContentBox`), or an explicit clear; `cell`
+    /// when the field is a grouped list row's content, which iOS draws
+    /// borderless in its cell (LLP 1116.005 D2).
+    pub(crate) fn field_content(&mut self, id: u32, content: Option<ContentBox>, cell: bool) {
+        let value = content.map_or_else(
             || "null".into(),
-            |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+            |c| {
+                let r = c.rect;
+                let rect = format!("[{},{},{},{}]", r.x, r.y, r.width, r.height);
+                match c.padding {
+                    Some(sides) => {
+                        let side =
+                            |p: Option<f32>| p.map_or_else(|| "null".into(), |p| p.to_string());
+                        let [t, rt, b, l] = sides.map(side);
+                        format!("{rect},\"padding\":[{t},{rt},{b},{l}]")
+                    }
+                    None => rect,
+                }
+            },
         );
-        let cell = if cell && rect.is_some() {
+        let cell = if cell && content.is_some() {
             ",\"cell\":true"
         } else {
             ""
@@ -326,23 +349,25 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Takes out the layout geometry, and the motion samples unless
+    /// `keep_motion` (`Host::write`).
+    pub(crate) fn withhold(&mut self, keep_motion: bool) {
+        self.ops.retain(|op| {
+            !layout_geometry(op) || (keep_motion && op.starts_with("{\"op\":\"present\""))
+        });
+    }
+
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, for the Core
     /// Graphics replayer: `[address, length]` pairs the reader copies out
     /// as it decodes the batch (the host keeps them alive until then). `fresh` starts a new bitmap at `w`×`h`;
-    /// `box` is the content box in the view's border box, where it shows;
+    /// the presenter shows it at the view's content box;
     /// `p3` and `float16` are its getContext settings (LLP 1100 D12a).
-    pub fn canvas2d(
-        &mut self,
-        c: &exact_runner::CanvasList,
-        content: (f32, f32, f32, f32),
-        radii: [(f32, f32); 4],
-    ) {
+    pub fn canvas2d(&mut self, c: &exact_runner::CanvasList) {
         let mut s = String::new();
         let _ = write!(
             s,
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
-            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16,
-            content.0, content.1, content.2, content.3, radii[0].0, radii[0].1, radii[1].0, radii[1].1, radii[2].0, radii[2].1, radii[3].0, radii[3].1
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16
         );
         for (i, l) in c.lists.iter().enumerate() {
             if i > 0 {
@@ -702,13 +727,7 @@ impl Batch {
             ops + 256 + self.images.iter().map(|i| i.len() + 3).sum::<usize>(),
         );
         s.push_str("{\"ops\":[");
-        // A failed three-pass layout can retain native-region geometry staged
-        // before the miss. Publish its other updates, never guessed boxes.
-        let published = self
-            .ops
-            .iter()
-            .filter(|op| !self.layout_provisional || !layout_geometry(op));
-        for (i, op) in published.enumerate() {
+        for (i, op) in self.ops.iter().enumerate() {
             if i != 0 {
                 s.push(',');
             }
@@ -768,7 +787,7 @@ fn layout_geometry(op: &str) -> bool {
     match kind {
         Some(
             "frame" | "content" | "fieldContent" | "flow" | "sticky" | "fragments" | "region"
-            | "native-region",
+            | "native-region" | "svg",
         ) => true,
         Some("present") => ["translate", "scale", "rotate", "layout", "height"]
             .iter()

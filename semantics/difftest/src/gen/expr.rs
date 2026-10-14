@@ -282,7 +282,7 @@ impl Gen<'_> {
                     let (src, src_elem) = self.list_path(env);
                     let (head, inner) = self.arrow_head(env, &src_elem);
                     let body = self.leaf(&inner, elem, false);
-                    format!("map({src}, {head} {body})")
+                    format!("({src}).map({head} {body})")
                 }
             }
             Ty::Opt(inner) => {
@@ -373,7 +373,7 @@ impl Gen<'_> {
                     3 => {
                         let l = self.expr(env, &list, d, false);
                         let n = self.expr(env, &Ty::Num, d, false);
-                        format!("at({l}, {n})")
+                        format!("({l}).at({n})")
                     }
                     _ => self.read_number(env, d),
                 }
@@ -392,13 +392,13 @@ impl Gen<'_> {
                     let src = self.expr(env, &Ty::list(src_ty.clone()), d, false);
                     let (head, inner) = self.arrow_head(env, &src_ty);
                     let body = self.expr(&inner, elem, d, false);
-                    format!("map({src}, {head} {body})")
+                    format!("({src}).map({head} {body})")
                 }
                 1 => {
                     let src = self.expr(env, t, d, false);
                     let (head, inner) = self.arrow_head(env, elem);
                     let body = self.expr(&inner, &Ty::Bool, d, false);
-                    format!("filter({src}, {head} {body})")
+                    format!("({src}).filter({head} {body})")
                 }
                 2 => "[]".into(),
                 3 => self.literal(env, elem, pinned, |g, env, t, pinned| {
@@ -409,15 +409,15 @@ impl Gen<'_> {
                 4 => {
                     let a = self.expr(env, t, d, pinned);
                     let b = self.expr(env, t, d, true);
-                    format!("concat({a}, {b})")
+                    format!("({a}).concat({b})")
                 }
                 5 => {
                     let l = self.expr(env, t, d, pinned);
                     let a = self.expr(env, &Ty::Num, d, false);
                     if self.rng.chance(1, 3) {
-                        format!("slice({l}, {a})")
+                        format!("({l}).slice({a})")
                     } else {
-                        format!("slice({l}, {a}, {})", self.expr(env, &Ty::Num, d, false))
+                        format!("({l}).slice({a}, {})", self.expr(env, &Ty::Num, d, false))
                     }
                 }
                 // `split` over code units: an empty separator cuts an astral
@@ -425,7 +425,7 @@ impl Gen<'_> {
                 _ => {
                     let s = self.expr(env, &Ty::Str, d, false);
                     let sep = self.expr(env, &Ty::Str, d, false);
-                    format!("split({s}, {sep})")
+                    format!("({s}).split({sep})")
                 }
             },
             Ty::Rec(i) => {
@@ -461,7 +461,7 @@ impl Gen<'_> {
                 format!("({a} {op} {b})")
             }
             1 => format!("(-{})", self.expr(env, &Ty::Num, d, false)),
-            2 => format!("length({})", self.sized(env, d)),
+            2 => format!("({}).length", self.sized(env, d)),
             // `round` is JavaScript's `Math.round` (LLP 1102 §3.2).
             3 => {
                 let f = *self.rng.pick(&["floor", "ceil", "round"]);
@@ -473,12 +473,12 @@ impl Gen<'_> {
                 let t = self.scalar_ty();
                 let l = self.expr(env, &Ty::list(t.clone()), d, false);
                 let x = self.expr(env, &t, d, false);
-                format!("indexOf({l}, {x})")
+                format!("({l}).indexOf({x})")
             }
             5 => {
                 let a = self.expr(env, &Ty::Str, d, false);
                 let b = self.expr(env, &Ty::Str, d, false);
-                format!("indexOf({a}, {b})")
+                format!("({a}).indexOf({b})")
             }
             _ => {
                 let f = *self.rng.pick(&["max", "min"]);
@@ -524,11 +524,15 @@ impl Gen<'_> {
             }
             2 => {
                 let t = self.scalar_ty();
-                format!("toString({})", self.expr(env, &t, d, false))
+                format!("({}).toString()", self.expr(env, &t, d, false))
             }
             3 => {
                 let f = *self.rng.pick(&["trim", "encodeURIComponent", "trim"]);
-                format!("{f}({})", self.expr(env, &Ty::Str, d, false))
+                let e = self.expr(env, &Ty::Str, d, false);
+                match f {
+                    "trim" => format!("({e}).trim()"),
+                    _ => format!("{f}({e})"),
+                }
             }
             5 => self.format_expr(env, d),
             // LLP 1088 D2: over UTF-16 code units, an astral string cut or
@@ -539,14 +543,14 @@ impl Gen<'_> {
                 if self.rng.chance(1, 2) {
                     let a = self.expr(env, &Ty::Num, d, false);
                     if self.rng.chance(1, 3) {
-                        format!("slice({s}, {a})")
+                        format!("({s}).slice({a})")
                     } else {
-                        format!("slice({s}, {a}, {})", self.expr(env, &Ty::Num, d, false))
+                        format!("({s}).slice({a}, {})", self.expr(env, &Ty::Num, d, false))
                     }
                 } else {
                     let find = self.expr(env, &Ty::Str, d, false);
                     let with = self.str_lit();
-                    format!("replaceAll({s}, {find}, {with})")
+                    format!("({s}).replaceAll({find}, {with})")
                 }
             }
             _ => {
@@ -556,7 +560,7 @@ impl Gen<'_> {
                 let t = Ty::list(self.scalar_ty());
                 let l = self.expr(env, &t, d, false);
                 let sep = self.str_lit();
-                format!("join({l}, {sep})")
+                format!("({l}).join({sep})")
             }
         }
     }
@@ -634,7 +638,7 @@ impl Gen<'_> {
                     self.expr(env, &Ty::Num, d, false)
                 };
                 let digits = *self.rng.pick(&[0, 1, 2, 2, 3, 20, 100]);
-                format!("toFixed({n}, {digits})")
+                format!("({n}).toFixed({digits})")
             }
             _ => {
                 let n = match self.rng.below(3) {
@@ -679,20 +683,20 @@ impl Gen<'_> {
                 let op = *self.rng.pick(&["not ", "!"]);
                 format!("({op}{})", self.expr(env, &Ty::Bool, d, false))
             }
-            4 => format!("isEmpty({})", self.sized(env, d)),
+            4 => format!("({}).isEmpty()", self.sized(env, d)),
             // `includes` over a list of strings, numbers or bools, by
             // SameValueZero (LLP 1088 §9.1), or over text.
             _ if self.rng.chance(1, 3) => {
                 let t = self.scalar_ty();
                 let l = self.expr(env, &Ty::list(t.clone()), d, false);
                 let x = self.expr(env, &t, d, false);
-                format!("includes({l}, {x})")
+                format!("({l}).includes({x})")
             }
             _ => {
                 let f = *self.rng.pick(&["includes", "startsWith", "endsWith"]);
                 let a = self.expr(env, &Ty::Str, d, false);
                 let b = self.expr(env, &Ty::Str, d, false);
-                format!("{f}({a}, {b})")
+                format!("({a}).{f}({b})")
             }
         }
     }
@@ -703,7 +707,7 @@ impl Gen<'_> {
         match t {
             Ty::Num | Ty::Bool => {
                 if self.rng.chance(1, 2) {
-                    format!("toString({path})")
+                    format!("({path}).toString()")
                 } else {
                     format!("`${{{path}}}`")
                 }
@@ -717,7 +721,7 @@ impl Gen<'_> {
             Ty::List(inner) => {
                 let x = self.fresh("x");
                 let shown = self.show(&x, inner);
-                format!("(\"[\" + join(map({path}, {x} => {shown}), \",\") + \"]\")")
+                format!("(\"[\" + ({path}).map({x} => {shown}).join(\",\") + \"]\")")
             }
             Ty::Rec(i) => {
                 let shape = self.shapes[*i].clone();

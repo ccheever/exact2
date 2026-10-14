@@ -39,9 +39,9 @@ final class SidebarMacTests: XCTestCase {
         main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="app"
           width="100%" height="100%" display="flex" flex-direction=(mode == "placed" ? "row" : "column")
           column flex=1 min-height=0 position="relative" testId="panels"
-            each t in nav.tabs key=t.name
+            for t in nav.tabs key=t.name
               column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-                each e in t.stack key=e.id
+                for e in t.stack key=e.id
                   column navigationKey=`${e.id}` position="absolute" inset=0 testId=`route-${e.name}`
                     button press=pick("today") testId=`go-today-${e.name}`
                       text "Today"
@@ -68,7 +68,7 @@ final class SidebarMacTests: XCTestCase {
               disabled=(mode == "disabled")
               image "symbol:chart"
               text "History"
-              when mode == "badge"
+              if mode == "badge"
                 column background-color="#ff3b30" testId="count"
                   text "3"
 

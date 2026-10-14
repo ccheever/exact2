@@ -3,7 +3,7 @@
 // yellow as well), or one pair, `accent-color="light-dark(#0a7d61, #3dd6a8)"`. Surfaces and
 // text are roles or unsaid, so dark mode is the platform's: a hex on a page, card or text stays
 // light as the bars turn dark.
-// One route: a second screen is a route under `home`, a `when e.name == …` beside this one and
+// One route: a second screen is a route under `home`, an `if e.name == …` beside this one and
 // `nav = push(nav, path(…))`, and `follow` keeps the browser's Back and deep links working.
 use SummaryCard, RoundButton, RowText from "exact:content"
 
@@ -21,7 +21,7 @@ shape Drink
 
 shape Log
   total: number
-  entries: list<Drink>
+  entries: Drink[]
 
 shape Reply
   ok: bool
@@ -52,8 +52,8 @@ component App
   view
     main testId="root" navigationKey=`${top(nav).id}` navigate=follow width="100%" height="100%"
       accent-color="-exact-system-indigo"
-      each e in stack(nav) key=e.id
-        when e.name == "home"
+      for e in stack(nav) key=e.id
+        if e.name == "home"
           column navigationKey=`${e.id}` navigationScroll="content" position="absolute" inset=0
             // A title and one button: the title takes the row (`flex=1`) and the button sits at its end.
             header display="flex" align-items="center" padding="8px 16px"
@@ -73,7 +73,7 @@ component App
                 // A card of your own on this plain page: `-exact-secondary-background`, a role for its text.
                 column padding="20px 20px 10px" border-radius=16 background-color="-exact-secondary-background" testId="history"
                   text "History" role="heading" aria-level=3
-                  when length(log.entries) == 0
+                  if log.entries.length == 0
                     text "Nothing yet. Tap an amount to log a drink." color="-exact-secondary-label" padding-top=6 padding-bottom=10 testId="history-empty"
-                  each x in log.entries key=x.id
+                  for x in log.entries key=x.id
                     RowText(title=`${x.ml} ml`, detail=(x.day == today ? "Today" : x.day), value=none)

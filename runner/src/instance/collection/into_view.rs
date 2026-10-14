@@ -112,10 +112,9 @@ impl Collection {
             ListAxis::Horizontal => request.inline,
         }
     }
-    /// The row root's margins along this list's axis, when it is mounted:
-    /// its wrapper encloses them, and the web aligns the element's border
-    /// box, inside them.
-    fn root_margins(&self, plan: &Plan, position: usize) -> (f64, f64) {
+    /// Insets from the row wrapper to its alignment area: ordinary margins
+    /// bring it to the border box, and scroll margins expand that box.
+    fn root_margins(&self, u: &Update<'_>, position: usize) -> (f64, f64) {
         use exact_kernel::StyleId;
         let Some(Child::Node(root)) = self
             .mounted
@@ -129,11 +128,18 @@ impl Collection {
             ListAxis::Vertical => [StyleId::MarginTop, StyleId::MarginBottom],
             ListAxis::Horizontal => [StyleId::MarginLeft, StyleId::MarginRight],
         };
-        let number = |id| match root.bound_style(plan, id) {
+        let number = |id| match root.bound_style(u.env.plan, id) {
             Some(Value::Number(n)) if n.is_finite() => *n,
             _ => 0.0,
         };
-        (number(a), number(b))
+        let [top, right, bottom, left] = u
+            .scroll_margin
+            .map_or([0.0; 4], |resolve| resolve(root.view));
+        let (start, end) = match self.axis {
+            ListAxis::Vertical => (top, bottom),
+            ListAxis::Horizontal => (left, right),
+        };
+        (number(a) - start, number(b) - end)
     }
     /// The list's `scroll-padding` at each end along its axis, as its
     /// committed style resolves it now: CSSOM View reads it when
@@ -166,7 +172,7 @@ impl Collection {
             return (self.index.prefix(position).unwrap_or(0.0) + offset)
                 .clamp(-self.index.leading(), self.index.max_offset(port));
         }
-        let (before, after) = self.root_margins(u.env.plan, position);
+        let (before, after) = self.root_margins(u, position);
         let start = self.index.prefix(position).unwrap_or(0.0) + before;
         let size = (self.index.height(position).unwrap_or(0.0) - before - after).max(0.0);
         let port = self.geometry.as_ref().map_or(0.0, |g| g.port_main);

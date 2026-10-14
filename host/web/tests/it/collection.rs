@@ -31,7 +31,7 @@ fn plan() -> Vec<u8> {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state shown = true
   state rowHeight = 32
   state typed = ""
@@ -48,9 +48,9 @@ component App
       button press=grow testId="grow"
         text "Grow"
       text typed testId="echo"
-      when shown
+      if shown
         list virtualized=true height=180 width=320 testId="list"
-          each x in rows key=x.index
+          for x in rows key=x.index
             column height=rowHeight
               input value=typed change=edit testId=`row-${x.index}` height=16
               text `${x.index}` height=16
@@ -169,7 +169,7 @@ fn edge_action_receipts_and_refusal_keep_committed_feedback_in_the_host_batch() 
 component App
   state refused = false
   state reached = false
-  resource rows = rows(refused) as shape list<Row>
+  resource rows = rows(refused) as shape Row[]
   action end
     refused = {refuse}
     reached = true
@@ -177,7 +177,7 @@ component App
     column
       text (reached ? "edge committed" : "before") testId="status"
       list virtualized=true height=180 width=320 reachend=end
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${{x.index}}` height=32
 "#
         );
@@ -263,7 +263,7 @@ fn real_browser_bidirectional_edges_and_state_only_deferral_become_idle() {
 component App
   state first = 0
   state ended = 0
-  resource rows = rows(2) as shape list<Row>
+  resource rows = rows(2) as shape Row[]
   action start
     if first > 0
       first = 0
@@ -275,7 +275,7 @@ component App
       text `${first}` testId="steps"
       text `${ended}` testId="ends"
       list virtualized=true height=180 width=320 reachstart=start reachend=end testId="list"
-        each x in rows key=x.index + first * 2
+        for x in rows key=x.index + first * 2
           text `${x.index + first * 2}` height=1
 "#;
     for (case, source) in [
@@ -320,7 +320,7 @@ fn real_browser_authored_jump_builds_its_rows_before_it_moves() {
     let source = r#"shape Row
   index: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state target = 0
   action go
     target = 20000
@@ -329,7 +329,7 @@ component App
       button press=go testId="go"
         text "Go"
       list virtualized=true height=180 width=320 scrollTop=target testId="list"
-        each x in rows key=x.index
+        for x in rows key=x.index
           text `${x.index}` height=32
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");

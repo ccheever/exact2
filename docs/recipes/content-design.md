@@ -52,6 +52,6 @@ component Quiz
     picked = a
   view
     column gap=12 padding=16
-      each a in ["Mars", "Jupiter", "Venus"] key=a
+      for a in ["Mars", "Jupiter", "Venus"] key=a
         AnswerTile(label=a, status=(picked == "" ? "idle" : a == "Jupiter" ? "correct" : a == picked ? "wrong" : "dimmed"), press=pick(a), testId=`answer-${a}`)
 ```

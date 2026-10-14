@@ -116,8 +116,8 @@ mod tests {
     log = `${log}${label}:${e.target};`
   view
     column
-      when shown
-        each label in ["wrapper"] key=label
+      if shown
+        for label in ["wrapper"] key=label
           column focusout=left(label) testId="wrapper"
             input blur=remove testId="a"
       input testId="c" focus=remove
@@ -176,11 +176,11 @@ mod tests {
     {}
   view
     column
-      when first
+      if first
         column focusout=left("outer") testId="outer"
           column focusout=left("first") testId="first"
             input blur=removeFirst testId="a"
-      when second
+      if second
         column focusout=left("second") testId="second"
           input blur=removeSecond testId="b"
       text log testId="log"

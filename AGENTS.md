@@ -89,14 +89,15 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   `docs/`, `QUEUE.md`, and `*.md` paths
   (`build.mjs --test --ios`; `build.mjs --tvos --no-install`, which builds and signs
   the Apple TV bundle and asks for no simulator), the
-  Contract semantics (`semantics/README.md`: the Lean proofs, then `contract-difftest`
-  running the runner against the Lean semantics over `semantics/corpus` and a fixed
-  random sweep), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  Contract semantics (`semantics/README.md`: the Lean proofs, the extracted VM's, and
+  `contract-difftest` running the runner and the web JS target against the Lean
+  semantics; each skipped when its inputs are those of a run that passed,
+  `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
-  plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
-  host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
-  both Rust cross targets and Zig on this Mac. These checks qualify
+  plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
+  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple

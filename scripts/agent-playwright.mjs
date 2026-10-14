@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, launchFacts, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { backLayer, chromium, launchFacts, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -33,6 +33,14 @@ function unavailable(name, error) {
   if (libraries.length) return new Error(`web carrier unavailable: ${name} missing system libraries: ${libraries.join(', ')}`);
   if (/Executable doesn't exist|download new browsers/i.test(message)) return new Error(`web carrier unavailable: ${name} not installed: ${INSTALL}`);
   return new Error(`web carrier unavailable: ${name}: ${message.replace(/\s+/g, ' ').trim()}`);
+}
+
+/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chrome as agent.mjs
+ * finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
+export async function browserMissing(name) {
+  if (name === 'chromium') return chromium().unavailable;
+  const playwright = await import('playwright-core');
+  return existsSync(playwright[name].executablePath()) ? null : `${name} not installed: ${INSTALL}`;
 }
 
 /** Launch once without an app so a conformance run reports an engine-level

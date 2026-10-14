@@ -683,7 +683,7 @@ fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
 fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table() {
     let plan = contract::compile(r##"component Inline
   state changed = false
-  resource additions = additions(changed) as shape list<string>
+  resource additions = additions(changed) as shape string[]
   action change
     changed = not changed
   view
@@ -693,7 +693,7 @@ fn paragraph_batches_preserve_inline_identity_and_replace_the_complete_run_table
         text (changed ? "after 👩‍🚀" : "before é") testId="run" press=change font-weight=(changed ? 700 : 400) color=(changed ? "#ff0000" : "#000000")
         text testId="nested"
           text "link" href="https://example.invalid/" testId="link"
-        each value in additions key=value
+        for value in additions key=value
           text value testId="added"
 "##).unwrap();
     struct InlineData;

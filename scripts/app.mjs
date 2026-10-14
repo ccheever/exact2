@@ -979,17 +979,24 @@ export function unitDepInfo(message, workspace, metadata) {
   const intermediate = file => metadata && under(metadata.target_directory, file)
       && (!under(metadata.build_directory, file) || metadata.target_directory.length > metadata.build_directory.length)
     ? resolve(metadata.build_directory, relative(metadata.target_directory, file)) : file;
+  const sameBytes = (product, file) => product === file || existsSync(product)
+    && statSync(product).size === statSync(file).size && readFileSync(product).equals(readFileSync(file));
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
     // Selected libraries are copied out of deps; Cargo's sibling summary .d
-    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit.
+    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit,
+    // when the product beside it is the reported file's bytes: another
+    // toolchain building into this profile directory (the JS target's GPU
+    // crate on stable; the web nightly's units sit under build/) leaves a
+    // deps/<stem>.d for a unit this build did not produce.
     for (const candidate of [resolve(dirname(intermediate(file)), 'deps', stem + '.d'), resolve(dirname(intermediate(file)), stem + '.d')]) {
       if (!existsSync(candidate)) continue;
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
       // rustc leaves the single output path raw, but escapes dependency paths.
       if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) return candidate;
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))
+          && sameBytes(resolve(dirname(candidate), basename(file)), file)) return candidate;
     }
   }
   // Cargo copies libraries and executables out of deps without reporting their

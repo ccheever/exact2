@@ -150,8 +150,12 @@ pub(crate) fn head_of<'a>(
     let mut best: [Option<(usize, &str)>; 5] = [None; 5];
     let mut status: Option<(usize, u16)> = None;
     let mut edited: Option<(usize, bool)> = None;
+    let mut off = Vec::new();
     let mut stack: Vec<(ViewId, usize)> = roots.into_iter().rev().map(|root| (root, 0)).collect();
     while let Some((id, depth)) = stack.pop() {
+        if off.contains(&id) {
+            continue;
+        }
         let Some(at) = node(id) else {
             continue;
         };
@@ -176,11 +180,9 @@ pub(crate) fn head_of<'a>(
             }
             continue;
         }
-        let selected = selected_route(&node, &at);
+        off.extend(unselected(&node, &at));
         for child in at.2.iter().rev() {
-            if !covered(&node, selected, *child) {
-                stack.push((*child, depth + 1));
-            }
+            stack.push((*child, depth + 1));
         }
     }
     let [title, description, image, canonical, robots] =
@@ -194,36 +196,6 @@ pub(crate) fn head_of<'a>(
         status: status.map(|(_, code)| code),
         edited: edited.is_some_and(|(_, on)| on),
     }
-}
-
-/// A navigation root's selected route, when its key names one of its
-/// routes; `None` for any other node — a key that names none leaves every
-/// route as it is.
-fn selected_route<'a>(
-    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
-    at: &HeadNode<'a>,
-) -> Option<&'a str> {
-    let props: &'a PropList = at.1;
-    let key = props
-        .str(PropId::NavigationBack)
-        .and(props.str(PropId::NavigationKey))?;
-    at.2.iter()
-        .any(|c| node(*c).is_some_and(|(_, c, _)| c.str(PropId::NavigationKey) == Some(key)))
-        .then_some(key)
-}
-
-/// Whether `child`, under a root that selected `selected`, is a route that
-/// root has not selected.
-fn covered<'a>(
-    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
-    selected: Option<&str>,
-    child: ViewId,
-) -> bool {
-    selected.is_some_and(|key| {
-        node(child)
-            .and_then(|(_, c, _)| c.str(PropId::NavigationKey))
-            .is_some_and(|route| route != key)
-    })
 }
 
 /// What a navigation root leaves unselected, as every host's projection

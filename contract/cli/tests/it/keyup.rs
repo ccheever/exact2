@@ -164,7 +164,7 @@ component App
     after(1, forget)
   view
     column key=down keyup=up testId="list"
-      when meta and page.hasFocus
+      if meta and page.hasFocus
         text "⌘" testId="hint"
 "#;
 

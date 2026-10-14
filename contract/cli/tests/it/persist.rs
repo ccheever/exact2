@@ -19,7 +19,7 @@ component App
     units = units == "metric" ? "imperial" : "metric"
     seen = some(units)
   action add
-    recent = concat(recent, [-1.5])
+    recent = recent.concat([-1.5])
   action refuse
     tipPercent = 99
     zero = 1 / zero
@@ -144,7 +144,7 @@ fn a_stored_value_of_another_shape_keeps_the_initial_value_and_says_so() {
         "persisted state tipPercent: the stored value does not fit number: the initial value stands"
     ));
     assert!(lines[1].contains("seen: the stored value does not fit option<string>"));
-    assert!(lines[2].contains("recent: the stored value does not fit list<number>"));
+    assert!(lines[2].contains("recent: the stored value does not fit number[]"));
     // The store mirrors the state again from the boot on.
     assert_eq!(
         kept(r.take_store_writes()),

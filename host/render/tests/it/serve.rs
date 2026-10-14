@@ -27,15 +27,15 @@ component Blog
   resource post = post(params(nav, "post")) as shape Post else emptyPost()
   view
     column
-      each e in stack(nav) key = e.id
+      for e in stack(nav) key = e.id
         column
-          when e.name == "notfound"
+          if e.name == "notfound"
             head title="Not found" robots="noindex" status=404
             text "Nothing here"
-          when e.name == "post" or e.name == "live"
+          if e.name == "post" or e.name == "live"
             head title=post.title
             text post.title testId="title"
-          when e.name == "draft"
+          if e.name == "draft"
             head title=post.title robots="noindex"
             text post.title
 "#;
@@ -533,14 +533,14 @@ routes nav
   tab home "/" render=request
 
 component Feed
-  resource cards = cards() as shape list<string>
-  resource saved = saved() as shape list<string>
+  resource cards = cards() as shape string[]
+  resource saved = saved() as shape string[]
   view
     column
-      each c in cards key = c
+      for c in cards key = c
         text c
       text "the end" testId="end"
-      each s in saved key = s
+      for s in saved key = s
         text s
 "#;
 

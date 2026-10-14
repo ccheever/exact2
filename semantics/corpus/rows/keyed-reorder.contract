@@ -6,7 +6,7 @@ shape Item
 
 component App
   state page = 0
-  resource items = items(page) as shape list<Item>
+  resource items = items(page) as shape Item[]
   action next
     page = page + 1
   action prev
@@ -14,7 +14,7 @@ component App
   view
     column
       text `page ${page}` testId="page"
-      each it, i in items key=it.id
+      for it, i in items key=it.id
         Cell(id=it.id, index=i)
       button "next" press=next testId="next"
       button "prev" press=prev testId="prev"

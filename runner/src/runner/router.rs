@@ -1,8 +1,8 @@
 //! @ref LLP 1038 D2–D5, D7, D9 — the plan/value boundary of the router.
 //!
 //! Chunk (c)'s compiler declares these positional records, in this exact order:
-//! Router { tab: string, tabs: list<Tab>, next: number },
-//! Tab { name: string, stack: list<Entry> },
+//! Router { tab: string, tabs: Tab[], next: number },
+//! Tab { name: string, stack: Entry[] },
 //! Entry { id: number, name: string, url: string, tab: string, params: Params },
 //! Params { one string field per distinct :name, in first-declaration order }.
 //! The header slot's type leads to every shape; global type-row order is immaterial.

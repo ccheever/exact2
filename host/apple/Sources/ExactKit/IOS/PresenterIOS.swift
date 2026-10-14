@@ -14,12 +14,17 @@ package final class Presenter {
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
+    /// Nodes whose frame or content box applied since the batch or projection
+    /// sync last looked, sheet replays among them: their lists redraw
+    /// separators by them
+    private var geometryApplied: [UInt32] = []
     /// What the native projections show changed outside a batch (a subtree's
     /// appearance or size traits, geometry a sheet replayed after the batch).
     /// Run the projection steps an empty batch used to run, once, on the next
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
-    /// heights, switches), then tab bars and controls.
+    /// heights, switches), lists redraw separators where geometry applied,
+    /// then tab bars and controls.
     package func requestProjectionSync() {
         guard !projectionSyncOwed else { return }
         projectionSyncOwed = true
@@ -31,6 +36,8 @@ package final class Presenter {
             // first responder or a touch in it) out of its cell. Lists mount
             // first, so a segment or control in a carried row is judged where it shows.
             groupedLists?.sync(changed: [])
+            rowCells.sync(changed: touchedAndAbove(geometryApplied))
+            geometryApplied = []
             segments.sync()
             controls.sync()
         }
@@ -805,7 +812,7 @@ package final class Presenter {
         for op in batch.ops {
             let kind = op.op
             switch kind {
-            case .create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent: touchedIDs.append(op.id)
+            case .create, .props, .style, .children, .paragraph, .flow, .frame: touchedIDs.append(op.id)
             default: break
             }
             if kind == .create || kind == .frame || kind == .content { moved = true }
@@ -821,7 +828,7 @@ package final class Presenter {
                 navigation.installInitialOwner(batch)
             }
             let id = op.id
-            if kind == .children { touched(id, children: true) } else if kind != .roots && kind != .create { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy || kind == .fieldContent) }
+            if kind == .children { touched(id, children: true) } else if ![.roots, .create, .fieldContent].contains(kind) { touched(id, textChanged: kind == .props || kind == .style || kind == .destroy) }
             switch kind {
             case .transformDrag:
                 if let binding = TransformDragBinding(op.payload) {
@@ -901,7 +908,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint) }
+            case .svg: if let v = views[id], !modals.deferGeometry(op, for: v) { applyGeometry(op) }
             case .animations:
                 if flats.isFlat(id) { flats.promote(id) }
                 svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
@@ -923,8 +930,6 @@ package final class Presenter {
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
-            case .fieldContent:
-                views[id]?.applyFieldContent(op.payload)
             case .fragments:
                 if flats.isFlat(id) { flats.promote(id) }
                 views[id]?.applyColumns(op.payload)
@@ -943,9 +948,10 @@ package final class Presenter {
             case .roots:
                 root.subviews.forEach { $0.removeFromSuperview() }
                 accent.attach(op.ids.compactMap { views[UInt32($0)] }) { for r in $0 { root.addSubview(r) } }
-            case .frame, .content:
+            case .frame, .content, .fieldContent:
                 if flats.isFlat(id) {
                     if kind == .frame { flats.frame(id, CGRect(x: op.x, y: op.y, width: op.w, height: op.h)) }
+                    if kind == .fieldContent { flats.content(id, op.payload) }
                     continue
                 }
                 if kind == .frame { pool.framed(id) }
@@ -981,7 +987,8 @@ package final class Presenter {
         session?.canvases.cancelMovedControls()
         PaintOrder.flush()
         session?.canvases.captureIfNeeded()
-        let changed = touchedAndAbove(touchedIDs)
+        let changed = touchedAndAbove(touchedIDs + geometryApplied)
+        geometryApplied = []
         swipeActions.sync(changed: changed); rowCells.sync(changed: changed)
         groupedLists?.sync(changed: changed)
         if !flights.isEmpty { flightsBatchApplied() }
@@ -1114,6 +1121,7 @@ package final class Presenter {
         }
         let id = op.id
         guard let v = views[id] else { return }
+        if op.op == .frame || op.op == .fieldContent { geometryApplied.append(id) }
         switch op.op {
         case .frame:
             // A frame is set untransformed (UIKit's `frame` is undefined
@@ -1134,6 +1142,9 @@ package final class Presenter {
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
             if v.props["navigationDetent"] != nil { modals.contentChanged(v) }
+        case .fieldContent: applyContentGeometry(v, op)
+        // A scene is laid out in its content box (its `viewBox` scaled to it)
+        case .svg: svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string, tint: v.viewTint)
         default: break
         }
     }

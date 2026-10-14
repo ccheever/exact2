@@ -136,7 +136,7 @@ impl Reuse {
 /// Retiring rows a travelling list keeps mounted for the rows it needs next.
 pub(super) const HOLD: usize = 4;
 
-/// Which way an item would likely steer its row's `when` and `match` arms:
+/// Which way an item would likely steer its row's `if` and `match` arms:
 /// per field, whether an option is present, a flag set, a list empty.
 fn steer(item: Option<&Value>) -> u64 {
     let Some(Value::Record(fields)) = item else {

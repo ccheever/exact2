@@ -42,10 +42,10 @@ component App
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="nav" width="100%" height="100%" display="flex" flex-direction="column"
       input testId="aside" value=note input=typed height=30
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key = t.name
+        for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key = e.id
-              when e.name == "home"
+            for e in t.stack key = e.id
+              if e.name == "home"
                 column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0
                   button press=open("/detail") testId="open" height=40
                     text "Open"
@@ -53,7 +53,7 @@ component App
                     text "Bare"
                   button press=open("/form") testId="open-form" height=40
                     text "Form"
-              when e.name == "detail"
+              if e.name == "detail"
                 column navigationKey=`${e.id}` testId="route-detail" position="absolute" inset=0
                   header display="flex"
                     button id="back" press=back testId="back" height=40
@@ -61,16 +61,16 @@ component App
                     text "Detail" role="heading" testId="detail-title"
                   button press=swap("/bare") testId="swap" height=40
                     text "Swap"
-              when e.name == "bare"
+              if e.name == "bare"
                 column navigationKey=`${e.id}` testId="route-bare" position="absolute" inset=0
                   button id="back" press=back testId="bare-back" height=40
                     text "Back"
-              when e.name == "form"
+              if e.name == "form"
                 column navigationKey=`${e.id}` testId="route-form" position="absolute" inset=0
                   header
                     text "Form" role="heading" testId="form-title"
                   input autofocus=true testId="field" height=30
-              when e.name == "other"
+              if e.name == "other"
                 column navigationKey=`${e.id}` testId="route-other" position="absolute" inset=0
                   header
                     text "Other" role="heading" testId="other-title"

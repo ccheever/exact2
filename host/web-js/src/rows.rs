@@ -119,6 +119,23 @@ impl Em<'_> {
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
+        let kind = NodeType::from_wire(row.node_type).ok_or("unknown node type")?;
+        // @ref LLP 1115.002 D6 — a metric the binding may name is its value
+        // in the web's column before the row's own map sees it.
+        let metric =
+            style::metric_map(plan, plan.code(b.expr)).map(|m| format!("()=>({m})(({f})())"));
+        let f = metric.as_deref().unwrap_or(f);
+        if let Some((_, name)) = exact_web::host::template::attribute_rows(kind)
+            .iter()
+            .find(|(attribute, _)| *attribute == id)
+        {
+            let p = self.uses.rt("svgGeometry");
+            let css = self
+                .uses
+                .rt(if self.is_motion_node(i) { "Sm" } else { "S" });
+            let _ = write!(self.out, "{p}({e},\"{name}\",{f},{css});");
+            return Ok(());
+        }
         if matches!(
             id,
             StyleId::GridTemplateColumns
@@ -329,13 +346,6 @@ impl Em<'_> {
         } else {
             "S"
         });
-        // @ref LLP 1115.002 D6 — a metric the binding may name is its value
-        // in the web's column before the row's own map sees it.
-        let metric = style::metric_map(plan, plan.code(b.expr));
-        let f = match &metric {
-            Some(m) => format!("()=>({m})(({f})())"),
-            None => f.to_string(),
-        };
         for (name, unit, map) in writes {
             match map {
                 Some(m) => {
@@ -784,7 +794,7 @@ mod tests {
     list appearance="auto" flex=1
       section
         button press=flip destructive=gone testId="row"
-          when gone
+          if gone
             image "symbol:sf/trash"
           text "Remove"
 "#,

@@ -860,7 +860,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
+export { svgTransform, svgGeometry } from "./svg-transform.js"; export { ds, x_querySelectorAll } from "./dataset.js"; export { ht } from "./hatches.js"; export { pf } from "./perf.js";
 import { backdropValue as backdropCss } from "./backdrop.js"; export const backdropValue = (v, report = true) => backdropCss(v, report ? why => say(`unset backdrop-filter: ${why}`) : undefined);
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
@@ -918,6 +918,7 @@ export const onValue = (e, kind, f, l) => { return l(kind, ev => {
       if (box && e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked;
       if (radio) settleRadios(e, r => r.$checked);
     }); };
+export const onBeforeInput = (e, kind, f, l) => l(kind, ev => { const outer = KeyEvent; KeyEvent = ev; try { f(inputRecord(e, e.value, false, ev)); } finally { KeyEvent = outer; } });
 export const onHover = (e, kind, f, l) => { l("pointerenter", () => f(true)); return l("pointerleave", () => f(false)); };
 export const onFocusWithin = (e, kind, f, l) => l(kind, ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f([ev.target?.exactExitId ?? ev.target?.id ?? "", ev.relatedTarget?.exactExitId ?? ev.relatedTarget?.id ?? null]); } finally { KeyEvent = outer; } });
 // `keycapture` hears keydown outermost first, then `key` bubbles; `keyup` bubbles too (#140). An action taking one more parameter hears the KeyboardEvent record (contract/types selection.rs's order: code and repeat last).
@@ -947,7 +948,7 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
-export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
+export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
@@ -1123,12 +1124,11 @@ export function mde(e) {
 }
 /** `select`: the editor's selection facts (runner Event::Select); a field's `InputEvent` (x2apps codeedit #2). */
 export function onSelect(e, f) { e.$select = f; e.addEventListener("select", () => { if (textField(e)) f(inputRecord(e, e.value, false)); }); }
-/** The `InputEvent` record (contract/types selection.rs's order): the value,
- * whether checked, and a text field's selection (UTF-16, the DOM's); a type
+/** The `InputEvent` record (contract/types selection.rs's order); a type
  * with none has its caret after its text, a control 0, 0, `none`. */
 function inputRecord(e, value, checked, event) {
   const n = e.value?.length ?? 0, field = textField(e);
-  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType === "insertReplacementText" ? "insertReplacementText" : ""];
+  return [value, checked, field ? e.selectionStart ?? n : 0, field ? e.selectionEnd ?? n : 0, field ? e.selectionDirection ?? "none" : "none", event?.inputType ?? "", event?.data ?? null, event?.cancelable ?? false, event?.isComposing ?? false];
 }
 /** Press feedback (LLP 1061): the web host's input piece shows it, from
  * the node's own `--exact-press` (css.rs). */

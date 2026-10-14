@@ -403,7 +403,7 @@ final class NodePoolIOSTests: XCTestCase {
         let p = listFixture(heavyRowOps(10, kind: "canvas2d", y: 0), root: 10)
         let draw = { (id: Int, lifetime: Int) -> [String: Any] in
             ["op": "canvas2d", "id": id, "lifetime": lifetime, "generation": 0, "seq": 0, "fresh": true,
-             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "box": [0.0, 0.0, 150.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [String]()]
+             "w": 300, "h": 200, "scale": 2.0, "stretch": false, "lists": [String]()]
         }
         p.apply(wireBatch([draw(12, 1)]))
         p.canvas2d.waitForReplays()  // replay runs off the main thread (LLP 1056 §8.3)
@@ -585,9 +585,11 @@ final class NodePoolIOSTests: XCTestCase {
         let first = FakeModule.made[0]
         XCTAssertTrue(first.view.superview === a)
         a.style = ["padding_left": 4, "padding_right": 4, "padding_top": 4, "padding_bottom": 4, "border_width": 2]
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
         natives.laidOut(a)
         XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 188, height: 88), "module content excludes padding and border")
         a.frame.size = CGSize(width: 160, height: 80)
+        a.applyContentBox(padding: [4, 4, 4, 4], border: [2, 2, 2, 2])
         natives.laidOut(a)
         XCTAssertEqual(first.view.frame, CGRect(x: 6, y: 6, width: 148, height: 68), "the content frame follows CSS resizing")
         first.send(9, "120,40"); first.send(9, "120,80")

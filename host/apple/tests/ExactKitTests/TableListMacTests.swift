@@ -15,7 +15,7 @@ final class TableListMacTests: XCTestCase {
     private static let kinds = """
     component Lists
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      derive rows = concat(seed, seed)
+      derive rows = seed.concat(seed)
       state opened = 0 - 1
       action open(r: number)
         opened = r
@@ -23,40 +23,40 @@ final class TableListMacTests: XCTestCase {
         column width="100%" height="100%" gap=4
           text `opened ${opened}` testId="status"
           list flex=1 min-height=0 width="100%" testId="rows"
-            each r in seed key=`p${r}`
+            for r in seed key=`p${r}`
               row press=open(r) padding="6px 16px" testId=`plain-${r}`
                 text `Plain ${r}`
           list virtualized=true estimated-item-height=28 flex=1 min-height=0 width="100%" testId="windowed"
-            each r in rows key=`w${r}`
+            for r in rows key=`w${r}`
               row press=open(r) padding="6px 16px"
                 text `Windowed ${r}`
           list appearance="none" flex=1 min-height=0 width="100%" testId="opted-out"
-            each r in seed key=`n${r}`
+            for r in seed key=`n${r}`
               row press=open(r) padding="6px 16px"
                 text `Authored ${r}`
           list appearance="auto" flex=1 min-height=0 width="100%" testId="grouped"
             section
-              each r in seed key=`g${r}`
+              for r in seed key=`g${r}`
                 row press=open(r)
                   text `Grouped ${r}`
           list virtualized=true display="flex" width="100%" height=60 overflow-x="scroll" overflow-y="hidden" estimated-item-width=80 testId="strip"
-            each r in rows key=`s${r}`
+            for r in rows key=`s${r}`
               row press=open(r) width=80 height=44
                 text `S ${r}`
           list display="flex" width="100%" height=60 overflow-x="scroll" overflow-y="hidden" testId="eager-strip"
-            each r in seed key=`e${r}`
+            for r in seed key=`e${r}`
               row press=open(r) width=80 height=44 flex-shrink=0
                 text `E ${r}`
           list display="flex" flex-wrap="wrap" width="100%" height=60 testId="wrapped"
-            each r in seed key=`f${r}`
+            for r in seed key=`f${r}`
               row press=open(r) width=80 height=44
                 text `F ${r}`
           list virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" testId="outer"
-            each r in seed key=`o${r}`
+            for r in seed key=`o${r}`
               column height=120 width="100%"
                 text `Outer ${r}`
                 list flex=1 min-height=0 width="100%" testId=`inner-${r}`
-                  each q in seed key=`i${q}`
+                  for q in seed key=`i${q}`
                     text `Inner ${q}`
 
     """
@@ -91,11 +91,11 @@ final class TableListMacTests: XCTestCase {
     private static let plain = """
     component Plain
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      derive d1 = concat(seed, seed)
-      derive d2 = concat(d1, d1)
-      derive d3 = concat(d2, d2)
+      derive d1 = seed.concat(seed)
+      derive d2 = d1.concat(d1)
+      derive d3 = d2.concat(d2)
       state from = 0
-      derive rows = slice(map(d3, (x, i) => i), from, 60)
+      derive rows = d3.map((x, i) => i).slice(from, 60)
       state opened = 0 - 1
       state presses = 0
       action open(r: number)
@@ -112,7 +112,7 @@ final class TableListMacTests: XCTestCase {
           list flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
             text "Sixty rows" testId="heading" padding="6px 0"
             box position="absolute" top=0 right=0 width=10 height=10 testId="badge"
-            each r in rows key=`k${r}`
+            for r in rows key=`k${r}`
               row press=open(r) testId=`row-${r}` padding="6px 0" margin-bottom=8 width="100%"
                 text `Row ${r}` testId=`title-${r}`
 
@@ -198,12 +198,12 @@ final class TableListMacTests: XCTestCase {
         nav = go(nav, url)
       view
         main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-          each e in stack(nav) key=e.id
-            when e.name == "items"
+          for e in stack(nav) key=e.id
+            if e.name == "items"
               column navigationKey=`${e.id}` position="absolute" inset=0
                 text `removed ${removed}` testId="status"
                 list flex=1 min-height=0 width="100%" testId="rows"
-                  each r in seed key=`k${r}`
+                  for r in seed key=`k${r}`
                     scroll swipeContent=`row-${r}` swipeTrailing=`delete-${r}` testId=`swipe-${r}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                       row width="100%"
                         link id=`row-${r}` href=`/item/${r}` testId=`row-${r}` width="100%" flex-shrink=0 scroll-snap-align="start" display="flex" align-items="center" padding="10px 16px"
@@ -211,7 +211,7 @@ final class TableListMacTests: XCTestCase {
                           image "symbol:forward-chevron" aria-hidden=true testId=`chevron-${r}`
                         button id=`delete-${r}` destructive=true press=remove(r) testId=`delete-${r}` flex-shrink=0 scroll-snap-align="start"
                           text "Delete"
-            when e.name == "item"
+            if e.name == "item"
               column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
                 text `Item ${e.params.id}` testId="detail"
                 button id="back" press=back testId="back"

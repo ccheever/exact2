@@ -153,6 +153,25 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     } else {
         format!("{required} to {}", params.len())
     };
+    if contract_syntax::idioms::is_method(name) && !params.is_empty() {
+        // `x.slice(…)` counts what is in its parentheses (LLP 1116.015 D2).
+        let rest = &params[1..];
+        let required = required.saturating_sub(1);
+        let count = if required == rest.len() {
+            rest.len().to_string()
+        } else {
+            format!("{required} to {}", rest.len())
+        };
+        return format!(
+            "`.{name}(…)` takes {count} argument(s), given {}; expected `{}.{name}({})`",
+            given.saturating_sub(1),
+            match params[0].contains(' ') {
+                true => format!("({})", params[0]),
+                false => params[0].clone(),
+            },
+            rest.join(", ")
+        );
+    }
     format!(
         "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
@@ -1047,7 +1066,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(Ty::Bool) => {}
                     Ok(_) => sink.push(TypeError {
                         id: "type-condition",
-                        message: "`when` needs a bool".into(),
+                        message: "`if` needs a bool".into(),
                         span: cond.span(),
                     }),
                     Err(e) => sink.push(e),
@@ -1064,12 +1083,12 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 let item = match infer(list, scope, shapes) {
-                    // `each x in []`: nothing says what `x` would be.
+                    // `for x in []`: nothing says what `x` would be.
                     Ok(Ty::List(item)) if !item.is_complete() => {
                         sink.push(TypeError {
                             id: "type-cannot-infer",
                             message: format!(
-                                "cannot infer what `{}` holds: `each` needs a typed list, and `[]` shows nothing",
+                                "cannot infer what `{}` holds: `for` needs a typed list, and `[]` shows nothing",
                                 var
                             ),
                             span: list.span(),
@@ -1080,7 +1099,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(lt) => {
                         sink.push(TypeError {
                             id: "type-each-list",
-                            message: format!("`each` needs a list, given `{lt}`"),
+                            message: format!("`for` needs a list, given `{lt}`"),
                             span: list.span(),
                         });
                         continue;

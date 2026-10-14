@@ -19,7 +19,7 @@ component Intersect
       scroll id="port" testId="port" width=200 height=100 scrollTop=offset
         column
           box height=150
-          when shown
+          if shown
             box testId="target" width=100 height=50 intersect=observe("row") intersect-margin="20px"
           box height=250
       button "down" testId="down" press=down

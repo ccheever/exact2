@@ -8,12 +8,12 @@ use exact_runner::{
 
 const APP: &str = r#"component App
   state count = 1000
-  resource rows = rows(count) as shape list<number>
+  resource rows = rows(count) as shape number[]
   action more(n: number)
     count = count + n
   view
     list virtualized=true scroll-start="end" height=600 width=400 overflow-x="hidden" estimated-item-height=100
-      each x in rows key=x
+      for x in rows key=x
         text `${x}` width="100%"
 "#;
 

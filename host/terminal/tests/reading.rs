@@ -27,7 +27,7 @@ const PAGE: &str = r#"component App
     column width="100%" height="100%"
       text `header ${pressed}`
       scroll id="page" flex=1 min-height=0 testId="page"
-        each i in LINES key=i
+        for i in LINES key=i
           text `line ${i}` id=`l${i}`
       row
         button appearance="none" press=toLine("l30") aria-keyshortcuts="j" testId="jump"
@@ -278,7 +278,7 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 background-color="#000000"
           text `at ${e.name}`
           text

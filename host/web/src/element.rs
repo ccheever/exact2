@@ -698,7 +698,7 @@ fn dom_id(view: exact_kernel::ViewId) -> String {
 /// properties; a `mask`'s and a `pattern`'s region is attributes only, as
 /// is a radial gradient's `cx`, `cy` and `r` are attributes
 /// only (LLP 1055.000 D4, D7).
-fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
+pub fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str)] {
     use exact_kernel::StyleId::*;
     match t {
         NodeType::SvgViewport
@@ -750,6 +750,19 @@ pub fn svg_props_of(
             }
             exact_kernel::RowValue::Dimension(exact_kernel::Dimension::Percent(p)) => {
                 format!("{}%", exact_num::Shortest(p as f64))
+            }
+            exact_kernel::RowValue::Dimension(
+                d @ exact_kernel::Dimension::Viewport(
+                    exact_kernel::ViewportUnit::Vw
+                    | exact_kernel::ViewportUnit::Vh
+                    | exact_kernel::ViewportUnit::Vmin
+                    | exact_kernel::ViewportUnit::Vmax,
+                    _,
+                ),
+            ) => {
+                let mut text = String::new();
+                crate::css::dimension(&mut text, d);
+                text
             }
             _ => continue,
         };

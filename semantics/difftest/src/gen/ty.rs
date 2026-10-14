@@ -142,7 +142,7 @@ impl Gen<'_> {
             Ty::Str => "string".into(),
             Ty::Bool => "bool".into(),
             Ty::Opt(t) => format!("option<{}>", self.ty_name(t)),
-            Ty::List(t) => format!("list<{}>", self.ty_name(t)),
+            Ty::List(t) => format!("{}[]", self.ty_name(t)),
             Ty::Rec(i) => self.shapes[*i].name.clone(),
         }
     }

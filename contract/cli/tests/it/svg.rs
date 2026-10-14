@@ -432,3 +432,129 @@ fn d_transitions_and_all_covers_it() {
     )
     .contains("lower-"));
 }
+
+#[test]
+fn box_transforms_are_refused_inline_and_through_classes() {
+    let mut failures = Vec::new();
+    for element in [
+        "view",
+        "box",
+        "column",
+        "row",
+        "text",
+        "image",
+        "input",
+        "textarea",
+        "button aria-label=\"Move\"",
+        "paint-surface",
+    ] {
+        for attr in [
+            "transform=\"scale(0.8)\"",
+            "transform=\"translate(0px, 25px)\"",
+            "transform=matrix",
+            "transform=(small ? \"scale(0.8)\" : \"none\")",
+            "transform=\"none\"",
+            "class=Scaled",
+            "class=Shifted",
+            "class=(small ? Scaled : Shifted)",
+            "class=(small ? Scaled : Empty)",
+        ] {
+            let src = format!(
+                r#"style Scaled
+  transform="scale(0.8)"
+style Shifted
+  transform="translate(0px, 25px)"
+style Empty
+  opacity=1
+component App
+  state matrix = "scale(0.8)"
+  state small = true
+  view
+    {element} {attr}
+"#
+            );
+            match contract::compile(&src) {
+                Ok(_) => failures.push(format!("compiled: {element} {attr}")),
+                Err(e) => {
+                    for expected in [
+                        "lower-attr-tag",
+                        "`transform`",
+                        "deferred",
+                        "LLP 1055.000 D5",
+                        "`translate`",
+                        "`rotate`",
+                        "`scale`",
+                        "translate=\"0px 25px\"",
+                        "scale=0.8",
+                    ] {
+                        if !e.to_string().contains(expected) {
+                            failures.push(format!("{element} {attr}: missing {expected}: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let html_in_svg = r#"component App
+  view
+    svg
+      foreignObject width=100 height=100
+        text "HTML text" transform="scale(0.8)"
+"#;
+    match contract::compile(html_in_svg) {
+        Ok(_) => failures.push("compiled a box inside foreignObject".into()),
+        Err(e) if e.id == "lower-attr-tag" && e.message.contains("deferred") => {}
+        Err(e) => failures.push(e.to_string()),
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn svg_transforms_keep_static_dynamic_and_class_rows() {
+    let mut r = boot(
+        r#"style Shifted
+  transform="translate(0px, 25px)"
+style Scaled
+  transform="scale(0.8)"
+component App
+  state matrix = "scale(0.8)"
+  state small = true
+  action change
+    matrix = "translate(0px, 25px)"
+    small = false
+  view
+    svg testId="root" transform="scale(0.8)"
+      svg testId="nested" class=Shifted
+      g testId="group" class=(small ? Scaled : Shifted)
+        rect testId="shape" transform=matrix width=10 height=10
+        text testId="text" transform="translate(0px, 25px)"
+          tspan "SVG text" testId="span" transform=matrix
+      foreignObject testId="foreign" transform="scale(0.8)" width=10 height=10
+        text "HTML text"
+"#,
+    );
+    let matrix = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .style
+            .transform
+            .matrix()
+    };
+    let scaled = [0.8, 0.0, 0.0, 0.8, 0.0, 0.0];
+    let shifted = [1.0, 0.0, 0.0, 1.0, 0.0, 25.0];
+    for id in ["root", "group", "shape", "span", "foreign"] {
+        assert_eq!(matrix(&r, id), scaled, "{id}");
+    }
+    for id in ["nested", "text"] {
+        assert_eq!(matrix(&r, id), shifted, "{id}");
+    }
+    r.act("change", vec![]).unwrap();
+    for id in ["group", "shape", "span"] {
+        assert_eq!(matrix(&r, id), shifted, "{id}");
+    }
+    contract::compile(
+        "component App\n  view\n    box translate=\"0px 25px\" rotate=15 scale=0.8\n",
+    )
+    .unwrap();
+}

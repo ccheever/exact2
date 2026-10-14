@@ -75,7 +75,8 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests"),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactMarkdown", "ExactSurfaces", "ExactDrag", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests",
+                resources: [.copy("ColorFixtures")]),
 ]
 
 let package = Package(

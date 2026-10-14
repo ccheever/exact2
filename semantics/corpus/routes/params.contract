@@ -38,7 +38,7 @@ component App
       text current.url testId="url"
       text current.name testId="name"
       text `${current.params.id}|${current.params.part}` testId="params"
-      text join(ids, ",") testId="ids"
+      text ids.join(",") testId="ids"
       text `${q}|${tag}|${missing}` testId="query"
       text path("part", "x y", 3) testId="path"
       button "x" press=pushItem testId="push-item"

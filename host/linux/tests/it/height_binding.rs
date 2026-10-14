@@ -61,10 +61,10 @@ const APP: &str = r#"component App
       button testId="clear" press=clear
         text "clear"
       box id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
-        when first
+        if first
           box testId="first" heightDragFor=binding heightrelease=release height=32 touch-action="none"
             text "drag here"
-        when second
+        if second
           box testId="second" heightDragFor="panel" heightrelease=release height=32 touch-action="none"
             text "or here"
       box id="other" testId="other" height=100 box-sizing="border-box"

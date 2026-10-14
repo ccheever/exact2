@@ -340,10 +340,58 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertNil(p.selection.range(p.views[9]!), "a button's label is the control's")
     }
 
+    /// ⌘A and ⌘C leave out text the reader cannot see or reach, as Chrome
+    /// does (155, the same cases): two stacked tabs, both mounted, the inactive
+    /// one under `visibility: hidden` (T3 F12-2), whose text is neither
+    /// highlighted nor copied; a text that computes `visible` inside it is
+    /// shown, and is. `inert` text and a `display: none` subtree are out too.
+    /// Wire batches carry each node's computed style, so a hidden box's
+    /// texts carry `visibility: hidden` themselves.
+    func testSelectAllAndCopyLeaveOutHiddenText() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        func text(_ id: Int, _ value: String, _ style: [String: Any] = [:]) -> [String: Any] {
+            ["op": "create", "id": id, "kind": "text", "props": ["text": value], "style": style]
+        }
+        let hidden: [String: Any] = ["visibility": "hidden"]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view"], text(3, "Shown tab"), text(4, "Its body"),
+            ["op": "create", "id": 5, "kind": "view", "style": hidden], text(6, "Hidden tab", hidden), text(7, "Shown again", ["visibility": "visible"]),
+            ["op": "create", "id": 8, "kind": "view", "props": ["inert": "true"]], text(9, "Inert text"),
+            ["op": "create", "id": 10, "kind": "view", "style": ["display": "none"]], text(11, "Not displayed"),
+            text(12, "Hidden paragraph", hidden),
+            ["op": "children", "id": 1, "ids": [2, 5, 8, 10, 12]],
+            ["op": "children", "id": 2, "ids": [3, 4]], ["op": "children", "id": 5, "ids": [6, 7]],
+            ["op": "children", "id": 8, "ids": [9]], ["op": "children", "id": 10, "ids": [11]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Shown tab\n\nIts body\n\nShown again")
+        for id: UInt32 in [6, 9, 11, 12] { XCTAssertNil(p.selection.range(p.views[id]!), "\(id) is not highlighted") }
+        XCTAssertEqual(p.selection.range(p.views[7]!), NSRange(location: 0, length: 11))
+        NSPasteboard.general.clearContents()
+        p.selection.copy()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Shown tab\n\nIts body\n\nShown again")
+        // The tabs swap: the other's text is the one selected.
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": hidden], ["op": "style", "id": 3, "style": hidden], ["op": "style", "id": 4, "style": hidden],
+            ["op": "style", "id": 5, "style": ["visibility": "visible"]], ["op": "style", "id": 6, "style": ["visibility": "visible"]],
+        ]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Hidden tab\n\nShown again")
+        XCTAssertNil(p.selection.range(p.views[3]!))
+        // `inert` lifted by a prop, with no change of structure: its text takes part again.
+        p.apply(wireBatch([["op": "props", "id": 8, "clear": ["inert"]]]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Hidden tab\n\nShown again\n\nInert text")
+    }
+
     /// X81: a copy across a virtualized list's rows leaves out its
     /// `user-select: none` text, as the copy of plain rows does and as Chrome
-    /// does. The runner copies a list (rows need not be mounted), between
-    /// endpoints the host numbers; a label before the code moves neither.
+    /// does, and its `visibility: hidden` and `inert` text. The runner
+    /// copies a list (rows need not be mounted), between endpoints the host
+    /// numbers; a label before the code moves neither.
     func testACopyAcrossListRowsLeavesOutUnselectableText() throws {
         _ = NSApplication.shared
         let source = """
@@ -351,27 +399,34 @@ final class TextSelectionMacTests: XCTestCase {
           view
             main width="100%" height="100%" display="flex" flex-direction="column" gap=8
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `L${n}` user-select="none" width=24
                     text `vcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `wcode ${n} body`
                     text `L${n}` user-select="none" width=24
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     view role="button"
                       text `R${n}`
                     text `rcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=36
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=36 align-items="center" gap=12
                     button
                       text `B${n}`
                     text `bcode ${n} body`
+              list virtualized=true height=140 width=360 estimated-item-height=28
+                for n in [1, 2, 3, 4, 5] key=n
+                  row height=28 align-items="center" gap=12
+                    text `hcode ${n} body`
+                    text `card ${n}` visibility="hidden"
+                    view inert=true
+                      text `inert ${n}`
 
         """
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -385,15 +440,16 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(compiler.terminationStatus, 0)
         let session = ExactApp.shared.makeSession(label: "list-copy")
         self.session = session
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 640)).error)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 800)).error)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = ExactView(session: session)
         let p = session.presenter
         func text(_ value: String) -> NodeView? { p.views.values.first { $0.isParagraph && $0.props["text"] == value } }
         // The rows mount once the lists report their geometry.
         let limit = Date(timeIntervalSinceNow: 20)
-        while text("wcode 3 body") == nil || text("vcode 3 body") == nil || text("rcode 3 body") == nil || text("bcode 3 body") == nil, Date() < limit {
+        while text("wcode 3 body") == nil || text("vcode 3 body") == nil || text("rcode 3 body") == nil || text("bcode 3 body") == nil
+                || text("hcode 3 body") == nil, Date() < limit {
             window.contentView?.layoutSubtreeIfNeeded()
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
@@ -416,6 +472,10 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(pressable, "rcode 1 body\n\nrcode 2 body\n\nrcode 3 body")
         XCTAssertNil(p.selection.range(try XCTUnwrap(text("R2"))))
         XCTAssertEqual(try drag("bcode 1 body", "bcode 3 body"), "bcode 1 body\n\nbcode 2 body\n\nbcode 3 body", "a native title has no paragraph view")
+        // A hidden card and inert text are neither copied nor painted.
+        XCTAssertEqual(try drag("hcode 1 body", "hcode 3 body"), "hcode 1 body\n\nhcode 2 body\n\nhcode 3 body")
+        XCTAssertNil(p.selection.range(try XCTUnwrap(text("card 2"))))
+        XCTAssertNil(p.selection.range(try XCTUnwrap(text("inert 2"))))
         // A drag that ends inside row 3's code copies what is painted.
         let copied = try drag("vcode 1 body", "vcode 3 body", x: 30)
         let painted = try XCTUnwrap(p.selection.range(try XCTUnwrap(text("vcode 3 body"))))

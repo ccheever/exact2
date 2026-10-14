@@ -6,14 +6,14 @@ shape Item
 component App
   state picked = ""
   state picks = 0
-  resource items = items(2) as shape list<Item>
+  resource items = items(2) as shape Item[]
   action pick(id: string, n: number)
     picked = id
     picks = picks + n
   view
     column
       text `${picked} ${picks}` testId="out"
-      each it, i in items key=i
+      for it, i in items key=i
         Row(index=i, label=it.id, choose=pick(it.id))
 
 component Row

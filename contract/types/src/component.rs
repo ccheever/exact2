@@ -210,7 +210,7 @@ pub(crate) fn check_component(
                 Some(span) => TypeError {
                     id: "type-cannot-infer",
                     message: format!(
-                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `list<T>` is declared",
+                        "cannot infer what `[]` holds in `{}`: pair it with a typed arm (`match`/`?:`) or write it where a `T[]` is declared",
                         d.name
                     ),
                     span,
@@ -590,6 +590,7 @@ fn refine_params_from_view(
                             | "cut"
                             | "paste"
                             | "selectionchange"
+                            | "beforeinput"
                             | "beforeunload"
                             | "wheel"
                             | "drop"
@@ -701,7 +702,11 @@ fn refine_params_from_view(
                             // of its type or none: another type there is an
                             // argument left unbound, analysis's arity
                             // refusal (`handler_accepts`).
-                            if let Some(record) = crate::event_record(&a.name) {
+                            if let Some(record) = if a.name == "selectionchange" && field {
+                                Some("InputEvent")
+                            } else {
+                                crate::event_record(&a.name)
+                            } {
                                 let n = args.len() + payload.len() + 1;
                                 let fits = ct.actions[ai].len() == n
                                     && match &ct.actions[ai][n - 1] {
@@ -963,7 +968,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
 }
 
 /// The first `[]` in `e`, whose element type nothing fixed when `e` typed
-/// as a `list<?>`.
+/// as a `?[]`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
         Expr::List(items, span) if items.is_empty() => Some(*span),
@@ -1042,7 +1047,7 @@ pub(crate) fn initializer_scope(
     let message = if c.resources.iter().any(|r| r.name == name) {
         let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
         format!(
-            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `each … in {path}`"
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `for … in {path}`"
         )
     } else if c.derives.iter().any(|d| d.name == name) {
         format!(

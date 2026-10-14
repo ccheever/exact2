@@ -7,8 +7,8 @@ component StructuralReads
   state marked = ""
   state presses = 0
   action probe
-    point = join(elementsFromPoint(10, 10), ",")
-    marked = join(querySelectorAll("[data-tone~=\"accent\"]"), ",")
+    point = elementsFromPoint(10, 10).join(",")
+    marked = querySelectorAll("[data-tone~=\"accent\"]").join(",")
   action hit
     presses = presses + 1
   view

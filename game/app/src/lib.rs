@@ -224,7 +224,7 @@ mod tests {
             ("simulation(seed=7)", false),
         ] {
             let result = contract::compile_path_source(&dir.join("app.contract"), &format!(
-                "component App\n  state visible = false\n  view\n    column\n      when visible\n        canvas surface={call}\n      else\n        text \"Menu\"\n"
+                "component App\n  state visible = false\n  view\n    column\n      if visible\n        canvas surface={call}\n      else\n        text \"Menu\"\n"
             )).map(|plan| contract::bake(plan, ()).unwrap());
             assert_eq!(result.is_ok(), valid, "{call}: {:?}", result.as_ref().err());
         }

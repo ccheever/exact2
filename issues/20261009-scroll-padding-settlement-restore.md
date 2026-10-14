@@ -38,12 +38,57 @@ The seven-argument list command changes the compatibility digest to `4|7`;
 `list_scroll_offset_requires_a_new_binary_cohort` proves the new shape moves
 the binary cohort from the six-argument form (LLP 1114.001 D1).
 
-Remaining implementation: (b) admit scroll-padding on ordinary scrollers and
-scroll-margin on descendants, compute native element alignment, and compare
-start/nearest offsets with Chrome; (c) native smooth element jumps, instant
-under reduced motion, and one authored scrollend after each settled jump,
-wheel scroll and fling. Qualify (c) on real-time macOS and iOS launches, not
-only the frozen agent clock. The issue stays open for these parts.
+Part (b)'s implementation is present: ordinary scrollers accept scroll-padding,
+all elements accept the physical scroll-margin sides and shorthand, native
+alignment uses the inset port and expanded target box, and keyed list jumps
+read the row root's resolved scroll margins. Explicit restore offsets retain
+their meaning. The compiler, runner, Linux presenter and browser regressions
+cover these paths. Chrome and the native fixture agree on start (368 px) and
+nearest (268 px) for top padding 24 px and target margin 8 px.
+
+macOS element-form smooth jumps use native animation, land immediately under
+reduced motion, and hold authored scrollend until completion. AppKit's
+`ElementScrollTests` observes intermediate positions and one completion on
+the real clock. UIKit retains instant element jumps, including requests for
+smooth motion, as the host deviation documented in LLP 1070.000 §14 and the
+grammar. Its regression requires the immediate aligned destination and one
+scrollend. The keyed-list animation is unchanged. On a booted iOS 27 iPhone 17
+simulator, `ElementScrollTests` and `NativeFieldsIOSTests` pass all 14 tests;
+AppKit's `ElementScrollTests` and `InlineFrameMacTests` pass all five tests.
+
+The three embedded Apple test plans were regenerated from their commented
+fixtures with `contract build`, without an app manifest. NativeFields and
+WebDocuments matched already; InlineFrame changed only schema-digest bytes
+16–23. All bytes outside header positions 8–23 match the prior plans.
+
+Remaining: iOS/tvOS and Linux element-form smooth jumps; Linux/Android
+scrollend; and real trackpad fling qualification on macOS (QUEUE.md).
+The issue remains open; no complete cross-host settlement claim is made.
+
+The touched Rust suites passed after updating the pinned schema-digest
+snapshot; the web JS target's 48 Rust tests, three Chrome regressions, both
+macOS classes, clippy, formatting, caps and issue-format validation passed.
+`cargo run -p contract-difftest -- quick` could not run its semantics check:
+`lake build: No such file or directory` (Lean is unavailable in this environment).
+
+Review round 1 fixes nested AppKit destination calculation, no-movement
+replacement cancellation, settlement after a wheel interruption that does
+not move the scroller, and Linux percentage padding inside borders.
+`ScrollEndMacTests` reproduces all three Apple defects with a deferred clip
+animator and a delivered intermediate frame: outer destination 700 instead
+of 300, a retained animation token, and no owed end delivered. All pass after
+the fixes. `scroll_padding_percent_uses_the_port_inside_borders` first fails
+at (302.5, 365), then matches Chrome's (300, 350) on start and (300, 300) on end.
+The seven browser regressions pass. Chrome keeps the vertical animation
+running through a horizontal wheel and ends once; AppKit retains its wheel
+cancellation and now ends once. Chrome cancels a no-move instant replacement
+without an end; AppKit delivers the previously owed end.
+
+Live AppKit motion could not be requalified in this round: the existing
+`ElementScrollTests` smooth case also stays at offset zero and delivers no
+end in this session. The new lifecycle tests control intermediate frames;
+they do not claim window-server animation qualification. The live test is
+unchanged, and the issue remains open.
 
 ## Original report
 

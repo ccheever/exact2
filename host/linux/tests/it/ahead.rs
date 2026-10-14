@@ -146,7 +146,7 @@ fn a_new_runtime_family_reshapes_text_opened_on_press_release() {
   view
     column
       button "Open" press=show testId="open" width=200 height=60
-      when open
+      if open
         text "The quick brown fox" font-family=family testId="sample"
 "#;
     let (mut p, error) = Presenter::boot_with(

@@ -111,7 +111,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         // must not reach into a tree a content region's nodes are not in
         let inset = arena
             .taffy(slot)
-            .map(|node| crate::id::BoxInset::of(tree.layout(node)));
+            .map(|node| crate::id::BoxInset::of(arena, slot, tree.layout(node)));
         let inset_changed = arena.inset(slot) != inset;
         arena.set_inset(slot, inset);
         let frame = if hidden {

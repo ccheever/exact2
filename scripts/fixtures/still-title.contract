@@ -17,13 +17,13 @@ component StillTitle
     gone = true
   view
     main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="rooms-list" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
             text "Rooms" role="heading" aria-level=1
-          when failed
+          if failed
             text "Can’t reach the server." color="-exact-system-red" padding="8px 16px 0" testId="rooms-error"
-          when gone
+          if gone
             column flex=1 align-items="center" justify-content="center" testId="rooms-gone"
               text "No rooms."
           else

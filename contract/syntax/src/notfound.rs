@@ -8,11 +8,11 @@
 //! as an author would, so the runner, the web JS target and the semantics
 //! need to know nothing of them.
 //!
-//! Where the screen goes is the app's own structure: the `each` over a stack
-//! that draws a route per entry. Its body is wrapped, `when entry.name ==
+//! Where the screen goes is the app's own structure: the `for` over a stack
+//! that draws a route per entry. Its body is wrapped, `if entry.name ==
 //! "notfound"` the screen, `else` what the author wrote, so an app whose route
-//! element stands outside any `when` (a blank screen for an entry no branch
-//! names) and one whose every route is in a `when` are served alike, and a
+//! element stands outside any `if` (a blank screen for an entry no branch
+//! names) and one whose every route is in an `if` are served alike, and a
 //! tab's stack as the root's.
 
 use crate::ast::*;
@@ -22,7 +22,7 @@ use crate::{Span, VisitSpans};
 /// app: it declares `routes` with no `notfound` line, and its view opens on a
 /// navigation root (the first node, an element with a `navigationKey`, which
 /// every host finds the routes under) that draws a route per stack entry (an
-/// `each` over a stack, `each e in stack(nav)` or `t.stack`). An app that
+/// `for` over a stack, `for e in stack(nav)` or `t.stack`). An app that
 /// writes `notfound` draws its own, and one with no navigation root has no
 /// screen to draw one in. The first tab's root route has no parameter, so the
 /// way to it is a location ([`root_pattern`]).
@@ -46,8 +46,8 @@ fn root_pattern(routes: &RoutesDecl) -> Option<&str> {
     Some(row.pattern.as_str())
 }
 
-/// An `each` that draws a route per stack entry: over `stack(<the router>)`
-/// or a tab's `.stack`, its body holding (directly, or in a `when` or `match`
+/// A `for` that draws a route per stack entry: over `stack(<the router>)`
+/// or a tab's `.stack`, its body holding (directly, or in an `if` or `match`
 /// arm) an element with a `navigationKey`.
 fn is_route_each(node: &Node, slot: &str) -> bool {
     let Node::Each { list, body, .. } = node else {
@@ -74,7 +74,7 @@ fn holds_route(nodes: &[Node]) -> bool {
     })
 }
 
-/// Whether `node`, or something inside it that is not a use, is a route `each`.
+/// Whether `node`, or something inside it that is not a use, is a route `for`.
 fn holds_route_each(node: &Node, slot: &str) -> bool {
     is_route_each(node, slot)
         || match node {
@@ -93,7 +93,7 @@ fn holds_route_each(node: &Node, slot: &str) -> bool {
         }
 }
 
-/// The root component's view with every route `each` of the navigation root
+/// The root component's view with every route `for` of the navigation root
 /// wrapped (see [`implicit_notfound`]).
 pub(crate) fn implicit_notfound_view(routes: &RoutesDecl, view: &[Node]) -> Option<Vec<Node>> {
     let mut view = view.to_vec();
@@ -103,7 +103,7 @@ pub(crate) fn implicit_notfound_view(routes: &RoutesDecl, view: &[Node]) -> Opti
     wrap(children, routes).then_some(view)
 }
 
-/// Wrap each route `each` in `nodes`; whether any was.
+/// Wrap each route `for` in `nodes`; whether any was.
 fn wrap(nodes: &mut [Node], routes: &RoutesDecl) -> bool {
     let mut wrapped = false;
     for node in nodes {
@@ -133,7 +133,7 @@ fn wrap(nodes: &mut [Node], routes: &RoutesDecl) -> bool {
     wrapped
 }
 
-/// The screen for the entry bound to `entry`: a `when` with no `else` yet.
+/// The screen for the entry bound to `entry`: an `if` with no `else` yet.
 /// "Go Home" is a link to the first screen, so it works where the page is a
 /// document (a server's not-found page) and goes where any link to a route
 /// goes (the root's `navigate`, else the router's own `go`). Read as Contract,
@@ -143,7 +143,7 @@ fn screen(routes: &RoutesDecl, entry: &str) -> Option<Node> {
     let text = format!(
         r#"component NotFound
   view
-    when {entry}.name == "notfound"
+    if {entry}.name == "notfound"
       column navigationKey=`${{{entry}.id}}` position="absolute" inset=0 display="flex" flex-direction="column" testId="not-found"
         header display="flex" align-items="center" padding="8px 16px"
           text "Not Found" role="heading" aria-level=2

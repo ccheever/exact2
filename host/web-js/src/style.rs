@@ -276,7 +276,7 @@ pub fn project(
     Ok(out)
 }
 
-/// Every `each` row's roots, through any region at its top.
+/// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {
     fn roots(
         plan: &Plan,

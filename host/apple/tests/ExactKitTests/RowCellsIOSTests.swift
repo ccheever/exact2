@@ -89,8 +89,11 @@ final class RowCellsIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "frame", "id": 20, "x": 56.0, "y": 12.0, "w": 200.0, "h": 20.0]]))
         XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [56, 56])
         // And from where the text's glyphs start: inside a padding of the text's own.
-        p.apply(wireBatch([["op": "style", "id": 20, "style": ["font_size": 17, "padding_left": 4]]]))
+        p.apply(wireBatch([["op": "style", "id": 20, "style": ["font_size": 17, "padding_left": ["pct": 2]]], contentOp(20, 200, 20, padding: [0, 0, 0, 4])]))
         XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [60, 60])
+        // A padding layout resolved anew, its content box alone sent (a percentage in a resized block)
+        p.apply(wireBatch([contentOp(20, 200, 20, padding: [0, 0, 0, 8])]))
+        XCTAssertEqual(separators(p).filter { $0.maxY == 44 || $0.maxY == 1 }.map(\.minX), [64, 64])
     }
 
     func testWhatTheAuthorWritesOnARowWins() throws {

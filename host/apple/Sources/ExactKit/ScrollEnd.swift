@@ -17,6 +17,7 @@ final class ScrollEnd {
     private var seen: [CGFloat] = [0, 0, 0]
     /// On the Mac: a live scroll (a trackpad's, its momentum included) is running.
     var live = false
+    var elementAnimation: UUID?
     private var settle: DispatchWorkItem?
 
     /// The scroller reports `at`; whether that moved it, an end now owed.
@@ -45,5 +46,5 @@ final class ScrollEnd {
         return owed
     }
     /// Nothing owed or waiting: the view goes to another node or scroller.
-    func reset() { settle?.cancel(); settle = nil; owed = false; live = false; seen = [0, 0, 0] }
+    func reset() { settle?.cancel(); settle = nil; owed = false; live = false; elementAnimation = nil; seen = [0, 0, 0] }
 }

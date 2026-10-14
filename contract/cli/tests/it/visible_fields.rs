@@ -326,7 +326,7 @@ fn fields_and_buttons_share_the_literal_appearance_error() {
         ] {
             let e = contract::compile(&app(styles, &format!("{tag} {row}"))).unwrap_err();
             assert_eq!(e.id, "lower-appearance", "{}", e.message);
-            assert!(e.message.contains("write `when` with two"));
+            assert!(e.message.contains("write `if` with two"));
         }
         let body = if tag == "button" {
             format!("{tag} class=(on ? A : B)\n  text \"Go\"")
