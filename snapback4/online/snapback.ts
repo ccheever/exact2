@@ -93,9 +93,10 @@ export class Snapback {
     if (!this.options.auth) throw refused({code: 'E_CLIENT', message: 'Pass auth: {store, key, now}; grant secret.keep for key.'});
     return this.options.auth;
   }
+  private authKey(): string { return JSON.stringify([this.options.origin.replace(/\/+$/, ''), this.options.auth?.key]); }
   private authWork<T>(work: () => Promise<T>): Promise<T> {
-    const {key} = this.auth();
-    const id = JSON.stringify([this.options.origin.replace(/\/+$/, ''), key]);
+    this.auth();
+    const id = this.authKey();
     const next = (authJobs.get(id) ?? Promise.resolve()).catch(() => undefined).then(work);
     authJobs.set(id, next);
     const clear = () => { if (authJobs.get(id) === next) authJobs.delete(id); };
@@ -116,6 +117,14 @@ export class Snapback {
   private invalidate(token: string | undefined): void {
     const auth = this.options.auth;
     if (auth && token && this.session?.token === token) auth.store.forget(auth.key);
+  }
+  /** A request using the old token may be denied while refresh has minted its replacement.
+   * Let pending auth finish, then fence the old reply; never discard a successful rotation. */
+  private async rejectSession(token: string | undefined, check: () => void): Promise<void> {
+    if (!token) return;
+    const pending = authJobs.get(this.authKey());
+    if (pending) { await pending.catch(() => undefined); check(); }
+    this.invalidate(token);
   }
   private async authRequest(path: string, body: unknown = {}): Promise<{ok: boolean; body: {session?: Session; denied?: Refusal}}> {
     try {
@@ -186,7 +195,7 @@ export class Snapback {
     catch (error) { const why = unreached(error); throw refused({...why, message: `${why.message}. A write may already have committed; read its state before retrying.`}); }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     check();
-    if ((body?.denied as Refusal | undefined)?.code === 'E_AUTH' || (body?.why as Refusal | undefined)?.code === 'E_AUTH') this.invalidate(token);
+    if ((body?.denied as Refusal | undefined)?.code === 'E_AUTH' || (body?.why as Refusal | undefined)?.code === 'E_AUTH') await this.rejectSession(token, check);
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw refused({ code: 'E_SERVER', message: `Invalid reply (HTTP ${response.status}); read state before retrying a write.` });
     if (!response.ok && !body.denied && !(body.state === 'failed' && body.why)) throw refused({ code: 'E_SERVER', message: `HTTP ${response.status}; read state before retrying a write.` });
     return body;
@@ -245,7 +254,7 @@ export class Snapback {
     try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
     check();
-    if (body?.denied?.code === 'E_AUTH') this.invalidate(token);
+    if (body?.denied?.code === 'E_AUTH') await this.rejectSession(token, check);
     if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
     return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
   }
@@ -267,7 +276,7 @@ export class Snapback {
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
       check();
-      if (body?.denied?.code === 'E_AUTH') this.invalidate(token);
+      if (body?.denied?.code === 'E_AUTH') await this.rejectSession(token, check);
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };
     }
     const type = (response.headers.get('content-type') ?? '').split(';')[0].trim();

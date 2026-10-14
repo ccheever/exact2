@@ -215,3 +215,44 @@ test('online assets forget revoked sessions and discard results after a disk-wri
     expect(db.session?.principal).toBe('bob');
   } finally {release(); server.stop(true);}
 });
+
+test('old-token denials during refresh cannot discard its successful replacement session', async () => {
+  for (const operation of ['read', 'upload', 'download'] as const) {
+    const store = secretStore(), alice = {principal: 'alice', kind: 'password', token: 'old', expiresAt: 100_000};
+    store.set('session', JSON.stringify(alice));
+    let refreshing!: () => void, release!: () => void, denied!: () => void, parsed = 0;
+    const rotating = new Promise<void>(ok => {refreshing = ok;}), held = new Promise<void>(ok => {release = ok;});
+    const oldRequestsDenied = new Promise<void>(ok => {denied = ok;});
+    const server = Bun.serve({hostname: '127.0.0.1', port: 0, async fetch(request) {
+      await request.arrayBuffer();
+      if (new URL(request.url).pathname === '/auth/refresh') {
+        refreshing(); await held; return Response.json({session: {...alice, token: 'new'}});
+      }
+      return Response.json({denied: {code: 'E_AUTH', message: 'Old token was rotated'}}, {status: 401});
+    }});
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
+      const response = await originalFetch(...args);
+      if (response.status === 401) {
+        const json = response.json.bind(response);
+        response.json = async () => {const body = await json(); if (++parsed === 1) denied(); return body;};
+      }
+      return response;
+    }) as typeof fetch;
+    const db = () => new Snapback({origin: `http://127.0.0.1:${server.port}`, auth: {store: {...store}, key: 'session', now: 1}, storage: {fs: {async writeFile() {throw new Error('a denial must not write');}}}});
+    try {
+      const rotation = db().refreshSession(1);
+      await rotating;
+      const client = db();
+      const old = [operation === 'read' ? client.read('private', {}) : operation === 'upload' ? client.upload(new Uint8Array([1])) : client.download('private')];
+      // Release only after the old-token refusal body have been consumed.
+      const results = Promise.allSettled(old);
+      await oldRequestsDenied;
+      await Promise.resolve(); // let the refusal consumers reach their auth-finish wait
+      release();
+      expect(await rotation).toMatchObject({ok: true, session: {token: 'new'}});
+      expect((await results).every(r => r.status === 'rejected' && r.reason.code === 'E_STALE')).toBe(true);
+      expect(db().session?.token).toBe('new');
+    } finally {release(); globalThis.fetch = originalFetch; server.stop(true);}
+  }
+});

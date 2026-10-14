@@ -773,6 +773,8 @@ and use a unique signup email. `restore(now)` validates stored sessions and
 refreshes within 60 seconds of expiry; `refreshSession(now)` rotates explicitly.
 Use a different secret key for each origin. Auth operations serialize across Exact's
 per-source secret facades; a late auth reply never overwrites a changed session.
+An old-token request denied during refresh waits for auth to finish before
+invalidating, so it cannot discard the replacement token.
 Await `logout` before another
 sign-in; its `ok` confirms server revocation, and `offline` means that could
 not be confirmed. Reads and writes interrupted by an account change throw
