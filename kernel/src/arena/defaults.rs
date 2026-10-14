@@ -131,8 +131,12 @@ impl NodeArena {
         }
     }
 
-    pub(crate) fn structural_rows() -> StyleMask {
-        HEADER.mask.union(TAB_BAR.mask)
+    pub(crate) fn header_rows() -> StyleMask {
+        HEADER.mask
+    }
+
+    pub(crate) fn tab_bar_rows() -> StyleMask {
+        TAB_BAR.mask
     }
 
     fn structural_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {

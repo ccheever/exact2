@@ -54,9 +54,15 @@ pub(super) fn changed(
     if before == after {
         return;
     }
-    if before.header != after.header || before.tab_bar != after.tab_bar {
+    let mut rows = StyleMask::EMPTY;
+    if before.header != after.header {
         arena.refresh_sticky(slot);
-        let rows = NodeArena::structural_rows();
+        rows = rows.union(NodeArena::header_rows());
+    }
+    if before.tab_bar != after.tab_bar {
+        rows = rows.union(NodeArena::tab_bar_rows());
+    }
+    if !rows.is_empty() {
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
     }
