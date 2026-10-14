@@ -26,7 +26,7 @@ function fake(): Fake {
   };
   return client;
 }
-const native = { available: true } as unknown as Native;
+const native = { available: true, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) } as unknown as Native;
 const as = (client: Fake) => client as unknown as T3Client;
 const prefsOf = (client: Fake) => client.local.clientSettings as Record<string, unknown>;
 const restore = (client: Fake) => applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');

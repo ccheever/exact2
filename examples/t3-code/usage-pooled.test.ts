@@ -515,6 +515,8 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     // A text field's press reaches no pointerdown on macOS: the theme editor's fields count their focus.
     expect(window).toContain('action outsideFocus\n    outsidePresses = outsidePresses + 1');
     const editor = await source('settings-appearance-editor.contract');
+    expect(editor).toContain('pointerdown=outsideDown pointerup=inspectUp');
+    expect(editor).toContain('action inspectUp(e: PointerEvent)\n    outsideUp()\n    inspectPointer(true, e)');
     expect(editor).toContain('input value=(named ? name : editor.name) input=editName focus=outsideFocus ');
     expect(editor).toContain('input=edit change=commit focus=touched ');
     expect(editor).toContain('change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave ');
@@ -549,6 +551,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'r4-surfaces-files.contract file-line-${line.number}',
       'r4-surfaces-files.contract file-comment-${line.number}',
       'r6-device.contract device-mini-player',
+      'settings-appearance-editor.contract theme-inspector',
       'sidebar-row.contract wake-${t.id}',
       'sidebar-row.contract unsettle-${t.id}',
       'sidebar-row.contract snooze-${t.id}',
