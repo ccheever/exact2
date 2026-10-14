@@ -706,6 +706,14 @@ component T3Code
             settingsRefresh = settingsRefresh + 1
           if pendingModal == "theme-dialog"
             settingsThemeDialog = ""
+        if startsWith(result.message, "branch-restore-confirm:")
+          confirmTitle = `Switch to ${slice(result.message, 23)}?`
+          confirmBody = "You have uncommitted changes. They'll carry over to the other branch, or block the switch if they conflict."
+          confirmDestructive = false
+          confirmOp = "cc:branch-restore-confirmed"
+          confirmTarget = ""
+          confirmValue = ""
+          focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
         if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
@@ -1364,6 +1372,9 @@ component T3Code
       commandPending = true
       send changed = command(op, target, value, 0)
       if op == "select-thread" or op == "new-thread"
+        settingsOpen = false
+        settingsThemeDialog = ""
+        utilityPage = ""
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   // right-panel-escape: the launcher's other keys come here as "key", Escape among them; it hides nothing (T3 Code's launcher

@@ -8,7 +8,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, activeRun, launchPayload, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState, removeQueuedEditAttachment } from './composer-controls-queue';
-import { branchMenu, selectBranch, setEnvMode } from './composer-controls-branch';
+import { branchMenu, dismissBranchMismatch, restoreThreadBranch, selectBranch, setEnvMode } from './composer-controls-branch';
 import { attachFiles } from './composer-controls-attach';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery, usageLocal } from './composer-controls-usage';
 import { feedbackLocal } from './composer-feedback';
@@ -191,6 +191,7 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     return '';
   }
   if (op === 'limit-resume' || op === 'limit-snooze') { await changeLimitRecovery(client, native, storage, op === 'limit-resume' ? 'resume' : 'snooze'); return ''; }
+  if (op === 'branch-restore' || op === 'branch-restore-confirmed') return restoreThreadBranch(client, native, storage, op === 'branch-restore-confirmed');
   if (op === 'branch' || op === 'branch-create') return selectBranch(client, native, storage, value, op === 'branch-create');
   if (op === 'stop-background') {
     // handleStopBackgroundWork → interruptThreadTurn without a run: the latest run owns the background work.
@@ -235,6 +236,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'env-mode') { setEnvMode(client, value); return ''; }
   if (op === 'previous-worktree') { setEnvMode(client, 'previous'); return ''; }
   if (op === 'attach') return attachFiles(client, _native);
+  if (op === 'branch-mismatch-dismiss') { dismissBranchMismatch(client, id); return ''; }
   if (op === 'branch-menu') return branchMenu(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).
   if (op === 'noop') return '';
