@@ -182,8 +182,6 @@ shape SidebarView
   scopeOpen: bool
   scopeQuery: string
   scopeFirst: string
-  navigateKind: string
-  navigateProject: string
   renameId: string
   renameTitle: string
   selectionCount: number

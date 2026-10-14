@@ -1,0 +1,204 @@
+{
+  "runtimeFingerprint": "50c11104961f002747f3d7b9dc7f5be64b2571e2a9c010219b25fd497fc7158f",
+  "results": [
+    {
+      "check": "full Bun app suite",
+      "exitCode": 0,
+      "passed": 5073,
+      "skipped": 1,
+      "failed": 0,
+      "assertions": 120214,
+      "files": 335,
+      "log": "target/legacy-sidebar/round1-full-bun-final.log"
+    },
+    {
+      "check": "independent focused Bun",
+      "exitCode": 0,
+      "passed": 396,
+      "failed": 0,
+      "assertions": 2449,
+      "files": 11,
+      "log": "target/legacy-sidebar/reviewer-final-focused.log"
+    },
+    {
+      "check": "strict TypeScript",
+      "exitCode": 0,
+      "log": "target/legacy-sidebar/round1-ts-complete.log"
+    },
+    {
+      "check": "Contract build",
+      "exitCode": 0,
+      "log": "target/legacy-sidebar/round1-contract-final.log"
+    },
+    {
+      "check": "new compiled-plan tests after callback settlement",
+      "exitCode": 0,
+      "passed": 2,
+      "failed": 0,
+      "log": "target/legacy-sidebar/round1-compiled-plan-settled.log"
+    },
+    {
+      "check": "full app Rust --lib --tests --no-fail-fast",
+      "exitCode": 0,
+      "passed": 29,
+      "failed": 0,
+      "filtered": 0,
+      "log": "target/legacy-sidebar/round1-app-rust-full.log"
+    },
+    {
+      "check": "final source format",
+      "exitCode": 0,
+      "log": "target/legacy-sidebar/round1-fmt-final.log"
+    },
+    {
+      "check": "native bundle build",
+      "exitCode": 0,
+      "log": "target/legacy-sidebar/round1-native-build.log"
+    },
+    {
+      "check": "coordinator staged source caps",
+      "exitCode": 0,
+      "log": "target/legacy-sidebar/gates/caps-final.log"
+    },
+    {
+      "check": "native agent before/after rename and key replacement",
+      "passed": true,
+      "before": "native-before.json",
+      "after": "native-after.json",
+      "physicalInput": false
+    }
+  ],
+  "frameworkChecks": [
+    {
+      "check": "build",
+      "command": [
+        "cargo",
+        "build",
+        "--all-targets",
+        "--keep-going"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 54.91,
+      "log": "target/legacy-sidebar/gates/build.log"
+    },
+    {
+      "check": "test",
+      "command": [
+        "cargo",
+        "test",
+        "--lib",
+        "--bins",
+        "--tests",
+        "--no-fail-fast"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 196.68,
+      "log": "target/legacy-sidebar/gates/test.log"
+    },
+    {
+      "check": "clippy",
+      "command": [
+        "cargo",
+        "clippy",
+        "--all-targets",
+        "--keep-going",
+        "--",
+        "-D",
+        "warnings"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 14.55,
+      "log": "target/legacy-sidebar/gates/clippy.log"
+    },
+    {
+      "check": "fmt",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 3.45,
+      "log": "target/legacy-sidebar/gates/fmt.log"
+    },
+    {
+      "check": "boot",
+      "command": [
+        "bun",
+        "scripts/boot.mjs"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.02,
+      "log": "target/legacy-sidebar/gates/boot.log"
+    }
+  ],
+  "pending": [
+    "physical input qualifications listed in README.md and task"
+  ],
+  "retainedFailures": [
+    {
+      "log": "target/legacy-sidebar/round1-compiled-plan-tests.log",
+      "result": "0 pass, 2 fail",
+      "cause": "New test setup asserted before queued mutation completion. Adding Runner::land_then executes the existing host lifecycle; no product code or expectation was changed."
+    },
+    {
+      "log": "target/legacy-sidebar/before/deferred-clear-revisit.log",
+      "result": "Regression failed before retaining destination cleanup ownership."
+    },
+    {
+      "log": "target/legacy-sidebar/round1-contract.log",
+      "result": "Stale-read diagnostic in initial hover action ordering; existing call was moved before hoverWait assignment."
+    },
+    {
+      "log": "target/legacy-sidebar/round1-full-bun.log",
+      "result": "One obsolete hover source assertion; final full run passes."
+    }
+  ],
+  "finalIntegrationChecks": [
+    {
+      "check": "workspace",
+      "command": [
+        "cargo",
+        "check",
+        "--workspace",
+        "--all-targets",
+        "--keep-going"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 307.08,
+      "log": "target/legacy-sidebar/gates/workspace.log"
+    },
+    {
+      "check": "fmt-final",
+      "command": [
+        "cargo",
+        "fmt",
+        "--all",
+        "--",
+        "--check"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 3.68,
+      "log": "target/legacy-sidebar/gates/fmt-final.log"
+    },
+    {
+      "check": "contract-source-sweep-final",
+      "command": [
+        "cargo",
+        "test",
+        "-p",
+        "contract",
+        "--test",
+        "it",
+        "every_app_corpus_and_example_compiles_and_the_button_migration_is_complete",
+        "--",
+        "--nocapture"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 126.67,
+      "log": "target/legacy-sidebar/gates/contract-source-sweep-final.log"
+    }
+  ]
+}

@@ -54,7 +54,6 @@ export interface SidebarSession {
   jumpHints: boolean;
   dismissedPill: string;
   /** A navigation the window performs (Project settings): read by the shell after the command. */
-  navigate: { kind: string; projectId: string };
   scopeOpen: boolean; scopeQuery: string;
   dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string;
   /** shell-sidebar-palette-keys (TH-8): the date popover's month (`YYYY-MM`), its keyboard focus and a count of its moves (snooze-calendar.ts). */
@@ -68,7 +67,7 @@ export function sidebarSession(client: T3Client): SidebarSession {
   if (!session) {
     session = { settledVisible: SETTLED_TAIL_INITIAL_COUNT, settledScope: '', searchIndex: 0, searchQuery: '', searchPending: false,
       renameId: '', renameTitle: '', selection: [], anchor: '', dialog: { kind: '', threadIds: [], title: '' },
-      undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', navigate: { kind: '', projectId: '' }, scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
+      undo: null, regenerating: new Set(), busy: new Set(), jumpHints: false, dismissedPill: '', scopeOpen: false, scopeQuery: '', dialogMode: 'date', dialogDate: '', dialogTime: '', dialogAmount: '2', dialogUnit: 'hours', dialogError: '',
       calendarMonth: '', calendarFocus: '', calendarFocusSeq: 0, sweepEpoch: 0 };
     sessions.set(client, session);
   }

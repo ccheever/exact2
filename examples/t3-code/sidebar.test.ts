@@ -363,6 +363,7 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
     expect(await sidebarSelecting(command.client, native, 'c', 'click')).toBe(true);
     expect(sidebarSession(command.client).selection).toEqual(['a', 'c']);
     const shift = fake(threads, { modifiers: { shift: true }, threadId: 'a' });
+    sidebarSession(shift.client).anchor = 'a';
     expect(await sidebarSelecting(shift.client, native, 'c', 'click')).toBe(true);
     expect(sidebarSession(shift.client).selection).toEqual(['a', 'b', 'c']);
     const plain = fake(threads);
@@ -408,8 +409,8 @@ describe('sidebar navigation, drafts and the hover card', () => {
     const { client, drafts } = fake([shell('a', { projectId: 'p2', latestUserMessageAt: iso(-1) }), shell('b', { latestUserMessageAt: iso(-60_000) })]);
     expect(await sidebarCommand(client, native, files, 'home', '', '')).toBe('sidebar:new-thread');
     expect(drafts).toEqual(['p2']);
-    expect(await sidebarCommand(client, native, files, 'project-settings-group', '', 'g1')).toBe('sidebar:navigate');
-    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ navigateKind: 'project-settings', navigateProject: 'p1', scopeOpen: false });
+    expect(await sidebarCommand(client, native, files, 'project-settings-group', '', 'g1')).toBe('sidebar:project-settings:p1');
+    expect(sidebarSnapshot(client, NOW, helpers).sidebar).toMatchObject({ scopeOpen: false });
   });
 
   test('unsent new-thread drafts become cards above the list, except the draft on screen; X discards text and images', async () => {

@@ -205,7 +205,7 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     // one still waiting for its 600 ms (hoverUntil at the current tick, hoverShown false).
     const root = await source('app.contract');
     expect(root).toContain('else if tip.key == hoverTip.key and hoverOn == part\n      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait');
-    expect(root).toContain('derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)');
+    expect(root).toContain('derive hoverShown = hoverOwnerValid and hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
   });
   test('the words are the reference TooltipPopups: Manage scheduled tasks, Edit automation, Run now', async () => {

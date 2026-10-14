@@ -1,7 +1,7 @@
 ---
 name: 20261014-legacy-sidebar-parity
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -37,8 +37,9 @@ qualification separate. Do not claim that the older task's passes cover these fa
 
 Prepared on 2026-10-14 at feature base `1025adf7888a4064eeace609fa91bc48b2938238`.
 PR #553 merged at `6a7a3cad0cb5f66fb7b5d677d21f8e130356e5d7`, 05:48:59 UTC,
-and is an ancestor of this checkout. Implementation and runtime verification have not
-yet started for this ticket.
+and is an ancestor of this checkout. The application changes and model regressions are
+implemented on prepared HEAD `4b062d4356acac5b4220a09bb9d65d5c86440ca7`. Verification
+is in progress; physical input qualification is open under the user’s no-screen direction.
 
 ## Scope and exclusions
 
@@ -407,8 +408,9 @@ never as inferred passes. No web/iOS/Linux or macOS 14 runtime parity is claimed
 | Dialog merge and interface reconciliation | Satisfied through #553; merged helper ownership checked on the prepared base. |
 | Portable ticket | Promoted to the plan task directory with the actual dependency and prepared base. |
 | Implementation checkout / branch / PR | Orca checkout `t3-code-legacy-sidebar-parity`, branch in frontmatter, base `1025adf7888a4064eeace609fa91bc48b2938238`. No PR yet. |
-| Code changes / tests / builds / native input | None performed for this preparation. |
-| Independent implementation review | Not yet applicable. |
+| Code changes | All seven application repairs implemented; runtime and test source fingerprint recorded in evidence. |
+| Verification | Full Bun 5,073 pass / 1 skip / 0 fail; strict TypeScript and Contract build pass. All 29 app Rust tests, the fresh native build and bounded rename agent before/after pass. Repository checks pass; physical input remains open. Physical input remains open. |
+| Independent implementation review | Source approved at fingerprint `50c11104961f002747f3d7b9dc7f5be64b2571e2a9c010219b25fd497fc7158f`; independent focused suite 396 pass, 0 fail. Native qualification is excluded from that approval. |
 
 ## Attempts and evidence
 
@@ -486,20 +488,63 @@ Local environment notes, not portable task identities:
   authorization covers Orca OS-input tests. Receipts identify these as synthetic input;
   do not call them human input. Use `EXACT_AGENT=live`, passed explicitly to the existing
   agent `open()` extra environment, and `EXACT_DEVICE=real` for native control behavior.
-  Global Keyboard Navigation is off and must remain unchanged. Stop OS input if the
-  screen locks, preserve the current task, and ask the coordinator to arrange unlock.
+  Global Keyboard Navigation is off and must remain unchanged. The screen locked during
+  preparation; the user then directed continued work without screen input. OS input is
+  paused. Existing agent API checks continue with `EXACT_AGENT=1`; no unlock is assumed.
 
-The fixture lookup found no missing tool or fixture that blocks implementation. An
-actual owned fixture must still be initialized, paired, and checked before native proof.
+The task-owned copies were initialized and paired. A baseline agent-dispatched double-click
+reproduced the rename field mounting while composer focus remained. Full raw snapshots
+and pairing material stay local; the selected packet is sanitized.
 Completed-run behavior has model coverage available; do not generate a provider run
 merely to satisfy a fixture. The declared background Projects-page limit remains.
 
+### Implementation and verification — 2026-10-14
+
+The selected packet is [evidence/20261014-legacy-sidebar-parity](../evidence/20261014-legacy-sidebar-parity/README.md).
+The [published packet](https://github.com/ccheever/exact2/blob/741e9780b1bbcbfff1cf3d0905d75eea4246c4f1/legacy-sidebar-parity/20261014/README.md) and [native capture](https://raw.githubusercontent.com/ccheever/exact2/741e9780b1bbcbfff1cf3d0905d75eea4246c4f1/legacy-sidebar-parity/20261014/rename.png) are pinned to evidence commit
+`741e9780b1bbcbfff1cf3d0905d75eea4246c4f1` on `ccheever/exact2`’s `t3-code-evidence` branch.
+The packet maps each original row to the implementation and its proof level, records the
+source fingerprint and independent review, and preserves the bounded baseline result.
+Raw logs and private fixtures are under `target/legacy-sidebar/` in the implementation
+checkout; pairing credentials and full client snapshots are not published.
+
+The new client regressions failed before their fixes. Review additionally reproduced
+two asynchronous drop races: destination cleanup lost during a deferred clear, exposed
+by a later reopen, and an image fallback chip written into the newly opened draft after
+a deferred editor reply. Both were fixed and the regressions now pass. Project Settings
+now carries its member ID in the command reply; this proves removal of the snapshot
+dependency, not the original native menu failure’s cause. Existing shared dialog traps,
+final focus, raw-member project mapping and default-sidebar behavior are retained.
+
+One implementation repair round also corrected a Contract stale-read diagnostic and
+obsolete hover wiring assertions; failed logs remain local. Full app Bun: 5,073 pass,
+1 skip, 0 fail, 120,214 assertions across 335 files. Strict TypeScript, Contract build and
+format checks pass. Independent source review: 396 pass, 0 fail, 2,449 assertions.
+Both compiled-plan regressions pass after adding the test fixture’s missing mutation
+callback settlement step; all 29 app Rust tests pass. The fresh native bundle builds.
+The coordinator’s default-member build/test/Clippy/boot, workspace, formatting, caps and
+Contract source sweep pass (94 roots, 195 imports). The clean native before/after uses
+the same raw agent operations and short clock advances, with empty app error strings.
+Before, rename mounts while composer focus remains; afterward the field owns native
+FieldEditor focus. One native agent key replaces the complete title, and Escape restores
+it. Different-row double-click also opens/focuses rename. The screenshot and exact
+readbacks are in the packet; they do not qualify physical input. All recorded task
+app/controller/backend PIDs are stopped and ports 16566/16567 have no listeners.
+
+The earlier live setup revealed that the attempted preference flags did not isolate
+saved environments. Only this task’s exact catalog entry and Keychain account were
+removed; the coordinator independently verified the restored preferences against the
+prelaunch snapshot and absence of the account. `AGENT-HANDOFF.md` records that finding.
+Later checks use the module’s in-memory credentials under `EXACT_AGENT=1`. No provider
+run, GitHub mutation, normal user-project change or OS-global input was used.
+
 ## Next action
 
-Implement all seven rows within the prepared application checkout. Capture the
-existing failing behavior before changing it where the available native recipe allows;
-complete focused tests and practical native verification, then freeze source for an
-independent review. Keep exact source fingerprints and preserve failed attempts.
+Hand the frozen source and selected evidence to the coordinator for authorized
+publication and merge. Resume the seven physical-input qualifications only when screen
+input is authorized and available. Keep this task active and unverified until those
+checks are actually run; the application code and bounded automated/native-agent proof
+are ready for review.
 
 The user has already authorized continuing this fix wave through publication and
 merge of solvable application repairs. The coordinator owns those external actions.

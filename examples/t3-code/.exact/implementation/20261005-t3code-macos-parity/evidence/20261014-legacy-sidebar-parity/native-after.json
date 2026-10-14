@@ -1,0 +1,182 @@
+{
+  "runtimeFingerprint": "50c11104961f002747f3d7b9dc7f5be64b2571e2a9c010219b25fd497fc7158f",
+  "binaryProvenance": "native-build.json",
+  "driver": "Normal app selection passed freshness; no explicit binary override",
+  "mode": {
+    "EXACT_AGENT": "1",
+    "timing": "agent",
+    "chrome": "platform",
+    "storage": "legacy-sidebar-baseline-agent"
+  },
+  "operations": [
+    {
+      "op": "clock",
+      "to": 1000
+    },
+    {
+      "op": "tap",
+      "target": "thread-lsf-branch"
+    },
+    {
+      "op": "clock",
+      "to": 1100
+    },
+    {
+      "op": "tap",
+      "target": "thread-lsf-branch",
+      "dblclick": true
+    },
+    {
+      "op": "clock",
+      "to": 1200
+    },
+    {
+      "op": "type-key",
+      "target": "rename-lsf-branch",
+      "key": "x"
+    },
+    {
+      "op": "type-key",
+      "target": "rename-lsf-branch",
+      "key": "Escape"
+    },
+    {
+      "op": "clock",
+      "to": 1300
+    },
+    {
+      "op": "tap",
+      "target": "thread-lsf-dev",
+      "dblclick": true
+    },
+    {
+      "op": "clock",
+      "to": 1400
+    },
+    {
+      "op": "screenshot",
+      "path": "rename.png",
+      "window": true
+    },
+    {
+      "op": "type-key",
+      "target": "rename-lsf-dev",
+      "key": "Escape"
+    },
+    {
+      "op": "clock",
+      "to": 1500
+    }
+  ],
+  "input": "Existing native agent API; keys use s.type(target,{key}); no OS-global input and no clock settle",
+  "beforeDoubleClick": {
+    "snapshot": 4,
+    "error": "",
+    "threadId": "lsf-branch",
+    "focus": {
+      "editor": 153,
+      "responder": "TextArea",
+      "pending": null,
+      "keyboardNavigation": false,
+      "logical": 153
+    }
+  },
+  "afterDoubleClick": {
+    "snapshot": 6,
+    "error": "",
+    "renameField": {
+      "type": "TextInput",
+      "children": [],
+      "id": 1009,
+      "parent": 1007,
+      "depth": 10,
+      "focused": true,
+      "handlers": [
+        "input",
+        "submit",
+        "blur",
+        "focus",
+        "key"
+      ],
+      "props": {
+        "testId": "rename-lsf-branch",
+        "accessibilityLabel": "Thread title",
+        "value": "Branch work",
+        "id": "rename-lsf-branch",
+        "autocorrect": "off",
+        "autofocus": true
+      }
+    },
+    "focus": {
+      "keyboardNavigation": false,
+      "responder": "FieldEditor",
+      "editor": 1009,
+      "logical": 1009,
+      "pending": null
+    }
+  },
+  "replacement": {
+    "snapshot": 7,
+    "key": "x",
+    "value": "x",
+    "error": ""
+  },
+  "cancel": {
+    "snapshot": 9,
+    "title": "Branch work",
+    "renameId": "",
+    "error": ""
+  },
+  "differentRowDoubleClick": {
+    "snapshot": 11,
+    "threadId": "lsf-dev",
+    "renameField": {
+      "children": [],
+      "props": {
+        "testId": "rename-lsf-dev",
+        "accessibilityLabel": "Thread title",
+        "value": "Dev server",
+        "id": "rename-lsf-dev",
+        "autocorrect": "off",
+        "autofocus": true
+      },
+      "type": "TextInput",
+      "handlers": [
+        "input",
+        "submit",
+        "blur",
+        "focus",
+        "key"
+      ],
+      "depth": 10,
+      "focused": true,
+      "parent": 1026,
+      "id": 1028
+    },
+    "focus": {
+      "keyboardNavigation": false,
+      "responder": "FieldEditor",
+      "editor": 1028,
+      "logical": 1028,
+      "pending": null
+    },
+    "error": "",
+    "screenshot": "rename.png (captured after snapshot11; screenshot operation produced snapshot12)"
+  },
+  "finalCancel": {
+    "snapshot": 14,
+    "title": "Dev server",
+    "renameId": "",
+    "error": ""
+  },
+  "assertions": {
+    "renameFocused": true,
+    "nativeEditorIsRenameField": true,
+    "oneKeyReplacesWholeTitle": true,
+    "cancelRestoresTitle": true,
+    "differentRowOpensAndFocuses": true,
+    "errorEmptyAcrossReadbacks": true
+  },
+  "qualification": "Native agent-dispatched focus and key replacement only; physical double-click/typing remains open. No provider run; screenshot provider unauthenticated banner is the controlled fixture state.",
+  "publishedCapture": "https://raw.githubusercontent.com/ccheever/exact2/741e9780b1bbcbfff1cf3d0905d75eea4246c4f1/legacy-sidebar-parity/20261014/rename.png"
+}

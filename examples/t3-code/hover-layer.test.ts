@@ -131,7 +131,7 @@ describe('the layer and its timing', () => {
   test('T3Code holds the hover state; T3Window provides it and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
     expect(window).toMatch(/\n  provide\n(?:    dialog\w+\n)*    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
-    expect(await source('app.contract')).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+    expect(await source('app.contract')).toContain(`  derive hoverShown = hoverOwnerValid and hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
       let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
@@ -173,9 +173,11 @@ describe('the layer and its timing', () => {
     expect(root).toContain(`  state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}|\${data.threadId}\` // chat-markdown-media-and-code: a thread change too (a media tooltip whose image went with no leave)
+  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}|\${data.threadId}|\${hoverOwnerValid}\` // also close a legacy tip whose row vanished without leave
     after(1, hoverTicked)
   action hoverTicked
+    if not hoverOwnerValid
+      hoverTipAt(noHoverTip(), "", true)
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end`);

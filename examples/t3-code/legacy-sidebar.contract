@@ -34,6 +34,7 @@ use KeyMenuOpen from "./menu-keys.contract"
 use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
+use FieldOpenSelect from "./dialog-trap.contract"
 
 // animate-status-pulse: full, then half opacity.
 keyframes lsStatusPulse
@@ -56,6 +57,8 @@ keyframes lsRowIn
 // no provider). Every legacy tip shares one key, so the row or header the pointer is next on closes one a gone trigger left.
 fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label, [], side, align, at, (floor(label.length / 48) + 1) * rem + 0.625 * rem, testId)
 fn legacyTipOff(): HoverTip = HoverTip(key="legacy-tip", kind="tooltip", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
+// Trigger IDs identify the owner; every legacy tip deliberately shares the same hover-controller key.
+fn legacyTipOwner(testId: string, projects: LegacyProjectRow[]): bool = projects.filter(p => [`legacy-tip-status-${p.key}-bubble`, `legacy-tip-new-${p.key}-bubble`].includes(testId) or p.threads.filter(t => not t.renaming and ["title", "pr", "port", "worktree", "terminal", "archive"].map(kind => `legacy-tip-${kind}-${t.id}-bubble`).includes(testId)).length > 0).length > 0
 
 fn lsPrTone(lifecycle: string): string = lifecycle == "draft" ? "light-dark(#71717b, #9f9fa9cc)" : lifecycle == "closed" ? "light-dark(#e7000b, #ffa2a2e6)" : lifecycle == "merged" ? "light-dark(#7f22fe, #c4b4ffe6)" : lifecycle == "open" ? "light-dark(#009966, #5ee9b5e6)" : "light-dark(#71717b, #818181)"
 
@@ -443,7 +446,7 @@ component LegacyThread
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.id data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
+        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", tipId=`legacy-tip-pr-${t.id}`, shown=(t.prIcon != ""), relay=innerHover)
@@ -482,7 +485,8 @@ component LegacyThread
               else
                 text t.age font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(highlighted ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#71717b, #818181)") white-space="nowrap"
         if confirmShown
-          button cursor="pointer" press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true aria-label=`Confirm archive ${t.title}` testId=`thread-archive-confirm-${t.id}` position="absolute" right="0.25rem" top="0.375rem" height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#e7000b1f, #ff646f2e)" display="flex" flex-direction="row" align-items="center"
+          DialogOpenFocus(target=`thread-archive-confirm-${t.id}`)
+          button cursor="pointer" press=confirmArchive focus=within("confirm", true) blur=within("confirm", false) autofocus=true id=`thread-archive-confirm-${t.id}` aria-label=`Confirm archive ${t.title}` testId=`thread-archive-confirm-${t.id}` position="absolute" right="0.25rem" top="0.375rem" height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="light-dark(#e7000b1f, #ff646f2e)" display="flex" flex-direction="row" align-items="center"
             text "Confirm" font-size="0.625rem" line-height="0.875rem" font-weight=500 color="light-dark(#e7000b, #ff646f)"
         // Archive's trigger stays while Confirm replaces it or the thread runs (its leave must arrive: `inner`).
         box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")
@@ -549,7 +553,8 @@ component LegacyRenameField
   action edit(value: string)
     title = value
   view
-    input value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) focus=within("rename", true) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
+    FieldOpenSelect(target=`rename-${t.id}`, length=t.title.length)
+    input id=`rename-${t.id}` value=title input=edit submit=run("legacy-rename", t.id, title) blur=run("legacy-rename", t.id, title) focus=within("rename", true) key=local("rename-key", t.id) autofocus=true aria-label="Thread title" testId=`rename-${t.id}` flex=1 min-width=0 height="1.375rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f3f3f3)" autocorrect="off"
 
 // The legacy sidebar's dialogs, mounted with the window's overlays (sidebar-overlays.contract):
 // Rename project, Project grouping, the project removal confirm and "Archive N threads?".

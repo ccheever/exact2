@@ -1,0 +1,30 @@
+{
+  "base": "4b062d4356acac5b4220a09bb9d65d5c86440ca7",
+  "fingerprint": "50c11104961f002747f3d7b9dc7f5be64b2571e2a9c010219b25fd497fc7158f",
+  "files": {
+    "examples/t3-code/app.contract": "8e2e3600cc8df86646adea08fb89caf21cd8c5eb18c56bdf2150a7f6e4ccadb8",
+    "examples/t3-code/client-ops-threads.ts": "6acb1f2d5eab6966829ccd00992f8dde62176783317166177ac119fa8b846628",
+    "examples/t3-code/composer-editor-attach.ts": "4736cb336eed61c870ea61bf94b1aab32c474e1ce2f7630a7129f532e00e5ced",
+    "examples/t3-code/hover-layer.test.ts": "39bd76a90c8366eb00d8b09757a4f406b920b2f0a50fd7b5952f937a3afe355c",
+    "examples/t3-code/legacy-sidebar-commands.ts": "0d8c50459bafc4b1ffaf12f26584a0286d33a4ab68eba59f050b2761a4c9a717",
+    "examples/t3-code/legacy-sidebar-drop.ts": "35a357195880db3f562d1032087152b6f159392836c468e0fd5bb84ec1d7de0c",
+    "examples/t3-code/legacy-sidebar-full.test.ts": "332213497a27e39f0663168d9ee949f1ce193db9497e9d5dc08176ac1592bcca",
+    "examples/t3-code/legacy-sidebar-model.ts": "23f1f13858c7e8fafc6325c99e3b3c57c0f8ac82774e2a8c7d0792d4923665ce",
+    "examples/t3-code/legacy-sidebar-shapes.contract": "681ffeea66b1a3d11ecfabe97b69c2e056e04b9be96a6d569ceb304fdebf5443",
+    "examples/t3-code/legacy-sidebar-view.ts": "f86e40b5e59cc03e6d331ac3e9b10f39e308c8d5f21736b8549490d49276271b",
+    "examples/t3-code/legacy-sidebar.contract": "1f32fa3813d880899780c013152ffeb46a11d86cab3b3d6dee6d0a54f59d1169",
+    "examples/t3-code/legacy-sidebar.test.ts": "62daf8ae5fe09cc48ba87a4f3ee94fae18dc2d84ea391dab537663a80a29ce94",
+    "examples/t3-code/macos/src/composer_accessibility_tests.rs": "2ec0485f26ded68f2efa332b69c2ac26d37c9a612b565a55e5c944b65d4e0a48",
+    "examples/t3-code/macos/src/legacy_sidebar_tests.rs": "cae891a505125bd6a63c420ce95a5258191f3e1a6cb62e2e1f23c6871a629603",
+    "examples/t3-code/macos/src/lib.rs": "4049ec07036481c4f3f6fd15847b0dd5aaf4f915882fef888acf2e0b00e398b5",
+    "examples/t3-code/r11-upstream-drafts.ts": "d6439e1379bdeca6a30adb3fcadcff2bb65ad4fca6ec5d955c733854d333c32a",
+    "examples/t3-code/r11-upstream.test.ts": "ab6dda6d941906fcae2fd04976478ae239470f770c8d2e4bc9851c725be429fe",
+    "examples/t3-code/scheduled-tasks-followups.test.ts": "ff02bd22fa74856116b2c123b0aed3a1297340bb199f6eb386757a667d840ffa",
+    "examples/t3-code/sidebar-commands.ts": "a708b432b5959a81943547719c64e7977415d3728581e674d3e959debb6a8f7a",
+    "examples/t3-code/sidebar-shapes.contract": "f08059f428a59a536e442ce15e1afca0fdaa39209f1b636deb3309999973fe47",
+    "examples/t3-code/sidebar-state.ts": "0df2ab87391208607df641f69d71c586f5d5c7148b1437b4112ce87064d7da13",
+    "examples/t3-code/sidebar-view.ts": "4e41fc15e29b76d2c28a8ac7acc38383e04b801f94fe47ac5e22d87b5161b1a9",
+    "examples/t3-code/sidebar.test.ts": "ac8c05a8aa0e4c219abcf73c0bc54fbd8c0b932f42cf5588b1a3273e8e0fe6af"
+  },
+  "algorithm": "hashlib.sha256(json.dumps(files, sort_keys=True, separators=(',', ':')).encode('utf-8')).hexdigest()"
+}

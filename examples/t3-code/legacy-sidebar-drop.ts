@@ -13,19 +13,19 @@ import { arr, obj, str } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
 import { letGo } from './let-go';
-import { attachStagingLimit } from './composer-editor-attach';
+import { attachStagingLimit, releaseStagedFile } from './composer-editor-attach';
 import { addAttachedFiles } from './composer-controls-attach';
 import { fleetThreadId } from './settings-b-fleet';
 
-/** The keys a drop for the open thread was queued under: its own id, and the `fleet:` key it had as a background row. */
+/** Rows keep their environment-qualified drop key when that environment becomes focused. */
 export function openThreadDropKeys(client: T3Client): string[] {
-  return client.threadId && client.environmentId ? [client.threadId, fleetThreadId(client.environmentId, client.threadId)] : [];
+  return client.threadId && client.environmentId ? [fleetThreadId(client.environmentId, client.threadId)] : [];
 }
 const queuedKeys = (client: T3Client): string[] => { const listed = obj(client.presentation).rowDrops; return Array.isArray(listed) ? listed.map(entry => str(entry)) : []; };
 
 /** clearPendingFileDrop: the queued drops under these keys go (a no-op for keys with none). */
 export async function clearRowDrops(client: T3Client, native: Native, keys: string[]): Promise<void> {
-  const queued = queuedKeys(client), going = [...new Set(keys)].filter(key => key && queued.includes(key));
+  const going = [...new Set(keys)].filter(Boolean); // The failed press can precede the status snapshot of its queue.
   if (!going.length) return;
   try { await client.restAccess(native).call({ op: 'rowDropClear', keys: going }); } catch (error) { if (letGo(error)) throw error; }
 }
@@ -34,20 +34,29 @@ export async function clearRowDrops(client: T3Client, native: Native, keys: stri
 const seen = new WeakMap<T3Client, { open: string; keys: string[] }>();
 /** consumePendingFileDrop for the open thread, when the module reports a queued drop for it. */
 export async function takeRowDrops(client: T3Client, native: Native): Promise<boolean> {
-  const queued = queuedKeys(client), keys = openThreadDropKeys(client), open = `${client.environmentId}\n${client.threadId}`;
+  if (!client.ready || !client.threadId) return false;
+  const queued = queuedKeys(client), keys = openThreadDropKeys(client), open = `${client.environmentId}\n${client.threadId}`, owner = client.snapshotOwner;
   // Only a thread that is open counts as where a navigation landed (not a draft, nor an environment switch underway).
   if (client.ready && client.threadId) {
     const last = seen.get(client);
     const stale = last && last.open !== open ? queued.filter(key => last.keys.includes(key) && !keys.includes(key)) : [];
-    seen.set(client, { open, keys: queued.filter(key => !stale.includes(key) && !keys.includes(key)) });
+    // Keep the destination while clearing: an interrupted navigation must still discard its queue.
+    seen.set(client, { open, keys: queued.filter(key => !stale.includes(key)) });
     if (stale.length) await clearRowDrops(client, native, stale);
   }
-  if (!keys.some(key => queued.includes(key))) return false;
+  if (!client.ready || owner !== client.snapshotOwner || !keys.some(key => queued.includes(key))) return false;
   try {
     const reply = obj(await client.restAccess(native).call({ op: 'rowDropTake', keys, fileLimit: attachStagingLimit(client) }));
     const files = arr(reply.files);
     if (!files.length) return false;
-    await addAttachedFiles(client, native, files, undefined, client.snapshotOwner);
+    if (!client.ready || owner !== client.snapshotOwner) {
+      for (const file of files) {
+        if (file.kind === 'image') client.local.snapshotReleases.push(str(file.id));
+        await releaseStagedFile(native, file);
+      }
+      return false;
+    }
+    await addAttachedFiles(client, native, files, undefined, owner);
     return true;
   } catch (error) { if (letGo(error)) throw error; return false; }
 }
