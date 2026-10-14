@@ -1,7 +1,7 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-13. r7 folds in round 4's review of r6 (§0). r6 restructured v1 on Charlie's word: the canvas is the running app, not captures (§0). Rulings so far (§9): Q2 (the DEFERRED admissions, for development builds only, with LLP 1121 §9 Q3), Q3 (template and style rungs: yes), Q4 (the held state: yes), Q5 (no captures in v1; the running app with hot reload). r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`); Round 4 reviewed r6: both RIGHT WITH CHANGES (`…-r4.{astra,grok}.md`). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The amendment to `rules/DEFERRED.md` lands with this RFC.
+**Status:** Draft r7, 2026-10-13. r7 folds in round 4's review of r6 (§0); Charlie has since ruled Q6 (no hosted relay) and Q7 (the four commands and three reports, for now), so only Q1, the name, is open. r6 restructured v1 on Charlie's word: the canvas is the running app, not captures (§0). Rulings so far (§9): Q2 (the DEFERRED admissions, for development builds only, with LLP 1121 §9 Q3), Q3 (template and style rungs: yes), Q4 (the held state: yes), Q5 (no captures in v1; the running app with hot reload). r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`); Round 4 reviewed r6: both RIGHT WITH CHANGES (`…-r4.{astra,grok}.md`). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The amendment to `rules/DEFERRED.md` lands with this RFC.
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
 - The Tamber server (LLP 1121 D13): build control over the dev loop's existing channel (D4), the selection join (D5), scrubs and the live-or-rebuild answer, `set-row` (D6), held proposals (D10), `commit` (D9).
@@ -670,7 +670,7 @@ is undone in one step.
     canvas.
   - Control messages (D4) need `write`: inspect, outline, hold and pin change what the
     developer's screens show.
-- **A team relay** for people who share no machine is open (§9 Q6).
+- **No team relay** (§9 Q6, ruled): remote use is pairing only.
 
 ### D13 — Security
 
@@ -875,16 +875,10 @@ lands with or after the Tamber stage it needs.
    as a form of `tap` for agents.
 5. **Captures** (D3). **Ruled (Charlie, 2026-10-13): none in v1.** The canvas is the running
    app, updated by the live table and the hot reload. Several live copies come in T7.
-6. **People who share no machine or network with the developer.** Today a remote designer
-   pairs with the developer's machine over an encrypted connection (D12). Should we also run
-   a hosted service that connects people who can't reach each other directly, so a designer
-      anywhere can work on the app with the developer? That service would carry the app's
-   design, its source locations and the live app itself. Recommended: not yet, until pairing
-   has been used.
-7. **How the tool controls running apps.** The tool never presses buttons or types into an
-   app. It sends development builds four commands: turn inspect on or off, outline these
-   nodes, hold this state, pin this mode (and text size). Builds send back three reports:
-   their status, what was tapped in inspect mode, and what they can't do (D4). Today's dev
-   channel only goes one way, so the reports and a registration step are new. Is that the
-   right limit? Recommended: yes. Driving apps (taps, typing) stays with agents, through the
-   agent API, where it is already scoped and journaled.
+6. **People who share no machine or network with the developer.** **Ruled (Charlie,
+   2026-10-13): no hosted relay.** Remote use is pairing only, over an encrypted connection
+   (D12).
+7. **How the tool controls running apps.** **Ruled (Charlie, 2026-10-13): yes, for now.** The
+   tool sends four commands (inspect, outline, hold, pin) and receives three reports
+   (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
+   stay with agents, through the agent API.
