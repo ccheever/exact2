@@ -51,9 +51,21 @@ final class TextField: UITextField {
         if ok, let owner { selections?.focused(owner) }
         return ok
     }
+    override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
+        } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
+    }
+    override func insertText(_ text: String) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
+        } else { super.insertText(text) }
+    }
     override func deleteBackward() {
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
-        super.deleteBackward()
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
+        } else { super.deleteBackward() }
     }
     // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
@@ -84,13 +96,26 @@ package final class TextArea: UITextView {
     /// The Markdown styler when `markup="markdown"` (LLP 1045 D5).
     package var markup: MarkdownEditing?
 
+    package override func setMarkedText(_ markedText: String?, selectedRange: NSRange) {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: markedText ?? "", marked: true) { super.setMarkedText(markedText, selectedRange: selectedRange) }
+        } else { super.setMarkedText(markedText, selectedRange: selectedRange) }
+    }
     package override func insertText(_ text: String) {
         // UIKeyInput (including the software keyboard) need not ask the
         // text-view delegate before insertion. Handle a plain Return here;
         // the command's own native insertion bypasses through `applying`.
         if text == "\n", let editor = markup, !editor.applying,
            markedTextRange == nil, owner?.formatMarkup("newline", selection: selectedRange) == true { return }
-        super.insertText(text)
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: text, marked: markedTextRange != nil) { super.insertText(text) }
+        } else { super.insertText(text) }
+    }
+
+    package override func deleteBackward() {
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.nativeEdit(owner, replacement: "", marked: markedTextRange != nil) { super.deleteBackward() }
+        } else { super.deleteBackward() }
     }
 
     package override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
@@ -268,6 +293,9 @@ extension NodeView {
     }
     func configureMarkup() {
         guard let f = textArea as? TextArea else { return }
+        #if os(iOS)
+        f.pasteDelegate = props["markup"] == "markdown" ? nil : self
+        #endif
         if props["markup"] == "markdown" {
             if f.markup == nil { f.markup = MarkdownLink.installed?.editor() }
         } else if let editor = f.markup, f.markedTextRange == nil {
@@ -355,6 +383,7 @@ extension NodeView {
     }
     package func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props)
+            && (presenter?.fieldSelections.shouldEdit(self, range: range, replacement: text, marked: textView.markedTextRange != nil) ?? true)
     }
     package func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }

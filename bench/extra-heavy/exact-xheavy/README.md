@@ -7,7 +7,7 @@ and `inbox` since LLP 1070 stage 4, origin/main `50a00477`).
 
 | path | what |
 |---|---|
-| `app.contract` | the screen: one `list virtualized=true`, one keyed `each`, a header and one body per kind |
+| `app.contract` | the screen: one `list virtualized=true`, one keyed `for`, a header and one body per kind |
 | `svgs.contract` | generated: the 48 SVG files as components, SVGR style (`gen-svgs.py` from `../data/svgs.json`) + `Icon` / `Chart` / `Art` by name |
 | `rings.contract` | generated: the live row's ring and its 101 keyframes (`gen-rings.py`) |
 | `lottie.contract` | the four Lottie files ported by hand to SVG + `@keyframes` |

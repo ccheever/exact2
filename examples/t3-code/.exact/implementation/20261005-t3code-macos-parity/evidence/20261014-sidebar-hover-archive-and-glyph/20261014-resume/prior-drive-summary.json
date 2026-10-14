@@ -1,0 +1,182 @@
+{
+  "drive-before": [
+    {
+      "operationIndex": 35,
+      "focus": {
+        "logical": 153,
+        "editor": 153,
+        "responder": "TextArea",
+        "pending": null,
+        "keyboardNavigation": false
+      },
+      "draft": "undo check",
+      "error": "",
+      "relevantThreads": [],
+      "sidebarHover": {
+        "sidebarHoverId": "",
+        "sidebarHoverLast#1": "shag-1~active#settle",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 0,
+        "sidebarHoverSeq#1": 8
+      }
+    },
+    {
+      "operationIndex": 39,
+      "focus": {
+        "editor": 153,
+        "responder": "TextArea",
+        "pending": null,
+        "keyboardNavigation": false,
+        "logical": 153
+      },
+      "draft": "",
+      "error": "",
+      "relevantThreads": [],
+      "sidebarHover": {
+        "sidebarHoverId": "",
+        "sidebarHoverLast#1": "shag-1~active#settle",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 0,
+        "sidebarHoverSeq#1": 8
+      }
+    },
+    {
+      "operationIndex": 60,
+      "focus": {
+        "editor": null,
+        "keyboardNavigation": false,
+        "logical": null,
+        "responder": null,
+        "pending": null
+      },
+      "draft": "",
+      "error": "",
+      "relevantThreads": [
+        {
+          "id": "fleet:fad3382f-635f-429e-8038-55cedd28890c:ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+          "title": "Studio branch",
+          "badge": "",
+          "badgeIcon": "",
+          "badgeState": ""
+        }
+      ],
+      "sidebarHover": {
+        "sidebarHoverId": "",
+        "sidebarHoverLast#1": "shag-1~active#settle",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 0,
+        "sidebarHoverSeq#1": 8
+      }
+    },
+    {
+      "unarchiveControls": [
+        {
+          "testId": "unarchive-shag-2",
+          "label": "Unarchive Undo me"
+        },
+        {
+          "testId": "unarchive-shag-4",
+          "label": "Unarchive Archive fixture B"
+        }
+      ]
+    }
+  ],
+  "drive-after": [
+    {
+      "operationIndex": 35,
+      "focus": {
+        "responder": null,
+        "pending": null,
+        "keyboardNavigation": false,
+        "editor": null,
+        "logical": null
+      },
+      "draft": "undo check",
+      "error": "",
+      "relevantThreads": [],
+      "sidebarHover": {
+        "sidebarHoverId": "shag-1~active",
+        "sidebarHoverLast#1": "shag-1~active",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 82,
+        "sidebarHoverSeq#1": 9,
+        "sidebarHoverHeld#1": "shag-1~active"
+      }
+    },
+    {
+      "operationIndex": 39,
+      "focus": {
+        "keyboardNavigation": false,
+        "logical": null,
+        "editor": null,
+        "responder": null,
+        "pending": null
+      },
+      "draft": "undo check",
+      "error": "",
+      "relevantThreads": [
+        {
+          "id": "shag-2",
+          "title": "Undo me",
+          "badge": "",
+          "badgeIcon": "",
+          "badgeState": ""
+        }
+      ],
+      "sidebarHover": {
+        "sidebarHoverId": "shag-1~active",
+        "sidebarHoverLast#1": "shag-1~active",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 82,
+        "sidebarHoverSeq#1": 9,
+        "sidebarHoverHeld#1": "shag-1~active"
+      }
+    },
+    {
+      "operationIndex": 60,
+      "focus": {
+        "logical": null,
+        "editor": null,
+        "responder": null,
+        "pending": null,
+        "keyboardNavigation": false
+      },
+      "draft": "undo check",
+      "error": "Cannot set property 'reading' of undefined",
+      "relevantThreads": [
+        {
+          "id": "fleet:fad3382f-635f-429e-8038-55cedd28890c:ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+          "title": "Studio branch",
+          "badge": "113",
+          "badgeIcon": "git-pull-request-arrow",
+          "badgeState": "open"
+        },
+        {
+          "id": "shag-2",
+          "title": "Undo me",
+          "badge": "",
+          "badgeIcon": "",
+          "badgeState": ""
+        }
+      ],
+      "sidebarHover": {
+        "sidebarHoverId": "",
+        "sidebarHoverLast#1": "shag-1~active",
+        "sidebarHoverY#1": -10000,
+        "sidebarHoverH#1": 82,
+        "sidebarHoverSeq#1": 9,
+        "sidebarHoverHeld#1": "shag-1~active"
+      }
+    },
+    {
+      "unarchiveControls": [
+        {
+          "testId": "unarchive-shag-4",
+          "label": null,
+          "text": "Unarchive",
+          "decorativeIconHidden": true
+        }
+      ]
+    }
+  ]
+}

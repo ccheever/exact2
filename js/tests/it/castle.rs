@@ -59,7 +59,7 @@ component App
       button press=logout aria-label="Log out" testId="logout"
         text "Log out"
       text remembered.username testId="remembered"
-      when busy
+      if busy
         text "busy" testId="busy"
       match session
         case some(s)

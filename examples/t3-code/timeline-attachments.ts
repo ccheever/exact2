@@ -11,9 +11,10 @@ import { fileIconToken } from './timeline-files';
 import { assetUrl } from './settings-b-icons';
 import { imageChipInks } from './r4-timeline-chips';
 import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent videos (UserVideoAttachment)
-import { markdownMedia, markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
+import { markdownDocument, markdownGallery, markdownMedia, markdownMediaUrls, type GalleryImage, type MediaScope } from './media-views'; // media-actions: the transcript's host-path media
 import { letGo } from './let-go';
-import { encodeMediaSource } from './media-actions';
+import { encodeMediaSource, mediaTooltip } from './media-actions';
+import { draftThreadId } from './r7-handoff-thread';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -42,7 +43,8 @@ const urls = new Map<string, { url: string; expiresAt: number }>();
 /** Signed preview URLs for the selected thread's sent images (useAssetUrls), cached until shortly before they expire. */
 type AttachmentUrl = { id: string; url: string; fill: string; hover: string; border: string; ink: string };
 export async function attachmentUrls(client: T3Client, native: Native | null | undefined, now: number): Promise<{ items: AttachmentUrl[] }> {
-  if (!native?.available || client.connection !== 'connected' || !client.threadId) return { items: [] };
+  if (!native?.available || client.connection !== 'connected') return { items: [] };
+  if (!client.threadId) return { items: await galleryUrls(client, native, now, new Set()) }; // a draft's Files preview
   const wanted: Obj[] = [];
   for (const row of arr(client.projection.visibleTurnItems)) {
     const item = obj(row.item);
@@ -79,7 +81,18 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
     try { preview.url = await signMediaFile(client, native, preview.path); } catch (error) { if (letGo(error)) throw error; }
   }
   if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
+  media.push(...await galleryUrls(client, native, now, new Set(media.map(item => item.id))));
   return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
+}
+/** G4-05: the open Markdown gallery's URLs the transcript's do not hold: a web image as written, a host path signed through the
+ *  thread (a draft's own in Files) with the document's folder and workspace, as its view signed it. */
+async function galleryUrls(client: T3Client, native: Native, now: number, known: Set<string>): Promise<AttachmentUrl[]> {
+  const gallery = activeGallery(client), out: AttachmentUrl[] = [];
+  if (!gallery) return out;
+  const add = (entry: { id: string; url: string }) => { if (!known.has(entry.id)) { known.add(entry.id); out.push({ ...entry, ...NO_INKS }); } };
+  for (const item of gallery.items) if (item.access === 'direct') add({ id: item.key, url: item.key });
+  if (gallery.signThread) for (const entry of await markdownMediaUrls(client, native, gallery.root, now, [gallery.text], { ...gallery.scope, threadId: gallery.signThread })) add(entry);
+  return out;
 }
 
 /** media-actions: the URL a sent attachment shows now (its Save and Copy image source), or null. */
@@ -91,6 +104,15 @@ export function forgetAttachmentUrl(client: T3Client, id: string): void { urls.d
 
 interface Preview { threadId: string; messageId: string; imageId: string }
 const previews = new WeakMap<T3Client, Preview | null>();
+/** G4-05 (chat-markdown-media-and-code): a Markdown image's expanded preview (ChatMarkdown expandableMarkdownImageProps and
+ *  markdownImageGallery): its document's images in order, the one shown, and the thread its host paths sign through. */
+type Gallery = { threadId: string; signThread: string; text: string; root: string; scope: MediaScope; items: GalleryImage[]; index: number; opener: string };
+const galleries = new WeakMap<T3Client, Gallery | null>();
+const activeGallery = (client: T3Client): Gallery | null => {
+  const gallery = galleries.get(client);
+  if (gallery && gallery.threadId !== client.threadId) { galleries.set(client, null); return null; }
+  return gallery ?? null;
+};
 function messageImages(client: T3Client, messageId: string, selected = ''): MessageImage[] {
   const row = arr(client.projection.visibleTurnItems).find(row => JSON.stringify([row.sourceThreadId, row.sourceItemId]) === messageId);
   const all = messageAttachments(obj(row?.item)).images, video = all.find(image => image.id === selected && image.video);
@@ -100,10 +122,27 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {
   const current = previews.get(client);
-  if (op === 'image-close') { previews.set(client, null); mediaPreviews.set(client, null); return ''; }
+  if (op === 'image-close') { previews.set(client, null); mediaPreviews.set(client, null); galleries.set(client, null); return ''; }
   if (op === 'image-open') {
     if (!messageImages(client, value, id).some(image => image.id === id)) throw new ClientError('That image is no longer available.');
     previews.set(client, { threadId: client.threadId, messageId: value, imageId: id });
+    galleries.set(client, null);
+    return '';
+  }
+  // G4-05: the key identifies the source; the parsed document's occurrence selects this image even when a URL repeats.
+  if (op === 'image-md-open') {
+    const [owner = '', opener = '', occurrence = ''] = value.split('\n'), index = Number(occurrence);
+    const document = markdownDocument(owner), items = document ? markdownGallery(document) : [];
+    if (!document || !opener || !occurrence || !Number.isInteger(index) || items[index]?.key !== id) throw new ClientError('That image is no longer available.');
+    previews.set(client, null); mediaPreviews.set(client, null);
+    galleries.set(client, { threadId: client.threadId, signThread: client.threadId || draftThreadId(client), text: document.text, root: document.root, scope: document.scope, items, index,
+      opener });
+    return '';
+  }
+  const gallery = activeGallery(client);
+  if (op === 'image-step' && gallery) {
+    // ExpandedImagePreview wraps around in both directions.
+    gallery.index = (((gallery.index + (value === 'previous' ? -1 : 1)) % gallery.items.length) + gallery.items.length) % gallery.items.length;
     return '';
   }
   if (op === 'image-step' && current) {
@@ -135,6 +174,7 @@ export async function openMarkdownMediaPreview(client: T3Client, native: Native,
   const threadId = client.threadId, url = await signMediaFile(client, native, path);
   if (client.threadId !== threadId) return;
   previews.set(client, null);
+  galleries.set(client, null);
   mediaPreviews.set(client, { threadId, path, key: media.key, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1), video: media.kind === 'video', root, url });
 }
 const activeMediaPreview = (client: T3Client): MediaPreview | null => {
@@ -154,14 +194,22 @@ export function imagePreviewView(client: T3Client) {
   if (media) {
     const source = markdownMedia(media.name, media.path, '', media.root).source;
     return { imagePreviewId: media.key, imagePreviewName: media.name, imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false,
-      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '' };
+      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '', imagePreviewTip: source ? mediaTooltip({ ...source, name: media.name }) : media.name, imagePreviewReturn: '' };
+  }
+  const gallery = activeGallery(client);
+  if (gallery) {
+    const item = gallery.items[gallery.index]!, many = gallery.items.length > 1;
+    return { imagePreviewId: item.key, imagePreviewName: item.name, imagePreviewPosition: many ? `(${gallery.index + 1}/${gallery.items.length})` : '', imagePreviewPrevious: many,
+      imagePreviewNext: many, imagePreviewVideo: false, imagePreviewSource: encodeMediaSource(item.source), imagePreviewTip: mediaTooltip(item.source),
+      imagePreviewReturn: gallery.opener };
   }
   const current = previews.get(client);
   const images = current && current.threadId === client.threadId ? messageImages(client, current.messageId, current.imageId) : [];
   const index = current ? images.findIndex(image => image.id === current.imageId) : -1;
   const image = index >= 0 ? images[index]! : null;
   return { imagePreviewId: image?.id ?? '', imagePreviewName: image?.name ?? '', imagePreviewPosition: image && images.length > 1 ? `(${index + 1}/${images.length})` : '',
-    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '' };
+    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '',
+    imagePreviewTip: image?.name ?? '', imagePreviewReturn: '' };
 }
 
 // ImageChipButton tints its chip with the picture's average colour (lane r4-timeline).

@@ -53,7 +53,12 @@ final class FocusEvents {
                 if node.handlers.contains("focusin") { inbound.append(node.id) }
                 if node.handlers.contains("focusout") { outbound.append(node.id) }
             }
+            #if os(macOS)
+            if let node = next as? NodeView { cursor = presenter.blocks.parent(of: node) }
+            else { cursor = next.superview }
+            #else
             cursor = next.superview
+            #endif
         }
         return FocusSnapshot(node: id, name: (presenter.inlineText(id)?.props ?? view.props)["id"] ?? "", path: path, inbound: inbound, outbound: outbound)
     }

@@ -433,7 +433,7 @@ component App
     main
       button press=open(top(nav).url) testId="read"
         text "Read"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}`
           text e.url
 "#;
@@ -676,7 +676,7 @@ component App
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" display="flex" flex-direction="column"
       column flex=1 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             STACK
       row role="tablist"
@@ -685,7 +685,7 @@ component App
         button role="tab" aria-controls="panel-saved" press=pick("saved")
           text "Saved"
 "#;
-    let stack = "each e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
+    let stack = "for e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
     contract::compile(&tabs.replace("STACK", stack)).unwrap();
     // A route inside a route is shown by no host.
     let nested = stack.replace("text e.url", "column navigationKey=\"inner\"");
@@ -693,7 +693,7 @@ component App
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(error.message.contains("inside another route"), "{error}");
     // Behind a wrapper inside a panel: the message names the path.
-    let wrapped = "column\n              each e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
+    let wrapped = "column\n              for e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
     let error = contract::compile(&tabs.replace("STACK", wrapped)).unwrap_err();
     assert_eq!(error.id, "lower-route-place", "{error}");
     assert!(
@@ -723,7 +723,7 @@ fn a_root_with_a_key_and_no_back_control_named_is_the_navigation_root() {
 component App
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
           text e.url
 "#;
@@ -743,8 +743,8 @@ component App
     assert_rows(&r);
     // Routes now sit where every host finds them, or are refused.
     let wrapped = source.replace(
-        "      each e in stack(nav) key=e.id\n        column navigationKey",
-        "      column\n        each e in stack(nav) key=e.id\n          column navigationKey",
+        "      for e in stack(nav) key=e.id\n        column navigationKey",
+        "      column\n        for e in stack(nav) key=e.id\n          column navigationKey",
     );
     let error = contract::compile(&wrapped).unwrap_err();
     assert_eq!(error.id, "lower-route-place", "{error}");
@@ -770,7 +770,7 @@ component App
 fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
     // @ref LLP 1116.009 D2 — a location no route matches keeps its URL: the
     // compiler writes `notfound` and a screen for it where the app draws a
-    // route per stack entry, whether the route element is under a `when` or
+    // route per stack entry, whether the route element is under an `if` or
     // stands for every entry (a blank screen for one no branch names).
     let source = r#"routes nav
   home "/"
@@ -778,17 +778,17 @@ fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
 component App
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
-          when e.name == "home"
+          if e.name == "home"
             text "Home" testId="home"
-          when e.name == "detail"
+          if e.name == "detail"
             text "Detail" testId="detail"
 "#;
     let under_when = source
         .replace(
-            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          when e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          when e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
-            "        when e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        when e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
+            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          if e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          if e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
+            "        if e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        if e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
         );
     assert_ne!(under_when, source);
     for source in [source, under_when.as_str()] {
@@ -860,7 +860,7 @@ component App
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` NAMED position="absolute" inset=0 display="flex" flex-direction="column"
           header
             text "Title"
@@ -885,7 +885,7 @@ component Pane
         // What the compiler cannot see through is given the benefit.
         "column id=e.url",
         "column id=\"list\" overflow-y=(e.url == \"/\" ? \"auto\" : \"hidden\")",
-        "when e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
+        "if e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
         "Pane(name=\"list\")",
         // A computed id may name the scroller beside a static still box.
         "column id=\"list\"\n          scroll id=e.url flex=1 min-height=0",

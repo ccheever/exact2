@@ -37,7 +37,8 @@ pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
-    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+    added_padding as cover_padding, apply as apply_cover,
+    children_changed as cover_children_changed, published_extent,
 };
 pub use sticky::StickyConstraint;
 

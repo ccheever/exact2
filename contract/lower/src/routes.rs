@@ -618,7 +618,7 @@ fn still_on_y(tag: &str, attrs: &[Attr]) -> bool {
 /// loss.
 fn scrolls_a_grouped_list(tag: &str, attrs: &[Attr], children: &[Node]) -> bool {
     type El<'a> = (&'a str, &'a [Attr], &'a [Node]);
-    // The elements `nodes` hold, through `when`, `each` and `match` but not
+    // The elements `nodes` hold, through `if`, `for` and `match` but not
     // through an element, in order.
     fn level<'a>(nodes: &'a [Node], out: &mut Vec<El<'a>>) {
         for node in nodes {

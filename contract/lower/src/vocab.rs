@@ -22,18 +22,26 @@ pub fn accepts(prop: PropId) -> Option<&'static str> {
 
 include!(concat!(env!("OUT_DIR"), "/vocab.rs"));
 
-/// Attributes legal only on some tags, as `lib.rs`'s `lower-attr-tag`
-/// refusals decide; the `head` fields are [`tags::HEAD_FIELDS`].
+/// Attributes restricted by tag or collection shape; the `head` fields
+/// are [`tags::HEAD_FIELDS`].
 pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("sandbox", "`iframe`"),
     ("src", "`iframe` or `video`"),
     ("load", "`iframe`, `image` or a native module"),
     ("message", "`iframe`, `canvas` or a native module"),
     ("document", "`scroll`"),
-    ("reachstart", "`list`"),
-    ("reachend", "`list`"),
+    (
+        "reachstart",
+        "`list virtualized=true` with one direct `each`",
+    ),
+    ("reachend", "`list virtualized=true` with one direct `each`"),
     ("text-transform", "any tag but `input` and `textarea`"),
-    ("selectionchange", "`text`"),
+    ("transform", "SVG elements, including `svg` and SVG `text`"),
+    (
+        "selectionchange",
+        "`text`, plain text `input` or `textarea`",
+    ),
+    ("beforeinput", "plain text `input` or `textarea`"),
     ("name", "`input type=\"radio\"`"),
     ("markup", "`text` or `textarea`"),
     // @ref LLP 1098 D1, D2 — the media session's, `media::check_session`.
@@ -53,6 +61,14 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
         "an `audio` or `video` with `metadata=`",
     ),
 ];
+
+/// The compiler and target emitters share the collection-edge refusal.
+pub fn collection_edge_refusal(event: &str) -> String {
+    format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `each`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
+}
+
+/// LLP 1055.000 D5's box refusal and the alternatives printed by `contract vocab`.
+pub const BOX_TRANSFORM_REFUSAL: &str = "write the individual `translate`, `rotate` and `scale` properties on a box: `transform=\"translate(0px, 25px)\"` becomes `translate=\"0px 25px\"`, and `transform=\"scale(0.8)\"` becomes `scale=0.8`; `transform` on a box is deferred (LLP 1055.000 D5), and is accepted only on SVG elements";
 
 /// What a button with no `buttonStyle` is on each host (LLP 1115.000 D15,
 /// D14.5), in one sentence for both places that print it. The hosts hold the

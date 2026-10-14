@@ -15,7 +15,7 @@ pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
-pub use field::{FieldSelection, SelectionDirection};
+pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
@@ -72,6 +72,7 @@ pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
+mod split;
 mod surface_record;
 mod time;
 mod viewport;
@@ -79,6 +80,7 @@ mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
+pub use split::StackSplit;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -339,7 +341,7 @@ struct Timer {
     next_ms: f64,
     /// Whether the task's gate holds (always, for `mount`).
     armed: bool,
-    /// The key it was armed with (`key=`), as `each` compares keys.
+    /// The key it was armed with (`key=`), as `for` compares keys.
     key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
@@ -1242,7 +1244,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The plan site a view was instantiated from and the instance path to
-    /// it — the `each` keys and active arms crossed — for `layout <node>`
+    /// it — the `for` keys and active arms crossed — for `layout <node>`
     /// (LLP 1035.002 D6). `None` for a view the instance tree does not own.
     pub fn site_of(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
         self.tree.as_ref().and_then(|t| t.site(view))

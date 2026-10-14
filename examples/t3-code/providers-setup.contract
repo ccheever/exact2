@@ -41,7 +41,7 @@ shape ProviderAccount
   disabled: bool
   token: string
   draftId: string
-  methods: list<ProviderAuthMethod>
+  methods: ProviderAuthMethod[]
   pickMethod: bool
   url: string
   docsUrl: string
@@ -59,7 +59,7 @@ shape ProviderAccount
   flow: string
   output: string
   offset: number
-  credentials: list<ProviderCredentialField>
+  credentials: ProviderCredentialField[]
   callback: bool
   formKey: string
   error: string
@@ -89,13 +89,13 @@ shape ProviderSetupView
   environmentLabel: string
   mode: string
   showEnable: bool
-  runtime: list<ProviderRuntime>
-  account: list<ProviderAccount>
-  codex: list<CodexSetup>
+  runtime: ProviderRuntime[]
+  account: ProviderAccount[]
+  codex: CodexSetup[]
   cursorNote: string
 shape ProviderWizardAuth
   instanceId: string
-  account: list<ProviderAccount>
+  account: ProviderAccount[]
   discovering: bool
   signedIn: bool
   active: bool
@@ -177,7 +177,7 @@ component ProviderAccountRow
   action authEvent(message: string)
     op("setup:auth-event", account.instanceId, "", message, true)
   derive off = account.disabled or busy
-  derive methodLabel = join(map(filter(account.methods, (m) => m.id == methodId), (m) => m.name), "")
+  derive methodLabel = account.methods.filter((m) => m.id == methodId).map((m) => m.name).join("")
   derive methodValue = (methodLabel == "" ? "" : methodId)
   view
     SetupRowFrame(divided=divided, tight=account.details, testId=`${idPrefix}provider-account-${account.instanceId}`)
@@ -185,61 +185,62 @@ component ProviderAccountRow
         column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
           row min-height="1.25rem" align-items="center"
             text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 autofocus=(idPrefix == "wizard-")
-          when account.email != ""
+          if account.email != ""
             row max-width="36rem" min-width=0 gap="0.25rem" align-items="baseline" flex-wrap="wrap"
               text "Signed in as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
               RedactedText(value=account.email, placeholder=account.emailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`${idPrefix}provider-email-${account.instanceId}`)
           else
             text account.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" role="status" color="light-dark(#70707acc, #818181cc)" testId=`${idPrefix}provider-account-description-${account.instanceId}`
-          when account.status != ""
+          if account.status != ""
             text account.status padding-top="0.125rem" font-size="0.75rem" line-height="1rem" role="status" color="light-dark(#71717b, #818181)" testId=`${idPrefix}provider-account-message-${account.instanceId}`
         row flex-shrink=0 min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
-          when account.pickMethod
+          if account.pickMethod
             box position="relative" flex-shrink=0
               button popovertarget=`${idPrefix}provider-auth-method-${account.instanceId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label="Sign-in method" disabled=off testId=`${idPrefix}provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
                 text (methodLabel == "" ? "Provider default" : methodLabel) font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
                 CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
               KeyMenuOpen(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, armed=keyArmed, opened=keyOpened)
-              CnMenu(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=concat([KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-default`, label="Provider default")], map(account.methods, (method) => KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
+              CnMenu(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=[KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-default`, label="Provider default")].concat(account.methods.map((method) => KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
                 CnMenuItem(keysId=`${idPrefix}provider-auth-method-${account.instanceId}-menu-keys`, label="Provider default", menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-default`, destructive=false, disabled=false, radio=false, highlighted=(methodValue == ""), note="", icon="", submenu="", choose=pickMethod(""))
-                each method in account.methods key=method.id
+                for method in account.methods key=method.id
                   CnMenuItem(keysId=`${idPrefix}provider-auth-method-${account.instanceId}-menu-keys`, label=method.name, menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, destructive=false, disabled=false, radio=false, highlighted=(method.id == methodValue), note="", icon="", submenu="", choose=pickMethod(method.id))
-          when account.url != ""
+          if account.url != ""
             SetupButton(label="Open browser", disabled=off, full=false, testId=`${idPrefix}provider-auth-open-${account.instanceId}`, press=op("setup:auth-open", account.instanceId, account.draftId, "", true))
             box position="relative" flex-shrink=0 hover=copyHover
               button press=op("setup:auth-copy", account.instanceId, account.draftId, "", true) class=PvIconButton width="1.75rem" height="1.75rem" disabled=off opacity=(off ? 0.64 : 1) aria-label="Copy sign-in link" testId=`${idPrefix}provider-auth-copy-${account.instanceId}` title=""
                 PvIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
-              when copyOver
+              if copyOver
                 CnTooltip(tip="Copy sign-in link", tipId=`${idPrefix}provider-auth-copy-tip-${account.instanceId}`, above=32)
-          when account.docsUrl != ""
+          if account.docsUrl != ""
             link href=account.docsUrl class=PvOutline testId=`${idPrefix}provider-auth-docs-${account.instanceId}`
               text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-          when account.showCancel
+          if account.showCancel
             button press=op("setup:auth-cancel", account.instanceId, account.token, "", true) class=PvOutline border-width=0 background-color="#00000000" disabled=off opacity=(off ? 0.64 : 1) aria-label="Cancel sign-in" testId=`${idPrefix}provider-auth-cancel-${account.instanceId}`
               text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
-          when account.showStart
+          if account.showStart
             SetupButton(label=account.startLabel, disabled=(account.startDisabled or busy), full=false, testId=`${idPrefix}provider-sign-in-${account.instanceId}`, press=op("setup:auth-start", account.instanceId, account.token, methodValue, true))
-          when account.showSignOut
+          if account.showSignOut
             button press=askSignOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}`
               text "Sign out" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-      when account.details
+      if account.details
         column width="100%"
-          when account.deviceCode != ""
+          if account.deviceCode != ""
             row padding-top="0.5rem" padding-bottom="0.5rem" gap="0.25rem" align-items="baseline" flex-wrap="wrap" testId=`${idPrefix}provider-auth-device-code-${account.instanceId}`
               text "Enter code" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               text account.deviceCode font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
               text "in your browser." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-          when account.terminal
-            each key in [account.flow] key=key
+          if account.terminal
+            for key in [account.flow] key=key
               column padding-top="0.5rem" padding-bottom="0.5rem"
-                t3-terminal scheme=scheme auth-instance=account.instanceId auth-flow=account.flow auth-output=account.output auth-offset=account.offset read-only=false terminal-font-size=13 focus-request=1 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height="16rem" width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
-          when length(account.credentials) > 0
-            each key in [account.formKey] key=key
+                // ProviderAuthTerminal: the surface is not focused as it opens (no focus request; terminal-links-and-close G1-11).
+                t3-terminal scheme=scheme auth-instance=account.instanceId auth-flow=account.flow auth-output=account.output auth-offset=account.offset read-only=false terminal-font-size=13 focus-request=0 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height="16rem" width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
+          if account.credentials.length > 0
+            for key in [account.formKey] key=key
               ProviderCredentialsForm(account=account, off=off, op=op)
-          when account.callback
-            each key in [account.formKey] key=key
+          if account.callback
+            for key in [account.formKey] key=key
               ProviderCallbackForm(account=account, off=off, op=op)
-          when account.error != ""
+          if account.error != ""
             text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`${idPrefix}provider-auth-error-${account.instanceId}`
 
 // The credentials form (an ACP `env_var` method): one field per advertised value,
@@ -299,10 +300,10 @@ component ProviderCredentialsForm
     if index == 15
       f15 = value
   // The values in field order, each URI-encoded and joined by "&" (provider-setup.ts decodes them).
-  derive values = join(map([f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15], (v) => encodeURIComponent(v)), "&")
+  derive values = [f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15].map((v) => encodeURIComponent(v)).join("&")
   view
     column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`provider-auth-credentials-${account.instanceId}`
-      each field in account.credentials key=field.name
+      for field in account.credentials key=field.name
         column width="100%" gap="0.25rem"
           text field.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           input value=(field.index == 0 ? f0 : field.index == 1 ? f1 : field.index == 2 ? f2 : field.index == 3 ? f3 : field.index == 4 ? f4 : field.index == 5 ? f5 : field.index == 6 ? f6 : field.index == 7 ? f7 : field.index == 8 ? f8 : field.index == 9 ? f9 : field.index == 10 ? f10 : field.index == 11 ? f11 : field.index == 12 ? f12 : field.index == 13 ? f13 : field.index == 14 ? f14 : f15) input=set(field.index) submit=op("setup:auth-credentials", account.instanceId, account.draftId, values, not off) type=(field.secret ? "password" : "text") autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label=field.label class=PvField width="100%" disabled=off testId=`provider-auth-credential-${field.name}`
@@ -322,8 +323,8 @@ component ProviderCallbackForm
     column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`provider-auth-callback-form-${account.instanceId}`
       column width="100%" gap="0.25rem"
         text "If the final localhost page does not load, paste its full URL here." font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        input value=callback input=edit submit=op("setup:auth-callback", account.instanceId, account.draftId, callback, not off and trim(callback) != "") type="url" autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label="If the final localhost page does not load, paste its full URL here." class=PvField width="100%" disabled=off testId=`provider-callback-${account.instanceId}`
-      SetupButton(label="Continue", disabled=(off or trim(callback) == ""), full=false, testId=`provider-auth-continue-${account.instanceId}`, press=op("setup:auth-callback", account.instanceId, account.draftId, callback, true))
+        input value=callback input=edit submit=op("setup:auth-callback", account.instanceId, account.draftId, callback, not off and callback.trim() != "") type="url" autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label="If the final localhost page does not load, paste its full URL here." class=PvField width="100%" disabled=off testId=`provider-callback-${account.instanceId}`
+      SetupButton(label="Continue", disabled=(off or callback.trim() == ""), full=false, testId=`provider-auth-continue-${account.instanceId}`, press=op("setup:auth-callback", account.instanceId, account.draftId, callback, true))
 
 // ProviderSetupActions' Runtime row: status, byte progress, notes, Install/Update/
 // Reinstall/Retry or Cancel installation, and the Remove icon (it confirms first).
@@ -345,11 +346,11 @@ component ProviderRuntimeRow
           row min-height="1.25rem" align-items="center"
             text "Runtime" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           text "Install and manage Antigravity." max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
-          when runtime.customNote or runtime.unavailableNote
+          if runtime.customNote or runtime.unavailableNote
             column gap="0.5rem" padding-top="0.125rem"
-              when runtime.customNote
+              if runtime.customNote
                 text "Uses the custom binary path below. Installation keeps that path." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-              when runtime.unavailableNote
+              if runtime.unavailableNote
                 text "Automatic installation unavailable. Set a binary path or use another environment." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         column flex-shrink=0 width=(wide ? "14rem" : "100%") min-width=0 gap="0.5rem" align-items="stretch"
           text runtime.statusMessage min-height="1rem" font-size="0.75rem" line-height="1rem" text-align=(wide ? "right" : "left") font-variant-numeric="tabular-nums" role="status" color="light-dark(#71717b, #818181)" testId=`provider-runtime-status-${instanceId}`
@@ -357,21 +358,21 @@ component ProviderRuntimeRow
           // accent-foreground" value max>`: the platform's determinate bar (AppKit's NSProgressIndicator, LLP 1116 D8),
           // which says its value, minimum and maximum itself.
           box width="100%" height="0.25rem"
-            when runtime.progressMax > 0
+            if runtime.progressMax > 0
               progress value=runtime.progressValue max=runtime.progressMax aria-label="Antigravity download" display="block" width="100%" height="0.25rem" accent-color="light-dark(#27272a, #f5f5f5)" testId=`provider-runtime-progress-${instanceId}`
-          when runtime.message != ""
+          if runtime.message != ""
             text runtime.message font-size="0.75rem" line-height="1rem" text-align=(wide ? "right" : "left") color="light-dark(#71717b, #818181)" testId=`provider-runtime-message-${instanceId}`
           row width="100%" min-height="1.75rem" gap="0.5rem" align-items="center"
             box width="1.75rem" height="1.75rem" flex-shrink=0 position="relative" hover=removeHover
-              when runtime.showRemove
+              if runtime.showRemove
                 button press=ui("setup-remove", instanceId) id=`provider-runtime-remove-${instanceId}` class=PvIconButton width="1.75rem" height="1.75rem" disabled=(runtime.removeDisabled or busy) opacity=(runtime.removeDisabled or busy ? 0.64 : 1) aria-label="Remove downloaded runtime" testId=`provider-runtime-remove-${instanceId}` title=""
                   PvIcon(name="trash", size=14, color="light-dark(#27272a, #f5f5f5)")
-                when removeOver
+                if removeOver
                   CnTooltip(tip="Remove downloaded runtime", tipId=`provider-runtime-remove-tip-${instanceId}`, above=32)
             column flex=1 min-width=0
-              when runtime.showCancel
+              if runtime.showCancel
                 SetupButton(label="Cancel installation", disabled=(runtime.cancelDisabled or busy), full=true, testId=`provider-runtime-cancel-${instanceId}`, press=op("setup:install-cancel", instanceId, runtime.token, "", true))
-              when runtime.showInstall
+              if runtime.showInstall
                 SetupButton(label=runtime.installLabel, disabled=(runtime.installDisabled or busy), full=true, testId=`provider-runtime-install-${instanceId}`, press=op("setup:install-start", instanceId, runtime.token, "", true))
 
 // ProviderSetupSection (Antigravity): Environment, then "Setup unavailable" (read-only),
@@ -396,23 +397,23 @@ component ProviderAntigravitySetup
             text "Device that runs this provider." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
           column flex-shrink=0 min-width=0 gap="0.5rem" align-items=(wide ? "flex-end" : "flex-start")
             text setup.environmentLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-            when setup.showEnable
+            if setup.showEnable
               SetupButton(label="Enable Antigravity", disabled=busy, full=false, testId=`provider-enable-antigravity-${instanceId}`, press=op("provider-enabled", instanceId, "", "true", true))
-      when setup.mode == "unavailable"
+      if setup.mode == "unavailable"
         PvRow(title="Setup unavailable", description="Provider setup is read-only.", status="", policy="", wide=wide, divided=true)
-      when setup.mode == "update"
+      if setup.mode == "update"
         PvRow(title="Update required", description="Update this environment to manage Antigravity.", status="", policy="", wide=wide, divided=true)
-      each runtime in setup.runtime key=runtime.key
+      for runtime in setup.runtime key=runtime.key
         ProviderRuntimeRow(runtime=runtime, instanceId=instanceId, wide=wide, busy=busy, op=op, ui=ui)
-        each account in setup.account key=account.key
+        for account in setup.account key=account.key
           ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=true, busy=busy, op=op, askSignOut=ui("setup-logout", instanceId), idPrefix="")
         // ProviderSetupSection's sr-only `<p role="status">`: polite by its role since main #457 (X55; the explicit
         // `aria-live` that stood in for it went in adopt-main-fixes-r10 RT-6, here and on the runtime and account status).
         text runtime.pendingLabel font-size=1 height=1 overflow="hidden" color="#00000000" role="status"
-        when runtime.error != ""
+        if runtime.error != ""
           column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.5rem" align-items="flex-start" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)"
             text runtime.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`provider-setup-error-${instanceId}`
-            when runtime.showRetry
+            if runtime.showRetry
               SetupButton(label="Retry setup status", disabled=false, full=false, testId=`provider-setup-retry-${instanceId}`, press=op("setup:retry", instanceId, "", "", true))
 
 // The Sign out and Remove confirmations (ensureLocalApi().dialogs.confirm → ConfirmDialogHost),
@@ -433,7 +434,7 @@ component ProviderSetupConfirm
     ui("close", "")
     focus(what == "setup-logout" ? `provider-sign-out-${instanceId}` : `provider-runtime-remove-${instanceId}`)
   view
-    AppConfirm(title=title, body=body, destructive=false, busy=busy, confirmId="provider-setup-confirm", cancel=cancel, confirm=accept)
+    AppConfirm(confirmLabel="Confirm", title=title, body=body, destructive=false, busy=busy, confirmId="provider-setup-confirm", cancel=cancel, confirm=accept)
 
 // ProviderWizardAuthenticationStep's panel: the Account row once the created agent
 // can sign in (or is signed in), else a plain Account row.
@@ -451,17 +452,17 @@ component ProviderWizardAuthStep
   // (the host's key-view loop, LLP 1088 D7.3), so the next Tab reaches the first control as there.
   view
     column width="100%" min-height="18rem" testId="acp-sign-in"
-      each account in auth.account key=account.key
+      for account in auth.account key=account.key
         ProviderAccountRow(account=account, scheme=scheme, wide=wide, divided=false, busy=busy, op=op, askSignOut=askSignOut, idPrefix="wizard-")
-      when length(auth.account) == 0
+      if auth.account.length == 0
         SetupRowFrame(divided=false, tight=false, testId=`wizard-provider-account-${auth.instanceId}`)
           row width="100%" flex-direction=(wide ? "row" : "column") gap=(wide ? "2rem" : "0.75rem") align-items=(wide ? "center" : "stretch")
             column flex-grow=(wide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
               row min-height="1.25rem" align-items="center"
                 text "Account" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 autofocus=true
               text auth.description max-width="36rem" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" testId=`wizard-provider-account-description-${auth.instanceId}`
-            when auth.discovering
+            if auth.discovering
               SetupButton(label="Sign in", disabled=true, full=false, testId=`wizard-provider-sign-in-${auth.instanceId}`, press=op("setup:retry", auth.instanceId, "", "", false))
-            when not auth.discovering and auth.docsUrl != ""
+            if not auth.discovering and auth.docsUrl != ""
               link href=auth.docsUrl class=PvOutline testId=`wizard-provider-auth-docs-${auth.instanceId}`
                 text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"

@@ -14,6 +14,7 @@ import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
 import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
@@ -22,19 +23,19 @@ const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
-function weatherlightPrerequisite() {
-  if (process.env.EXACT_GLUE_FAST === '1') return 'the async glue step does not build apps; the web-build-test step runs this test';
-  if (browserUnavailable) return browserUnavailable;
-  if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
-  if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
+/** How the Weatherlight test is chosen: `need(kind, why)` or `notApplicable(why)`, or `test`. */
+function weatherlightCheckFor() {
+  if (process.env.EXACT_GLUE_FAST === '1') return notApplicable('the async glue step does not build apps; the web-build-test step runs this test');
+  if (!['linux', 'darwin'].includes(process.platform)) return notApplicable(`the Weatherlight wasm build is not provisioned on ${process.platform}`);
+  if (browserUnavailable) return need('chrome', browserUnavailable);
+  if (process.env.EXACT_JS_ENGINE === 'stub') return need('hermes', 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub');
   const bundle = hermesBundle(hermesTarget());
-  if (!bundle.installed) return `the Weatherlight wasm build needs ${bundle.target}; missing ${bundle.missing.join(', ')}; run ${bundle.fix}`;
+  if (!bundle.installed) return need('hermes', `the Weatherlight wasm build needs ${bundle.target}; missing ${bundle.missing.join(', ')}; run ${bundle.fix}`);
   const needed = [resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
     resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];
   const missing = needed.filter(path => !existsSync(path));
-  return missing.length ? `the Weatherlight wasm build needs its complete Hermes and TypeScript toolchain; missing ${missing.join(', ')}` : null;
+  return need('typescript', missing.length ? `the Weatherlight wasm build needs tsc and rolldown; missing ${missing.join(', ')}` : null);
 }
-const weatherlightUnavailable = weatherlightPrerequisite();
 let unavailable = browserUnavailable;
 try {
   if (!unavailable) {
@@ -47,11 +48,10 @@ try {
   if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web dist is a JS-target build') && !error.message.startsWith('web build is stale')) throw error;
   unavailable = error.message;
 }
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-if (weatherlightUnavailable && weatherlightUnavailable !== unavailable) console.warn(`SKIP: ${weatherlightUnavailable}`);
-const check = unavailable ? test.skip : test;
-const browserCheck = browserUnavailable ? test.skip : test;
-const weatherlightCheck = weatherlightUnavailable ? test.skip : test;
+// The Caltrain document tests need a current wasm Caltrain dist (EXACT_WEB_DIST, else host/web/dist).
+const check = need(browserUnavailable ? 'chrome' : 'fixture', unavailable);
+const browserCheck = need('chrome', browserUnavailable);
+const weatherlightCheck = weatherlightCheckFor();
 const [width, height] = [390, 844]; // the page viewport documents render at
 
 /** The shell the renderer is given: host/web/index.html in this run's look (look.mjs), which is the dist's (one
@@ -218,7 +218,7 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 
-check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`Caltrain's served document is the live host's DOM`, async () => {
   // The live page launches at its own URL, agent query included; the
   // document is rendered at that same location.
   await withDocument('/?agent=1', async (tab) => {
@@ -248,7 +248,7 @@ check(`Caltrain's served document is the live host's DOM${unavailable ? ` — ${
   });
 }, 180000);
 
-check(`a document whose digest doesn't match is replaced once, and the journal says where${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a document whose digest doesn't match is replaced once, and the journal says where`, async () => {
   await withDocument('/?agent=1', async (tab) => {
     const live = await tab(true, WATCH);
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
@@ -261,7 +261,7 @@ check(`a document whose digest doesn't match is replaced once, and the journal s
   }, { tamper: (page) => page.replace(/data-digest="[0-9a-f]{32}"/, `data-digest="${'0'.repeat(32)}"`) });
 }, 180000);
 
-check(`a press on the document before the runtime starts is replayed once${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a press on the document before the runtime starts is replayed once`, async () => {
   let clicked;
   const wasmAfter = new Promise((resolve) => { clicked = resolve; });
   await withDocument('/?agent=1', async (tab) => {
@@ -281,7 +281,7 @@ check(`a press on the document before the runtime starts is replayed once${unava
   }, { wasmAfter });
 }, 180000);
 
-check(`a press before the glue runs is captured, replays once, and a later one isn't doubled${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a press before the glue runs is captured, replays once, and a later one isn't doubled`, async () => {
   // LLP 1048.000 D6, 1048.001 D5: the page's inline capture script hears a
   // press from first parse; here the glue is held back until after it.
   let release;
@@ -318,7 +318,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
 const away = (href) => `(() => { const a = document.createElement('a'); a.href = '${href}'; document.body.append(a); a.click(); })()`;
 const downloading = "!!globalThis.exact?.runtime && performance.getEntriesByType('resource').some((e) => e.name.endsWith('/document-glue.js'))";
 
-check(`a link that doesn't leave (a 204) stops the runtime's download, and the page downloads it again${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`a link that doesn't leave (a 204) stops the runtime's download, and the page downloads it again`, async () => {
   let release;
   const wasmAfter = new Promise((resolve) => { release = resolve; });
   const wasm = [];
@@ -336,7 +336,7 @@ check(`a link that doesn't leave (a 204) stops the runtime's download, and the p
   }, { wasmAfter, answers: { '/no-content': [204, ''] }, requested: (url) => { if (url.startsWith('/app.wasm')) wasm.push(url); } });
 }, 180000);
 
-check(`Back from the bfcache downloads the runtime a link stopped${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`Back from the bfcache downloads the runtime a link stopped`, async () => {
   let release;
   const wasmAfter = new Promise((resolve) => { release = resolve; });
   await withDocument('/?agent=1', async (tab) => {
@@ -371,7 +371,7 @@ async function renderServer({ app = 'caltrain', dir = dist, name = 'Caltrain' } 
   return { origin, lines, stop: () => { try { child.kill('SIGKILL'); } catch {} } };
 }
 
-check(`the render server's page is the document, and the runtime adopts it${unavailable ? ` — ${unavailable}` : ''}`, async () => {
+check(`the render server's page is the document, and the runtime adopts it`, async () => {
   const server = await renderServer();
   try {
     const response = await fetch(`${server.origin}/?agent=1`);
@@ -401,7 +401,7 @@ check(`the render server's page is the document, and the runtime adopts it${unav
 // document renders at build and per request with no network. The runtime
 // adopts it, and the module's realm runs under the server's CSP: its two
 // inline scripts are admitted by hash, nothing else is.
-weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP${weatherlightUnavailable ? ` — ${weatherlightUnavailable}` : ''}`, async () => {
+weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP`, async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
   try {
     const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight', '--wasm'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
@@ -441,7 +441,7 @@ weatherlightCheck(`a TypeScript app's served document is adopted, with its modul
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.
-browserCheck(`interaction documents stay readable, then replay edits and actions once${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+browserCheck(`interaction documents stay readable, then replay edits and actions once`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="navigate">
       <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>
@@ -491,7 +491,7 @@ browserCheck(`interaction documents stay readable, then replay edits and actions
   }, { html, files });
 }, 60000);
 
-browserCheck(`early key replay carries capture cancellation to key handlers and Enter submit${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+browserCheck(`early key replay carries capture cancellation to key handlers and Enter submit`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="key submit" name="draft"></div></div>
     <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
@@ -556,7 +556,7 @@ browserCheck('early presses reject replacement labels after an adoption mismatch
   }, { html, files });
 }, 60000);
 
-browserCheck(`early capture updates keep the same view's bubble handler${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
+browserCheck(`early capture updates keep the same view's bubble handler`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="keycapture key"><input data-view="2" data-exact-on="submit"><span id="log">before</span></div></div>
     <script type="application/vnd.exact.checkpoint" data-activate="interaction" data-digest="test">{}</script>
@@ -989,7 +989,8 @@ async function withFocusContract(target, webDist, contract, drive) {
 // Exercise compiled Contract through both runtimes; raw DOM alone misses retired listeners.
 // The wasm fixtures need an EXACT_WEB_LINK=all build for animation support.
 for (const [target, webDist] of Object.entries({ wasm: process.env.EXACT_WEB_DIST, JS: true })) {
-  const check = webDist && !browserUnavailable ? test : test.skip;
+  const check = browserUnavailable ? need('chrome', browserUnavailable)
+    : need('fixture', webDist ? null : 'no wasm dist built with EXACT_WEB_LINK=all: name one with EXACT_WEB_DIST');
   for (const animated of [false, true]) check(`${target} compiled focusout survives ${animated ? 'exit-animated' : 'immediate'} wrapper removal during blur`, async () => {
     await withFocusContract(target, webDist, `keyframes leave
   to opacity=0
@@ -1009,8 +1010,8 @@ component App
     log = \`\${log}\${label}:\${e.target}:\${match e.relatedTarget { case some(id) => id, case none => "-" }};\`
   view
     column focusout=heard("outer")
-      when shown
-        each label in ["wrapper"] key=label
+      if shown
+        for label in ["wrapper"] key=label
           column focusout=heard(label) ${animated ? '-exact-exit-animation="leave 10s linear both"' : ""}
             input id="a" change=changed blur=remove focusout=heard("field")
       input id="b" focusin=heard("in")
@@ -1056,7 +1057,7 @@ component App
   view
     column
       input id="a" disabled=disabled blur=left
-      when disabled
+      if disabled
         input id="b" ${command ? '' : 'autofocus'} focus=entered
       button "Move" id="move" press=move
       text log testId="log"

@@ -1,16 +1,15 @@
 import {test, expect} from 'bun:test';
 import {readFileSync} from 'node:fs';
 import {spawnSync} from 'node:child_process';
+import {need, notApplicable} from '../../../scripts/coverage.mjs';
 
 const swift=process.platform==='darwin' ? spawnSync('xcrun',['swift','--version'],{encoding:'utf8',env:process.env}) : null;
-const unavailable=process.platform!=='darwin' ? 'the extracted Swift placement harness requires macOS and xcrun'
-  : swift.status===0 ? null : `xcrun swift does not work${process.env.DEVELOPER_DIR ? ` with DEVELOPER_DIR=${process.env.DEVELOPER_DIR}` : ''}: ${(swift.stderr||swift.error?.message||`exit ${swift.status}`).trim()}`;
-if(unavailable) console.warn(`SKIP: ${unavailable}`);
-const check=unavailable ? test.skip : test;
+const check=process.platform!=='darwin' ? notApplicable('the extracted Swift placement harness requires macOS and xcrun')
+  : need('swift', swift.status===0 ? null : `xcrun swift does not work${process.env.DEVELOPER_DIR ? ` with DEVELOPER_DIR=${process.env.DEVELOPER_DIR}` : ''}: ${(swift.stderr||swift.error?.message||`exit ${swift.status}`).trim()}`);
 
 // Execute each production capture loop's empty-child branch with Swift values.
 // The remainder of the loop is a stand-in for a successful bitmap upload.
-for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-none captures${unavailable ? ` — ${unavailable}` : ''}`,()=>{
+for (const host of ['Mac','IOS']) check(`${host} clears zero-sized and display-none captures`,()=>{
   const file=`host/apple/Sources/ExactSurfaces/Gpu${host}.swift`; // ExactSurfaces since 244ac708d (LLP 1047.001)
   const source=readFileSync(process.env.R7_APPLE_SOURCE ?? file,'utf8');
   const start=source.indexOf('        for (i, child) in children.enumerated() {');
@@ -44,7 +43,7 @@ precondition(capture()); precondition(m.cleared == [1,2]); precondition(captured
   expect(r.status, r.stderr).toBe(0);
 },65000);
 
-for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, not the kernel frame${unavailable ? ` — ${unavailable}` : ''}`,()=>{
+for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, not the kernel frame`,()=>{
   const source=readFileSync(process.env.R7_APPLE_AGENT ?? `host/apple/Sources/ExactKit/${host}/Agent${host}.swift`,'utf8');
   const start=source.indexOf('        if (v as? NodeView)?.placedAncestor?.placementHidden == true');
   expect(start).toBeGreaterThan(-1);

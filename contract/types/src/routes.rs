@@ -133,7 +133,7 @@ pub(super) fn not_the_router(
         Stdlib::Push if list() => {
             contract_syntax::idioms::refusal("push").expect("refused")
         }
-        Stdlib::Replace if args.len() == 3 => "`replace(nav, location)` is the router's; for text, write `replaceAll(s, find, with)`, the web's `String.prototype.replaceAll` (LLP 1088 D2)".into(),
+        Stdlib::Replace if args.len() == 3 => "`replace(nav, location)` is the router's; for text, write `s.replaceAll(find, with)`, the web's `String.prototype.replaceAll` (LLP 1088 D2)".into(),
         _ => return Ok(()),
     };
     err("type-refused-idiom", why, span)

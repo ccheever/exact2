@@ -20,7 +20,8 @@ import { pagesPrefs } from './pages-prefs';
 import { pushToast } from './toast';
 import { wallEpoch, wallIso } from './r8-pointer-clock';
 import type { T3Client } from './client';
-import { OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand } from './onboarding-terminal';
+import { ONBOARDING_THREAD, OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand, type SetupSession } from './onboarding-terminal';
+import { terminalLinkAction } from './terminal-integrations';
 import { letGo } from './let-go';
 import { isFirstRunWorkspaceProvenanceAuthoritative, isFreshFirstRunWorkspace, resolveFirstRunDecision, resolveHostedFirstRunDecision } from './first-run';
 import { focusedOnPrimary, isPrimaryEnvironment, primary, withoutPrimaryDuplicates } from './local-primary';
@@ -32,24 +33,34 @@ import { setChatGptCreatedHandler } from './providers';
 import { fleetSetupHost } from './codex-fleet-host';
 import type { CodexHost } from './codex-setup';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
+/** A request to the environment a setup terminal runs on: the focused one on this connection, another on its fleet entry. */
+async function environmentRequest(client: T3Client, native: Native, target: string, method: string, input: Obj): Promise<unknown> {
+  if (target === client.environmentId) return client.rpc(native, method, input, true);
+  const entry = [...fleet.entries.values()].find(item => item.environmentId === target);
+  if (!entry || entry.phase !== 'connected') throw new ClientError('The environment is not connected.');
+  const generation = entry.generation;
+  const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload: input, generation });
+  if (!reply.ok) throw new ClientError(reply.error?.message || 'The terminal request failed.');
+  if (generation !== entry.generation || reply.generation !== generation) throw new ClientError('The connection changed.');
+  return reply.value;
+}
 function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
   let byEnvironment = terminals.get(client);
   if (!byEnvironment) terminals.set(client, byEnvironment = new Map());
   let terminal = byEnvironment.get(environmentId);
   if (!terminal) {
-    terminal = new OnboardingTerminal(async (target, method, input) => {
-      if (target === client.environmentId) return client.rpc(native, method, input, true);
-      const entry = [...fleet.entries.values()].find(item => item.environmentId === target);
-      if (!entry || entry.phase !== 'connected') throw new ClientError('The environment is not connected.');
-      const generation = entry.generation;
-      const reply = await bridgeReply(EnvironmentFleet.native(native, entry.key), { op: 'request', method, payload: input, generation });
-      if (!reply.ok) throw new ClientError(reply.error?.message || 'The terminal request failed.');
-      if (generation !== entry.generation || reply.generation !== generation) throw new ClientError('The connection changed.');
-      return reply.value;
-    });
+    terminal = new OnboardingTerminal((target, method, input) => environmentRequest(client, native, target, method, input));
     byEnvironment.set(environmentId, terminal);
   }
   return terminal;
+}
+/** AgentInstallTerminal is the drawer's TerminalViewport: a link in it is the drawer's (handleLinkActivate, terminal-integrations.ts
+ *  terminalLinkAction), a path resolved against the setup's cwd and opened in its own environment's preferred editor. */
+async function setupTerminalLink(client: T3Client, native: Native, session: SetupSession, event: Obj): Promise<void> {
+  const focused = session.environmentId === client.environmentId;
+  const source = focused ? null : environmentSources(client, fleet.saved, fleet.entries).find(item => item.environmentId === session.environmentId);
+  await terminalLinkAction(client, native, { ...event, environmentId: session.environmentId, threadId: ONBOARDING_THREAD, cwd: session.cwd },
+    focused ? {} : { environment: { config: source?.config ?? {}, request: (method, payload) => environmentRequest(client, native, session.environmentId, method, payload) } });
 }
 async function closeSetupTerminals(client: T3Client): Promise<void> {
   for (const terminal of terminals.get(client)?.values() ?? []) if (terminal.state.kind !== 'closed') await terminal.close();
@@ -335,9 +346,11 @@ export async function welcomeLocal(client: T3Client, native: Native, op: string,
   const state = stateOf(client);
   if (op.startsWith('terminal-')) {
     const terminal = setupTerminal(client, native, id);
-    if (op === 'terminal-exited') {
+    if (op === 'terminal-exited') { // every message of the setup terminal: its exit, and its links (G1-10)
       let event: Obj = {}; try { event = obj(JSON.parse(value)); } catch { return ''; }
-      if (terminal.state.kind !== 'closed' && str(event.terminalId) === terminal.state.session.terminalId && (event.type === 'exited' || event.type === 'closed')) await terminal.close();
+      if (terminal.state.kind === 'closed' || str(event.terminalId) !== terminal.state.session.terminalId) return '';
+      if (event.type === 'link') await setupTerminalLink(client, native, terminal.state.session, event);
+      else if (event.type === 'exited' || event.type === 'closed') await terminal.close();
       return '';
     }
     if (op === 'terminal-close') { await terminal.close(); return ''; }

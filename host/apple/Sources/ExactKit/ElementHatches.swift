@@ -361,7 +361,7 @@ final class ElementHatches {
                 let end = value.utf16.count, selection = FieldSelection(start: end, end: end)
                 self.presenter.fieldSelections.set(node, selection, notify: false)
                 self.presenter.typed(id, value, input: false)
-                self.presenter.fieldSelections.replacementInput(node, value, selection)
+                self.presenter.fieldSelections.replacementInput(node, value, selection, data: value)
             } else {
                 self.presenter.typed(id, value, input: node.handlers.contains("input"))
             }

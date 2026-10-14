@@ -11,7 +11,7 @@ impl DataSource for Rows {
     }
 }
 const APP: &str = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state target = 180
   state count = 0
   state seen = 0
@@ -37,12 +37,12 @@ const APP: &str = r#"component App
       button press=hide testId="hide"
         text "hide"
       input value=draft input=edit testId="input"
-      when showing
+      if showing
         column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
           box testId="handle" heightDragFor="panel" heightrelease=release height=40 touch-action="none" disabled=disabled
             text "drag header"
           list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"
-            each x in rows key=x
+            for x in rows key=x
               text `row ${x}` height=24
       text `${count}` testId="count"
       text `${seen}` testId="seen"

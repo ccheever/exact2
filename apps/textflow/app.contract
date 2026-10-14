@@ -35,7 +35,7 @@ component Textflow
   derive bodySize = largeType ? 18.975 : 16.5
   derive bodyHeight = viewport.width < 700 ? 450 : 480
   derive logicalHeight = bodyHeight / scale
-  resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape list<Part>
+  resource parts = sceneGeometry(scene, elapsed, proseWidth) as shape Part[]
   action choose(value: string)
     scene = value
     elapsed = 0
@@ -87,7 +87,7 @@ component Textflow
           button press=choose("article") testId="scene-article" padding=(narrow ? 8 : 10) border-width=0 border-radius=20 background-color=(scene == "article" ? "light-dark(#294e46, #b6ccba)" : "light-dark(#e3e3d8, #293b36)") color=(scene == "article" ? "light-dark(#ffffff, #172d25)" : "light-dark(#42594f, #ced9d0)")
             text "07 Article" font-size=12
         column width=pageWidth padding=inset padding-top=(narrow ? 20 : 24) padding-bottom=20 box-sizing="border-box" gap=24 background-color="light-dark(#fcfaf3, #213032)" border-radius=6
-          when scene == "drag"
+          if scene == "drag"
             column gap=9
               text "01 / A PAGE YOU CAN TOUCH" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "A little give." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
@@ -97,25 +97,25 @@ component Textflow
               box testId="orb-1" pan=moveOrb(1) touch-action="none" position="absolute" left=(x1 * scale) top=(min(y1, logicalHeight - 104) * scale) width=(104 * scale) height=(104 * scale) border-radius=100 background-color="light-dark(#bd7053, #dfa184)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
               box testId="orb-2" pan=moveOrb(2) touch-action="none" position="absolute" left=(x2 * scale) top=(min(y2, logicalHeight - 78) * scale) width=(78 * scale) height=(78 * scale) border-radius=100 background-color="light-dark(#779685, #a0b5a0)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
               box testId="orb-3" pan=moveOrb(3) touch-action="none" position="absolute" left=(x3 * scale) top=(min(y3, logicalHeight - 56) * scale) width=(56 * scale) height=(56 * scale) border-radius=100 background-color="light-dark(#c2a769, #cbb87e)" border-width=1 border-style="solid" border-color="light-dark(#ffffff40, #ffffff20)" box-sizing="border-box" wrap-flow="both" shape-outside="circle()" shape-margin=8
-          when scene == "orbs"
+          if scene == "orbs"
             column gap=9
               text "02 / SMALL CELESTIAL MECHANICS" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "Nothing stands still." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
               text "Six wandering bodies. One unbroken story." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
             box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
               text (narrow ? "The square fills with people. A bicycle circles the fountain; flowers pass through a gap that was not there a moment ago.\n\nEvery journey follows a private errand. Together they draw a pattern no one has planned. Two paths meet, turn, and begin again.\n\nEven the space between things has a rhythm." : "By the time the square filled with people, the pigeons had already worked out its invisible paths. A bicycle made a wide arc around the fountain. Someone carried flowers through a gap that had not been there a moment before. The whole place seemed to be thinking with its feet.\n\nFrom a window above, these journeys would look like a quiet system of stars. Each person follows a private errand. Together they draw a pattern no one has planned. When two paths meet, there is a pause, a turn, a small exchange of momentum. Then the pattern begins again.\n\nWe sat at a table beside the door and watched the afternoon pass through itself. Nothing repeated exactly. Yet everything belonged. Even the space between things had a rhythm, and for a while we could see it.") testId="orbs-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
-              each part in parts key=part.id
+              for part in parts key=part.id
                 box testId=part.id position="absolute" left=part.x top=part.y width=part.w height=part.h border-radius=(part.outline == "circle()" ? 100 : 0) background-color=part.color clip-path=part.clip wrap-flow="both" shape-outside=part.outline shape-margin=8
-          when scene == "dancer"
+          if scene == "dancer"
             column gap=9
               text "03 / A STUDY IN COUNTERPOINT" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "The space she leaves." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
               text "A gesture becomes a silhouette. A sentence learns to bend." font-size=12 line-height=1.4 color="light-dark(#738076, #aebdb3)"
             box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
               text (narrow ? "Before the music begins, she lifts her chin and finds the floor with one foot. Even the light has stopped to listen.\n\nA shoulder turns. A hand describes a curve. The wrist remembers the elbow; the hip answers the foot.\n\nWhat stays is the passage between poses, and the empty air she leaves behind." : "Before the music begins there is a moment of perfect attention. She lifts her chin, finds the floor with the ball of one foot, and lets the weight of her arms settle. The room seems to lean toward her. Even the light has stopped to listen.\n\nThe first movement is hardly a movement at all. A shoulder turns. A hand describes a curve that the eye wants to finish. Then the knees soften and the whole figure opens, as if a breath could be seen from the other side of the room. Nothing happens alone: the wrist remembers the elbow, the hip answers the foot.\n\nWhat stays with us is not a pose but the passage between poses. A little hesitation before the turn. The arm that arrives a fraction later. The empty air she leaves behind, still holding the shape of someone who has just moved on.") testId="dancer-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
-              each part in parts key=part.id
+              for part in parts key=part.id
                 box testId=part.id position="absolute" left=part.x top=part.y width=part.w height=part.h border-radius=(part.outline == "circle()" ? 100 : 0) background-color=part.color clip-path=part.clip wrap-flow="both" shape-outside=part.outline shape-margin=8
-          when scene == "ball"
+          if scene == "ball"
             column gap=9
               text "04 / A LITTLE GRAVITY" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "Make room for wonder." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
@@ -123,7 +123,7 @@ component Textflow
             box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
               text (narrow ? "The river was the first thing we heard in the morning: water moving over stone. We stood beside it with our coffee.\n\nA red ball rolled across the square. Two friends stepped apart, laughing. For a moment the crowd was a living paragraph, opening a path for one bright word.\n\nThe streets seemed wider on the walk home." : "The river was the first thing we heard in the morning. Before the street had opened its windows, there was water moving over stone. We went down with our coffee and stood for a while without finding anything that needed to be said.\n\nA city is full of small agreements. A tree leans over a footpath and the people passing underneath make room. A table appears outside a cafe and the conversation flows around it. Nothing has to disappear for something new to arrive.\n\nBy noon a red ball had escaped from a child's hands and rolled across the square. A man lifted his bag. Two friends stepped apart, laughing. For a moment the crowd was a single living paragraph, opening a path for one bright, improbable word.\n\nOn the walk home the streets seemed wider, as though paying attention had made a little more room in the world.") testId="ball-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
               box testId="ball" position="absolute" left=((40 + abs((elapsed / 10 % 970) - 485)) * scale) top=((30 + abs((elapsed / 18 % 520) - 260)) * scale) width=(112 * scale) height=(112 * scale) border-radius=100 background-color="light-dark(#cd7953, #e3a279)" wrap-flow="both" shape-outside="circle()" shape-margin=10
-          when scene == "polygon"
+          if scene == "polygon"
             column gap=9
               text "06 / NEW DIRECTIONS" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "Follow a different edge." font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
@@ -131,7 +131,7 @@ component Textflow
             box width=proseWidth height=bodyHeight position="relative" overflow="hidden"
               text (narrow ? "The map showed a road that ended at the sea. We followed it anyway. Every bend revealed a little more sky.\n\nThe best edges are invitations: the margin of a page, the line of a shore, a door left open. They give a direction to what we have not discovered.\n\nWe came home by a different path. Neither of us mentioned the map." : "The map showed a road that ended at the sea. We followed it anyway. There were orchards on either side and low hills beyond them. Every bend revealed a little more sky. It was a journey that asked nothing except that we keep looking.\n\nNear the coast the road narrowed to a path. Someone had painted an arrow on a stone. It pointed toward a gap in the grass where the wind had laid everything flat. We could hear the water, though we could not yet see it.\n\nAn edge tells you where one place ends and another begins. But the best edges are invitations: the margin of a page, the line of a shore, the threshold of a door left open. They give a shape to what we know and a direction to what we have not discovered.\n\nOn the way back we found a different path. It was longer, and we arrived home late. Neither of us mentioned the map.") testId="polygon-prose" width=proseWidth height=bodyHeight font-family="serif" font-size=bodySize white-space="pre-wrap" line-height=1.5 color="light-dark(#3d5149, #d5ddd3)"
               box testId="triangle" position="absolute" left=((100 + abs((elapsed / 24 % 480) - 240)) * scale) top=(95 * scale) width=(170 * scale) height=(210 * scale) background-color="light-dark(#648f83, #92b8a5)" clip-path=`path('M 0 0 L ${170 * scale} ${105 * scale} L 0 ${210 * scale} Z')` wrap-flow="both" shape-outside="polygon(0% 0%, 100% 50%, 0% 100%)" shape-margin=10
-          when scene == "editorial"
+          if scene == "editorial"
             column gap=9
               text "05 / THE FIELD JOURNAL" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "The shape of a quiet day" font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6
@@ -145,7 +145,7 @@ component Textflow
                 text "Leave a little space for what comes next." font-family="serif" font-style="italic" font-size=(narrow ? 16 : 21) line-height=1.22 text-align="center"
               box position="absolute" left=(narrow ? 192 : 510) top=24 width=(68 * scale) height=(68 * scale) border-radius=40 background-color="light-dark(#cf8459, #cc946f)" wrap-flow="both" shape-outside="circle()" shape-margin=10
               box position="absolute" left=(narrow ? 26 : 92) top=(narrow ? 650 : 356) width=(60 * scale) height=(60 * scale) border-radius=40 background-color="light-dark(#8faaa0, #7d9f8b)" wrap-flow="both" shape-outside="circle()" shape-margin=9
-          when scene == "article"
+          if scene == "article"
             column gap=9
               text "07 / A LETTER, AT LENGTH" font-size=10 letter-spacing=2 color="light-dark(#a15e48, #dea388)"
               text "Every paragraph its own height" font-family="serif" font-size=(narrow ? 33 : 44) line-height=1.08 letter-spacing=-0.6

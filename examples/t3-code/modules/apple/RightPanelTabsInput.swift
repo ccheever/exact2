@@ -10,13 +10,10 @@ final class RightPanelTabsInput {
     private var elements: [String: Weak] = [:]
     private var monitor: Any?
     func install(_ element: ExactElement) {
-        if element.hatch == .t3SelectOnOpen, element.id.hasPrefix("tab-name-") {
-            elements["tab-editor:" + String(element.id.dropFirst("tab-name-".count))] = Weak(element)
-        } else {
-            guard element.hatch == .t3Anchor, let name = element.data[.anchor],
-                  ["r12-tab:", "tab-close:", "tab-cancel:", "tab-focus:"].contains(where: name.hasPrefix) else { return }
-            elements[name] = Weak(element)
-        }
+        // The rename editor is the anchor `tab-editor:<id>` (r4-surfaces.contract R4TabNameField).
+        guard element.hatch == .t3Anchor, let name = element.data[.anchor],
+              ["r12-tab:", "tab-close:", "tab-cancel:", "tab-focus:", "tab-editor:"].contains(where: name.hasPrefix) else { return }
+        elements[name] = Weak(element)
         if monitor == nil {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseDown, .keyDown]) { [weak self] event in
                 guard let self else { return event }

@@ -57,36 +57,36 @@ component MobileBetaControl
   view
     row gap="0.5rem" align-items="center" flex-shrink=0 id="mobile-beta-control" testId="mobile-beta-control"
       box position="relative" flex-shrink=0
-        button popovertarget="mobile-beta-ios-popup" press=openIos hover=measureIos id="mobile-beta-ios" aria-label="iPhone" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-ios"
+        button popovertarget="mobile-beta-ios-popup" press=openIos hover=measureIos id="mobile-beta-ios" aria-label="iPhone" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-ios" data-paint="input canvas" data-pick="canvas"
           // Button's [&_svg]:-mx-0.5: the glyph overlaps the padding by 2 points a side.
           box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
             MbAppleGlyph(size=16, color=pal.muted)
-          text "iPhone" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap"
+          text "iPhone" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-MobileBetaControl-2-${row.id}` data-paint="text" data-pick="text"
         row id="mobile-beta-ios-popup" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="mobile-beta-ios-popup"
-          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="TestFlight beta"
+          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="TestFlight beta" id=`paint-MobileBetaControl-3-${row.id}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
             column gap="0.25rem"
               // One line each: an absolute layer sizes to its min-content, so the panel must not offer a narrower one.
-              text "TestFlight beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text white-space="nowrap" role="heading" aria-level=2
-              text "Scan with your iPhone camera." font-size="0.75rem" line-height="1rem" color=pal.muted white-space="nowrap"
-            each mark in row.qr key=mark.id
-              when mark.id == "ios"
+              text "TestFlight beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text white-space="nowrap" role="heading" aria-level=2 id=`paint-MobileBetaControl-4-${row.id}` data-paint="text" data-pick="text"
+              text "Scan with your iPhone camera." font-size="0.75rem" line-height="1rem" color=pal.muted white-space="nowrap" id=`paint-MobileBetaControl-5-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
+            for mark in row.qr key=mark.id
+              if mark.id == "ios"
                 BetaLinkQr(mark=mark, mounted=iosOpened, pal=pal, busy=busy, copy=change(row.id, "copy", mark.url))
           box width=iosTail height=1 flex-shrink=0
       box position="relative" flex-shrink=0
-        button popovertarget="mobile-beta-android-popup" press=openAndroid hover=measureAndroid id="mobile-beta-android" aria-label="Android" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-android"
+        button popovertarget="mobile-beta-android-popup" press=openAndroid hover=measureAndroid id="mobile-beta-android" aria-label="Android" class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId="mobile-beta-android" data-paint="input canvas" data-pick="canvas"
           box margin-left="-0.125rem" margin-right="-0.125rem" display="flex"
             MbAndroidGlyph(size=16, color=pal.muted)
-          text "Android" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap"
+          text "Android" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text white-space="nowrap" id=`paint-MobileBetaControl-7-${row.id}` data-paint="text" data-pick="text"
         row id="mobile-beta-android-popup" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="mobile-beta-android-popup"
-          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Google Play beta"
+          column padding="1rem" gap="0.75rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Google Play beta" id=`paint-MobileBetaControl-8-${row.id}` data-paint="text surfaceOverlay" data-pick="surfaceOverlay"
             column gap="0.25rem" width="18.5rem"
-              text "Google Play beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text role="heading" aria-level=2
-              text "Use the same Google account for both steps. Step 2 can take up to an hour to work after you join the group." font-size="0.75rem" line-height="1rem" color=pal.muted max-width="18rem"
+              text "Google Play beta" font-size="0.875rem" font-weight=600 line-height="0.875rem" color=pal.text role="heading" aria-level=2 id=`paint-MobileBetaControl-9-${row.id}` data-paint="text" data-pick="text"
+              text "Use the same Google account for both steps. Step 2 can take up to an hour to work after you join the group." font-size="0.75rem" line-height="1rem" color=pal.muted max-width="18rem" id=`paint-MobileBetaControl-10-${row.id}` data-paint="mutedForeground" data-pick="mutedForeground"
             row gap="1rem" align-items="flex-start"
-              each mark in row.qr key=mark.id
-                when mark.id != "ios"
+              for mark in row.qr key=mark.id
+                if mark.id != "ios"
                   column width="8.75rem" gap="0.5rem"
-                    text mark.caption font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text text-align="center" width="100%"
+                    text mark.caption font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text text-align="center" width="100%" id=`paint-MobileBetaControl-11-${row.id}-${mark.id}` data-paint="text" data-pick="text"
                     BetaLinkQr(mark=mark, mounted=androidOpened, pal=pal, busy=busy, copy=change(row.id, "copy", mark.url))
           box width=androidTail height=1 flex-shrink=0
 
@@ -103,12 +103,12 @@ component BetaLinkQr
     column gap="0.5rem" align-items="center" width="100%"
       box width="8.75rem" height="8.75rem" padding="0.375rem" box-sizing="border-box" border-radius="0.625rem" background-color="#ffffff" flex-shrink=0
         box width="8rem" height="8rem" position="relative" background-color="#ffffff" role="img" aria-label=mark.label testId=`mobile-beta-qr-${mark.id}`
-          when mounted
-            each cell in mark.cells key=`${cell.x}:${cell.y}`
+          if mounted
+            for cell in mark.cells key=`${cell.x}:${cell.y}`
               box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
       box position="relative" flex-shrink=0
         BetaCopyButton(label="Copy link", animation=(mark.copied == 0 ? "none" : (mark.copied % 2 == 0 ? "mbHiddenA 2s linear forwards" : "mbHiddenB 2s linear forwards")), pal=pal, busy=busy, copy=copy, testId=`mobile-beta-copy-${mark.id}`)
-        when mark.copied > 0
+        if mark.copied > 0
           row position="absolute" left="-1.25rem" right="-1.25rem" top=0 bottom=0 justify-content="center" align-items="center"
             BetaCopyButton(label="Copied", animation=(mark.copied % 2 == 0 ? "mbShownA 2s linear forwards" : "mbShownB 2s linear forwards"), pal=pal, busy=busy, copy=copy, testId=`mobile-beta-copied-${mark.id}`)
 
@@ -121,8 +121,8 @@ component BetaCopyButton
     copy: action
     testId: string
   view
-    button press=copy disabled=busy aria-label=label class=SettingsGhost height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" animation=animation testId=testId
-      text label font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text white-space="nowrap"
+    button press=copy disabled=busy aria-label=label class=SettingsGhost height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" animation=animation testId=testId id=testId data-paint="input canvas" data-pick="canvas"
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text white-space="nowrap" id=`paint-BetaCopyButton-2-${testId}` data-paint="text" data-pick="text"
 
 // Icons.tsx AppleIcon and AndroidIcon (24-unit grid, currentColor).
 component MbAppleGlyph

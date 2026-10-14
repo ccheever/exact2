@@ -164,7 +164,7 @@ extension NodeView {
     }
     /// The presenter this view's held button reports to. AppKit sends the
     /// drags and the up to the view the button went down on even after it
-    /// leaves the tree, a `when` having removed the child of the held node
+    /// leaves the tree, an `if` having removed the child of the held node
     /// the press landed on (a board square's piece, the chess diary via
     /// fix/syntax6): the hold is the node's, as on the web, so the gone view
     /// keeps reaching its presenter until the button comes up.
@@ -342,7 +342,7 @@ extension NodeView {
     /// AppKit sends the held button's drags and up only to the view it went
     /// down on, and only while that view is in its window: one taken out
     /// leaves the hold deaf. So the view the button went down on stays,
-    /// transparent, until the button comes up, when a batch removes it (a `when`
+    /// transparent, until the button comes up, when a batch removes it (an `if`
     /// dropping the piece a board square was pressed on), and the held node
     /// keeps hearing its moves and its up, as on the web (`holdPresenter`).
     /// Removing it then is AppKit's `removeFromSuperview`, the one way the

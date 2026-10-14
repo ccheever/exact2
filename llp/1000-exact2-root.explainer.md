@@ -167,13 +167,12 @@ when the coalesced commit range changes anything outside documentation-only path
 (`llp/`, `issues/`, `rules/`, `docs/`, `QUEUE.md`, or a `*.md` file). This includes
 separately built modules, build scripts, and fixtures. The lane then runs
 `metrics.mjs --long`.
-Its hourly tier 2 installs tvOS on an Apple TV simulator and cross-compiles the Linux host with Caltrain
+Its hourly tier 2 installs tvOS on an Apple TV simulator and cross-compiles the Linux host with every Linux app
 and the Windows host with Windows Desk for their actual targets. Tier 2
-requires those Rust targets and Zig's C cross compiler on the Mac. These
+requires those Rust targets, Zig's C and C++ cross compilers and the pinned
+Linux Hermes bundle on the Mac. These
 Cargo checks qualify source compilation only; window presentation, KMS, and
-input devices still require native machines. Other Linux apps are not yet
-selected: their shared JavaScript host reaches target C++ build inputs not
-qualified by this slice.
+input devices still require native machines.
 
 ## Durable constraints (from the rules, restated for orientation)
 

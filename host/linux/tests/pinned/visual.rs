@@ -30,7 +30,15 @@ fn painters() -> Vec<PainterChoice> {
     let mut choices = vec![PainterChoice::Cpu];
     match exact_linux::gpu::Gpu::new() {
         Ok(_) => choices.push(PainterChoice::Gpu),
-        Err(error) => eprintln!("GPU painter unavailable: {error}"),
+        Err(error) => {
+            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {error}"
+            );
+            eprintln!("GPU painter unavailable: {error}");
+        }
     }
     choices
 }

@@ -21,12 +21,16 @@ import { letGo } from './let-go';
 
 export const VCS_STATUS_KEY = 'shell-vcs-status';
 type VcsState = { cwd: string; id: string; status: Obj | null; error: string; floor: number; maxSeen: number; recent: Map<string, Obj>;
-  tried: boolean; attemptAt: number; attemptRevision: number; generation: number };
+  tried: boolean; attemptAt: number; attemptRevision: number; generation: number; environmentId: string; origin: string };
 const states = new WeakMap<T3Client, VcsState>();
+function currentState(client: T3Client): VcsState | undefined {
+  const state = states.get(client);
+  return state?.generation === client.generation && state.environmentId === client.environmentId && state.origin === client.origin ? state : undefined;
+}
 const vcsState = (client: T3Client): VcsState => {
-  let state = states.get(client);
+  let state = currentState(client);
   if (!state) {
-    state = { cwd: '', id: '', status: null, error: '', floor: 0, maxSeen: 0, recent: new Map(), tried: false, attemptAt: 0, attemptRevision: -1, generation: -1 };
+    state = { cwd: '', id: '', status: null, error: '', floor: 0, maxSeen: 0, recent: new Map(), tried: false, attemptAt: 0, attemptRevision: -1, generation: client.generation, environmentId: client.environmentId, origin: client.origin };
     states.set(client, state);
   }
   return state;
@@ -106,7 +110,7 @@ function remember(state: VcsState, cwd: string, status: Obj): void {
 
 /** One `shell-vcs-status` inbox entry: the newest stream since the latest subscribe is the card's. */
 export function vcsStatusEvent(client: T3Client, entry: Obj): void {
-  const state = states.get(client);
+  const state = currentState(client);
   if (!state || !state.cwd) return;
   observeCurrentEvent(client, state.cwd, entry);
   const id = str(entry.subscriptionId), serial = subscriptionSerial(id);
@@ -130,8 +134,6 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
   const state = vcsState(client);
   const previousEvidence = currentEvidence.get(client);
   if (previousEvidence && !sameCurrentOwner(client, previousEvidence, cwd)) currentEvidence.delete(client);
-  // A new connection carries no streams: subscribe again.
-  if (state.generation !== client.generation) { state.generation = client.generation; state.id = ''; state.status = null; state.error = ''; state.tried = false; }
   if (state.cwd !== cwd) {
     const previous = state.id;
     // vcs.ts keeps a workspace's status for an idle moment: a card that returns to it shows the last one until the stream answers.
@@ -168,15 +170,15 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
  * its data (the strip shows the switched name meanwhile, composer-controls-branch.ts).
  */
 export function restartVcsStatus(client: T3Client, cwd: string): void {
-  const state = states.get(client);
+  const state = currentState(client);
   if (!state || !cwd || state.cwd !== cwd) return;
   currentEvidence.delete(client);
   state.id = ''; state.tried = false; state.floor = state.maxSeen;
 }
 /** Whether the stream follows `cwd` now (its status may still be on its way). */
-export function vcsStreamFollows(client: T3Client, cwd: string): boolean { return !!cwd && states.get(client)?.cwd === cwd; }
+export function vcsStreamFollows(client: T3Client, cwd: string): boolean { return !!cwd && currentState(client)?.cwd === cwd; }
 /** r7-handoff: the streamed status for `cwd` when the card follows (or recently followed) it, without asking. */
-export function peekVcsStatus(client: T3Client, cwd: string): Obj | null { const state = states.get(client); return !state || !cwd ? null : state.cwd === cwd ? state.status ?? state.recent.get(cwd) ?? null : state.recent.get(cwd) ?? null; }
+export function peekVcsStatus(client: T3Client, cwd: string): Obj | null { const state = currentState(client); return !state || !cwd ? null : state.cwd === cwd ? state.status ?? state.recent.get(cwd) ?? null : state.recent.get(cwd) ?? null; }
 
 const focusSeen = new WeakMap<T3Client, boolean>();
 /**

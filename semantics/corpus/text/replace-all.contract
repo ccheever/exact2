@@ -4,17 +4,17 @@
 // boundary, splitting a pair whose halves rejoin when nothing goes between.
 component App
   state expr = "1+2+3"
-  derive dashes = replaceAll(expr, "+", "-")
-  derive overlap = replaceAll("aaa", "aa", "b")
-  derive around = replaceAll("abc", "", "-")
-  derive rejoined = replaceAll("😀😀", "", "")
-  derive split = replaceAll("😀", "", "-")
-  derive subst = replaceAll("abc", "b", "[$&|$`|$'|$$|$1|$]")
-  derive before = replaceAll("abc", "", "$`")
-  derive missing = replaceAll("abc", "d", "x")
-  derive empty = replaceAll("", "", " ")
+  derive dashes = expr.replaceAll("+", "-")
+  derive overlap = "aaa".replaceAll("aa", "b")
+  derive around = "abc".replaceAll("", "-")
+  derive rejoined = "😀😀".replaceAll("", "")
+  derive split = "😀".replaceAll("", "-")
+  derive subst = "abc".replaceAll("b", "[$&|$`|$'|$$|$1|$]")
+  derive before = "abc".replaceAll("", "$`")
+  derive missing = "abc".replaceAll("d", "x")
+  derive empty = "".replaceAll("", " ")
   action flip
-    expr = replaceAll(expr, "+", "*")
+    expr = expr.replaceAll("+", "*")
   view
     column
       text expr testId="expr"

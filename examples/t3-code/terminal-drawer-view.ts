@@ -372,7 +372,9 @@ export async function runTerminalCommand(client: T3Client, native: Native, stora
 }
 
 export async function handleTerminalMessage(client: T3Client, native: Native, message: Obj): Promise<boolean> {
-  if (message.type === 'link') { await terminalLinkAction(client, native, message); return true; }
+  // A link whose in-app open failed falls back to the system browser; the reference logs why (console.error of
+  // TerminalLinkPreviewOpenError), the clone keeps it as the drawer's failure, which the agent's `state` shows.
+  if (message.type === 'link') { await terminalLinkAction(client, native, message, { report: error => failed(client, 'terminal link', previewOpenCause(error)) }); return true; }
   if (message.type !== 'selectionAction' || message.action !== 'add-to-chat') return false;
   const ref = activeRef(client);
   if (!ref || str(message.threadId) !== ref.threadId) return true;
@@ -474,3 +476,5 @@ export async function terminalOps(this: T3Client, op: string, id: string, value:
   return true;
 }
 const safeJson = (text: string): unknown => { try { return JSON.parse(text); } catch { return {}; } };
+/** The preview error with its cause's text (the reference's logged error object carries both). */
+const previewOpenCause = (error: Error & { cause?: unknown }): Error => new Error(`${error.message}${error.cause instanceof Error && error.cause.message ? ` ${error.cause.message}` : ''}`);

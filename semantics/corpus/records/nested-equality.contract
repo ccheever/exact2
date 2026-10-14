@@ -1,6 +1,6 @@
 // Equality of nested records with lists and options inside.
 shape Inner
-  tags: list<string>
+  tags: string[]
   note: option<string>
 
 shape Outer

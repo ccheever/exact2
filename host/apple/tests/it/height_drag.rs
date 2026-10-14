@@ -39,7 +39,7 @@ fn fixture() -> (Host<NoData>, String) {
       button testId="remove" press=remove
         text "remove"
       text `${releases}` testId="releases"
-      when showing
+      if showing
         column id="sheet" testId="sheet" height=size box-sizing="border-box" transition="height -exact-spring(180, 12, 1)"
           box testId="header" heightDragFor=binding heightrelease=release disabled=disabled height=32
           box testId="second-header" heightDragFor="sheet" heightrelease=release height=16
@@ -212,7 +212,7 @@ fn catch_and_release_use_constrained_height_and_action_deletion_makes_end_stale(
   view
     column
       text `${seen}` testId="seen"
-      when showing
+      if showing
         box id="sheet" testId="sheet" height=600 max-height=240 box-sizing="border-box"
           box testId="header" heightDragFor="sheet" heightrelease=release
 "#,

@@ -259,11 +259,11 @@ final class TableFeedKeyMacTests: XCTestCase {
 
         component Rows
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-          derive d1 = concat(seed, seed)
-          derive d2 = concat(d1, d1)
-          derive d3 = concat(d2, d2)
-          derive d4 = concat(d3, d3)
-          derive rows = slice(map(d4, (x, i) => i), 0, \(count))
+          derive d1 = seed.concat(seed)
+          derive d2 = d1.concat(d1)
+          derive d3 = d2.concat(d2)
+          derive d4 = d3.concat(d3)
+          derive rows = d4.map((x, i) => i).slice(0, \(count))
           action open(r: number)
             nav = push(nav, path("item", `${r}`))
           action back
@@ -272,14 +272,14 @@ final class TableFeedKeyMacTests: XCTestCase {
             nav = go(nav, url)
           view
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%"
-              each e in stack(nav) key=e.id
-                when e.name == "items"
+              for e in stack(nav) key=e.id
+                if e.name == "items"
                   column navigationKey=`${e.id}` position="absolute" inset=0
                     list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
-                      each r in rows key=`k${r}`
+                      for r in rows key=`k${r}`
                         \(row) testId=`row-${r}` padding="6px 0" width="100%"
                           text `Row ${r}` testId=`title-${r}`
-                when e.name == "item"
+                if e.name == "item"
                   column navigationKey=`${e.id}` position="absolute" inset=0 padding=16 gap=8
                     text `Item ${e.params.id}` testId="detail"
                     button id="back" press=back testId="back"
@@ -351,7 +351,7 @@ final class TableFeedKeyMacTests: XCTestCase {
     private static let acting = """
     component Rows
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-      derive rows = concat(seed, map(seed, x => x + 10))
+      derive rows = seed.concat(seed.map(x => x + 10))
       state log = ""
       action open(r: number)
         log = log + `press ${r};`
@@ -367,7 +367,7 @@ final class TableFeedKeyMacTests: XCTestCase {
         column width="100%" height="100%"
           text `log ${log}` testId="status"
           list virtualized=true estimated-item-height=44 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" key=listKey aria-label="Twenty rows" testId="rows"
-            each r in rows key=`k${r}`
+            for r in rows key=`k${r}`
               row press=open(r) contextmenu=aim(r) dblclick=twice(r) key=rowKey testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
                 image "symbol:star" testId=`star-${r}`
                 column flex=1 min-width=0

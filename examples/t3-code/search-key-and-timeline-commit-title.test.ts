@@ -107,8 +107,8 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
 describe('TC-1: the Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
   test('the button holds the marker, the title, the sha and age and the counts; the title keeps the reference tones', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
-    const start = lines.findIndex(line => line.trim() === 'when row.kind == "commit"');
-    const end = lines.findIndex((line, index) => index > start && line.startsWith('    when '));
+    const start = lines.findIndex(line => line.trim() === 'if row.kind == "commit"');
+    const end = lines.findIndex((line, index) => index > start && line.startsWith('    if '));
     const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
     const indent = (line: string) => line.length - line.trimStart().length;
     // The row's first line is the button, and every other line nests under it.

@@ -174,10 +174,11 @@ enum NavigationRules {
     }
 
     /// D4: geometry deferred behind a sheet replays as a batch would apply
-    /// it — every frame before any content size, node ids ascending.
+    /// it — every frame before any content box, content size or scene laid
+    /// out in them, node ids ascending.
     static func replayOrder(deferred: [UInt32: Set<String>]) -> [(id: UInt32, kind: String)] {
         var out: [(id: UInt32, kind: String)] = []
-        for kind in ["frame", "content"] {
+        for kind in ["frame", "fieldContent", "content", "svg"] {
             for id in deferred.keys.sorted() where deferred[id]?.contains(kind) == true {
                 out.append((id, kind))
             }

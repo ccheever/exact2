@@ -137,7 +137,7 @@ final class PaintOrderIOSTests: XCTestCase {
     func testFilterPicturesFollowRanksAndTransientsImmediately() throws {
         let sub: [Double] = [-10, -10, 20, 20]
         let program = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
-        try XCTSkipUnless(SvgFilterGPU.runs(program.map(Float.init)), "no GPU filter path")
+        guard SvgFilterGPU.runs(program.map(Float.init)) else { throw missing("metal", "no GPU filter path") }
         let p = fixture()
         let node = try XCTUnwrap(p.views[2])
         node.applyStyle(["background_color": [255, 0, 0, 255], "filter": .object(["p": .array(program.map { .number($0) })])])

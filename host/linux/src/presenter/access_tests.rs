@@ -94,7 +94,7 @@ const CONTROLS: &str = r#"component App
 
 /// A virtualized list of 400 rows, each a button, under a heading.
 const ROWS: &str = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state picked = -1
   action pick(n: number)
     picked = n
@@ -102,7 +102,7 @@ const ROWS: &str = r#"component App
     column width=320 height=480
       text `Picked ${picked}` testId="picked" height=20
       list virtualized=true width=320 height=400 testId="port"
-        each x in rows key=x
+        for x in rows key=x
           button press=pick(x) height=40 width=300
             text `Row ${x}`
 "#;

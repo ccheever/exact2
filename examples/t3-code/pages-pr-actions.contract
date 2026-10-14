@@ -53,7 +53,7 @@ shape PrActionsView
   draftToggle: string
   mergeNow: bool
   autoMerge: string
-  methods: list<PrMergeMethodItem>
+  methods: PrMergeMethodItem[]
   methodsSeparator: bool
   groupSeparator: bool
   closeItem: bool
@@ -61,7 +61,7 @@ shape PrActionsView
   revertItem: bool
   freshness: bool
   freshnessSummary: string
-  freshnessMethods: list<PrUpdateItem>
+  freshnessMethods: PrUpdateItem[]
   stacked: bool
   baseTip: string
   approveWorkflows: bool
@@ -88,7 +88,7 @@ component PrdHeaderActions
     // pr-handoffs-and-quick-actions: the hand-offs, which surface the panel is on, and a header narrower than 35rem.
     handoffs: PrHandoffsView
     links: PrLinksView
-    actOn: list<PrActOnItem>
+    actOn: PrActOnItem[]
     surface: string
     narrow: bool
     ref: string
@@ -112,22 +112,22 @@ component PrdHeaderActions
     row flex-shrink=0 align-items="center" gap="0.25rem" testId="pull-request-header-actions"
       PrdStackControls(stack=actions.stack, ref=ref, scheme=scheme, local=local, select=select)
       // pr-links-previews-and-routing: PullRequestThreadLinks display="count", on the page only.
-      when surface == "page" and links.countShown
+      if surface == "page" and links.countShown
         PrdLinkedCount(links=links, act=act)
       // Beside a thread, its own pull request's branch is already under the reader's feet (context "thread").
-      when surface == "page" or not handoffs.threadOwn
+      if surface == "page" or not handoffs.threadOwn
         PrdCheckoutMenu(handoffs=handoffs, surface=surface, scheme=scheme, narrow=narrow, act=act, actOn=actOn)
-      when actions.armedLabel != ""
+      if actions.armedLabel != ""
         PaArmedBadge(label=actions.armedLabel, tip=actions.armedTip, compact=compact, testId="pull-request-auto-merge-armed")
-      when actions.primary == "auto-merge-armed"
+      if actions.primary == "auto-merge-armed"
         PaArmedBadge(label=actions.primaryLabel, tip=actions.armedTip, compact=compact, testId="pull-request-primary")
-      when actions.primary == "merge" or actions.primary == "enable-auto-merge"
+      if actions.primary == "merge" or actions.primary == "enable-auto-merge"
         PaPrimaryButton(icon="git-merge", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=ask(actions.primary), compact=compact, testId="pull-request-primary")
-      when actions.primary == "ready"
+      if actions.primary == "ready"
         PaPrimaryButton(icon="git-pull-request-arrow", label=actions.primaryLabel, disabled=actions.primaryDisabled, destructive=false, press=act("action", "ready"), compact=compact, testId="pull-request-primary")
-      when actions.primary == "resolve"
+      if actions.primary == "resolve"
         PaPrimaryButton(icon="triangle-alert", label=actions.primaryLabel, disabled=(handoffs.pending != "" or (surface != "thread" and not handoffs.canCheckout)), destructive=true, press=act("handoff", `${surface}|conflicts`), compact=compact, testId="pull-request-primary")
-      when actions.stateKey != ""
+      if actions.stateKey != ""
         row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff0a)" align-items="center" flex-shrink=0 testId="pull-request-state-badge"
           PgIcon(name=(actions.stateKey == "merged" ? "git-merge" : "git-pull-request-closed"), size=14, color=paTone(actions.stateKey))
           text actions.stateLabel font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=paTone(actions.stateKey)
@@ -144,7 +144,7 @@ component PaArmedBadge
     Tip(label=tip, side="top", align="center", offset=20)
       row height="1.5rem" min-width="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" background-color="light-dark(#2b7fff14, #2b7fff29)" align-items="center" flex-shrink=0 role="img" aria-label=label testId=testId
         PgIcon(name="git-merge", size=14, color="light-dark(#1447e6cc, #51a2ffcc)")
-        when not compact
+        if not compact
           text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="light-dark(#1447e6, #51a2ff)" aria-hidden=true
 
 // Button size="xs": variant "default" (the merge and readiness), "destructive-outline" (Resolve conflicts); the label is its tooltip.
@@ -164,7 +164,7 @@ component PaPrimaryButton
     Tip(label=label, side="top", align="center", offset=20)
       button id=testId press=press hover=hover disabled=disabled aria-label=label testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(destructive ? (over ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") : paPrimary()) background-color=(destructive ? (over ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#ffffff, #ffffff07)") : (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : paPrimary())) box-shadow=(destructive ? "0 1px 2px #0000000d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0 title=""
         PgIcon(name=icon, size=14, color=(destructive ? paDanger() : "#ffffff"))
-        when not compact
+        if not compact
           text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(destructive ? paDanger() : "#ffffff")
 
 // "More pull request actions" (Button size="icon-xs" variant="ghost-muted"); while the host is read
@@ -174,7 +174,7 @@ component PrdActionsMenu
     actions: PrActionsView
     handoffs: PrHandoffsView
     links: PrLinksView
-    actOn: list<PrActOnItem>
+    actOn: PrActOnItem[]
     surface: string
     ref: string
     url: string
@@ -197,7 +197,7 @@ component PrdActionsMenu
     keyed = kmBump(keyed, last)
   derive gated = not actions.pending and actions.open
   derive handing = handoffs.pending == ""
-  derive rows = filter(concat(concat(concat(concat([KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings")], map(actOn, (item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))), [KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")]), map(actions.methods, (item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))), [KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes")]), (item) => item.id != "")
+  derive rows = [KmItem(id=(links.menuShown and not links.pending ? "pr-more-link" : ""), label=links.menuLabel), KmItem(id=(actions.refreshing ? "" : "pr-more-refresh"), label="Refresh"), KmItem(id=(handing ? "pr-more-ask" : ""), label="Ask a question"), KmItem(id=(handing ? "pr-more-explain" : ""), label="Explain this PR"), KmItem(id=(handing ? "pr-more-fix-findings" : ""), label="Fix findings")].concat(actOn.map((item) => KmItem(id=(handing ? `pr-more-act-on-${item.key}` : ""), label=item.label))).concat([KmItem(id=(gated and actions.draftToggle == "draft" ? "pr-more-draft" : ""), label="Convert to draft"), KmItem(id=(gated and actions.draftToggle == "ready" ? "pr-more-ready" : ""), label="Ready for review"), KmItem(id=(gated and actions.mergeNow ? "pr-more-merge-now" : ""), label="Merge now"), KmItem(id=(gated and actions.autoMerge == "disable" ? "pr-more-disable-auto-merge" : ""), label="Disable auto-merge"), KmItem(id=(gated and actions.autoMerge == "enable" ? "pr-more-enable-auto-merge" : ""), label="Enable auto-merge")]).concat(actions.methods.map((item) => KmItem(id=(gated ? `pr-more-method-${item.method}` : ""), label=item.label))).concat([KmItem(id="pr-more-open-host", label=`Open on ${hostName}`), KmItem(id="pr-more-copy-link", label="Copy link"), KmItem(id="pr-more-copy-number", label="Copy PR number"), KmItem(id=(actions.closeItem and not actions.pending ? "pr-more-close" : ""), label="Close pull request"), KmItem(id=(actions.reopenItem and not actions.pending ? "pr-more-reopen" : ""), label="Reopen pull request"), KmItem(id=(actions.revertItem and not actions.pending ? "pr-more-revert" : ""), label="Revert changes")]).filter((item) => item.id != "")
   action hover(value: bool)
     over = value
   // audit-wave-followups-4 FX-2 (menu-keys.contract): the link row is a MenuItem too, highlighted by its focus alone; the
@@ -221,7 +221,7 @@ component PrdActionsMenu
     column position="relative" flex-shrink=0
       Tip(label=actions.moreLabel, side="top", align="center", offset=20)
         button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey focus=keyArm(true) blur=keyArm(false) aria-label=actions.moreLabel testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-          when actions.refreshing
+          if actions.refreshing
             box width="1rem" height="1rem" display="flex" animation=(still ? "none" : "paSpin 1s linear infinite") testId="pull-request-refreshing"
               PgIcon(name="refresh-cw", size=16, color=paMuted())
           else
@@ -233,43 +233,43 @@ component PrdActionsMenu
         PrMenuBox(scheme=scheme, width=380, label="More pull request actions")
           KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)
             // pr-links-previews-and-routing: PullRequestThreadLinks display="menu-item" (no thread to link to: the picker).
-            when links.menuShown
+            if links.menuShown
               PaMenuItem(keysId="pr-more-keys", icon=links.menuIcon, label=links.menuLabel, shortcut="", disabled=links.pending, destructive=false, press=act("links", links.menuPicker ? "picker" : "toggle"), testId="pr-more-link")
             PaMenuItem(keysId="pr-more-keys", icon="refresh-cw", label="Refresh", shortcut="", disabled=actions.refreshing, destructive=false, press=reload, testId="pr-more-refresh")
             PrdHandoffItems(keysId="pr-more-keys", handoffs=handoffs, surface=surface, menuId="pr-more-menu", act=act)
             PrdActOnItems(keysId="pr-more-keys", items=actOn, disabled=(handoffs.pending != ""), act=act, idPrefix="pr-more-act-on-")
             PaSeparator()
-            when actions.open
-              when actions.draftToggle == "draft"
+            if actions.open
+              if actions.draftToggle == "draft"
                 PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-draft", label="Convert to draft", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "draft"), testId="pr-more-draft")
-              when actions.draftToggle == "ready"
+              if actions.draftToggle == "ready"
                 PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-arrow", label="Ready for review", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "ready"), testId="pr-more-ready")
-              when actions.mergeNow
+              if actions.mergeNow
                 PaMenuItem(keysId="pr-more-keys", icon="git-merge", label="Merge now", shortcut="", disabled=actions.pending, destructive=false, press=ask("merge"), testId="pr-more-merge-now")
-              when actions.autoMerge == "disable"
+              if actions.autoMerge == "disable"
                 PaMenuItem(keysId="pr-more-keys", icon="git-merge", label="Disable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "disable-auto-merge"), testId="pr-more-disable-auto-merge")
-              when actions.autoMerge == "enable"
+              if actions.autoMerge == "enable"
                 PaMenuItem(keysId="pr-more-keys", icon="git-merge", label="Enable auto-merge", shortcut="", disabled=actions.pending, destructive=false, press=ask("enable-auto-merge"), testId="pr-more-enable-auto-merge")
-              when actions.methodsSeparator
+              if actions.methodsSeparator
                 PaSeparator()
-              when length(actions.methods) > 0
+              if actions.methods.length > 0
                 column width="100%" role="group" aria-label="Merge method"
-                  each item in actions.methods key=item.key
+                  for item in actions.methods key=item.key
                     PaRadioItem(keysId="pr-more-keys", label=item.label, selected=item.selected, disabled=actions.pending, press=local("pr-ui-method", ref, item.method), testId=`pr-more-method-${item.method}`)
-              when actions.groupSeparator
+              if actions.groupSeparator
                 PaSeparator()
             link id="pr-more-open-host" hover=hostLitHover focus=hostLitFocus(true) blur=hostLitFocus(false) cursor="pointer" href=url role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" background-color=(hostLit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               PgIcon(name="arrow-up-right", size=14, color=paMuted())
               text `Open on ${hostName}` font-size="0.875rem" line-height="1.25rem" color=paInk() flex=1 min-width=0 white-space="nowrap"
             PaMenuItem(keysId="pr-more-keys", icon="link", label="Copy link", shortcut="⇧⌘C", disabled=false, destructive=false, press=copy("PR link", url), testId="pr-more-copy-link")
             PaMenuItem(keysId="pr-more-keys", icon="copy", label="Copy PR number", shortcut="⇧⌘K", disabled=false, destructive=false, press=copy("PR number", numberLabel), testId="pr-more-copy-number")
-            when actions.closeItem
+            if actions.closeItem
               PaSeparator()
               PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-closed", label="Close pull request", shortcut="", disabled=actions.pending, destructive=true, press=ask("close"), testId="pr-more-close")
-            when actions.reopenItem
+            if actions.reopenItem
               PaSeparator()
               PaMenuItem(keysId="pr-more-keys", icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", disabled=actions.pending, destructive=false, press=act("action", "reopen"), testId="pr-more-reopen")
-            when actions.revertItem
+            if actions.revertItem
               PaSeparator()
               PaMenuItem(keysId="pr-more-keys", icon="rotate-ccw", label="Revert changes", shortcut="", disabled=actions.pending, destructive=false, press=ask("revert"), testId="pr-more-revert")
       box width="1rem" height=1 flex-shrink=0
@@ -301,7 +301,7 @@ component PaMenuItem
     button id=testId press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       PgIcon(name=icon, size=14, color=(destructive ? paDanger() : paMuted()))
       text label font-size="0.875rem" line-height="1.25rem" color=(destructive ? paDanger() : paInk()) flex=1 min-width=0 text-align="left" white-space="nowrap"
-      when shortcut != ""
+      if shortcut != ""
         text shortcut font-size="0.75rem" line-height="1rem" color=paMuted() flex-shrink=0
 
 // MenuRadioItem (closeOnClick): the chosen method is tinted (bg-foreground/8).
@@ -338,14 +338,14 @@ component PrdBaseBranch
     scheme: string
     act: action
   view
-    when actions.freshness
+    if actions.freshness
       // Keyed by the pull request, so a pointer left over another one's mark starts no card here.
-      each prKey in [ref] key=prKey
+      for prKey in [ref] key=prKey
         PaFreshnessMark(actions=actions, prKey=prKey, base=base, scheme=scheme, act=act)
     else
       Tip(label=actions.baseTip, side="top", align="center", offset=20)
         row min-width=0 align-items="center" gap="0.25rem" flex-shrink=0 testId="pull-request-base"
-          when actions.stacked
+          if actions.stacked
             box width="0.75rem" height="0.75rem" aria-label="Stacked pull request" flex-shrink=0
               PgIcon(name="layers", size=12, color="light-dark(#71717bb3, #828282b3)")
           text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
@@ -373,7 +373,7 @@ component PaFreshnessMark
   view
     column position="relative" flex-shrink=0 min-width=0 max-width="40%" hover=hover
       button id="pr-freshness-mark" popovertarget="pr-freshness" aria-label=actions.freshnessSummary testId="pull-request-base-freshness" height="1rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" min-width=0 cursor="help"
-        when actions.stacked
+        if actions.stacked
           PgIcon(name="layers", size=12, color=paWarn())
         text base font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=paWarn() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
         PgIcon(name="triangle-alert", size=14, color=paWarn())
@@ -394,9 +394,9 @@ component PaFreshnessCard
     column max-width="20rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a") role="dialog" aria-label=actions.freshnessSummary testId=testId
       text actions.freshnessSummary font-size="0.75rem" line-height="1rem" color=paInk() font-family="system-ui"
       text "Changes can be cleanly merged." margin-top="0.125rem" font-size="0.75rem" line-height="1rem" color=paMuted() font-family="system-ui"
-      when length(actions.freshnessMethods) > 0
+      if actions.freshnessMethods.length > 0
         row margin-top="0.5rem" flex-wrap="wrap" align-items="center" gap="0.375rem"
-          each item in actions.freshnessMethods key=item.key
+          for item in actions.freshnessMethods key=item.key
             PaOutlineButton(icon="git-merge", label=item.label, disabled=actions.pending, press=act("action", item.value), keep=keep, testId=`${testId}-${item.key}`)
 
 // Button size="xs" variant="outline".
@@ -441,11 +441,11 @@ component PrActionLayers
     act: action
     local: action
   view
-    when actions.dialogOpen
+    if actions.dialogOpen
       PrActionDialog(actions=actions, ref=ref, dark=dark, act=act, local=local)
     // The stack's Dialog gives the focus back to the stack menu's trigger (dialog-trap.contract DialogFinalFocus).
     DialogFinalFocus(open=actions.stack.dialogOpen, target="pull-request-stack")
-    when actions.stack.dialogOpen
+    if actions.stack.dialogOpen
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 
 // AlertDialog: the title, the sentence, Cancel (Escape) and the action's own button (destructive for Close).
@@ -461,7 +461,7 @@ component PrActionDialog
     dark: bool
     act: action
     local: action
-  derive opener = actions.dialogValue == "approve-workflows" ? "pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or startsWith(actions.dialogValue, `${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")
+  derive opener = actions.dialogValue == "approve-workflows" ? "pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or actions.dialogValue.startsWith(`${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")
   action fromCancel(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()

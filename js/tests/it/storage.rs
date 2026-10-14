@@ -26,7 +26,7 @@ component App
         text "Save file"
       button press=invoke("add", "from SQLite") testId="sqlite"
         text "Save row"
-      when pending(output)
+      if pending(output)
         text "Working" testId="pending"
       match output
         case some(result)

@@ -177,7 +177,7 @@ fn an_async_branch_is_adopted_from_the_same_checkpoint() {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../contract/corpus/placeholder.contract"),
     )
     .unwrap();
-    let src = src.replace("      text post.title testId=\"title\"", "      when pending(post)\n        text \"Loading\"\n      else\n        column\n          text post.title testId=\"title\"");
+    let src = src.replace("      text post.title testId=\"title\"", "      if pending(post)\n        text \"Loading\"\n      else\n        column\n          text post.title testId=\"title\"");
     let plan = contract::compile(&src).unwrap();
     let rendered = render(
         &plan,

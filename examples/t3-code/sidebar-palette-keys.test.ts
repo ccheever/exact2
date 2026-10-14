@@ -90,7 +90,7 @@ describe('SH-2: ⇧⌘S settles with the sidebar\'s undo notice', () => {
     // The window hides the notice once its own wall time passes undoUntil (app.contract).
     expect(sidebarSnapshot(chord.client, NOW, helpers).sidebar).toMatchObject({ undoText: 'Settled 1 thread,', undoUntil: NOW + 5000 });
     const app = await source('app.contract');
-    expect(app).toContain('send changed = command(op, id, value, (n == 0 and startsWith(op, "chat:")) ? wallTime.epochAtZero + performanceNow() : n)');
+    expect(app).toContain('send changed = command(op, id, value, (n == 0 and op.startsWith("chat:")) ? wallTime.epochAtZero + performanceNow() : n)');
     expect(await source('client-ops-lanes.ts')).toContain("chatCommand(this, native, storage, op.slice(5), id, value, n)");
   });
 });
@@ -142,7 +142,7 @@ describe('SH-3: the New thread in… picks by ⌘1–⌘9', () => {
   test('the palette field\'s key handler is inputKey (sidebar-palette-keys.test.contract presses ⌘5 and ⌘2 through it)', async () => {
     const palette = await source('palette.contract');
     expect(palette).toContain('input id="palette-input" testId="palette-input" value=query input=edit key=inputKey submit=run(tOp, tArg, tArg2)');
-    expect(palette).toContain('if length(filter(view.jumpKeys, (c) => c == chord)) > 0');
+    expect(palette).toContain('if view.jumpKeys.filter((c) => c == chord).length > 0');
   });
 });
 
@@ -155,7 +155,7 @@ describe('SH-4 and SH-5: the header without projects, the palette row\'s start',
   });
   test('Filter and Add project show only with a project group; New thread stays, disabled without projects', async () => {
     const lines = (await source('sidebar.contract')).split('\n');
-    const gate = lines.findIndex(line => line.trim() === 'when data.sidebar.projectGroupCount > 0');
+    const gate = lines.findIndex(line => line.trim() === 'if data.sidebar.projectGroupCount > 0');
     const indent = (line: string) => line.length - line.trimStart().length;
     const inside = lines.slice(gate + 1, lines.findIndex((line, index) => index > gate && line.trim() !== '' && !line.trim().startsWith('//') && indent(line) <= indent(lines[gate]!)));
     expect(inside.some(line => line.includes('testId="filter-project"'))).toBe(true);

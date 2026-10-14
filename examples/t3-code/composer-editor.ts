@@ -129,12 +129,13 @@ export function pullRequestRecords(client: T3Client, text: string): Obj[] {
   return contextReferences(text).flatMap(reference => reference.kind === 'review-comment' && records.has(reference.id) ? [records.get(reference.id)!] : []);
 }
 /** Context ids the native editor draws as resolved chips, with their chip kind. */
-function chipContexts(client: T3Client, text: string): Record<string, string> {
+export function chipContexts(client: T3Client, text: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const record of threadContextRecords(client, text)) out[`thread/${str(record.contextId)}`] = 'thread';
   // A line comment (diff-review.ts) draws as the review-comment chip; a pull request as its state's.
-  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}` : 'review-comment';
-  for (const reference of contextReferences(text)) if (reference.kind === 'terminal') out[`terminal/${reference.id}`] = 'terminal\t\t';
+  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}\t\t${str(obj(record.pullRequest).title)}` : 'review-comment';
+  // A terminal reference with a record draws as its excerpt (expired when the record holds no text); one with no record is
+  // composerContextPresentation's UnresolvedContextChip, as any context with none (composer-chips-accessibility).
   for (const record of terminalDraftRecords(client, text)) out[`terminal/${str(record.contextId)}`] = `terminal\t\t${str(record.text)}`;
   return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text), ...annotationChipContexts(client, text) };
 }

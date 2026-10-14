@@ -918,8 +918,9 @@ bytes against a plan without the feature):
   gap), +178 B; `exactSurface`, a GPU module's published record decoded
   against each reader's shape as `surface_record.rs` decodes it, +549 B.
 - **Localized strings** (LLP 1060): the tables in the module, the locale
-  slot at the base for initializers and then the table the page's locale
-  reads, with `exactTime` answered again, as the runner's first
+  slot resolved from the page's launch locale before state initializers,
+  including newly added state on a dev reload. After mount,
+  `exactTime` is answered again, as the runner's first
   `set_place`; `t` fills MF2 simple messages; the resolved table sets
   `lang` and `dir`; `exactTime.resolvedLocale` names it. +625 B with two
   one-key tables.

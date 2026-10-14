@@ -3,11 +3,11 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `de115401e79843c0e6458718e9651ca3bcb755fd` (2026-10-13).
+  `e60b3e0570315f31710744c1187f3cec5574fedf` (2026-10-13).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
-- Hermes bundle remains `hermes-vanilla-d412d3bd8512-v4`, source
+- Hermes bundle is `hermes-vanilla-d412d3bd8512-v5`, source
   `d412d3bd…` / Hermes `260318099.0.4`. Repository engine-output directories
   remain absent; builds validate the paired compiler and VM in the bundle cache.
 - The two standalone `Cargo.lock` files under `ibex2` and
@@ -19,6 +19,15 @@ upstream tree, Exact `3ad9ef9cb396fc1cc786abcec03cc1b6bc21cec5`'s vendor tree,
 and the new upstream tree before replacing any source. The old local delta
 included 40 changed/added files. Reusable changes now come from upstream;
 Exact's explicit stub configuration and standalone locks are replayed below.
+
+The follow-up refresh from `b20dded` to `bf74e54` changed only
+`fs_image.rs` rustdoc within the vendored inputs: opaque native codec workspace
+is a measured admission estimate, not an allocator ceiling. Both stub seams,
+the three standalone workspace boundaries, both locks, and Exact's app-facing
+storage declaration were unchanged. The subsequent `e60b3e0` refresh adopts
+the authenticated v5 trust table: eleven target mappings for ten assets,
+including Android aarch64. Its manifests, locks and integration seams are
+unchanged. The published bundle was consumed by the qualification below.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local
@@ -46,8 +55,8 @@ Numbers preserve the former ledger so a patch never disappears without its
 replacement and consumer evidence. Rows 3–7 and 9–13 retire the corresponding
 local source patches. The evidence below qualifies the macOS consumers and
 portable adapter; platform-specific limits are named rather than inferred from
-source replacement. The four remaining file deltas were checked against the
-pinned upstream tree: two explicit stub build scripts and two standalone locks.
+source replacement. The consumer deltas are two explicit stub build scripts, two standalone locks,
+and the workspace boundaries below.
 
 | Former Exact patch | Upstream replacement | Exact consumer evidence |
 |---|---|---|
@@ -61,21 +70,95 @@ pinned upstream tree: two explicit stub build scripts and two standalone locks.
 | 11. Host work in flight | Context count plus owned registry/worker/completion accounting | Owned-handle retirement and cancellation witnesses pass; JS continuation semantics below |
 | 12. Bounded native filesystem results | Explicit `ResultLimits`; bounded reads/enumeration and batched recursive removal | Exact 16 MiB native/app/document cap tests pass, preserving the typed result-limit error |
 | 13. Async fetch | Fallible preparation, infallible accepted activation, terminal retirement, bounded portable workers | Admission refusal, physical retirement, all six base-start failure positions and bounded-worker lifetime tests pass |
-| Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; Exact Windows runtime remains unqualified here |
+| Windows chosen-document EISDIR | Same retained-handle native document executor | Source patch retired against upstream native Windows tests; native Windows Exact storage, document and ordinary TypeScript host requalification is recorded below |
+
+Patch 9's app interface stays Exact's and is replayed on a refresh:
+`bindings/storage.d.ts` declares `compressImage(from, to, {maxDimension,
+maxBytes})` resolving to `{path, type, size, width, height}`, as Exact's docs
+give it, and Exact's prelude (`js/src/prelude.js`) adapts that to upstream's
+positional binding (`compressImage(from, to, maxDimension, maxBytes)`, replying
+`width\theight\tsize`). The October 13 refresh replaced the declaration with
+the positional form; `contract/cli/tests/it/typescript.rs` now pins it. Upstream
+now preserves Exact's app error branches: a source over the read cap is
+`compressImage: too-large:`, and a trial deadline before publication is
+`compressImage: timeout:`. This retires the local substring-based image error
+patch; exact internal markers and typed deadline errors are matched upstream.
+The source pin also deallocates an upload's bytes before invoking its last-release
+callback, so the executor cannot refund memory while the allocation is retained.
+The standalone manifests, dependency graph and locks are unchanged by this refresh.
+
+### Historical v4 Windows consumer qualification — 2026-10-13
+
+The Windows lane started from Exact `dfa6a26344cf238f4b642805492806795e01ddfd`
+and qualified its corrected codec-refusal assertions and native host at
+`b76971320c5c43c505b29b0e3195bf66020c27be`, with Ibex source pin
+`de11540`. That lane is integrated in Exact `4fd19fb4e2`. It ran on x86_64
+Windows with the authenticated
+`hermes-vanilla-d412d3bd8512-v4` bundle. Its receipt uses schema
+`ibex/hermes-upstream-pinned-receipt/2` and has SHA-256
+`38714ce6a52d8511b4a0f03128ec1a3f4b6338d9e0d6572afbb2fd4d29819bb0`.
+
+`cargo test --locked --offline -j 4 -p exact-data-host -p exact-js
+--no-fail-fast` passed 25 data-host tests, 2 JS library tests and 101 JS
+integration tests; one manual startup diagnostic stayed ignored. This includes
+native chosen-document reads and writes, queued document ownership, storage
+result bounds, redirect/deadline/cancellation contracts, and the linked-lean
+test that loads its bytecode prelude and refuses source text. A host without an
+installed image codec refuses after grant admission and before source/provider
+reads; Apple retains its ImageIO assertions.
+
+The existing ignored ordinary TypeScript fixture then built through
+`bun host/windows/build.mjs` with four Cargo jobs. The native agent launched
+the packaged EXE at 640×360 and delivered two platform button presses: its
+Hermes-backed resource changed from `ts count: 0` to `1` and `2`, and the
+owned process exited. The EXE SHA-256 is
+`e40dadb300adcf003e2e28f16951b6bc7f9372480db81e7fa39967d3ebc08516`.
+
+This does not qualify an actual HTTP exchange through `exact-render` on
+Windows. Its library still imports Unix-only `UnixStream`, `AsRawFd` and
+`libc::poll`, so the focused loopback executor test does not compile there.
+`issues/20261013-exact-render-windows-http.md` records that host boundary.
 
 The already upstream pre-split Windows connect readiness, Windows filesystem
 backend, and lazy Rustls trust-store changes remain upstream.
 
-## 8. Android bundle pin — still pending
+## 8. Android bundle pin — adopted and cross-link qualified
 
 Upstream source now supplies the per-target `HERMES_LEAN_SYS_DIR_<target>`
-override, Android link recipe and release target. The consumer stays on the
-published v4 bundle. An Android-capable v5 publication and reviewed pin update
-have not happened in this local delivery, so row 8 is not retired. Existing
-`scripts/hermes-android.mjs` local receipt flow remains available. Source support
-is not evidence that a released Android artifact was consumed.
+override, Android link recipe and release target. The consumer now pins the
+published v5 bundle, including `aarch64-linux-android`. The release's complete
+checksum inventory, archive attestations and paired compiler/VM receipts were
+authenticated before the trust table changed.
+
+Exact Q `56f107fa44bf65c3df043efd3b784e7dd71484a5` ran
+`bun scripts/agent-android.mjs build duo-lab` from the Exact checkout on the
+Linux builder. That invoked `cargo build --profile host-dev -p duo-lab-linux
+--target aarch64-linux-android` using Rust/Cargo 1.97 and the installed Android
+target. Its v5 tag and all eleven pin mappings matched upstream exactly. The
+legacy Exact Android cache stayed empty: this build consumed the published
+bundle through the normal resolver.
+
+The output `target/aarch64-linux-android/host-dev/duo-lab-linux` is an
+AArch64 ELF PIE executable with interpreter `/system/bin/linker64`,
+78,809,152 bytes, SHA-256
+`dec5e208fe21cb32340f603aa0514409414918f9eafad0e623ba6580cc66d98e`.
+It defines 3,276 Hermes symbols, has no unresolved Hermes symbols, and needs
+no `libc++_shared`. Its dynamic dependencies are Android's `libandroid`,
+`liblog`, `libjnigraphics`, `libdl`, `libm` and `libc`. The build exited zero
+and the Q checkout stayed clean. The consumer-release run retains
+`exact-android.identity`, `exact-android-binary.txt`, `exact-android-build.log`
+and the toolchain/pin comparison under its v5 qualification receipts.
+
+This retires the local pin patch. It qualifies the Android executable link,
+not device execution. Existing `scripts/hermes-android.mjs` local receipt flow
+remains available.
 
 ## Remaining consumer integration seams
+
+`ibex2`, `ibex2-sqlite` and `hermes-lean-sys` declare empty workspaces. This stops
+Cargo from discovering an enclosing checkout when `cargo fmt --all` visits these
+excluded path dependencies in a nested worktree. Preserve these boundaries when
+refreshing the vendored crates.
 
 `ibex2/build.rs` emits empty binding bytecode and hardening metadata only when
 `EXACT_JS_ENGINE=stub`. `hermes-lean-sys/build.rs` recognizes that same explicit
@@ -112,23 +195,108 @@ runtime; it cannot discover or cancel jobs admitted afterward. This is runtime-w
 ownership, not cancellation correlated to one JavaScript Promise. A losing
 cancellation waits outside shared locks for publication's actual result.
 
-The ImageIO codec bounds source pixels, the explicitly retained decoded and trial
-buffers, and encoded output. Its 512 MiB scratch estimate is not a proven bound
-on ImageIO's opaque private allocator or peak process RSS. The consumer does not
-claim a platform allocator guarantee from the configured reservation.
+The ImageIO codec bounds source pixels and retained encoded output, and admits
+decoded/intermediate surfaces using component depth, aligned rows, decoder
+workspace and 25% native-workspace headroom within its 512 MiB scratch estimate.
+Large RGBA16 cases that previously exceeded the job reservation are now refused
+before pixel decode. LLP 1069.002's **Native image memory qualification,
+2026-10-13** records the retained adversarial corpus, baseline/final RSS and
+four-job cancellation/teardown evidence at Exact
+`2dd657fd7d93176b6d8e924849ed85170beda67c`, from baseline `dfa6a26344cf`.
+That lane is integrated as `1b797a773e80b579e55a33e19dade886bcc31c0a` and is
+included in the `4fd19fb4e2` checks below. The decision keeps in-process ImageIO
+for this app-local API. The estimate is not a proven cap on ImageIO's allocator,
+peak process RSS or native-call duration; hard process containment would require
+a separate codec service. The configured worker limit belongs to each work owner.
 
-The final-pin focused run passes 108 real lean JS integration tests, 22 native
-storage tests, 15 Fieldnotes mixed TypeScript/Rust persistence tests, and the
-render suite. Real native HTTP drain/redirect/deadline cases pass in both modes;
-async production selection remains opt-in. The separate Snapback workspace
-passes 15 real-server client tests, six durable-device tests and one client unit
-test against its pinned server. The browser grant corpus passes 111 assertions.
+### Previous landing evidence
+
+The adoption delivered as Exact `6dd91519c4292a10c7b6450abe9e082c7fcffdff`
+and Ibex `595224eb9e6e2419a82b0622a7c710a9eceb09f6` used vendored source
+`de11540` and the v4 bundle. Its focused qualification passed 108 real lean JS
+integration tests, 22 native storage tests, 15 Fieldnotes mixed TypeScript/Rust
+persistence tests, and the render suite. Real native HTTP
+drain/redirect/deadline cases passed in both modes. The separate Snapback
+workspace passed 15 real-server client tests, six durable-device tests and one
+client unit test against its pinned server. The browser grant corpus passed
+111 assertions. These receipts belong to that landing, not the newer source pin.
 
 The macOS Fieldnotes app was built and driven with the named scratch store
 `ibex-adoption-20261013`: save a note, write/read its Rust backup, restart,
 delete the note, restore that file through TypeScript, then restart again.
 The observed count changed 1 → 0 → 1, and the final title/body matched the
 saved note with no pending work. This uses isolated test storage, not an
-existing notebook. All six required Exact checks are run on the final commit;
-full command receipts and the production lean phase diagnostic are in the
-local consumer-adoption run ledger.
+existing notebook. All six required Exact checks passed on `6dd91519c`;
+the focused checks, app drive, final checks and production lean phase diagnostic
+retain their individual revisions in the local consumer-adoption run ledger.
+
+### Historical v4 follow-up evidence
+
+Exact `4fd19fb4e2d5bdad1311a18a694feff9b6f1efc3`, with vendored source
+`b20dded` and the v4 bundle, passed all six required checks: build, tests,
+clippy plus fmt, caps, boot, and the full workspace check. Its additional
+`exact-data-host` run passed 22/22 tests. The signed macOS Conduit fixture,
+using isolated identity `com.ccheever.ibexasyncqualification` and scratch
+storage, was built with `EXACT_HTTP_ASYNC=1` and driven through
+home → article → home → login. Four articles loaded, the article body was
+present, and every pending queue was empty. The app remained signed out and
+issued no public writes. Four recorded HTTP transactions used h2 with one
+observed endpoint pair. This is functional reuse evidence, not a timing result.
+The consumer-release run retains `exact-4fd-six-gates.json`,
+`exact-4fd-conduit-macos-receipt.json` and their command logs.
+
+The rustdoc-only refresh to `bf74e54` passed formatting, caps, both standalone
+locked/offline metadata checks, installer/root lock overlap and the vendor
+comparison.
+
+### Published v5 qualification
+
+Exact `56f107fa44bf65c3df043efd3b784e7dd71484a5` (Q) consumes upstream
+`e60b3e0` and the published v5 bundle. Q includes the accepted mainline through
+`e8b90ef40`; all results in this section used that clean source revision.
+The explicit installer acquired the authenticated bundle, and its offline
+`--check` passed before compilation. The macOS archive digest is
+`bc71c7b398f1d41a5390761b75ce72e7be234aa48cb1ddec947224188ed6a4f2`.
+
+All six required Exact checks passed on Q, with 22/22 additional native
+storage tests. The semantic comparison selected 298 corpus cases, 40 generated
+cases and eight lowering cases: no divergence. The eight lowering cases covered
+1,203 agreeing runs; seven bodies were outside the modeled fragment.
+
+The signed Conduit fixture was rebuilt with v5 and `EXACT_HTTP_ASYNC=1`.
+Its native Mac drive again loaded four articles, opened a nonempty article,
+returned home and reached login. It stayed signed out with no pending work or
+public writes. Four lane transactions used h2 on one observed endpoint pair;
+no timing or LTE qualification is inferred. The executable SHA-256 is
+`f7c169d57dd6a35c8ae25cc2d87987aba81d300e33790a1b948cb1be3c645ca6`.
+The native resolver outputs name the v5 cache, and the owned app process exited.
+
+Native x86_64 Windows Q also installed and verified v5 offline. Its archive
+digest is `db9233d08c25a33d7b1cdd2d0eb9428e98020fa6de7ab396b0adfb241b61d1e0`;
+receipt schema `ibex/hermes-upstream-pinned-receipt/2` has SHA-256
+`32c11e970e9783fc8f4b5171700e146c0146a17ad7593a8237c70a3f9b34903e`.
+The locked/offline run passed 25 data-host tests, two JS library tests and
+101 JS integration tests, with one manual startup diagnostic ignored. The
+ordinary TypeScript app rebuilt and its platform-delivered button presses
+changed the Hermes-backed resource 0 → 1 → 2. Its EXE SHA-256 is
+`81d1932eb51ee3e36410370cddf6ece5e272f3837788f54f349b85d0a3d3ac61`.
+No app or build process remained. The Windows render-host HTTP compilation
+boundary recorded above remains open; these results do not qualify that host.
+
+The consumer-release run retains `exact-56f107fa4-six-gates.json`,
+`exact-56f107fa4-conduit-macos-receipt.json`, `windows-v5-ledger.json`, the
+Android receipt named in row 8, and their logs. Codex and Grok independently
+cleared Q's code and pin adoption. Later evidence-only commits preserve Q's
+runtime and native proof attribution; their required gate receipts name their
+own clean revisions.
+
+### Remaining rollout and device boundaries
+
+The physical iPhone fixture built and installed from Exact `32b88bbed4` with
+async enabled, but launch was refused because the device was locked. At the
+v5 check the phone could not supply trusted connectivity/power assertions.
+No Q/v5 physical-device interaction is claimed. Charlie assigned the historical
+bsky4 rollout campaign to the agent on Tuft; LLP 1120 §5 records the original
+baseline and remaining measured gate. Async remains off by default. Independent
+code review is complete, but the controlled TLS setup-stall diagnostic and Mac
+smoke do not substitute for that campaign.

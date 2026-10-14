@@ -23,7 +23,7 @@ shape AutomationsView
   show: bool
   environmentId: string
   error: string
-  rows: list<AutomationRowView>
+  rows: AutomationRowView[]
 
 keyframes taPulse
   from opacity=1
@@ -62,7 +62,7 @@ component AutomationButton
     press: action
   state hovered = false
   action show(on: bool)
-    hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)
+    hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(tip.length / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)
   action hover(over: bool)
     hovered = over
     show(over)
@@ -83,10 +83,10 @@ component ThreadAutomationsSection
       row min-height="2rem" margin-bottom="0.25rem" padding-left="0.375rem" padding-right="0.125rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.25rem"
         text "Automations" flex=1 min-width=0 font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)" role="heading" aria-level=3 testId="details-automations-title"
         AutomationButton(icon="settings-2", label="Manage scheduled tasks", tip="Manage scheduled tasks", align="end", disabled=false, testKey="details-automations-manage", press=act("ui:scheduled-tasks", "", automations.environmentId))
-      when automations.error != ""
+      if automations.error != ""
         text automations.error padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="details-automations-error"
       column width="100%" role="list"
-        each task in automations.rows key=task.id
+        for task in automations.rows key=task.id
           row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.6875rem" padding-right="0.25rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.625rem" role="listitem" testId=`details-automation-${task.id}`
             box position="relative" width="1rem" height="1rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
               AutomationGlyph(name="calendar-clock", size=16, color="light-dark(#71717b, #818181)")

@@ -105,6 +105,8 @@ impl Upload {
 
 impl Drop for Upload {
     fn drop(&mut self) {
+        // The notification can admit another upload against these same bytes.
+        drop(std::mem::take(&mut self.bytes));
         if let Some(released) = self.released.get_mut().ok().and_then(Option::take) {
             contain(released);
         }

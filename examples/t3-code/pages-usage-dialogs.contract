@@ -87,7 +87,7 @@ component UsageModelDialog
     column flex-shrink=0 padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem"
       row align-items="center" gap="0.5rem" min-width=0 padding-right="1.5rem"
         box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
-          when detail.driver == "codex"
+          if detail.driver == "codex"
             ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
           else
             DriverMark(driver=detail.driver, size=20, initials="", icon="")
@@ -96,15 +96,15 @@ component UsageModelDialog
     scroll max-height=(viewportHeight - (118 + (detail.unpricedNote != "" ? 64 : 0)) * rem / 16) min-height=0 width="100%" testId="usage-model-scroll"
       column width="100%" padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom=(detail.unpricedNote != "" ? "0.25rem" : "1.5rem") box-sizing="border-box" gap="2rem"
         box width="100%" display="grid" grid-template-columns=(sm ? "repeat(4, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))") column-gap="1.5rem" row-gap="1rem"
-          each stat in detail.stats key=stat.key
+          for stat in detail.stats key=stat.key
             column min-width=0 gap="0.125rem" testId=`usage-model-stat-${stat.key}`
               text stat.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               text stat.value font-size="1.5rem" line-height="2rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)"
         UsageChartView(chart=detail.chart, width=detail.plotWidth, title=detail.chartTitle, scheme=scheme)
         box width="100%" display="grid" grid-template-columns=(sm ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)") column-gap="2.5rem" row-gap="2rem"
-          each bar in detail.shares key=bar.key
+          for bar in detail.shares key=bar.key
             UsageShareBar(bar=bar, scheme=scheme)
-    when detail.unpricedNote != ""
+    if detail.unpricedNote != ""
       row flex-shrink=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
         text detail.unpricedNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="usage-model-unpriced"
         UsagePrimaryButton(label="Set price", scheme=scheme, disabled=false, press=op("usage-prices-open", "", detail.model), elementId="usage-model-set-price", testId="usage-model-set-price")

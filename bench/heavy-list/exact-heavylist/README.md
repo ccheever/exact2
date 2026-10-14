@@ -41,7 +41,7 @@ builds `release` (thin LTO) and Swift builds `-c release`.
 | Spec item | exact2 feature |
 |---|---|
 | Data read at startup | `resource initial = messages()`. The bake (`contract::bake` in `apple/build.rs`) compiles the 10,000 rows into the plan (7.8 MB), and the plan decode is the startup read. The DataSource's own editable copy is parsed with serde_json on a background thread at launch and turned into row values (~25 ms on an M-series Mac) on the first `config()`, tap or tick. |
-| One list, oldest first | `list virtualized=true estimated-item-height=160` + `each m in feed.rows key=m.id` |
+| One list, oldest first | `list virtualized=true estimated-item-height=160` + `for m in feed.rows key=m.id` |
 | Top bar | a `row` above the list: "Heavy list" and "Live: on/off" |
 | Hairline inset 68 | `box height=0.5 margin-left=68 background-color="#E5E5EA"` at the bottom of each row |
 | Avatar 40×40 circle | `image` 40×40, `border-radius=20`, `object-fit="cover"`, `#E5E5EA` background as the placeholder |
@@ -74,7 +74,7 @@ fixes).
   ellipsis`, no `line-clamp=1`. (The data's names are ≤ 6 characters, so the ellipsis is
   never visible in this benchmark.)
 - **Code runs** pick their family with an expression, one `text` per run instead of a
-  `when` branch; their #F2F2F7 background paints on iOS (was gap 1).
+  `if` branch; their #F2F2F7 background paints on iOS (was gap 1).
 - **Link underline** paints on iOS.
 - **`line-clamp` blank text** (was gap 2) and **mixed-script clipping** (was gap 8) no
   longer reproduce with the old repro scroll; link-card titles/descriptions and m478's

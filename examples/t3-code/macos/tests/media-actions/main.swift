@@ -254,7 +254,9 @@ final class MediaActionsTests: XCTestCase {
 setenv("T3_AGENT_MEDIA_PICKS", "save,copy-image,save", 1)
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-let suite = XCTestSuite(forTestCaseClass: MediaActionsTests.self)
+let suite = XCTestSuite(name: "media-actions")
+suite.addTest(XCTestSuite(forTestCaseClass: MediaActionsTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: MediaFocusTests.self)) // chat-markdown-media-and-code (focus.swift)
 suite.run()
 let outcome = suite.testRun!
 print("Executed \(outcome.executionCount) tests, with \(outcome.totalFailureCount) failures")

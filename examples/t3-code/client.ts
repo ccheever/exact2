@@ -229,10 +229,8 @@ export class T3Client {
       for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
         next.snapshotDrafts[key] = arr(value).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id)) && image.mimeType === 'image/png' && num(image.sizeBytes) > 0 && num(image.sizeBytes) <= 10 * 1024 * 1024).slice(0, 100);
       }
-      for (const [key, value] of Object.entries(obj(saved.selections))) {
-        const selection = obj(value);
-        next.selections[key] = { projectId: str(selection.projectId), threadId: str(selection.threadId) };
-      }
+      // DesktopWindow loads '/' on every launch; _chat.index opens the most recently active
+      // project's draft. Selections are session state, while saved draft content still survives.
       for (const [key, value] of Object.entries(obj(saved.pending))) {
         const entry = obj(value);
         if (str(entry.method) && str(obj(entry.payload).commandId)) next.pending[key] = {

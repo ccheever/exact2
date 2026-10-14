@@ -144,7 +144,7 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 padding=10 background-color="#fff"
           text "- [Note](/note/3) and [out](https://example.com) and [inert](ftp://x)" markup="markdown" testId=`reader-${e.name}` font-size=16
 "##;

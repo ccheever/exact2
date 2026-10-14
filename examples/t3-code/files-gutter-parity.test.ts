@@ -63,14 +63,14 @@ describe('FG-1: the Files preview\'s "+" is Pierre\'s utility button at the numb
     expect(code).not.toContain('left=2 top=2 width=16 height=16');
   });
   test('it is drawn on the selection\'s bottom line while one is held, else on the hovered line', () => {
-    expect(code).toContain('when not open and (line.pin or not line.pinned or dragging)');
+    expect(code).toContain('if not open and (line.pin or not line.pinned or dragging)');
     expect(code).toContain('opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0)');
   });
   test('the number takes no pointer and no text selection, so a press in the middle of it selects (it no longer lands on the "+")', () => {
     expect(code).toContain('text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true');
     expect(code).toContain('box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}`');
     // The number comes after the code, as the diff's DiffNumber; the cell holds no text.
-    expect(code.indexOf('text line.number')).toBeGreaterThan(code.indexOf('each run in line.runs'));
+    expect(code.indexOf('text line.number')).toBeGreaterThan(code.indexOf('for run in line.runs'));
   });
 });
 
@@ -156,7 +156,7 @@ describe('FG-3: split view\'s empty side is hatched', () => {
     expect(cell).not.toContain('#e4e4e4');
     expect(cell).toContain(`tone == "empty" ? "light-dark(${REFERENCE.buffer.gutter.join(', ')})" : "#00000000")`);
     expect(cell).toContain(`tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(${REFERENCE.buffer.surface.join(', ')})")`);
-    expect(cell).toContain('when tone == "empty"\n        box position="absolute" left=((gutter - 2) * size / 13 + 2) top=0 right=0 bottom=0 overflow="hidden" pointer-events="none" aria-hidden=true');
+    expect(cell).toContain('if tone == "empty"\n        box position="absolute" left=((gutter - 2) * size / 13 + 2) top=0 right=0 bottom=0 overflow="hidden" pointer-events="none" aria-hidden=true');
     expect(cell).toContain('rect x=0 y=0 width="100%" height="100%" fill="url(#diff-buffer-stripes)"');
     expect(cell.match(new RegExp(`fill="light-dark\\(${REFERENCE.buffer.stripe.join(', ')}\\)"`, 'g'))).toHaveLength(2);
   });
@@ -220,8 +220,8 @@ describe('FG-4: a press on a gutter closes a skill chip\'s details', () => {
   test('every gutter reports its primary presses on the queued sends the drags take', () => {
     expect(cell).toContain('    else if e.buttons == 1\n      command("diffreview", "press", path, line)');
     expect(code).toContain('    else if e.buttons == 1\n      local("surface-files-comment-press", path, "")');
-    expect(source('app.contract')).toContain('else if op == "diffreview" and (startsWith(id, "drag:") or startsWith(id, "gutter:") or startsWith(id, "comment:") or id == "to" or id == "end" or id == "press")\n');
-    expect(source('app.contract')).toContain('    if startsWith(op, "surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)');
-    expect(source('pages-pr-code.contract')).toContain('if startsWith(id, "drag:") or startsWith(id, "gutter:") or id == "to" or id == "end" or id == "press"\n      local("pr-code-drag"');
+    expect(source('app.contract')).toContain('else if op == "diffreview" and (id.startsWith("drag:") or id.startsWith("gutter:") or id.startsWith("comment:") or id == "to" or id == "end" or id == "press")\n');
+    expect(source('app.contract')).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)');
+    expect(source('pages-pr-code.contract')).toContain('if id.startsWith("drag:") or id.startsWith("gutter:") or id == "to" or id == "end" or id == "press"\n      local("pr-code-drag"');
   });
 });

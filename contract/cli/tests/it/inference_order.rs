@@ -77,10 +77,10 @@ shape P
 component App
   state s = none
   state l = []
-  resource ps = ps() as shape list<P>
+  resource ps = ps() as shape P[]
   derive d = match s { case some(x) => x.n, case none => 0 }
-  derive m = map(l, x => x.n)
-  derive e = length(m)
+  derive m = l.map(x => x.n)
+  derive e = m.length
   action a
     s = some(P(n=1))
     l = ps
@@ -88,14 +88,14 @@ component App
     column
       text `${d}` testId="d"
       text `${e}` testId="e"
-      when e > 0
+      if e > 0
         text "some" testId="when"
       match s
         case some(p)
           text `${p.n}` testId="match"
         case none
           text "none" testId="match"
-      each p in l key=toString(p.n)
+      for p in l key=p.n.toString()
         text `${p.n}` testId="each"
 "#,
     );
@@ -151,7 +151,7 @@ component C
   props
     o: option<number>
   view
-    text (match o { case some(v) => toString(v), case none => "none" }) testId="o"
+    text (match o { case some(v) => v.toString(), case none => "none" }) testId="o"
 "#,
     );
     let k = r.kernel();

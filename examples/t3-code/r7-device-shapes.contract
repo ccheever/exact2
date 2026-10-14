@@ -41,14 +41,14 @@ shape R7DevDeviceTools
   appearance: string
   textSizeLabel: string
   textSizeKnown: bool
-  textSizes: list<R7DevOption>
+  textSizes: R7DevOption[]
   liquidGlass: string
   liquidGlassDisabled: bool
   colorFilterLabel: string
   colorFilterKnown: bool
-  colorFilters: list<R7DevOption>
-  orientations: list<R7DevOption>
-  switches: list<R7DevSwitch>
+  colorFilters: R7DevOption[]
+  orientations: R7DevOption[]
+  switches: R7DevSwitch[]
   axOn: bool
   url: string
   urlDisabled: bool
@@ -58,12 +58,12 @@ shape R7DevDeviceTools
   lat: string
   lng: string
   locationValid: bool
-  presets: list<R7DevOption>
+  presets: R7DevOption[]
   permApp: string
   permPlaceholder: string
   permDisabled: bool
   permissionLabel: string
-  permissions: list<R7DevOption>
+  permissions: R7DevOption[]
   push: string
   pushDisabled: bool
   pushSendDisabled: bool
@@ -72,7 +72,7 @@ shape R7DevDeviceTools
   logDevice: string
   logHost: string
   eventsEmpty: bool
-  events: list<R7DevEvent>
+  events: R7DevEvent[]
 shape R7DevDeviceWorkspace
   rail: R7DevDeviceRail
   tools: R7DevDeviceTools

@@ -275,10 +275,21 @@ final class T3TerminalSessions {
 
     // MARK: Input
 
+    /// `TerminalWriteInput`'s `data` bound (contracts terminal.ts: `isMaxLength(65_536)`, UTF-16 units).
+    static let maxWriteLength = 65_536
+    /// What the reference shows for a write its client refuses to encode (effect's sync encode, SchemaParser.ts).
+    static let schemaRefusal = "Schema validation failed"
+
     /// handleData: one `terminal.write` per input; a failure is written into the terminal that sent it.
+    /// The reference's client encodes the input first, so data over the bound is refused before anything
+    /// is sent (terminal-links-and-close G1-7: a 70,000-character paste reads "Schema validation failed").
     func write(_ data: String, to session: T3TerminalSession, from view: T3TerminalView) {
         guard !data.isEmpty else { return }
         session.writes += 1
+        if data.utf16.count > Self.maxWriteLength {
+            session.writeFailures += 1
+            return view.systemMessage(Self.schemaRefusal)
+        }
         guard let transport = reaching(session.environment) else {
             session.writeFailures += 1
             return view.systemMessage("The server is not connected.")

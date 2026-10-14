@@ -35,11 +35,11 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     const text = await source('menu-keys.contract');
     const target = text.split('\n').find(line => line.startsWith('fn kmTarget('))!;
     expect(target).toContain('k == "ArrowDown" ? first(kmAfter(items, current))');
-    expect(target).toContain('k == "ArrowUp" ? at(items, kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1)');
+    expect(target).toContain('k == "ArrowUp" ? items.at(kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1)');
     expect(target).toContain('k == "Home" ? first(items)');
-    expect(target).toContain('k == "End" ? at(items, -1)');
-    expect(target).toContain('startsWith(toLowerCase(item.label), toLowerCase(k))');
-    expect(text).toContain('fn kmAfter(items: list<KmItem>, current: string): list<KmItem> = concat(slice(items, kmIndex(items, current) + 1), slice(items, 0, kmIndex(items, current) + 1))');
+    expect(target).toContain('k == "End" ? items.at(-1)');
+    expect(target).toContain('item.label.toLowerCase().startsWith(k.toLowerCase())');
+    expect(text).toContain('fn kmAfter(items: KmItem[], current: string): KmItem[] = items.slice(kmIndex(items, current) + 1).concat(items.slice(0, kmIndex(items, current) + 1))');
     expect(text).toContain('fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"');
   });
 
@@ -112,7 +112,7 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     const text = await source('menu-keys.contract');
     expect(text).toContain('fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"');
     expect(text).toContain('fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1)');
-    expect(text).toContain('fn kmEnd(items: list<KmItem>, keyed: number): option<KmItem> = keyed < 0 ? at(items, -1) : first(items)');
+    expect(text).toContain('fn kmEnd(items: KmItem[], keyed: number): option<KmItem> = keyed < 0 ? items.at(-1) : first(items)');
     expect(text).toContain('fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")');
     expect(text).toContain('fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`');
     expect(text).toContain('fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)');
@@ -192,7 +192,7 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
   test('the row keeps its hover actions shown while the snooze menu holds the focus (SnoozeMenuButton pins them)', async () => {
     const row = await component('sidebar-row.contract', 'ThreadRow');
     expect(row).toContain('derive shown = hovering or snoozeFocus or snoozeHover');
-    expect(row).toContain('when shown or swept\n                        SidebarCardActions(');
+    expect(row).toContain('if shown or swept\n                        SidebarCardActions(');
     expect(row).toContain('max-width=(shown ? "0px" : "15rem")');
     expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)');
     expect(row).toContain('KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)');
@@ -230,7 +230,7 @@ describe('#298 bugs 6 and 5: Escape goes to the palette over Custom snooze, and 
     expect(dialog).toContain('aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel"');
     expect(await source('sidebar-overlays.contract')).toContain('SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)');
     const window = await source('app-window.contract');
-    expect(window.split('covered=paletteOpen)').length - 1).toBe(2);
+    expect(window.split('covered=paletteOpen)').length - 1).toBe(1);
   });
 
   test('a sidebar dialog takes the focus at its first stop again as the palette over it closes', async () => {
@@ -274,7 +274,7 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
     const dialog = await component('pages-pr-actions.contract', 'PrActionDialog');
     expect(dialog).toContain('button id="pr-action-dialog-cancel" press=dismiss key=fromCancel autofocus=true aria-keyshortcuts="Escape"');
     expect(dialog).toContain('action dismiss\n    local("pr-ui-cancel", ref, "")\n    focus(opener)');
-    expect(dialog).toContain('"pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or startsWith(actions.dialogValue, `${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")');
+    expect(dialog).toContain('"pull-request-approve-workflows" : (actions.primary != "" and (actions.dialogValue == actions.primary or actions.dialogValue.startsWith(`${actions.primary}:`)) ? "pull-request-primary" : "pull-request-more")');
     // No root line for it (app.contract's budget).
     expect(await source('app.contract')).not.toContain('pr-action-dialog-cancel');
   });
@@ -335,7 +335,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     for (const name of ['KeyMenu', 'KeyMenuWatched']) {
       const body = await component('menu-keys.contract', name);
       expect(body).toContain('  action pointed(id: string)\n    current = id\n    focus(id)');
-      expect(body).toContain('      each item in items key=item.id\n        KmDoor(id=item.id, enter=pointed(item.id))');
+      expect(body).toContain('      for item in items key=item.id\n        KmDoor(id=item.id, enter=pointed(item.id))');
       // The popup hears no pointer and no hover of its own: a press inside it still reaches the window's light dismiss
       // (popover-escape-parity), and the macOS host hovered one node at a time before main #327 (X62).
       expect(body).not.toMatch(/\b(hover|pointerdown|pointerup|pointermove)=/);

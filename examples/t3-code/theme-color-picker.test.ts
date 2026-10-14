@@ -299,17 +299,17 @@ describe('the picker in the theme editor', () => {
 // popover-escape-parity: Escape in the theme editor, read from the Contract sources (as dialog-focus.test.ts
 // reads its handlers); the keys themselves are driven on macOS (tasks/20261008-popover-escape-parity.md).
 // Reference: ThemeEditorPanel.tsx is a plain `role="dialog"` div with no Escape of its own (its only
-// keydown listener cancels Inspect, not built here, X30), so an Escape in it reaches the page's
+// keydown listener cancels Inspect), so an Escape in it reaches the page's
 // useEscapeToGoBack (Settings' navigateToMainApp) and the editor, above the router, stays; the colour
 // popover (Base UI Popover) closes on Escape, prevents it, and gives the focus back to its swatch.
 describe('Escape in the theme editor (popover-escape-parity)', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
-  test('the editor has no Escape of its own: no shortcut, no key handler, not a modal', async () => {
+  test('only Inspect owns Escape; the normal editor remains a non-modal panel', async () => {
     const editor = await source('settings-appearance-editor.contract');
     const nodes = editor.split('\n').filter(line => /^\s*[a-z][\w-]*\b/.test(line) && !/^\s*(\/\/|action|state|derive|use|component|fn)\b/.test(line));
-    expect(nodes.filter(line => /aria-keyshortcuts=/.test(line))).toEqual([]);
-    expect(nodes.filter(line => /\skey=(?!editor\.session|group\.id|row\.id)/.test(line))).toEqual([]);
+    expect(nodes.filter(line => /aria-keyshortcuts=/.test(line))).toEqual([expect.stringContaining('testId="theme-inspector-cancel"')]);
+    expect(nodes.filter(line => !line.trimStart().startsWith('for ') && /\skey=/.test(line))).toEqual([expect.stringContaining('key=inspectorKey')]);
     expect(nodes.filter(line => /aria-modal=/.test(line))).toEqual([]);
     const close = nodes.find(line => line.includes('testId="theme-editor-close"'))!;
     expect(close).toContain('button press=close aria-label="Close the theme editor" class=SettingsGhost');

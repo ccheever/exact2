@@ -6,14 +6,14 @@ shape Row
   b: bool
 
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   state count = 1
-  derive taken = filter(rows, (r, i) => i < count)
-  derive ss = join(map(taken, r => r.s), "--")
-  derive ns = join(map(taken, r => r.n), "--")
-  derive bs = join(map(taken, r => r.b), "--")
-  derive none0 = join(filter(map(rows, r => r.s), s => false), "--")
-  derive sepCount = length(ss) >= 2 * (length(taken) - 1)
+  derive taken = rows.filter((r, i) => i < count)
+  derive ss = taken.map(r => r.s).join("--")
+  derive ns = taken.map(r => r.n).join("--")
+  derive bs = taken.map(r => r.b).join("--")
+  derive none0 = rows.map(r => r.s).filter(s => false).join("--")
+  derive sepCount = ss.length >= 2 * (taken.length - 1)
   action more
     count = count + 1
   view

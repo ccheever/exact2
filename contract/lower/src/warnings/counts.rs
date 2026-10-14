@@ -6,7 +6,7 @@
 //!
 //! The number is the type checker's: a string (`${name} votes`) is never
 //! named, nor anything it cannot type. A template under a choice made on
-//! the count (`n == 1 ? … : …`, `when n == 1`, `if n != 1`) is the
+//! the count (`n == 1 ? … : …`, `if n == 1` in a view or an action) is the
 //! author's choice already; a unit's abbreviation (`lbs`, `mins`) is the
 //! same for one, `%` is no word, and a total after `of` (`${done} of
 //! ${total} cards`) is rarely one.

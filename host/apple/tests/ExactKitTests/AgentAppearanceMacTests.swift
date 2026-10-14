@@ -12,7 +12,7 @@ final class AgentAppearanceMacTests: XCTestCase {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
-        let source = "shape Viewport\n  prefersColorScheme: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    column\n      when viewport.prefersColorScheme == \"dark\"\n        text \"dark\"\n      else\n        text \"light\"\n"
+        let source = "shape Viewport\n  prefersColorScheme: string\ncomponent App\n  resource viewport = exactViewport() as shape Viewport\n  view\n    column\n      if viewport.prefersColorScheme == \"dark\"\n        text \"dark\"\n      else\n        text \"light\"\n"
         try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
         let compiler = Process()
         compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"], "build.mjs --test builds the Contract compiler and names it"))

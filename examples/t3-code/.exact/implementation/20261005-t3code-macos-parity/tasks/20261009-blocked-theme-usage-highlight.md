@@ -1,28 +1,30 @@
 ---
 name: 20261009-blocked-theme-usage-highlight
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
-verified_commit: null
+branch: feat(example)/t3-code-appearance-theme-tools
+pr_url: https://github.com/ccheever/exact2/pull/548
+verified_commit: 3edaae26884e28b820506e0b54dc5cee030baf7e
 ---
 
-# Blocked: the theme editor's colour usage highlight and "N uses"
+# Theme editor Inspect, colour usage outlines, and “N uses”
 
 ## Outcome
 
-In the reference's theme editor, selecting a colour role outlines every element that the role paints, and the header
-counts them ("Accent color · 4 uses"). The clone cannot find those elements: no Contract read lists the rendered nodes or
-their paint. This record holds the finding until a framework read exists. It does not build anything.
+The floating theme editor can select a colour role from a label, swatch, or inspected app
+paint. It queries mounted app nodes that declare that role, outlines their frames, and reports
+the resulting count. Opening a swatch selects the role; pressing its label again clears the
+selection. Counts come from the scene rather than reference screenshot numbers.
 
-Found by the 2026-10-09 desktop audit ([review](../reviews/20261009-desktop-audit.md)). Reference: T3 Code `1e2ecbd975`
-as an Electron production build. Clone: `c603c22d6`, a development build.
+The 2026-10-09 discrepancy is retained below as historical evidence. X68 and X69 are now
+adopted: `elementsFromPoint` supplies ordered hits, and `querySelectorAll` finds declared
+paint-role data words. This implementation changes the example only.
 
-## Findings
+## Original findings
 
 Evidence paths are under the repository root. They stay local and are not committed.
 
@@ -30,53 +32,69 @@ Evidence paths are under the repository root. They stay local and are not commit
 | --- | --- | --- | --- | --- |
 | S1-7 | Each row label is a toggle ("Show Accent usage"). Selecting it, or opening a row's colour picker, outlines every element painted with that role, and the header reads "Accent color · 4 uses" / "Background · 27 uses". | Row labels are plain text. Opening a colour picker or pressing a label shows no outline; the header stays "Select a color below". | Settings › Appearance › Create theme › press the "Accent" label (or the Background swatch). | `target/t3-audit/evidence/settings-1/S1-7-ref.png`, `S1-7-clone.png` |
 
-## Why it cannot be built
+## Implementation — 2026-10-14
 
-- **How the reference does it.** `highlightThemeRoleUsage` (`apps/web/src/components/settings/themeInspector.ts:405-450`)
-  takes every element in the document (`themeInspectorCandidates`, `:346-352`: `document.body.querySelectorAll("*")`
-  outside the editor), reads each one's computed paint (`getThemePaintSnapshot`, `:259-295`: `getComputedStyle`
-  colours, borders, outline, shadows, fill, stroke), swaps the role's CSS variable for a probe colour, reads the paint
-  again, and outlines every element whose paint changed. The count is the number of outlined elements
-  (`ThemeEditorPanel.tsx:556, 1183`).
-- **What Exact has.** Contract's structural reads are `frame(id)`, `measure("id")` and `elementFromPoint(x, y)`, all
-  action-only (`docs/contract-grammar.md:543-545`). None lists the mounted nodes, and none reads a node's paint. So the
-  clone cannot find "every node painted by role R", and so cannot outline them or count them.
-- **The binding rules.** The T3 branch builds no framework fix; a T3 task blocked on a framework gap waits for the fix on
-  `main` and an adoption round (user, 2026-10-08, `plan.md:56-60`, "Framework vs T3 work"). For the same paint lookup
-  behind Inspect, the user decided U18 (`plan.md:103, 414`): file a framework issue, then wait.
-- **Not covered by an existing issue.** X68 ([#321](https://github.com/ccheever/exact2/issues/321), main file
-  `issues/20261009-elements-from-point-read.md`) asks only for `elementsFromPoint(x, y)`, a point read for Inspect's click.
-  Its current scope (Charlie's transfer, 2026-10-09): "Design the action-only elementsFromPoint structural read". It does
-  not list nodes by paint. The closed [settings-scoped-controls-and-theme-editor](closed/20261005-settings-scoped-controls-and-theme-editor.md)
-  excluded Inspect only (line 31). So this is a new framework gap: local draft
-  [X69](../issues/closed/20261009-x69-paint-role-node-query.md).
+Local commits: `6accb80fbc021fad73772a302e2af4dbf46326ed` and
+`3edaae26884e28b820506e0b54dc5cee030baf7e`.
 
-## What was compared
+- Palette-backed app elements declare `data-paint`, unique IDs, and a primary `data-pick`
+  role. Primary role priority is background, then border, then foreground; conditional paint
+  follows the active branch. Palette-coloured icons participate through `CorePaintIcon`.
+- While the editor is open, the root queries each role and reads the returned nodes’ frames.
+  The editor and its own controls are excluded. Labels toggle outlines; swatches select them.
+- Inspect reads `elementsFromPoint` and selects the first matching tagged hit, then enables
+  Advanced if needed, clears the colour filter, and reveals the selected row.
+- Inspection owns Escape through shared root state. Settings Back gives up Escape until
+  inspection ends. The editor keeps its normal accessibility exposure. Outside pointer
+  events still dismiss other app popovers through the existing window handlers.
 
-Create theme in both apps; press each role label and open the Accent and Background swatches. Everything else in the
-editor matched (rows, roles, Advanced groups, minimize, close), except Inspect (S1-15, waits for X68) and the colour
-picker's placement (S1-10, waits for X17).
+The declared tags cover app palette consumers; they are not a framework computed-paint probe
+for platform-owned control internals. A future palette consumer must declare its paint role
+and a unique ID to participate.
 
-## Current clone state
+## Verification receipt
 
-The theme editor's role labels are plain text; no outline; the header says "Select a color below".
+| Check | Result | Local evidence |
+| --- | --- | --- |
+| Full app Bun suite | 4,861 passed, one existing skip, no failures | `target/appearance/full-tests.log` |
+| Contract, strict app TypeScript, staged caps | Passed on `3edaae268` | `contract-followup.log`, `typecheck.log`, `caps.log` under `target/appearance/` |
+| Mounted roles and IDs | Native scene reports 20 roles; no duplicate IDs within any role | `target/appearance/inspector-drive.json`, `inspector-checks.json` |
+| Background toggle and count | Native header and outlines match the 20 queried Background nodes; second label press removes outlines | Same receipt |
 
-## Declared difference
+The rebuilt native drive on `3edaae268` passed all 33 checks. Escape cancels inspection while
+Settings stays open. Picking the Appearance paintbrush selects Text, enables Advanced, and
+reveals the Text row. `target/appearance/after-inspected-window.png` was visually reviewed.
+The earlier `before-followup-inspector-*` receipt records the Escape failure that motivated
+`3edaae268`; it is not the repaired path’s acceptance evidence.
 
-No usage outline and no "N uses" count in the theme editor, until X69 is resolved on `main` and adopted.
+Native build: `target/appearance/followup-build.log` (Cargo 228.2 s; Swift 1.2 s; exit zero).
+The checks exercise Background and Text, plus unique IDs across all 20 roles. They do not
+claim paired screenshot coverage of every role on every app route.
 
-## What would unblock it
+## Colour control accessibility (G5D3 / PNB1a / G413)
 
-X69 resolved on `main` (a read that lists the nodes a paint role reaches, with their frames, or an equivalent Charlie
-chooses), then an adoption round. The clone then needs each themed paint to name its role (X68's report already suggests
-ids such as `paint-surface-card`). If Charlie closes X69 as not planned, this becomes a permanent declared difference in
-`EXACT2-GAPS.md`.
+The hue slider now supplies raw `aria-valuetext` (zero or 221, without percent). Saturation
+and brightness expose rounded numeric percentages. In the native drive the initial
+Background brightness changed from 98.82352941176471 to 99; a saturation arrow reports 2,
+and entering `#2563eb` reports hue 221. Evidence: `target/appearance/before-ax.json` and the
+AX captures in `target/appearance/inspector-drive.json`.
 
-## Next action
+The existing instruction text remains linked with `aria-describedby`; the macOS host exposes
+it as accessibility help. VoiceOver speech and its update timing were not exercised. These
+AX value checks do not prove the complete spoken-description parity requested by PNB1a.
 
-Wait for X69's `issue-open` (reproduce, deduplicate against #321, report with the user's approval). No PR until then.
+## Coordinator publication, 2026-10-14
 
-Since then (checked 2026-10-13): X69 was filed on main by #386 (`issues/20261010-paint-role-node-list-read.md`), and
-main closed it on 2026-10-12 by `afe11ead5` (an action's `querySelectorAll` over declared data words, beside
-`elementsFromPoint`; now `issues/closed/`), not adopted yet. After an adoption round takes it, check it against the
-unblock condition above before building.
+Draft PR [#548](https://github.com/ccheever/exact2/pull/548) was published and read back at
+`31d46d0a21e1de85626ce04a0d81068fcd8cc6cd`, based on `feat(example)/t3-code`.
+The [durable native packet](https://github.com/ccheever/exact2/blob/ffe98932fe5943814d09069cbb210d2f91c5d01d/appearance-theme-tools/20261014-resume/README.md)
+contains accepted final screenshots, source/binary identities, and compact baseline/after
+observations. Its transparent baseline PNG is rejected, and differing fixtures are declared.
+Independent review approved the bounded implementation; the outstanding full-task
+verification rows above remain open. This publication update is coordinator bookkeeping.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

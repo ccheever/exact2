@@ -163,7 +163,8 @@ describe('device tools, refs, archive menu, look', () => {
     let clicked: string | null = 'delete';
     Object.assign(client, { restAccess: () => ({ call: async () => ({ clicked }) }), manageArchivedThread: async (_n: unknown, _s: unknown, op: string, scope: string) => { calls.push(`${op} ${scope}`); } });
     await archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t1', 'Old thread');
-    expect(archiveConfirmation(as(client))).toEqual({ id: 'env1:p1:t1', title: 'Old thread' });
+    // sidebar-hover-archive-and-glyph G4-14b: the live store holds no archived thread, so the confirm says "this thread".
+    expect(archiveConfirmation(as(client))).toEqual({ id: 'env1:p1:t1', title: 'this thread' });
     await archiveCommand(as(client), fakeNative, {} as never, 'archive-delete', 'env1:p1:t1', '');
     expect(calls).toEqual(['delete-archived-thread env1:p1:t1']);
     (client.local.clientSettings as Obj).confirmThreadDelete = false;

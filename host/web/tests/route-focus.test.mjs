@@ -15,11 +15,11 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // A root with two tabs. The first tab's root route is a list in a scroller:
 // rows that push a detail (a button, a link, each drawing the disclosure, so

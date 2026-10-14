@@ -26,7 +26,7 @@ function fake(): Fake {
   };
   return client;
 }
-const native = { available: true } as unknown as Native;
+const native = { available: true, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) } as unknown as Native;
 const as = (client: Fake) => client as unknown as T3Client;
 const prefsOf = (client: Fake) => client.local.clientSettings as Record<string, unknown>;
 const restore = (client: Fake) => applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
@@ -112,7 +112,7 @@ describe('RD-1: Restore defaults resets what the reference resets', () => {
 describe('TG-1: a lifecycle row draws the pull request glyph on the rail', () => {
   test('the lifecycle rows use the icon marker whatever the actor; the actor is named beside the label', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
-    const start = lines.findIndex(line => line.trim() === 'when row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');
+    const start = lines.findIndex(line => line.trim() === 'if row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');
     expect(start).toBeGreaterThan(-1);
     const end = lines.findIndex((line, index) => index > start && /^\S/.test(line));
     const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));

@@ -625,14 +625,14 @@ pub struct Field {
     pub span: Span,
 }
 
-/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `list<T>`.
+/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     /// A named type: a primitive or a shape.
     Named(String, Span),
     /// `option<T>`.
     Option(Box<TypeExpr>, Span),
-    /// `list<T>`.
+    /// `T[]`.
     List(Box<TypeExpr>, Span),
 }
 
@@ -996,7 +996,7 @@ pub struct Task {
     /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
     /// `None` for `mount` and for `key=` alone (`when true`).
     pub gate: Option<Expr>,
-    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// `key=expr`: a new key restarts the timer, as a new `for` key makes
     /// a new row (LLP 1092 D7).
     pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
@@ -1057,7 +1057,7 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// `if cond … else …`. `tag` is the inliner's, as on `Each`: its
     /// arms own the state of the children used in them; 0 as parsed.
     When {
         /// The inliner's tag.
@@ -1071,9 +1071,9 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `each x in list key=expr`, or `each x, i in list key=expr` binding
+    /// `for x in list key=expr`, or `for x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// per region (`for`, `if`, `match`) in the expanded root, so a
     /// lifted slot can name the region that owns it before regions exist
     /// (LLP 1017 P4c); 0 as parsed.
     Each {
@@ -1147,7 +1147,7 @@ pub fn is_input_multiple(tag: &str, positional: &Expr) -> bool {
 /// `Some("checkbox")` for a checkbox (a switch is one too), whose `change`
 /// and `input` carry a bool; `Some("radio")` for a radio, whose carry its
 /// `value`; `Some("file")` for a file input (LLP 1069.002
-/// D1), whose `change` carries a `list<Picked>`; `Some("select")` for a
+/// D1), whose `change` carries a `Picked[]`; `Some("select")` for a
 /// `select`, whose `change` and `input` carry the chosen option's value;
 /// `None` for a text field or any other element.
 pub fn input_control(tag: &str, attrs: &[Attr]) -> Option<&'static str> {
@@ -1310,7 +1310,7 @@ pub enum Expr {
     None(Span),
     /// `[a, b, c]`: a list of its items, which unify as the arms of `?:`
     /// do (LLP 1088 §9.1). `[]`'s element type comes from where it is
-    /// written (the other arm of a `match` or `?:`, a declared `list<T>`,
+    /// written (the other arm of a `match` or `?:`, a declared `T[]`,
     /// a write into the state it initializes).
     List(Vec<Expr>, Span),
     /// `some(expr)`.

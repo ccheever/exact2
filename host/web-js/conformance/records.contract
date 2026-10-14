@@ -38,10 +38,10 @@ component Records
   derive fields = match draft { case some(d) => d, case none => loaded }
   derive dirty = fields != loaded
   resource loc = defaultLocation() as shape Location
-  resource close = nearest(loc, 3) as shape list<Station>
-  derive stops = map(close, (s, i) => Stop(name=s.name, rank=i + count))
-  derive ranked = map(stops, s => Stop(s, rank=s.rank * 10))
-  derive kept = filter(ranked, s => Stop(s, name="") != Stop(name="", rank=count * 10))
+  resource close = nearest(loc, 3) as shape Station[]
+  derive stops = close.map((s, i) => Stop(name=s.name, rank=i + count))
+  derive ranked = stops.map(s => Stop(s, rank=s.rank * 10))
+  derive kept = ranked.filter(s => Stop(s, name="") != Stop(name="", rank=count * 10))
   action retitle
     let next = Fields(fields, title=`${fields.title}!`)
     draft = some(next)
@@ -76,7 +76,7 @@ component Records
       text fields.title testId="title"
       text `${fields.body} ${fields.pinned ? "pinned" : "loose"} ${dirty ? "dirty" : "clean"}` testId="status"
       text `${count} ${seen} ${spot.x},${spot.y} ${label}` testId="locals"
-      text join(map(kept, s => `${s.name}:${s.rank}`), ", ") testId="stops"
+      text kept.map(s => `${s.name}:${s.rank}`).join(", ") testId="stops"
       row gap=8
         button press=retitle testId="retitle"
           text "retitle"

@@ -126,27 +126,42 @@ final class CanvasPointerMacTests: XCTestCase {
     }
 
     /// A 2D canvas's bitmap sits in the content box a pointer's offsets are
-    /// from, also when layout sends a new one alone: a percentage padding
-    /// whose containing block narrowed moves it without a new size, so no
-    /// draw comes to place it.
-    func testA2DCanvasBitmapFollowsAContentBoxSentAlone() throws {
+    /// from, laid out with its view: when layout sends a content box alone
+    /// (a percentage padding of a narrowed containing block, no new size, so
+    /// no draw), clipped to the content edge's new curve, each radius less
+    /// its own side's inset (CSS Backgrounds 3 §4.2, §4.3); and when a points
+    /// padding moves it.
+    func testA2DCanvasBitmapFollowsItsContentBox() throws {
         _ = NSApplication.shared
         let p = Presenter()
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "canvas2d", "handlers": ["pointerdown"]],
-            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5]]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 10], "border_radius": 50]],
             ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 240.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [40.0, 0.0, 200.0, 100.0]]
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        node.layoutSubtreeIfNeeded()
+        p.canvas2d.apply(1, ["lifetime": 1, "generation": 0, "fresh": true, "w": 200, "h": 100, "scale": 1.0, "stretch": false,
+                             "lists": [Data]()], layer: node.layer)
+        let bitmap = try XCTUnwrap(node.layer?.sublayers?.first { $0.frame.size == CGSize(width: 200, height: 100) })
+        XCTAssertEqual(bitmap.frame.minX, 40)
+        // The content box alone, its frame unchanged
+        p.apply(wireBatch([["op": "fieldContent", "id": 1, "rect": [30.0, 0.0, 200.0, 100.0]]]))
+        node.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bitmap.frame.minX, node.contentBox().minX)
+        XCTAssertEqual(bitmap.frame.minX, 30)
+        let mask = try XCTUnwrap(bitmap.mask as? CAShapeLayer)
+        let curve = [CGSize(width: 20, height: 50), CGSize(width: 40, height: 50), CGSize(width: 40, height: 50), CGSize(width: 20, height: 50)]
+        XCTAssertEqual(mask.path, BorderPaint.roundedRect(CGRect(x: 0, y: 0, width: 200, height: 100), curve))
+        p.apply(wireBatch([
+            ["op": "style", "id": 1, "style": ["padding_left": 20, "border_radius": 50]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 220.0, "h": 100.0],
             ["op": "fieldContent", "id": 1, "rect": [20.0, 0.0, 200.0, 100.0]]
         ]))
-        let node = try XCTUnwrap(p.views[1])
-        p.canvas2d.apply(1, ["lifetime": 1, "generation": 0, "fresh": true, "w": 200, "h": 100, "scale": 1.0, "stretch": false,
-                             "box": [20.0, 0.0, 200.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [Data]()], layer: node.layer)
-        let bitmap = try XCTUnwrap(node.layer?.sublayers?.first { $0.frame.size == CGSize(width: 200, height: 100) })
-        XCTAssertEqual(bitmap.frame.minX, 20)
-        p.apply(wireBatch([["op": "fieldContent", "id": 1, "rect": [15.0, 0.0, 200.0, 100.0]]]))
-        XCTAssertEqual(bitmap.frame.minX, node.contentBox().minX)
-        XCTAssertEqual(bitmap.frame.minX, 15)
+        node.layoutSubtreeIfNeeded()
+        XCTAssertEqual(bitmap.frame.minX, 20, "a points padding moves it too")
         p.canvas2d.forget(1)
     }
 

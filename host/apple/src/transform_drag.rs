@@ -501,10 +501,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn transform_refused(&self) -> String {
-        format!(
-            "{{\"accepted\":false,\"batch\":{}}}",
-            self.refused(Batch::new(), None)
-        )
+        format!("{{\"accepted\":false,\"batch\":{}}}", self.refused(None))
     }
 
     fn transform_stale(&mut self) -> String {

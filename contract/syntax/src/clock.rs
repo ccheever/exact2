@@ -10,7 +10,7 @@ use std::collections::{HashMap, HashSet};
 /// is a bare name a `timeline` declares into `"-exact-clock(Name)"`, on view
 /// elements and in `style` declarations. On an element any other value is
 /// left as written (a bare name there may be a binding, and a component's
-/// prop, inject, state, derive, resource, mutation, action, or an `each` or
+/// prop, inject, state, derive, resource, mutation, action, or a `for` or
 /// `match` binder of the name shadows the timeline as it shadows any name);
 /// in a style, where only a timeline's name is admitted, one no `timeline`
 /// declares is refused.
@@ -157,7 +157,7 @@ mod tests {
 
     #[test]
     fn a_binder_of_the_name_shadows_the_timeline_in_its_body_only() {
-        let src = "timeline P\ncomponent App\n  state items = []\n  view\n    column\n      text \"a\" animation-timeline=P\n      each P in items key=P\n        text \"b\" animation-timeline=P\n      text \"c\" animation-timeline=P\n";
+        let src = "timeline P\ncomponent App\n  state items = []\n  view\n    column\n      text \"a\" animation-timeline=P\n      for P in items key=P\n        text \"b\" animation-timeline=P\n      text \"c\" animation-timeline=P\n";
         assert_eq!(
             timelines(src),
             ["-exact-clock(P)", "ident P", "-exact-clock(P)"]

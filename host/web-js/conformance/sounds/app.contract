@@ -30,11 +30,11 @@ shape Hit
   group: string
 
 // A hit every 40 ms from `from`, the first a kick; those before `to`.
-fn window(list: list<Station>, from: number, to: number): list<Hit> = filter(map(list, (s, i) => Hit(src=i == 0 ? "assets/kick.wav" : "assets/hat.wav", at=from + 40 * i, gain=0.5 + 0.25 * i, group=i == 0 ? "" : "hat")), h => h.at < to)
+fn window(list: Station[], from: number, to: number): Hit[] = list.map((s, i) => Hit(src=i == 0 ? "assets/kick.wav" : "assets/hat.wav", at=from + 40 * i, gain=0.5 + 0.25 * i, group=i == 0 ? "" : "hat")).filter(h => h.at < to)
 
 component Sounds
   resource location = defaultLocation() as shape Location
-  resource nearby = nearest(location, 3) as shape list<Station>
+  resource nearby = nearest(location, 3) as shape Station[]
   state playing = false
   state scheduledTo = 0
   state ticks = 0

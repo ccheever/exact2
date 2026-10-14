@@ -9,6 +9,7 @@ import { toasts } from './toast';
 import { prCommand, pullRequestDetail } from './pages-pr-detail';
 import { linkedThreadItems, notePreviewHover, openLink, readPreview, threadPickerView } from './pages-pr-links';
 import { paletteView } from './palette-view';
+import { contractComponent } from './contract-action-fixture';
 
 type Reply = (payload: Obj) => unknown;
 const URL7 = 'https://github.com/lane/sandbox/pull/7';
@@ -110,6 +111,23 @@ describe('the linked threads (PullRequestThreadLinks display="count")', () => {
 });
 
 describe('Link to thread (PullRequestThreadLinks display="menu-item" and the picker)', () => {
+  test('Enter chooses an enabled thread and does nothing for linked-only or empty query results', async () => {
+    const { client } = fakeClient(defaults());
+    await open(client, { page: true, linkTick: 1 });
+    await prCommand(client, native, 'links', selected, 'picker', storage);
+    const picker = contractComponent('palette.contract', 'PaletteThreadPicker');
+    for (const [query, expected] of [
+      ['Release notes', ['', '', '']],
+      ['nothing like it', ['', '', '']],
+      ['changelog', ['flow', 'pr-link-thread', 't1']],
+      ['', ['flow', 'pr-link-thread', 't1']],
+    ] as const) {
+      const view = threadPickerView(client, query, false);
+      const { tOp, tArg, tArg2 } = picker.derives({}, { view, highlight: -1, scheme: 'light', viewport: { width: 1280 }, min: Math.min });
+      expect([query, [tOp, tArg, tArg2]]).toEqual([query, expected]);
+    }
+  });
+
   test('on the page there is no thread: "Link to thread" opens the picker, which marks a linked thread and leaves archived ones out', async () => {
     const { client } = fakeClient(defaults());
     const view = await open(client, { page: true, linkTick: 1 });

@@ -70,11 +70,16 @@ public final class ExactView: NSView {
     /// window's owner composes it (`ExactSidebarController`), as it opts in
     /// to the toolbar; a view mounted in someone else's window claims none.
     public var wantsWindowSidebar: Bool { session.presenter.sidebar.wanted }
-    /// The owner hears when `wantsWindowSidebar` changes, after the batch
-    /// that changed it.
+    /// Whether a stack of the session shows its list beside its detail (LLP
+    /// 1115.002 D4): the window's owner composes the same controller for it,
+    /// with or without a sidebar, and a view in someone else's window keeps
+    /// a stack that pushes.
+    public var wantsWindowSplit: Bool { session.presenter.navigation.split.wanted }
+    /// The owner hears when `wantsWindowSidebar` or `wantsWindowSplit`
+    /// changes, after the batch that changed it.
     public var onWindowSidebar: (() -> Void)? {
         get { session.presenter.sidebar.onWanted }
-        set { session.presenter.sidebar.onWanted = newValue }
+        set { session.presenter.sidebar.onWanted = newValue; session.presenter.navigation.split.onWanted = newValue }
     }
     public var hasWindowToolbar: Bool {
         guard let toolbar = session.presenter.toolbar.toolbar else { return false }
@@ -126,6 +131,9 @@ public final class ExactView: NSView {
         let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
         if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
+        // In the pane that holds this session's detail beside its list (LLP 1115.002 D4).
+        let split = self.session.presenter.navigation.split
+        if split.holdsFocus(responder) || split.holdsFocus(editorOwner) { return true }
         // This session's search field, which the window's toolbar hosts (LLP 1115.002 D2).
         if let node = self.session.presenter.keyTarget(first), node.pageField != nil { return true }
         guard let window, first == nil || first === window, let content = window.contentView else { return false }

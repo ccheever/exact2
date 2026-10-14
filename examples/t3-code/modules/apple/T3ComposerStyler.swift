@@ -50,6 +50,8 @@ final class T3ComposerStyler {
     private(set) var marks: [Mark] = []
     private(set) var tasks: [Task] = []
     private var styled: String?
+    /// The text the chips, marks and hidden runs describe (composer-chips-accessibility: the accessibility projection's source).
+    var styledText: String? { styled }
     private var styling = false
     /// The prompt font and ink Exact authored. NSTextView reports the first
     /// character's, which styling changes, so they are kept from Exact's own
@@ -88,6 +90,7 @@ final class T3ComposerStyler {
         view.addGestureRecognizer(recognizer)
         click = recognizer
         press.attach()
+        T3ComposerAccessibleText.attach(self, to: view)
         baseFont = view.font; baseInk = view.textColor
         authored = [
             view.observe(\.textColor, options: [.new]) { [weak self] _, change in
@@ -107,6 +110,7 @@ final class T3ComposerStyler {
 
     func detach() {
         press.detach()
+        if let view { T3ComposerAccessibleText.detach(view) }
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers.removeAll()
         underlay?.removeFromSuperview(); underlay = nil
@@ -212,6 +216,8 @@ final class T3ComposerStyler {
         storage.endEditing()
         view.typingAttributes = base
         styled = string
+        // Skill display names and rich-text markers can change without changing the source or parsed chips.
+        T3ComposerAccessibleText.of(view)?.invalidate()
         underlay?.needsDisplay = true
         tips.refresh()
         press.validate()
@@ -322,6 +328,14 @@ final class T3ComposerStyler {
     func skillChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { $0.kind == "skill" && chipRect($0)?.contains(point) == true }
     }
+    /// composer-chips-accessibility G1-8: a chip whose press opens its details (ContextChipPopover's trigger): a skill, or a
+    /// terminal excerpt that holds text (TerminalContextInlineChip; an expired one is a plain shell).
+    func popoverChip(at point: NSPoint) -> T3ComposerChip? {
+        chips.first { isPopoverTrigger($0) && chipRect($0)?.contains(point) == true }
+    }
+    func isPopoverTrigger(_ chip: T3ComposerChip) -> Bool {
+        chip.kind == "skill" || (terminalText(chip).map { !$0.isEmpty } ?? false)
+    }
     /// A file chip's size ("40 KB", text-[10px] of a 14px prompt).
     func suffixFont(_ font: NSFont) -> NSFont { NSFont.systemFont(ofSize: font.pointSize * 10 / 14, weight: .medium) }
     func chipSuffix(_ chip: T3ComposerChip) -> String {
@@ -365,6 +379,15 @@ final class T3ComposerStyler {
     func terminalText(_ chip: T3ComposerChip) -> String? {
         guard chipKind(chip) == "terminal", let value = contextPath(chip).flatMap({ contexts[$0] }) else { return nil }
         return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
+    }
+    func pullRequestTitle(_ chip: T3ComposerChip) -> String {
+        guard let value = contextPath(chip).flatMap({ contexts[$0] }) else { return "" }
+        return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
+    }
+    /// composer-chips-accessibility: a context reference the draft holds no record for (composerContextPresentation's
+    /// fallback, UnresolvedContextChip: CircleDashedIcon, the neutral chip dashed, "Unavailable context, <label>").
+    func chipMissing(_ chip: T3ComposerChip) -> Bool {
+        chip.kind == "context" && (contextPath(chip).map { contexts[$0] == nil } ?? true)
     }
     func chipResolved(_ chip: T3ComposerChip) -> Bool {
         guard chip.kind == "context" else { return true }
@@ -696,10 +719,11 @@ final class T3ComposerUnderlay: NSView {
     private func drawChip(_ chip: T3ComposerChip, in rect: NSRect, size: CGFloat, dark: Bool, styler: T3ComposerStyler, font: NSFont) {
         let resolved = styler.chipResolved(chip)
         let image = resolved ? styler.chipImage(chip) : nil
-        let palette = image?.palette ?? T3ComposerUnderlay.palette[styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
+        let missing = styler.chipMissing(chip)
+        let palette = image?.palette ?? T3ComposerUnderlay.palette[missing ? "neutral" : styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
         let ink = resolved ? NSColor(t3Hex: dark ? palette[1] : palette[0]) : (styler.baseInk ?? .textColor)
         let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: size * 0.5, yRadius: size * 0.5)
-        NSColor(t3Hex: palette[2]).setFill(); path.fill()
+        NSColor(t3Hex: missing && dark ? "#ffffff04" : palette[2]).setFill(); path.fill()
         NSColor(t3Hex: dark ? palette[4] : palette[3]).setStroke()
         path.lineWidth = 1
         if !resolved { path.setLineDash([3, 2], count: 2, phase: 0) }
@@ -718,7 +742,7 @@ final class T3ComposerUnderlay: NSView {
             NSImage(cgImage: image.thumbnail, size: iconRect.size).draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: [.interpolation: NSImageInterpolation.high])
             NSGraphicsContext.restoreGraphicsState()
         } else {
-            T3ComposerIcons.draw(T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
+            T3ComposerIcons.draw(missing ? "circle-dashed" : T3ComposerIcons.name(for: chip, kind: styler.chipKind(chip)), in: iconRect, color: ink, dark: dark, path: chip.detail)
         }
         let label = styler.displayLabel(chip) as NSString
         let labelFont = styler.chipFont(font)
@@ -764,6 +788,8 @@ final class T3ComposerUnderlay: NSView {
     /// dark border] from oklch(0.62 C H) mixed as the reference's tokens do.
     static let palette: [String: [String]] = [
         "thread": ["#2a3f40", "#c9e2df", "#009c961c", "#a6cccb", "#21a7a161"],
+        // composer-chips-accessibility: ContextChip's default kind (an unresolved reference): border-border/70, bg-accent/40.
+        "neutral": ["#27272a", "#f5f5f5", "#f4f4f566", "#e4e4e7b3", "#ffffff0f"],
         "mention": ["#2c3e45", "#cbe0e6", "#0096af1c", "#a9cad5", "#39a1b861"],
         "file": ["#2b3d4b", "#cadfed", "#0090cd1c", "#a8c8e0", "#389cd361"],
         "skill": ["#433448", "#e7d4ea", "#b261be1c", "#d4b8db", "#ba72c661"],
