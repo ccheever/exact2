@@ -1287,11 +1287,15 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
         generations: None,
     });
     let addr = served.addr;
+    // One request a connection: the page ends at the server's close, not the keep-alive's idle
     let navigate = |target: &str| {
         format!(
-            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\n\r\n"
+            "GET {target} HTTP/1.1\r\nSec-Fetch-Dest: document\r\nSec-Fetch-Mode: navigate\r\nConnection: close\r\n\r\n"
         )
     };
+    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`. Asked
+    // now, so its render runs beside the navigation's (two renders at once)
+    let plain = std::thread::spawn(move || get(addr, "/post/slow").0);
     // A render held to its deadline: the head arrives long before it.
     let started = std::time::Instant::now();
     let mut stream = TcpStream::connect_timeout(&addr, BOUND).unwrap();
@@ -1346,9 +1350,7 @@ fn a_navigation_gets_the_head_before_the_render_and_the_rest_after() {
     );
     assert!(page.contains("\"pending\":[\"post\"]"), "{page}");
     assert!(page.ends_with("</script>\n"), "{page}");
-    // Whoever reads a status still gets the render's: no `Sec-Fetch-Dest`.
-    let (status, _, _) = get(addr, "/post/slow");
-    assert_eq!(status, 503);
+    assert_eq!(plain.join().unwrap(), 503);
     let (status, _, body) = fetch(addr, &navigate("/no/such/page"));
     assert_eq!(status, 404);
     assert!(body.contains(">Nothing here<"), "{body}");
