@@ -974,7 +974,7 @@ fn route_header_sticky_geometry_and_hits_follow_the_browser() {
                     assert_eq!(20.0 + dy - scroll, expected, "mode{mode}, scroll{scroll}");
                     assert_eq!(p.scroll_to(port, (0.0, scroll)), Some((0.0, scroll)));
                     p.frame();
-                    if scroll == 60.0 && matches!(mode, 0 | 2) {
+                    if scroll == 60.0 || (scroll == 270.0 && matches!(mode, 0 | 2)) {
                         let port_rect = p.rect_of(port).unwrap();
                         let head_rect = p.rect_of(head).unwrap();
                         assert_eq!(
@@ -986,6 +986,8 @@ fn route_header_sticky_geometry_and_hits_follow_the_browser() {
                             ),
                             (0.0, expected, width, 45.0)
                         );
+                    }
+                    if scroll == 60.0 && matches!(mode, 0 | 2) {
                         assert_eq!(
                             pixel(&mut p, "sticky", width - 2.0, 1.0),
                             ground,
