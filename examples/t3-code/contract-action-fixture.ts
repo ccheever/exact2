@@ -186,12 +186,12 @@ export function contractComponent(file: string, name: string) {
   };
 
   return {
-    /** The slots at mount: each `state x = …` evaluated alone. */
-    state(): Env {
+    /** The slots at mount: each untyped `state x = …` evaluated alone (`scope`: a shape's constructor it calls). */
+    state(scope: Env = {}): Env {
       const state: Env = {};
       for (const line of lines) {
         const m = /^  state (\w+) = (.+)$/.exec(line);
-        if (m) state[m[1]!] = value(m[2]!, {});
+        if (m) state[m[1]!] = value(m[2]!, scope);
       }
       return state;
     },

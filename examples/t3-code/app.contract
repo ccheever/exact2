@@ -47,7 +47,7 @@ component T3Code
     after(1, clearThemeInspecting)
   state elapsed = 0
   resource wallTime = exactTime() as shape Time
-  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey) as shape Snapshot
+  resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode) as shape Snapshot // KW-12c: full screen drops the traffic lights' inset (presentation.ts)
   state reconnectGraceKey = ""
   state disconnectDelayKey = ""
   task reconnectGrace when data.serverUpdate.reconnecting != "" key=data.serverUpdate.reconnecting

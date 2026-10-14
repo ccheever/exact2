@@ -164,7 +164,7 @@ final class Fixture {
     let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 640, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
     let composer = T3Composer(), launcher = R8KeysLauncher(), menus = T3Menus()
-    let r9 = R9Input(agent: false), r10 = R10Connect(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
+    let r9 = R9Input(), r10 = R10Connect(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
     let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent(), timeline = T3Timeline(changed: { _ in })
     let panelTabs = RightPanelTabsInput(), activity = T3ActivityReporter(persistent: false, dataDirectory: nil, pageFacts: true)
     var elements: [ExactElement] = []

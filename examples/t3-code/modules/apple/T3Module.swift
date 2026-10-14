@@ -24,7 +24,7 @@ final class T3Module: ExactModule {
     private let mediaFocus = T3MediaFocus() // chat-markdown-media-and-code G4-09: a press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
     private let timeline: T3Timeline
-    let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
+    let turns = T3TimelineTurns() // A citation's jump to its answer (T3TimelineTurns.swift).
     let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
     let snapShot: T3SnapShot
     let chrome = T3WindowChrome()
@@ -54,7 +54,6 @@ final class T3Module: ExactModule {
         sidebar = T3Sidebar(agent: context.agent, changed: changed)
         snapShot = T3SnapShot(directory: context.data, agent: context.agent, changed: changed)
         timeline = T3Timeline(changed: changed)
-        turns = T3TimelineTurns(changed: changed)
         mermaid = T3TimelineMermaid(changed: changed)
         composer = T3Composer(changed: changed)
         composer.editor.styler.imageDirectory = context.data.appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
@@ -76,7 +75,7 @@ final class T3Module: ExactModule {
         fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // terminal-drawer-unthreaded: a background environment's terminals
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
-        r9 = R9Input(agent: context.agent)
+        r9 = R9Input()
         r10 = R10Connect(agent: context.agent)
         textMenu = T3TextContextMenu(agent: context.agent)
         let browser = T3BrowserSessions(agent: context.agent, changed: changed)
@@ -86,7 +85,6 @@ final class T3Module: ExactModule {
         exportsRoot = context.agent ? context.data.appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
-        chrome.changed = changed // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
         textMenu.richEditors = { [weak self] in [self?.composer.editor.textView, self?.promptPreview.textView].compactMap { $0 } } // contenteditables in the reference: Select All stays enabled when empty
         DispatchQueue.main.async { [sidebar, textMenu] in sidebar.install(); textMenu.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
@@ -113,10 +111,6 @@ final class T3Module: ExactModule {
                     var result = response
                     var value = result["value"] as? [String: Any] ?? [:]
                     value["presentation"] = (self?.timeline.status ?? [:]).merging(self?.composer.status ?? [:]) { first, _ in first }.merging(self?.intent.status ?? [:]) { first, _ in first }.merging(self?.frames.status ?? [:]) { first, _ in first }.merging(self?.scrollEnds.status ?? [:]) { first, _ in first }.merging(self?.sidebar.status ?? [:]) { first, _ in first }.merging(self?.media.status ?? [:]) { first, _ in first }.merging(self?.devices.status ?? [:]) { first, _ in first }.merging(self?.chrome.status ?? [:]) { first, _ in first }.merging(T3Terminals.shared.status) { first, _ in first }.merging(self?.browserSessions.status ?? [:]) { first, _ in first }.merging(self?.browserAutomation.status ?? [:]) { first, _ in first }.merging(self?.rowDrop.status ?? [:]) { first, _ in first }
-                    var turned: [String: Any] = value["presentation"] as? [String: Any] ?? [:]
-                    let turnStatus: [String: Any] = self?.turns.status ?? [:]
-                    for (key, entry) in turnStatus { turned[key] = entry }
-                    value["presentation"] = turned
                     result["value"] = value
                     reply.send(result)
                 }
@@ -139,7 +133,7 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
-        composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
+        composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }

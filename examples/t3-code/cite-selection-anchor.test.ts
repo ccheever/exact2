@@ -10,60 +10,12 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { contractComponent, value, type Env } from './contract-action-fixture';
-import { contractFn } from './contract-fn-fixture';
+import { contractFn, contractFns as fnsOf } from './contract-fn-fixture';
 
-const source = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
-
-/** The index of the bracket closing the one at `open`, over (), [], {} and template literals' `${…}`. */
-function closing(s: string, open: number): number {
-  let depth = 0;
-  for (let i = open; i < s.length; i++) {
-    const c = s[i]!;
-    if (c === '"') { i = s.indexOf('"', i + 1); continue; }
-    if ('([{'.includes(c)) depth++;
-    else if (')]}'.includes(c) && --depth === 0) return i;
-  }
-  throw new Error(`unclosed bracket in ${s}`);
-}
-
-/**
- * A one-line Contract expression as JavaScript, for the few forms these functions use beyond contract-fn-fixture's: `match x
- * { case some(r) => a, case none => b }` over an option (`at` gives `undefined` for none), a shape's constructor with named
- * arguments (`CitePart(block=key, …)` is the record), `and`, `or`, `not`.
- */
-function toJs(expr: string, shapes: string[]): string {
-  let s = expr;
-  for (let at = s.indexOf('match '); at >= 0; at = s.indexOf('match ')) {
-    const brace = s.indexOf(' { case some(', at), end = closing(s, brace + 1);
-    const subject = s.slice(at + 'match '.length, brace);
-    const name = s.slice(brace + ' { case some('.length, s.indexOf(')', brace));
-    const arms = s.slice(s.indexOf(') => ', brace) + ') => '.length, end);
-    const split = arms.lastIndexOf(', case none => ');
-    s = `${s.slice(0, at)}((${name}) => ${name} === undefined ? (${arms.slice(split + ', case none => '.length).trim()}) : (${arms.slice(0, split)}))(${subject})${s.slice(end + 1)}`;
-  }
-  for (const shape of shapes) {
-    for (let at = s.indexOf(`${shape}(`); at >= 0; at = s.indexOf(`${shape}(`)) {
-      const open = at + shape.length, end = closing(s, open);
-      s = `${s.slice(0, at)}({ ${s.slice(open + 1, end).replace(/\b([a-z]\w*)=(?![=>])/g, '$1: ')} })${s.slice(end + 1)}`;
-    }
-  }
-  return s.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
-}
-
+const contractFns = (file: string) => fnsOf(file, ['CitePart', 'CiteOffer']);
 const std = { min: Math.min, max: Math.max };
 
-/** Every one-line `fn` of a `.contract` file as JavaScript, each seeing the others. */
-function contractFns(file: string, extra: Env = {}): Record<string, (...args: never[]) => unknown> {
-  const fns: Record<string, (...args: never[]) => unknown> = {};
-  const scope: Env = { ...std, ...extra };
-  for (const m of source(file).matchAll(/^fn (\w+)\(([^)]*)\): [^=]+ = (.+)$/gm)) {
-    const params = [...m[2]!.matchAll(/(\w+):/g)].map(p => p[1]!);
-    const body = toJs(m[3]!, ['CitePart', 'CiteOffer']);
-    fns[m[1]!] = (...args: never[]) => new Function(...Object.keys(scope), ...params, `return (${body});`)(...Object.values(scope), ...args);
-    scope[m[1]!] = fns[m[1]!];
-  }
-  return fns;
-}
+const source = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
 
 // The reference's lib/selectionActions.ts resolveSelectionActionPosition and AssistantSelectionToolbar's layout effect
 // (the toolbar held 8 pt inside the window by its own size), verbatim in behavior.
@@ -338,7 +290,13 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     window.call('citeScrolled', state, {}, [0, 120]);
     expect(state.citeFor).toBe('');
     expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal');
-    expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=citeScrolled');
+    // The transcript's scroll (timeline-and-window-hooks: ChatColumn's transcriptScrolled) still hides it, before it keeps the position.
+    expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=transcriptScrolled');
+    const scrolled: unknown[][] = [];
+    contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [] },
+      { citeScrolled: (...args: unknown[]) => scrolled.push(args), frame: () => ({ unavailable: true }), anchorKey: (key?: string) => key ?? '', composerOwner: 'o', commandPending: false, turnIds: [] },
+      [0, 120, { firstVisibleKey: undefined, firstVisibleOffset: 0, scrollTop: 120, scrollHeight: 2000, clientHeight: 600 }]);
+    expect(scrolled).toEqual([[0, 120]]);
   });
 
   test('Cite waits for the root\'s 500 ms after a double-click and hides once the window loses the focus (observeSelectionActions)', () => {

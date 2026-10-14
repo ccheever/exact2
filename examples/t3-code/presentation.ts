@@ -95,9 +95,10 @@ export { providerBanner };
 
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
 export function transcriptPresentation(client: T3Client): Message[] { return withFeedbackRows(client, [...subagentLead(client), ...transcriptRows(client)]); }
-export function snapshot(client: T3Client, now = 0) {
+/** `displayMode`: Contract's `exactViewport().displayMode` (app.contract passes it with the snapshot request). */
+export function snapshot(client: T3Client, now = 0, displayMode = '') {
   adoptHostLocale(client.presentation.systemLocale);
-  const fullScreen = client.presentation.fullScreen === true; // T3FullScreen.swift
+  const fullScreen = displayMode === 'fullscreen'; // timeline-and-window-hooks KW-12c: the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);

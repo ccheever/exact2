@@ -72,7 +72,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     await codexPrepare(client, native); // codex-setup-host.ts: the managed Codex setups' effects and loopback callbacks
     await activationPrepare(client, native); // desktop-activation.ts: `t3 app` waits until the primary is connected and loaded
-    return { ...snapshot(client, Number(args[0]) || 0), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
+    return { ...snapshot(client, Number(args[0]) || 0, String(args[3] ?? '')), chatgptPlan: chatGptPlanSnapshot(client) }; // chatgpt-plan-view.ts: "Your ChatGPT plan is connected"
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
   if (source === 'refreshTimelineReads') {

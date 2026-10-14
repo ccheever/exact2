@@ -8,11 +8,9 @@ final class T3WindowChrome {
     private weak var window: NSWindow?
     private var toolbar: NSToolbar?
     private var observations: [NSObjectProtocol] = []
-    /// desktop-shell-details: the full-screen fact (T3FullScreen.swift), published as `t3.status`.
-    let fullScreen = T3FullScreen()
-    var changed: (String) -> Void = { _ in } { didSet { fullScreen.changed = { [weak self] in self?.changed("t3.status") } } }
-    /// Merged into the status read's presentation: full screen and the Mac's locale (T3Locale.swift).
-    var status: [String: Any] { ["fullScreen": fullScreen.fullScreen, "systemLocale": T3Locale.systemLocale()] }
+    /// Merged into the status read's presentation: the Mac's locale (T3Locale.swift). Full screen is
+    /// Contract's `exactViewport().displayMode` (timeline-and-window-hooks KW-12c, presentation.ts).
+    var status: [String: Any] { ["systemLocale": T3Locale.systemLocale()] }
 
     func install(_ element: ExactElement) {
         guard element.hatch == .t3Composer, let window = element.view?.window else { return }
@@ -26,7 +24,6 @@ final class T3WindowChrome {
                     self?.positionControls()
                 })
             }
-            fullScreen.attach(window)
         }
         positionControls()
     }
@@ -65,7 +62,6 @@ final class T3WindowChrome {
         if let window, window.toolbar === toolbar { window.toolbar = nil }
         toolbar = nil
         window = nil
-        fullScreen.detach()
     }
 
     private func positionControls() {

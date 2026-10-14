@@ -62,13 +62,15 @@ component TimelineRow
     hovered: bool
     part: string
     hoverPart: action
+    // timeline-and-window-hooks KW-12a: a user turn's box entering or leaving the transcript (ChatColumn turnSeen).
+    seen: action
   view
     column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
       if message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
       column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
         if message.kind == "user"
-          UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme)
+          UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme, seen=seen)
         else
           if message.kind == "checkpoint"
             if message.fileCount > 0
@@ -115,11 +117,15 @@ component UserRow
     ink: string
     attachments: AttachmentUrl[]
     scheme: string
+    seen: action
   state expanded = false
   action toggleBody
     expanded = not expanded
   view
-    column hatch="t3-turn" data-turn=message.id width="100%" align-items="flex-end" gap="0.25rem"
+    // KW-12a: the minimap's turn on screen (MessagesTimeline's inView: a strictly positive overlap). Threshold 0
+    // reports edge contact too, and nothing more as the overlap grows, so the port is taken 1px in on each edge:
+    // a box only touching it is off screen, and one overlapping is reported as it enters.
+    column id=`turn-${message.id}` intersect=seen(message.id) intersect-margin="-1px 0px" width="100%" align-items="flex-end" gap="0.25rem"
       if message.attribution != ""
         if message.attribution == "agent" and message.targetId != ""
           button press=command("select-thread", message.targetId, "", 0) aria-label="Open sending thread" margin-right="0.25rem" padding=0 border-width=0 background-color="#00000000"
