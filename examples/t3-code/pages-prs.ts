@@ -465,7 +465,7 @@ export function emptyList(prefs: PrPrefs, query: string) {
     authorLabel: prefs.author || 'Anyone', labelsLabel: labels.length ? `${labels.length} selected` : 'Any',
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
     draftIcon: DRAFT_ICONS[prefs.draft || 'all'] ?? 'layers', reviewIcon: REVIEW_ICONS[prefs.review || 'all'] ?? 'layers', checksIcon: CHECKS_ICONS[prefs.checks || 'all'] ?? 'layers',
-    filterBadge: filterCount > 0 ? String(filterCount) : '', filtersWidth: 85.8 + (filterCount > 0 ? 18 + 7 * String(filterCount).length : 0), providerIconOnly: !!prefs.host,
+    filterBadge: filterCount > 0 ? String(filterCount) : '', providerIconOnly: !!prefs.host,
     // pr-handoffs-and-quick-actions: Shift alone held (the rows' quick actions show), and the open row popovers.
     speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
     // pr-links-previews-and-routing: the list footer ("more", "loading", "narrow") and a failed read over the rows shown.

@@ -115,7 +115,7 @@ component PrLinkPreviewCard
           text "·" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=plMuted() aria-hidden=true
           text preview.opened flex-shrink=0 white-space="nowrap" font-size="0.75rem" line-height="1rem" color=plMuted()
     if preview.phase == "error"
-      column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId="pull-request-link-preview-url"
+      column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId="pull-request-link-preview-url"
         text href font-size="0.75rem" line-height="1rem" color=plInk()
 
 // The list's footer (_chat.pull-requests.tsx): a read that failed over rows still shown ("… Showing the last pull

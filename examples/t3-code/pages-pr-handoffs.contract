@@ -54,11 +54,10 @@ component PrdCheckoutMenu
           if not narrow
             text (checking ? "Checking out..." : "Check out") font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=phInk()
           PgIcon(name="chevron-down", size=14, color=phMuted())
-      // MenuPopup align="end": its right edge under the button's. Placed by margins from the button's start (the host
-      // applies a popover's margins with a `position-area`; `span-left` is not implemented, X17 #112): the menu's 410
-      // (its widest line, 350 at 12px, with the glyph, gap and insets) less the button's 111 (52 for the glyphs, padding
-      // and border, and the label's 59), or 48 without the label. Opaque: a backdrop blur here sees only its parent.
-      row id="pr-checkout-menu" popover="auto" position-try-fallbacks="none" position="absolute" position-area="bottom span-right" margin-left=(narrow ? -362 : -299) padding-top="0.25rem" align-items="flex-start" testId="pr-checkout-layer"
+      // MenuPopup align="end" side="bottom": its right edge under the button's, 4 pt below, flipping near an edge. The
+      // menu is 410 wide (its widest line, 350 at 12px, with the glyph, gap and insets). Opaque: a backdrop blur here
+      // sees only its parent.
+      row id="pr-checkout-menu" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" position-area="bottom span-left" margin-top="0.25rem" testId="pr-checkout-layer"
         column width=410 padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Check out" flex-shrink=0
           KeyMenu(menuId="pr-checkout-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             PrdHandoffItem(keysId="pr-checkout-keys", menuId="pr-checkout-menu", icon="git-branch", label="In a separate worktree", detail="Its own folder and thread. Nothing you have open moves.", disabled=(handoffs.pending != ""), press=act("handoff", `${surface}|checkout:worktree`), testId="pr-checkout-worktree")

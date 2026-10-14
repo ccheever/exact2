@@ -94,7 +94,7 @@ describe('background activity, advanced', () => {
 });
 
 import { editDraft, editorView, previewTheme, saveDraft, serializeTheme, syncDraft, themeEditorCommand, updateFamily } from './settings-appearance-editor';
-import { deviceTool, labelWidth } from './settings-a-integrations';
+import { deviceTool } from './settings-a-integrations';
 import { archiveCommand, archiveConfirmation } from './settings-a-archive';
 import { branchRef } from './scheduled-view';
 import { look } from './settings-appearance-look';
@@ -148,7 +148,8 @@ describe('device tools, refs, archive menu, look', () => {
     expect([hub.label, hub.aria, hub.running, hub.installed, hub.update]).toEqual(['Not installed', 'Device hub: not installed. Show details', 'Not running', 'None', 'Update to v0.12.0']);
     expect([agent.label, agent.update]).toEqual(['v1.0.0', '']);
     expect(deviceTool('hub', null).label).toBe('Version unknown');
-    expect(Math.abs(labelWidth('Not installed') - 93.3)).toBeLessThan(6);
+    // KW-6: the popover is end-aligned by its `position-area`; no estimated label width offsets it.
+    expect('offset' in hub).toBe(false);
   });
   test('base branch refs carry their tag', () => {
     expect(branchRef({ name: 'main', current: true }, '/a')).toEqual({ value: 'main', label: 'main', search: 'main', badge: 'current', remote: false });

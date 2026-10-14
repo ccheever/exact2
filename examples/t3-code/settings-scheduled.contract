@@ -2,6 +2,7 @@
 // section with "New task", one row per task (switch and Edit/Run now/Delete
 // menu), and the editor dialog with every field of ScheduledTaskEditorDialog.
 use SelectOption from "./settings-kit.contract"
+use FieldPlaceholder from "./field-placeholder.contract"
 use SettingsSwitch from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
@@ -112,6 +113,8 @@ style TkLabel
   font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 style TkField
   box-sizing="border-box" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+  ::placeholder
+    color="light-dark(#71717b, #818181)"
 style TkOutline
   display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
 
@@ -405,10 +408,10 @@ component ScheduledEditor
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
-                SettingsSelect(selectId="task-project", label="Project", valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), value=chosenProject, width=257, disabled=busy, options=data.projects, choose=chooseProject)
+                SettingsSelect(selectId="task-project", label="Project", valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), empty=(chosenProject == ""), value=chosenProject, width=257, disabled=busy, options=data.projects, choose=chooseProject)
               column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
-                SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
+                SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), empty=false, value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
             if workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel
@@ -417,12 +420,13 @@ component ScheduledEditor
                   text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-base-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
-                // their current/worktree/remote/default tag, and the Start from origin row.
-                column id="task-branch-menu" popover="auto" position-try-fallbacks="none" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
+                // their current/worktree/remote/default tag, and the Start from origin row. WorktreeBaseBranchPicker's
+                // popup is align="start" side="bottom": 4 pt below, flipping near an edge.
+                column id="task-branch-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
                   column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
                     row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")
-                      input value=refQuery input=setText("refs") placeholder="Search refs..." aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+                      input value=refQuery input=setText("refs") placeholder="Search refs..." class=FieldPlaceholder aria-label="Search refs" testId="task-branch-search" flex=1 min-width=0 height="1.25rem" line-height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
                   // The server's answer for the search (filteredItems = items); a scroll toward the end loads the next
                   // page (R5ComposerScroll.swift counts it for `scroll:task-refs`, scheduled-view.ts loads it).
                   scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"

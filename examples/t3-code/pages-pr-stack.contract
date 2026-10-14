@@ -91,7 +91,8 @@ component PrdStackControls
             text stack.label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=psInk() font-variant-numeric="tabular-nums"
             if stack.warn
               PgIcon(name="triangle-alert", size=12, color="#fe9a00")
-        row id="pr-stack-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-stack-layer" data-dialog-return="menu" focusin=dialogMenuEntered("pr-stack-menu", "pull-request-stack")
+        // PullRequestStackMenu: MenuPopup align="start", 4 pt below the trigger's start, flipping near an edge.
+        row id="pr-stack-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="pr-stack-layer" data-dialog-return="menu" focusin=dialogMenuEntered("pr-stack-menu", "pull-request-stack")
           PrMenuBox(scheme=scheme, width=288, label=`Stack #${stack.number}`)
             KeyMenu(menuId="pr-stack-keys", items=stackItems, keyed=0, gap="0px", modal=true)
               row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"

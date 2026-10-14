@@ -28,7 +28,7 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
     expect(headline).toContain('UnpricedInfo(open=(shown == "unpriced"), enter=enterSeg("unpriced"), press=pin("unpriced"))');
     const page = await component('pages-usage.contract', 'UsagePage');
     expect(page).toContain('shown=shown, setBreakdown=setBreakdown, enterSeg=enterSeg, pin=pin, op=op)');
-    expect(page).toContain('if shown == "unpriced"\n                    UnpricedPopup(text=page.unpriced, x=popX, y=popY, w=popW, enterPop=enterPop)');
+    expect(page).toContain('if shown == "unpriced"\n                  UnpricedPopup(text=page.unpriced, x=popX, y=popY, w=popW, enterPop=enterPop)');
     // Light dismiss and Escape read the popup's own frame by the id every segment popover has.
     expect(page).toContain('let pop = frame(`usage-seg-pop-${held}`)');
     expect(page).toContain('focus(`usage-seg-${shown}`)');
@@ -107,7 +107,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)');
     expect(menu).toContain('authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
     const sub = await component('pages-prs.contract', 'PrFilterSub');
-    expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" aria-label="Search authors"');
+    expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" class=FieldPlaceholder aria-label="Search authors"');
     // Its keys stay in the field but ↓; Escape closes the submenu (audit-wave-followups-3 FW-3, menu-keys.test.ts).
     expect(sub).toContain('action searchKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
     expect(sub).toContain('for person in authors key=person.key');
@@ -159,14 +159,16 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
 
   test('the page\'s popovers and menus hold Escape as modals while they show (PG-7, X66)', async () => {
     // Popovers (Base UI Popover stops the Escape it dismisses with) while they show; menus already are (KeyMenu modal).
-    expect(await source('pages-pr-quick.contract')).toContain('row id=popId popover="auto" position-try-fallbacks="none" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`\n        column width="20rem"');
-    expect(await source('pages-pr-compose.contract')).toContain('row id=popId popover="auto" position-try-fallbacks="none" aria-modal=true ');
-    expect(await source('pages-pr-actions.contract')).toContain('row id="pr-freshness" popover="auto" position-try-fallbacks="none" aria-modal=true ');
+    // KW-6: each keeps its reference placement with flip candidates (adopt-main-fixes-r12.test.ts holds the table).
+    const flip = 'position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"';
+    expect(await source('pages-pr-quick.contract')).toContain(`row id=popId popover="auto" position-area="bottom span-right" ${flip} aria-modal=true position="absolute" margin-top="0.25rem" testId=\`\${popId}-layer\`\n        column width="20rem"`);
+    expect(await source('pages-pr-compose.contract')).toContain(`row id=popId popover="auto" ${flip} aria-modal=true `);
+    expect(await source('pages-pr-actions.contract')).toContain(`row id="pr-freshness" popover="auto" position-area="bottom span-right" ${flip} aria-modal=true `);
     const meta = await source('pages-pr-meta.contract');
-    expect(meta).toContain('row id=pickerId popover="auto" position-try-fallbacks="none" aria-modal=true ');
-    expect(meta).toContain('column id=menuId popover="auto" position-try-fallbacks="none" aria-modal=true ');
+    expect(meta).toContain(`row id=pickerId popover="auto" ${flip} aria-modal=true `);
+    expect(meta).toContain(`column id=menuId popover="auto" position-area="bottom span-right" ${flip} aria-modal=true `);
     // The Usage page's narrow selects are Base UI Select popups, modal too.
-    expect(await component('pages-usage.contract', 'UsageSelect')).toContain('column id=menuId popover="auto" position-try-fallbacks="none" aria-modal=true ');
+    expect(await component('pages-usage.contract', 'UsageSelect')).toContain(`column id=menuId popover="auto" position-area="bottom span-left" ${flip} aria-modal=true `);
   });
 
   test('a pull request editor holds Escape from Back while its field has the focus, never as a modal (PG-7)', async () => {

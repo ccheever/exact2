@@ -34,7 +34,7 @@ component PrEmptyState
   derive muted = scheme == "dark" ? "#818181" : "#71717b"
   derive failed = not available or error != ""
   view
-    column flex=1 width="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" testId="pull-requests-empty"
+    column flex=1 width="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" text-wrap="balance" testId="pull-requests-empty"
       if failed
         box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem" flex-shrink=0
           box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84

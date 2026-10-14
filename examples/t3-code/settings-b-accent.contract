@@ -151,7 +151,8 @@ component ProviderAccentPicker
         if accent == ""
           // Button variant="ghost-muted": muted-foreground, foreground on hover.
           CnGlyph(name="plus", size=16, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      column id=`provider-accent-${editorId}` popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.375rem" width="14.125rem"
+      // ProviderAccentColorPicker: PopoverPopup side="bottom" align="start" sideOffset 6, flipping near an edge.
+      column id=`provider-accent-${editorId}` popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="14.125rem"
         column width="14.125rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Accent color" testId="provider-accent-panel"
           column width="14rem" background-color="light-dark(#ffffff, #0a0a0a)"
             box width="14rem" height="9rem" position="relative" overflow="hidden" background-color=hueColor cursor="crosshair" pan=dragPlane panrelease=letGo touch-action="none" box-shadow=(planeRing ? ring : "none") role="group" aria-label="Accent color saturation and brightness" testId="provider-accent-plane"

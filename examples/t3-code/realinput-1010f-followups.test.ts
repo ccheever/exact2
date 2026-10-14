@@ -42,8 +42,9 @@ describe('RF-3: the gutter hears the pointer', () => {
   });
 });
 
-test('RF-4: the pending card\'s dashed border takes no press (it is positioned, so it paints over the trash)', () => {
+test('RF-4: the pending card\'s dashed border takes no press: it is a border now, not a positioned overlay (css-workaround-retirements KW-7)', () => {
   const card = component(source('pages-pr-threads.contract'), 'PrdPendingCard');
-  expect(card).toContain('box position="absolute" left=0.5 top=0.5 right=0.5 bottom=0.5 pointer-events="none" aria-hidden=true');
+  expect(card).toContain('padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="dashed" border-color=ptBorder()');
+  expect(card).not.toMatch(/position="absolute"|stroke-dasharray|\bsvg width="100%"/);
   expect(card).toContain('button press=discard hover=hover aria-label="Discard this comment"');
 });

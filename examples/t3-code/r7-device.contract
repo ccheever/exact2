@@ -105,6 +105,8 @@ component R7DevField
     testId: string
   view
     input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=r7devInk()
+      ::placeholder
+        color=r7devMuted()
 
 // Switch size sm: a 26 × 16 track, 12pt thumb.
 component R7DevSwitchControl

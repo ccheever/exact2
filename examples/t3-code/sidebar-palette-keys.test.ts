@@ -163,9 +163,20 @@ describe('SH-4 and SH-5: the header without projects, the palette row\'s start',
     expect(inside.some(line => line.includes('testId="new-thread"'))).toBe(false);
     expect(lines.find(line => line.includes('testId="new-thread"'))).toContain('disabled=(busy or not data.connected or not data.sidebar.hasProjects)');
   });
-  test('a palette option row starts its text at the left (X57: a button centres an overflowing line)', async () => {
-    const option = (await source('palette.contract')).split('\n').find(line => line.includes('testId=`palette-row-${row.key}` width="100%" min-height="2rem"'))!;
-    expect(option).toContain('text-align="left"');
+  test('a palette option row starts its text at the left without an override (css-workaround-retirements KW-2)', async () => {
+    // The reference's row is Base UI's AutocompleteItem, a div (start). The clone's is a button, whose text centres, so
+    // every text in it is sized by its words in a start-aligned column: a short line has no spare width to centre in, and
+    // an overflowing one is start-aligned by main 24083b9b9 (X57). Only the code-search line keeps its explicit left.
+    const palette = await source('palette.contract');
+    const option = palette.split('\n').find(line => line.includes('testId=`palette-row-${row.key}` width="100%" min-height="2rem"'))!;
+    expect(option).not.toContain('text-align=');
+    const text = palette.slice(palette.indexOf('component PaletteText'), palette.indexOf('\ncomponent ', palette.indexOf('component PaletteText') + 10));
+    expect(text).toContain('column flex=1 min-width=0 align-items="flex-start"');
+    for (const line of text.split('\n').filter(line => /^\s*text /.test(line) && line.includes('white-space="nowrap"'))) {
+      expect(line).not.toMatch(/ width="100%"| flex=1 /);
+      expect(line).toContain('min-width=0');
+    }
+    expect(palette.split('\n').filter(line => line.includes('text-align="left"'))).toHaveLength(1);
   });
 });
 
@@ -233,7 +244,8 @@ describe('TH-8: Custom snooze\'s date button and calendar', () => {
     expect(overlays).toContain('testId="snooze-unit" width="100%"');
     const field = await source('snooze-calendar.contract');
     expect(field).toContain('button id="snooze-date" popovertarget="snooze-calendar" press=open');
-    expect(field).toContain('column id="snooze-calendar" popover="auto" position-try-fallbacks="none" role="dialog" aria-label="Choose snooze date"');
+    // PopoverPopup align="start": below the date button's start, flipping near an edge (KW-6).
+    expect(field).toContain('column id="snooze-calendar" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="dialog" aria-label="Choose snooze date" position="absolute" position-area="bottom span-right" margin-top="0.25rem"');
     expect(field).toContain('column aria-modal=true retainFocus=true tabindex=-1 width='); // Escape is the popover's while it shows
     // The keys are the grid's (DayPicker handleDayKeyDown: a day button's), out of the Tab order; a month button's
     // arrows do nothing (sidebar-palette-keys.test.contract presses them).

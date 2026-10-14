@@ -171,7 +171,7 @@ component ProjectsPanel
                       button press=rest("scoped", data.workspace.reset) disabled=busy aria-label="Reset default workspace to default" testId="reset-project-workspace" width="1.25rem" height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                         LucideUndo2(size=12, color="light-dark(#71717b, #818181)")
                 text data.workspace.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
-              SettingsSelect(selectId="project-workspace", label="Default workspace", valueLabel=data.workspace.valueLabel, value="", width=160, disabled=(busy or data.workspace.disabled), options=data.workspace.options, choose=restInput("scoped", "key=defaultThreadEnvMode&value="))
+              SettingsSelect(selectId="project-workspace", label="Default workspace", valueLabel=data.workspace.valueLabel, empty=false, value="", width=160, disabled=(busy or data.workspace.disabled), options=data.workspace.options, choose=restInput("scoped", "key=defaultThreadEnvMode&value="))
         ProjectActionsSection(data=data, busy=busy, raw=raw, open=open)
         if data.members.length > 0
           column width="100%" gap="0.625rem" testId="project-checkouts"
@@ -282,7 +282,7 @@ component ProjectActionsSection
                 button popovertarget="import-scripts-menu" key=triggerKey disabled=(busy or not data.actionsWritable) id="import-scripts" testId="import-scripts" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" background-color="#00000000"
                   text "Import scripts" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                   CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
-                CnMenu(menuId="import-scripts-menu", invoker="import-scripts", label="Import scripts", width=442, endAlign=111, offsetX=0, offsetY=0, items=menuItems, keyed=0)
+                CnMenu(menuId="import-scripts-menu", invoker="import-scripts", label="Import scripts", width=442, area="bottom span-left", items=menuItems, keyed=0)
                   text "Import from t3.json" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)" role="presentation"
                   text "Add actions declared by this checkout without editing them first." font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)"
                   CnSeparator()

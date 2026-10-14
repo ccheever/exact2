@@ -120,30 +120,30 @@ fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need:
 
 // TooltipPopup (CnTooltip's look): the words, max-w-80 wrap-anywhere, taking no pointer. A word wider than the bubble (a
 // commit link's URL) breaks inside the bubble, as the reference's does, instead of running past it and the window
-// (unverified-real-input-rows UV-3).
+// (unverified-real-input-rows UV-3). TooltipPopup's base `text-balance` (KW-1) balances the words.
 component HoverText
   props
     tip: HoverTip
   view
-    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
+    column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
       text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // chat-markdown-media-and-code MSU-1: MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
-// 30rem, breaking anywhere), the media's full path, URL or name.
+// 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance` (KW-1).
 component HoverCode
   props
     tip: HoverTip
   view
-    column max-width="30rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
+    column max-width="30rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
       text tip.text font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" text-align="left" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // AccessScopeSummary's PopoverPopup (side top, align start, tooltipStyle, w-max max-w-80): "Granted
-// scopes", then each scope in mono, after the trigger's 250 ms delay.
+// scopes", then each scope in mono, after the trigger's 250 ms delay. tooltipStyle's `text-balance` (KW-1).
 component HoverScopes
   props
     tip: HoverTip
   view
-    column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tip.testId
+    column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" testId=tip.testId
       text tip.text font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.25rem" color="light-dark(#27272a, #f5f5f5)"
       for line in tip.lines key=line
         text line font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"

@@ -119,7 +119,7 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
       '      runsOn(`new|${value}`, "")'].join('\n'));
     // Every reader of the project goes through the chosen one: the picker, its lookups, the Project select and Save.
     expect(editor).not.toMatch(/taskPicker\(draft\.key, projectId,|group\.projectId == projectId|projectId=\$\{encodeURIComponent\(projectId\)\}/);
-    expect(editor).toContain('valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), value=chosenProject');
+    expect(editor).toContain('valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), empty=(chosenProject == ""), value=chosenProject');
     expect(editor).toContain('&projectId=${encodeURIComponent(chosenProject)}&');
     // Runs on is a new task's (disabled when editing), and its choices are the page's environments.
     expect(editor).toContain('disabled=(draft.id != "" or busy) id="task-environment"');
