@@ -155,7 +155,7 @@ final class BoxLayerMacTests: XCTestCase {
         let video = VideoView(owner: n)
         n.video = video
         guard let media = n.subviews.first else {
-            throw XCTSkip("the optional video module is not beside this test runner")
+            throw missing("module", "the video module is not beside this test runner (EXACT_VIDEO_DYLIB)")
         }
         video.update()
         var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]

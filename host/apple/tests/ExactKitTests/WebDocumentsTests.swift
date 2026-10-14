@@ -21,7 +21,7 @@ final class WebDocumentsTests: XCTestCase {
 
     func testAppTextFilePreservesMIMEAndLiteralMarkup() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared
@@ -61,7 +61,7 @@ final class WebDocumentsTests: XCTestCase {
 
     func testAppFilePDFPixelsAndMissingFileError() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared

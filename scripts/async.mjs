@@ -101,10 +101,11 @@ export function checks(sha, since, selection = {}) {
   const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
-    // This commit's Caltrain web builds for the tests that drive one (below): wasm with every
-    // capability linked (the document, placement, motion, focusout and no-GPU tests), and JS.
+    // This commit's web builds for the tests that drive one (below): Caltrain wasm with every
+    // capability linked (the document, placement, motion, focusout and no-GPU tests) and JS,
+    // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
     prepareCheck,
-    ['test', 'env', ['EXACT_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
     gameCheck,
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
@@ -153,6 +154,7 @@ export const prepareCheck = ['prepare', 'sh', ['-c', [
   `rm -rf ${JSON.stringify(DISTS)} && mkdir -p ${JSON.stringify(DISTS)}`,
   `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-wasm'))} bun host/web/build.mjs caltrain-web --wasm`,
   `EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-js'))} bun host/web/build.mjs caltrain-web`,
+  `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'fieldnotes'))} bun host/web/build.mjs fieldnotes-web`,
 ].join(' && ')]];
 const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
   `EXACT_NO_GPU_WASM_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_NO_GPU_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,

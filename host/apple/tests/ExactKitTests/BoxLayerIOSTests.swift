@@ -173,7 +173,7 @@ final class BoxLayerIOSTests: XCTestCase {
         let video = VideoView(owner: n)
         n.video = video
         guard let media = n.subviews.first else {
-            throw XCTSkip("the optional video module is not beside this test runner")
+            throw missing("module", "the video module is not beside this test runner (EXACT_VIDEO_DYLIB)")
         }
         video.update()
         var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]
@@ -239,7 +239,7 @@ final class BoxLayerIOSTests: XCTestCase {
         let sub: [Double] = [-10, -10, 20, 20]
         // One Gaussian blur over the box's own picture (`Filter::encode`).
         let program: [Double] = sub + [1] + [0, -1, -3] + sub + [0, 2, 2]
-        try XCTSkipUnless(SvgFilterGPU.runs(program.map(Float.init)), "no GPU filter path on this host")
+        guard SvgFilterGPU.runs(program.map(Float.init)) else { throw missing("metal", "no GPU filter path on this host") }
         let filter: BatchValue = .object(["p": .array(program.map { .number($0) })])
         let plain: NodeStyle = ["background_color": white]
         let p = Presenter()
