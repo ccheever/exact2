@@ -520,7 +520,11 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     expect(editor).toContain('change=commit("theme-editor", `color:${row.role}`) focus=outsideFocus blur=leave ');
     // Escape that sends the page back blurs first, as useEscapeToGoBack does.
     expect(page).toContain('    else\n      blur()\n      back()');
-    // No other node in the app takes the pointer, so every other press reaches the window's count.
+    // Row controls close their tooltip on pointerdown and forward to the window. Their pointerup still reaches main.
+    expect(window).toContain('    outsidePressDown(e)');
+    expect(window).toContain('pressDown=sidebarPressDown,');
+    expect(await source('sidebar-row.contract')).toContain('pointerdown=pressDown');
+    // Every other press reaches the window's count, or has the explicit exception below.
     const { readdirSync } = await import('node:fs');
     const takers: string[] = [];
     for (const file of readdirSync(new URL('./', import.meta.url)).filter(name => name.endsWith('.contract')).sort()) {
@@ -545,6 +549,10 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'r4-surfaces-files.contract file-line-${line.number}',
       'r4-surfaces-files.contract file-comment-${line.number}',
       'r6-device.contract device-mini-player',
+      'sidebar-row.contract wake-${t.id}',
+      'sidebar-row.contract unsettle-${t.id}',
+      'sidebar-row.contract snooze-${t.id}',
+      'sidebar-row.contract settle-${t.id}',
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',
       'theme-color-picker.contract theme-color-${row.id}-hue',

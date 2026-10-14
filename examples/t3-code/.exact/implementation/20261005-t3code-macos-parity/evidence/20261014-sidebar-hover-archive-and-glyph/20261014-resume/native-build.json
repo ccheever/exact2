@@ -1,0 +1,7 @@
+{
+  "changed": [],
+  "binary": "target/clients/8bfc8b360adcc22bc612d686/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/T3 Code (Exact)",
+  "binarySha256": "5b9228499500d3c5f966d3b83dbe3940137a48ed6ed0a4004e645bca691fcf20",
+  "receipt": "target/clients/8bfc8b360adcc22bc612d686/com.exact.t3code.macos/macos/aarch64-apple-darwin/embedded/development/standalone/receipt.json",
+  "receiptSha256": "c03a99b6968a613d1a6f161fd1dcf5373e53a684511f9989e7aebde3b83953d5"
+}
