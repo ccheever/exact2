@@ -803,11 +803,12 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             &CORNER_MAP,
         )],
         // A bound colour unsets the theme's scheme text for its subtree, as
-        // a literal one does (roles.rs `scheme_color`).
+        // a literal one does (roles.rs `scheme_color`); a value that unsets
+        // the row (StyleValue::text_unsets) authors none.
         StyleId::TextColor if exact_kernel::style::roles::overridden_canvas_text() => {
             let (name, unit) = style_row(id)?;
             let mut writes = one(name, unit);
-            writes.push(with("--exact-scheme-color", "v=>v==null?v:'initial'"));
+            writes.push(with("--exact-scheme-color", r"v=>v==null||/^\s*(unset|inherit|currentcolor)\s*$/i.test(v)?null:'initial'"));
             writes
         }
         _ => {

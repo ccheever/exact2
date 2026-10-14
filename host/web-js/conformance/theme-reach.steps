@@ -1,2 +1,4 @@
 # The accent-coloured control and its own-accent sibling, flipped.
 tap on
+# A bound colour that unsets authors none: the card below reads the theme's text again.
+tap plain

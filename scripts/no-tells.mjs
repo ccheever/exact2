@@ -89,7 +89,7 @@ function uncomment(text) {
 /** The source with the root `theme` block's lines blanked, offsets unchanged:
  * its literals are the app's palette (LLP 1095 D4). */
 function withoutTheme(text) {
-  // Only a line that starts outside any parenthesis or string is a
+  // Only a line that starts outside any bracket or string is a
   // declaration's: a `theme` word continuing an expression is not one.
   let inTheme = false, depth = 0, quote = null;
   return text.split('\n').map(line => {
@@ -98,8 +98,8 @@ function withoutTheme(text) {
       const c = line[i];
       if (quote) { if (c === '\\') i++; else if (c === quote) quote = null; }
       else if (c === '"' || c === '`') quote = c;
-      else if (c === '(') depth++;
-      else if (c === ')') depth = Math.max(0, depth - 1);
+      else if ('([{'.includes(c)) depth++;
+      else if (')]}'.includes(c)) depth = Math.max(0, depth - 1);
     }
     if (quote === '"') quote = null;
     if (top && /^theme\s*$/.test(line)) { inTheme = true; return line; }

@@ -12,4 +12,6 @@ test("a theme's literals are its palette and a row naming an entry is no tell", 
 test('a `theme` word continuing an expression starts no theme', () => {
   const source = 'component A\n  view\n    text "x" color=(true\ntheme\n  ? "#111" : "b")\n      text "y" background-color="#fff"\n';
   assert.deepEqual(tellsIn(source).map(t => [t.line, t.property]), [[3, 'color'], [6, 'background-color']]);
+  const list = 'component A\n  view\n    text [\ntheme\n      ].join("") color="#fff"\n';
+  assert.deepEqual(tellsIn(list).map(t => [t.line, t.property]), [[5, 'color']]);
 });

@@ -18,6 +18,8 @@ component ThemeReach
   state tone = "#1083fe"
   action flip(checked: bool)
     on = checked
+  action plain
+    tone = "inherit"
   view
     column gap=8 padding=12
       text "Unsaid" testId="unsaid"
@@ -37,6 +39,8 @@ component ThemeReach
       column color=tone
         column color-scheme="dark" background-color="Canvas" padding=8
           text "Bound authored" testId="bound-authored"
+      button press=plain testId="plain"
+        text "Plain"
       button press=flip(true) color-scheme="dark" background-color="Canvas" padding=8 testId="dark-button"
         text "Dark button"
       button press=flip(true) color-scheme=scheme background-color="Canvas" padding=8 testId="bound-button"
