@@ -107,6 +107,9 @@ component ImagePreviewHost
     next: bool
     video: bool
     source: string
+    // MSU-1 / G4-05: the media's tooltip (MediaActions: its full path, URL or name), and the node the dialog gives the focus back to.
+    tip: string
+    returnFocus: string
     windowWidth: number
     windowHeight: number
     local: action
@@ -114,9 +117,9 @@ component ImagePreviewHost
   view
     when length(shown) > 0
       each preview in shown key=preview.id
-        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, source=source, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+        ImagePreviewDialog(id=id, url=preview.url, failed=false, name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
     else
-      ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, source=source, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
+      ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, source=source, tip=tip, returnFocus=returnFocus, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
 
 component ImagePreviewDialog
   inject
@@ -132,9 +135,16 @@ component ImagePreviewDialog
     video: bool
     // context-menu-gaps: the media's actions source (a sent attachment's `attachment:<id>`, or a file link's media JSON).
     source: string
+    tip: string
+    returnFocus: string
     windowWidth: number
     windowHeight: number
     local: action
+  // G4-05: closing gives the focus back to the Markdown image that opened it (Base UI Dialog's finalFocus).
+  action closePreview
+    local("image-close", "", "")
+    if returnFocus != ""
+      focus(returnFocus)
   // MediaVideoPlayer failedSrc / ExpandedImageDialog failedImageSrc: the URL the player or the picture
   // refused (an `image` `error`, exact2 #121); Retry video signs the attachment again.
   state failedUrl = ""
@@ -147,10 +157,10 @@ component ImagePreviewDialog
       // The focus trap (dialog-trap.contract): Previous, the media's actions, the X, Next. The backdrop is no Tab stop (the reference's popup takes its clicks).
       FocusGuard(guardId="image-preview-guard-start", target=(next ? "image-preview-next" : "image-preview-close"))
       DialogOpenFocus(target="image-preview-close")
-      button press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
+      button press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="image-preview-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=previous, flip=true, press=local("image-step", "", "previous"), elementId="image-preview-previous", testId="image-preview-previous")
-        MediaActions(source=source, tip=name, local=local, elementId="image-preview-actions", testId="image-preview-actions")
+        MediaActions(source=source, tip=(tip != "" ? tip : name), local=local, elementId="image-preview-actions", testId="image-preview-actions")
           column min-width=0 align-items="center"
             box position="relative"
               // lane r6-media: ExpandedVideo, the player with native controls, playing (r6-media.contract).
@@ -172,7 +182,7 @@ component ImagePreviewDialog
                       text "Image unavailable. The file may have been moved or deleted." text-align="center" font-size="0.875rem" line-height="1.25rem" color="#ffffff"
                   else
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading image"
-              button id="image-preview-close" press=local("image-close", "", "") aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+              button id="image-preview-close" press=closePreview aria-label=(video ? "Close video preview" : "Close image preview") testId="image-preview-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 Icon(name="x", size=14, color="#ffffff")
             text (position != "" ? `${name} ${position}` : name) margin-top="0.5rem" line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
         PreviewStep(label="Next media", shown=next, flip=false, press=local("image-step", "", "next"), elementId="image-preview-next", testId="image-preview-next")

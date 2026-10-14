@@ -145,7 +145,7 @@ describe('the layer and its timing', () => {
       hoverUntil = until
       hoverHold(until)`);
     // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
-    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" ? 600 : 0)))');
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
@@ -159,7 +159,10 @@ describe('the layer and its timing', () => {
   test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on each of the four sides', async () => {
     const body = await component('hover-layer.contract', 'HoverLayer');
     expect(body.match(/column hover=hoverAt\(tip, "card"\) padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="auto"/g)).toHaveLength(4);
-    expect(body.match(/column padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="none"\n/g)).toHaveLength(4);
+    // A tooltip's column: 20rem on the left and right, and on the top and bottom the span's (a "code" tip's 30rem; MSU-1).
+    expect(body.match(/column padding-(left|right)=4 max-width="20\.25rem" pointer-events="none"\n/g)).toHaveLength(2);
+    expect(body.match(/column padding-(top|bottom)=4 max-width=\(\(span - 2\.5\) \* rem\) pointer-events="none"\n/g)).toHaveLength(2);
+    expect(body).toContain('derive span = tip.kind == "code" ? 32.5 : 22.5');
     // The side asked for, flipped when the window leaves no room there and more on the other side (Base UI's flip).
     expect(body).toContain('derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate)');
     expect(await source('hover-layer.contract')).toContain('fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other');
@@ -170,7 +173,7 @@ describe('the layer and its timing', () => {
     expect(root).toContain(`  state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}\`
+  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}|\${data.threadId}\` // chat-markdown-media-and-code: a thread change too (a media tooltip whose image went with no leave)
     after(1, hoverTicked)
   action hoverTicked
     hoverWait = hoverWait + 10

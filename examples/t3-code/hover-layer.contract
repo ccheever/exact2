@@ -45,7 +45,7 @@ fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshne
 // the freshness card's delay={0}; PolicyTooltip's delay={200} (kind "policy", settings-kit.contract PolicyTip, drawn as a
 // tip); a Tooltip with no provider Base UI's 600 (kind "tooltip": ThreadAutomationsPanel's, thread-automations.contract); a
 // tooltip here at once (CnTooltip's, the picker's TooltipProvider delay={0}).
-fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" ? 600 : 0)))
+fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))
 
 fn noHoverTip(): HoverTip = HoverTip(key="", kind="", text="", lines=[], side="top", align="center", x=0, y=0, width=0, height=0, estimate=0, testId="")
 
@@ -71,26 +71,28 @@ component HoverLayer
   derive leftRoom = tip.x - 9
   derive rightRoom = viewportWidth - tip.x - tip.width - 9
   derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
-  derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)
+  // chat-markdown-media-and-code MSU-1: a "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
+  derive span = tip.kind == "code" ? 32.5 : 22.5
+  derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)
   derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
   derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")
-  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"
+  derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip" and tip.kind != "code"
   view
     when place == "bottom"
-      row position="absolute" left=left top=(tip.y + tip.height) width=(22.5 * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
+      row position="absolute" left=left top=(tip.y + tip.height) width=(span * rem) justify-content=justify align-items="flex-start" pointer-events="none" z-index=140 testId="hover-layer"
         when card
           column hover=hoverAt(tip, "card") padding-top=4 max-width="20rem" pointer-events="auto"
             children
         else
-          column padding-top=4 max-width="20rem" pointer-events="none"
+          column padding-top=4 max-width=((span - 2.5) * rem) pointer-events="none"
             children
     else when place == "top"
-      row position="absolute" left=left bottom=(viewportHeight - tip.y) width=(22.5 * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
+      row position="absolute" left=left bottom=(viewportHeight - tip.y) width=(span * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
         when card
           column hover=hoverAt(tip, "card") padding-bottom=4 max-width="20rem" pointer-events="auto"
             children
         else
-          column padding-bottom=4 max-width="20rem" pointer-events="none"
+          column padding-bottom=4 max-width=((span - 2.5) * rem) pointer-events="none"
             children
     else when place == "left"
       column position="absolute" right=(viewportWidth - tip.x) top=top height=(22.5 * rem) justify-content=justify align-items="flex-end" pointer-events="none" z-index=140 testId="hover-layer"
@@ -125,6 +127,15 @@ component HoverText
   view
     column max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
       text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+
+// chat-markdown-media-and-code MSU-1: MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
+// 30rem, breaking anywhere), the media's full path, URL or name.
+component HoverCode
+  props
+    tip: HoverTip
+  view
+    column max-width="30rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
+      text tip.text font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" text-align="left" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // AccessScopeSummary's PopoverPopup (side top, align start, tooltipStyle, w-max max-w-80): "Granted
 // scopes", then each scope in mono, after the trigger's 250 ms delay.

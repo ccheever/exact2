@@ -456,6 +456,12 @@ shape Snapshot
   imagePreviewNext: bool
   imagePreviewVideo: bool
   imagePreviewSource: string
+  // chat-markdown-media-and-code G4-05: the shown media's tooltip (MediaActions: its full path, URL or name).
+  imagePreviewTip: string
+  // G4-05: the Markdown image's node the dialog gives the focus back to ("" for an attachment or a link's media).
+  imagePreviewReturn: string
+  // X18: the thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s.
+  codeCopyNonce: number
   diagramPreview: list<MermaidDiagram>
   planSaveOpen: bool
   planSavePath: string
