@@ -130,7 +130,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     const app = await source('app.contract');
     expect(app).toContain('task sidebarDialogFocus when data.sidebar.dialog != "" and not paletteOpen key=data.sidebar.dialog');
     expect(app).toContain('focus(data.sidebar.dialog == "snooze" ? "snooze-mode-date" : `sidebar-${data.sidebar.dialog}-cancel`)');
-    expect(app).toMatch(/if startsWith\(confirmOp, "shell:"\)[^\n]*\n\s+focus\("thread-title"\)/);
+    expect(app).toMatch(/if confirmOp\.startsWith\("shell:"\)[^\n]*\n\s+focus\("thread-title"\)/);
     expect(app).toMatch(/confirmValue = ""\n\s+focus\("app-confirm-cancel"\)/); // the terminal's close asks with the focus in the confirm
     // The terminal's own close buttons keep the focus when pressed; they move it into the confirm themselves.
     const terminal = await source('terminal.contract');
