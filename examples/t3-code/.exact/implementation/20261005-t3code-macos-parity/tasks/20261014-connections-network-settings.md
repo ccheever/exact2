@@ -3,11 +3,11 @@ name: 20261014-connections-network-settings
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-connections-network-settings
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/566
 verified_commit: null
 ---
 
@@ -164,6 +164,8 @@ Use state/condition waits with bounded deadlines, not fixed sleeps as success ev
 - Two desktop-tool pointer attempts (coordinates and fresh AX indexes) reported unverified synthetic input and left order unchanged. A fresh isolated lifetime using the existing phased native pointer recipe (`press 100`, `over 350`, `hold 50`) passed on `af34fbd9`, moving third to first and reading the matching saved order. This establishes native-agent pointer preservation, not physical OS drag qualification. The host's first drag sample resets travel origin, which may explain a one-sample synthetic no-op; tool sampling was not instrumented.
 - The coordinator's final app/source gates pass; `coordinator-checks.json` distinguishes unchanged-framework checks from final app checks. All task-owned native apps and fixture processes exited; ports 16570–16572 are free. Normal process relaunch and native route persistence across launches remain unverified due the desktop activation blocker. Spoken VoiceOver and live tailnet behavior remain unverified. Keep this ticket active with those limits.
 
+- Delivery: [PR #566](https://github.com/ccheever/exact2/pull/566) merged into `feat(example)/t3-code` at 2026-10-14 10:07:29 UTC, merge `fbed7fadd8673ed58eaa98c585bccaf9f0bc5d16`, from implementation `0a325ccb0235ba4d3c5fc22f41257343f214edad`. Independent post-merge readback matched all 28 tested source hashes (`af34fbd9753f1d09c0c618ef90623dd64295ccbd8d5fd98b4f74872e06184ef8`) and confirmed #553/#557/#549 ancestry. The 23-file [published packet](https://github.com/ccheever/exact2/blob/c82eb45dfc9627c66457c87b47cc87d6d90ba9a2/connections-network-settings/20261014/README.md) was read back by GitHub blob identity; public README/image requests returned matching content. This records delivered source, not full native acceptance.
+
 ## Attempts and evidence
 
 | Attempt | Source / actions | Result / limitation |
@@ -177,4 +179,4 @@ The earlier ignored draft was `target/fix-wave/connections-network-settings-task
 
 ## Next action
 
-Independent review approved the bounded source repair and its visible keyboard/focus results. The coordinator will publish the implementation PR and merge it through the serial plan's existing delivery flow. Keep implementation in progress and verification unverified until the remaining acceptance is established; this task does not claim full closure. Use the pinned evidence packet above and its `native-focus-final.json`, `native-build.json`, `tests.json`, `coordinator-checks.json`, `source-review.md` and `cleanup.json` for the reviewed results and restoration record. Preserve the desktop-tool drag failures and normal activation blocker. Do not claim public process replacement, native cross-process route persistence, spoken VoiceOver, physical OS pointer dragging or live-tailnet acceptance. Do not retry normal launch or begin another source repair without new authority.
+The bounded repair is merged in PR #566. Start `menu-keys-popover-commands` from the refreshed feature head containing this merge and both serial predecessors. Keep this task active and unverified for normal changed-PID relaunch, cross-process route persistence, physical OS pointer dragging, spoken VoiceOver and live-tailnet qualification. Preserve the recorded desktop activation and drag limitations; do not retry normal launch or begin another source repair without new authority. The pinned evidence above distinguishes accepted source/keyboard/focus behavior from those open qualifications.
