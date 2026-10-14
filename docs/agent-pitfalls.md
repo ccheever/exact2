@@ -1216,3 +1216,11 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   Horizontal percentages use root width. The native sampler matches the
   measured browser behavior, which differs from the W3C draft's all-width
   rule (LLP 1001). Use `px` when the overscan is an absolute distance.
+
+- **Changing accounts can leave a resource's last rows visible after a refused read.**
+  Resources keep their previous value on failure. Gate account views while the
+  account is pending or failed, and render rows only when their answer's principal
+  matches the current principal. Throw `refused(page.denied)` on a query denial.
+  The complete online password example in `snapback4/README.md` demonstrates this
+  alongside reload, logout and sign-in tests; an empty successful list would hide
+  an authentication failure.

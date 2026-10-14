@@ -793,3 +793,57 @@ fn now_is_refused_with_both_repairs_at_its_span() {
         );
     }
 }
+
+#[test]
+fn live_resource_arguments_warn_through_derives_and_functions_but_sampled_state_does_not() {
+    let file = contract_syntax::parse(
+        r#"
+fn clockValue(): number = performanceNow()
+shape Reply
+  value: number
+component App
+  state sampledAt = 0
+  derive live = clockValue() + 1
+  derive forwarded = live
+  resource direct = read(performanceNow()) as shape Reply else empty()
+  resource indirect = read(forwarded) as shape Reply else empty()
+  resource sampled = read(sampledAt) as shape Reply else empty()
+  action tick
+    sampledAt = performanceNow()
+  view
+    text direct.value
+"#,
+    )
+    .unwrap();
+    let warnings = contract_analyze::resource_clock_warnings(&file);
+    assert_eq!(warnings.len(), 2);
+    assert!(warnings[0].message.contains("`direct`"));
+    assert!(warnings[1].message.contains("`indirect`"));
+    assert!(warnings
+        .iter()
+        .all(|w| w.id == "analyze-resource-clock" && w.message.contains("sample")));
+}
+
+#[test]
+fn resource_clock_advice_keeps_json_build_success_and_stdout_valid() {
+    let root = std::env::temp_dir().join(format!("exact-clock-advice-{}", std::process::id()));
+    std::fs::create_dir_all(&root).unwrap();
+    let path = root.join("app.contract");
+    std::fs::write(&path, "shape Reply\n  value: number\ncomponent App\n  resource reply = read(performanceNow()) as shape Reply else empty()\n  view\n    text `${reply.value}`\n").unwrap();
+    let run = std::process::Command::new(env!("CARGO_BIN_EXE_contract"))
+        .args(["build", path.to_str().unwrap(), "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&run.stdout).unwrap(),
+        serde_json::json!([])
+    );
+    assert!(String::from_utf8_lossy(&run.stderr).contains("warning:"));
+    assert!(String::from_utf8_lossy(&run.stderr).contains("analyze-resource-clock"));
+    std::fs::remove_dir_all(root).unwrap();
+}

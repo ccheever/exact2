@@ -37,7 +37,9 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > - **One origin setting** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
 >   `app.ts`'s `origin`, its `net.fetch` grant (write it as `${origin}`),
 >   `bun exact.mjs backend`, and the generated test file's `fail fetch`/`pass fetch`
->   prefixes. `bun exact.mjs snapback --port N` updates them together. The page's port (`EXACT_PORT`,
+>   prefixes. On `test web`, write `fail fetch "backend"` / `pass fetch "backend"`: those
+>   resolve from the built grant at runtime, so `app.ts` has the only origin setting.
+>   With several fetch origins, use explicit URL prefixes. `bun exact.mjs snapback --port N` updates them together. The page's port (`EXACT_PORT`,
 >   `--port` on `bun exact.mjs`) is another, never this one.
 > - **Grants.** `sqlite.open app:/data` for the partition; `fs.read app:/tmp`
 >   to upload a picked file and `fs.write app:/cache` to download one.
@@ -449,7 +451,8 @@ schema and wires their mounts and device.
 For a schema that syncs nothing, install `snapback4@0.4.27` in the backend,
 write this `snapback/schema.q`, then run
 `bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
-It mounts the online adapter and generated operations. Replace the greeting
+It mounts the online adapter and generated operations, and writes a query/mutation
+explorer for an untouched greeting app. Replace that explorer
 with these files; it opens no SQLite partition and needs no wasm:
 
 ```quarry
@@ -591,6 +594,206 @@ below. Pass a source's `storage` to `new Snapback({origin, headers, storage})` f
 downloads and grant `fs.write app:/cache`; picked uploads need `fs.read app:/tmp`.
 These use the server's asset routes and keep no upload intent or offline queue.
 Durable upload intents belong to the device, not an app-local second outbox.
+
+### A complete online password app
+
+This variant of the online guestbook works on `dev` and production `serve`.
+Use the online schema above with `use identity password` in place of
+`use personas alice, bob`; the table and operations stay the same. Create
+`app` with `new app --snapback --online --port 30100`, then use these files.
+The signed-out view never renders retained private rows. The session token
+stays in Exact's `secret.keep` store; only the principal reaches Contract.
+
+`app.contract`:
+
+```contract
+shape Clock
+  epochAtZero: number
+shape Account
+  principal: string
+shape Note
+  id: string
+  author: string
+  body: string
+shape Board
+  principal: string
+  complete: bool
+  notes: list<Note>
+shape Ack
+  ok: bool
+
+component App
+  state email = ""
+  state password = ""
+  state draft = ""
+  state sampledAt = 0
+  resource time = exactTime() as shape Clock
+  resource account = restoreAccount(time.epochAtZero + sampledAt) as shape Account else empty()
+  resource board = notes(account.principal, time.epochAtZero + sampledAt) as shape Board else empty()
+  mutation signed as shape Ack refreshes account, board
+  mutation posted as shape Ack refreshes board
+  task live mount
+    every(5000, tick)
+  action tick
+    sampledAt = performanceNow()
+    refresh account
+    refresh board
+  action editEmail(value: string)
+    email = value
+  action editPassword(value: string)
+    password = value
+  action editDraft(value: string)
+    draft = value
+  action signup
+    send signed = signup(email, password, time.epochAtZero + performanceNow())
+  action login
+    send signed = login(email, password, time.epochAtZero + performanceNow())
+  action logout
+    send signed = logout(time.epochAtZero + performanceNow())
+  action post
+    send posted = post(trim(draft), time.epochAtZero + performanceNow())
+  view
+    column gap=8 padding=16
+      text (account.principal == "" ? "Signed out" : "Signed in") testId="session"
+      text (match failure(signed) { case some(f) => f.code, case none => "" }) testId="auth-error"
+      when account.principal == ""
+        input value=email input=editEmail type="email" testId="email" aria-label="Email"
+        input value=password input=editPassword type="password" testId="password" aria-label="Password"
+        button "Sign up" press=signup disabled=pending(signed) testId="signup"
+        button "Log in" press=login disabled=pending(signed) testId="login"
+      else
+        button "Log out" press=logout disabled=pending(signed) testId="logout"
+        input value=draft input=editDraft testId="draft" aria-label="Note"
+        button "Post" press=post disabled=(pending(posted) or trim(draft) == "") testId="post"
+      when failed(board)
+        text (match failure(board) { case some(f) => f.code, case none => "" }) testId="read-error"
+      when not pending(account) and not failed(account) and account.principal != "" and not failed(board) and board.principal == account.principal
+        when not board.complete
+          text "Partial answer; more rows may exist." testId="partial"
+        each note, i in board.notes key=note.id
+          text note.body testId=`note-${i}`
+```
+
+`app.ts`:
+
+```ts
+import type { Answer, Result, Sources } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+export const appId = 'com.example.app';
+const origin = 'http://127.0.0.1:30100';
+export const grants = `net.fetch ${origin}\nsecret.keep snapback-session`;
+const sources: Sources = {
+  restoreAccount: async ([now], store): Promise<Result<'restoreAccount'>> => {
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    return {principal: (await db.restore(now))?.principal ?? ''};
+  },
+  notes: async ([principal, now], store): Promise<Result<'notes'>> => {
+    if (!principal) return {principal: '', complete: true, notes: []};
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    if (db.session?.principal !== principal) throw refused({code: 'E_AUTH', message: 'Sign in again.'});
+    const rows = await db.readAll(api.recent, {});
+    return {principal, complete: rows.complete, notes: rows.map(({id, author, body}) => ({id, author, body}))};
+  },
+  signup: async ([email, password, now], store): Promise<Result<'signup'>> => {
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    const signed = await db.signup(email, password);
+    if (!signed.ok) throw refused(signed.why);
+    return {ok: true};
+  },
+  login: async ([email, password, now], store): Promise<Result<'login'>> => {
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    const signed = await db.login(email, password);
+    if (!signed.ok) throw refused(signed.why);
+    return {ok: true};
+  },
+  logout: async ([now], store): Promise<Result<'logout'>> => {
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    await db.logout(); // local sign-out always succeeds, even if revocation cannot be confirmed
+    return {ok: true};
+  },
+  post: async ([body, now], store): Promise<Result<'post'>> => {
+    const db = new Snapback({origin, auth: {store, key: 'snapback-session', now: Math.floor(now)}});
+    const sent = await db.send(api.post, {body});
+    if (sent.state === 'failed') throw refused(sent.why);
+    return {ok: true};
+  },
+};
+import { api } from './backend/api.ts';
+export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+```
+
+`app.test.contract` (against `dev`; `fresh` resets accounts as well as rows):
+
+```contract
+fresh
+epoch now
+
+test "password sessions restore and sign out"
+  expect text "session" == "Signed out"
+  type "email" "alice@example.com"
+  type "password" "correct horse battery staple"
+  tap "signup"
+  clock data
+  expect text "session" == "Signed in"
+  type "draft" "password hello"
+  tap "post"
+  clock data
+  expect text "note-0" == "password hello"
+  reload
+  clock data
+  expect text "session" == "Signed in"
+  expect text "note-0" == "password hello"
+  tap "logout"
+  clock data
+  expect text "session" == "Signed out"
+  expect tree missing "note-0"
+  reload
+  clock data
+  expect text "session" == "Signed out"
+  type "email" "alice@example.com"
+  type "password" "wrong password"
+  tap "login"
+  clock data
+  expect text "auth-error" == "E_AUTH"
+  expect text "session" == "Signed out"
+  type "password" "correct horse battery staple"
+  tap "login"
+  clock data
+  expect text "session" == "Signed in"
+  expect text "note-0" == "password hello"
+
+test "a new test has no account or browser session"
+  expect text "session" == "Signed out"
+  expect tree missing "note-0"
+```
+
+Generate the declaration, start `bun exact.mjs backend`, and run
+`bun exact.mjs test web`. The same UI works on `serve`; omit `fresh` there
+and use a unique signup email. `restore(now)` validates stored sessions and
+refreshes within 60 seconds of expiry; `refreshSession(now)` rotates explicitly.
+Use a different secret key for each origin. Await `logout` before another
+sign-in; its `ok` confirms server revocation, and `offline` means that could
+not be confirmed. Reads and writes interrupted by an account change throw
+`E_STALE`; query denials with `E_AUTH` forget the matching stored token.
+
+### Live resources on the online adapter
+
+One Contract timer can refresh every resource that needs live data. The password
+example above samples the clock into state in `tick`, then refreshes `account`
+and `board`. A write uses `refreshes board` for its immediate update. This also
+catches writes from another browser on the next poll; no JavaScript timer or
+`Date.now()` belongs in the data module. Use `clock +5000` followed by `clock data`
+in a test. A direct `performanceNow()` argument, including one through a derive
+or function, produces `analyze-resource-clock`: it changes every frame.
+
+Resources keep their last value on failure. Hide private data while the account
+is pending or failed, and check that the answer's principal matches the current
+account before rendering it, as above. A denial must throw `refused(denied)`,
+not turn into an empty successful list. For device-backed apps, serialize reads
+with writes through `Snapback.switcher.use`, and await `send`/`sync` before reading
+server authority. The online adapter has no outbox; always await `send` before
+a dependent read. A cut page remains partial even after `readAll` has followed
+all available cursors; `rows.complete` and `rows.cut` retain those facts.
 
 ### Tests share the server
 

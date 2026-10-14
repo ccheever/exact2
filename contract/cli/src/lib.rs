@@ -537,6 +537,18 @@ pub fn surface_findings(path: &Path) -> Result<SurfaceFindings, Vec<CompileError
     })
 }
 
+/// Non-blocking advice for resource identities fed by a live frame clock.
+/// Includes imported derives and functions, with the authored resource location.
+pub fn resource_clock_warnings(path: &Path) -> Result<Vec<CompileError>, Vec<CompileError>> {
+    let src = read_source(path).map_err(|e| vec![e])?;
+    let app_root = app_root(path)?;
+    let (file, sources) = sources::load(path, &src, &app_root)?;
+    Ok(contract_analyze::resource_clock_warnings(&file)
+        .into_iter()
+        .map(|e| sources.resolve(e.into()))
+        .collect())
+}
+
 /// Compile a terminal entry (LLP 1101 D2): the terminal profile's refusals,
 /// every one, then the ordinary compile.
 pub fn compile_path_terminal(path: &Path) -> Result<Plan, Vec<CompileError>> {

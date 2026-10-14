@@ -500,6 +500,36 @@ compile time; a dynamic id or target retains runtime resolution. TestId remains
 the driver's identifier. The author guide shows form values, held pickers,
 optional failures/results, shared state/action names and sampled resource clocks.
 
+**EX7 amendment (Charlie’s wave-12 E1–E5/H2 task, 2026-10-14; implementer Codex):**
+The online adapter adds `signup`, `login`, `logout`, `restore(now)` and explicit
+`refreshSession(now)`, using Exact's `secret.keep` store and Contract epoch time.
+Auth operations sharing a store/key serialize; requests fenced by the stored session
+reject after identity changes. A refused current token is forgotten; offline logout
+still forgets locally. `readAll` follows opaque cursors, preserves every page's
+completeness/cut, and throws on any page refusal, non-list data, repeated cursors or
+row-limit overflow. Online `Read` and device `Outcome` narrow by their discriminants;
+`hasData` narrows a device read without treating unavailable data as a successful page.
+The README's complete online password example proves reload, logout and login, and
+uses one Contract poll with sampled time and principal-matched rendering of kept rows.
+Durable upload intents remain device-owned; no second app outbox is introduced.
+
+Online wiring beside a schema replaces only an untouched greeting, after generated
+operations exist, with one typed query and mutation and JSON argument editors. It
+preserves authored code and never invents schema fields or credentials. The origin
+constant in `app.ts` feeds both the adapter and `net.fetch`; `test web` resolves
+`fail fetch "backend"` / `pass fetch "backend"` from that built grant at runtime,
+refusing ambiguity. Literal URLs retain their meaning; `snapback --port` still
+migrates older literal prefixes and `backend` derives its launch port from the constant.
+`analyze-resource-clock` warns on live clock resource identities, including derives
+and functions, while sampled state stops the dependency. Advice stays on stderr;
+`contract build --json` keeps one diagnostic array and a successful exit.
+
+The root and generated launchers start through a shell header using `BUN`, then the
+versioned home install, independently of PATH; the app also captures the generating
+Bun's absolute path as fallback. The shared resolver validates the selected version,
+relaunches an old Bun, and exports the selected binary and its PATH to descendants,
+including backend checks and the app's own commands. No new blocking check is added.
+
 Guestbook tests
 now begin with `fresh` so the default dev suite can run repeatedly.
 
@@ -534,6 +564,12 @@ test's data. Backend rows remain server-owned; `fresh` is dev-only and a
 serve proof provisions uniquely keyed fixtures or logs in to an existing
 test account. Existing managed-auth `E_AUTH` handling forgets the refused
 current token, preserving a newer token after a late old-token refusal.
+
+
+**EX7 visibility (2026-10-14):** before opening any test browser, `test web` prints
+`fresh: reseeding before each of N tests`, counting the compiled tests that actually
+request reset, including per-test overrides. Every selected test still receives its
+own reset and browser store; a repeated password suite proves those boundaries.
 
 
 ## 3. Implementation order

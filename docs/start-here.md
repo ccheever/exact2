@@ -40,7 +40,7 @@ For shared server data, `bun <exact2>/scripts/exact.mjs new app --snapback
 [--port <n>]` from the backend’s directory writes a guestbook and wires its
 driver, generated operations and device. The origin defaults to 4400.
 `bun exact.mjs snapback` wires an existing app. With an existing schema, the
-starter app is kept: write its sources for those generated operations.
+untouched greeting becomes a typed query and mutation explorer with `--online`.
 `snapback --port <n>` moves a loopback origin, grants and test fetch prefixes
 together. Password sign-in, stored sessions and refresh with Contract time are
 in [the adapter guide](../snapback4/README.md#personas-and-password-accounts).
@@ -66,6 +66,7 @@ shell commands have no such help, so keep one directory.
 
 `verify`, `test web` and `agent` build and serve their own copy: no dev server. Run `verify` when the features work; `verify ios` once at the end for an iPhone app. A screen you
 want checked or captured is a test's end; a drive takes any others (`resize`, `prefer …`, `screenshot`).
+Create seam types once with `bun exact.mjs contract types app.contract -o app.contract.d.ts`.
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 **Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
@@ -73,6 +74,9 @@ serves on that port; a held port is refused. Otherwise each picks a free port wi
 prints its URL. A native client starts a second loop on `n+1`. A storage store
 keeps its data per port, so drive one store on one port.
 
+- **Bun and Chrome.** Launchers prefer `$BUN`, then `~/.bun-1.4.2/bin/bun`,
+  independently of a login shell’s PATH. Generated commands and child scripts
+  inherit that binary. `./exact.mjs` also works when PATH has no Bun. Set `CHROME=/absolute/path/to/chrome` to select Chromium.
 - **Named Chrome stores.** `agent web --storage s1` starts empty each run.
   Add `--keep-storage` to reopen its saved data and password session, or
   `--reset-storage` to explicitly reset it. A live drive owns its profile;

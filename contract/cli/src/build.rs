@@ -108,6 +108,11 @@ pub(super) fn run(args: &[String]) -> ExitCode {
             .cloned()
             .collect(),
     };
+    if let Ok(warnings) = contract::resource_clock_warnings(Path::new(input)) {
+        for finding in warnings {
+            eprintln!("warning: {finding}");
+        }
+    }
     // Warnings never fail the build; they follow its refusals (LLP 1116 D6).
     let (compiled, warnings) = contract::compile_path_all_warned(Path::new(input), true);
     if let Ok(s) = &surfaces {
