@@ -99,7 +99,8 @@ the document as for any page. Ordinary scroll containers remain platform-owned. 
 > LLP 1115.000 D8.2 and D8.5 are the current implementation: AppKit runs a person's scroll,
 > and its key actions and line size set the keyboard scroll. D8.4 is partly built: an ordinary
 > Mac element reveal animates for omitted, `auto` and `smooth`, while `instant`, Reduce Motion
-> and the agent's frozen clock land at once. Focus reveal, keyed lists and UIKit are separate.
+> and the agent's frozen clock land at once. An authored `scrollTop` write cancels an in-flight
+> reveal, then follows its own `scroll-behavior`. Focus reveal, keyed lists and UIKit are separate.
 > Inner scrollers remain overlay until D8.3 lands with the kernel's gutter.
 
 **The page.** The window's content view is an `NSScrollView` (the
