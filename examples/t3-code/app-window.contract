@@ -33,7 +33,7 @@ use SbPicker from "./settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ShellView, ShellDetails from "./shell-shapes.contract"
-use Sidebar from "./sidebar.contract"
+use Sidebar, sidebarTipRow from "./sidebar.contract"
 use LegacySidebar from "./legacy-sidebar.contract"
 use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
 use ComposerMenus from "./composer-controls.contract"
@@ -528,6 +528,12 @@ component T3Window
   // pr-list-scroll-and-sidebar-sweep (X13): how many hover events the sidebar has had, so a cancelled row-action
   // sweep's resting hover (sidebar.contract ThreadSection) holds only until the window's hover moves on.
   state sidebarHoverSeq = 0
+  // sidebar-hover-archive-and-glyph SW-2: the row the host hovers (a row's own key, no `#`). Since main #327 the hover is
+  // the hit's ancestor path, so a row stays hovered under its controls and hears no new enter when the pointer leaves one
+  // for the row itself: the control's tip ending while its row is still hovered gives the row its hover and its card back,
+  // as the reference's card closes for a frame and reopens. A tip a press closed (SW-3a: `sidebarHover("", false)` moves
+  // the card and tips away) gives the row back with them still away, until the pointer enters again.
+  state sidebarHoverHeld = ""
   state sidebarScrollY = 0
   state dragId = ""
   state dragSection = ""
@@ -702,13 +708,28 @@ component T3Window
     sidebarScrollY = y
   action sidebarHover(id: string, over: bool)
     sidebarHoverSeq = sidebarHoverSeq + 1
+    let row = sidebarTipRow(id)
+    let back = not over and row != "" and row == sidebarHoverHeld and sidebarHoverId == id
     if over
       sidebarHoverLast = id
       sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
       sidebarHoverH = frame(`row-${id}`).height
+    else if back
+      sidebarHoverLast = row
+      sidebarHoverY = sidebarHoverY == -10000 ? -10000 : frame(`row-${row}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${row}`).height
     else if id == ""
       sidebarHoverY = -10000
-    sidebarHoverRoot(id, over)
+    if over and row == ""
+      sidebarHoverHeld = id
+    else if not over and id == sidebarHoverHeld
+      sidebarHoverHeld = ""
+    sidebarHoverRoot(back ? row : id, over or back)
+  // A control takes pointerdown from the window. Keep outside-press dismissal for Usage and chat popovers.
+  action sidebarPressDown(e: PointerEvent)
+    sidebarHoverSeq = sidebarHoverSeq + 1
+    sidebarHoverY = -10000
+    outsidePressDown(e)
   action sidebarDrag(id: string, section: string, dx: number, dy: number)
     if section != "working" and data.sidebar.dragEnabled and not commandPending
       if dragId != id
@@ -750,9 +771,9 @@ component T3Window
             when data.legacy.enabled
               LegacySidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, viewportWidth=viewport.width, busy=commandPending, keySidebar=settings.keySidebar, page=utilityPage, pullRequests=home.pullRequests, toggle=toggleSidebar, addProject=paletteShow("command", "add-project"), openPalette=paletteShow("command", ""), open=openThread, local=sidebarLocal, run=sidebarRun, openSettings=openSettings, navigate=openPage, openProviders=openProviderSettings, hoverCard=sidebarHover, hoverId=sidebarHoverId)
             else when scheme == "dark"
-              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
+              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
             else
-              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
+              Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
           column flex=1 min-width=0 height="100%" // terminal-drawer: the drawer sits below the chat column, the composer above it
             ChatColumn(noticeExit=noticeExit, noticeDismiss=noticeDismiss, pageCover=pageCover, sidebarWidth=sidebarWidth, canvas=canvas, canvasGesture=canvasGesture, detailsOutside=detailsPlayerPointer, viewport=viewport, scheme=scheme, data=data, shell=shell, settings=settings, rightPanel=(rightPanel or shell.panel.open), narrowDiff=narrowDiff, detailsOpen=detailsOpen, details=details, detailsEditors=detailsEditors, titleMenuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panelUi=panelUi, detailsAct=detailsAct, titleUi=titleUi, home=home, commandPending=commandPending, command=command, paletteShow=paletteShow, foldHold=foldHold, releaseFold=releaseFold, jumpRequest=jumpRequest, composerOwner=composerOwner, canRest=canRest, chatLocal=chatLocal, markdown=markdown, earlier=earlier, attachmentUrls=attachmentUrls, settingsCore=settingsCore, conversationWidth=conversationWidth, resting=resting, scrollToEnd=scrollToEnd, editor=editor, composerKey=composerKey, composerDrop=composerDrop, editorOp=editorOp, selectThread=selectThread, openModels=openModels, composerText=composerText, modelsOpen=modelsOpen, optionsOpen=optionsOpen, write=write, send=send, stop=command("stop", "", "", 0), composerFocus=composerFocus, composerBlur=composerBlur, openOptions=openOptions, removeSnapshot=removeSnapshot, askRemove=titleMenuPick, interaction=menuPick("interaction", ""), openProviderSettings=openProviderSettings, branches=branches, timelineNow=(wallTime.epochAtZero + max(liveNow, elapsed)), contextOver=(dragTarget == "context" and editor.drawer.cardWidth > 0 and dragCX >= editor.drawer.cardX and dragCX <= editor.drawer.cardX + editor.drawer.cardWidth and dragCY >= editor.drawer.cardY and dragCY <= editor.drawer.cardY + editor.drawer.cardHeight))
             TerminalDrawer(view=terminalDrawer, look=data.look, dark=(scheme == "dark"), viewportHeight=viewport.height, reduced=viewport.prefersReducedMotion, closePending=(confirmOp != ""), command=command, confirm=titleMenuPick)

@@ -23,6 +23,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
   snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
   wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
+import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12: the branch's pull request
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
 import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
@@ -167,6 +168,14 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
     : recede ? 'light-dark(#71717bb3, #818181b3)' : active || woke || status === 'input' ? FOREGROUND : unread ? SECONDARY : 'light-dark(#71717bb3, #818181b3)';
 }
 
+/** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
+ * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12). */
+function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrBadge> {
+  const linked = sidebarPrBadge(thread);
+  if (linked.badge) return linked;
+  const pr = branchPullRequest(client, thread);
+  return pr ? branchPrBadge(pr) : linked;
+}
 function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[] }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
@@ -190,7 +199,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
-    ...sidebarPrBadge(thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts)
+    ...rowPrBadge(client, thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,

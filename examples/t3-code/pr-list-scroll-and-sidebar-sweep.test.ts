@@ -74,7 +74,8 @@ describe('PS-2: the rows a sweep passes over, and after it (sweepRowHover)', () 
     expect(windowText).not.toContain('unhover=');
     expect(windowText.match(/hoverCard=sidebarHover, [^\n]*hoverSeq=sidebarHoverSeq, /g)?.length).toBe(2);
     expect(action(windowText, 'sidebarHover').split('\n')[0]).toBe('    sidebarHoverSeq = sidebarHoverSeq + 1');
-    expect(action(windowText, 'sidebarHover').trimEnd().split('\n').at(-1)).toBe('    sidebarHoverRoot(id, over)');
+    // sidebar-hover-archive-and-glyph SW-2: a control's tip that ends inside its still-hovered row gives the root that row.
+    expect(action(windowText, 'sidebarHover').trimEnd().split('\n').at(-1)).toBe('    sidebarHoverRoot(back ? row : id, over or back)');
     const root = await source('app.contract');
     expect(root).toContain('sidebarHoverRoot=sidebarHover,');
     expect(/\n  action sidebarHover\(id: string, over: bool\)[^\n]*\n    if over\n[\s\S]*?\n    else if sidebarHoverId == id\n      sidebarHoverId = ""\n/.test(root)).toBe(true);
