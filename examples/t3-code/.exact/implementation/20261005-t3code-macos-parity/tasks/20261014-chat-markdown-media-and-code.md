@@ -213,9 +213,9 @@ beside it on the same seed. Never send a message.
   itself, past the runner's 100 ms answer budget (declared in `EXACT2-GAPS.md` "Shiki's line time limit"). Minified lines of
   20,000 characters or more in a chat fence take many short turns (katex.min.css 922 turns of at most 12 ms), since each long
   search is charged its whole rest.
-- Plan size before this repair: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); the reviewed head's is 37,185,217 bytes (120,443 nodes), +3,876,088 bytes (+11.6%). Most of it is
-  FlowRuns' 140 inlined uses of the media body, which now holds MediaPreviewActions beside MediaActions, and the copy buttons'
-  MorphCopyCheck path data. `caps.mjs` sets no plan budget; #465's +4.9% was accepted by the coordinator for parity.
+- Plan size before this repair: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); the reviewed head's is
+  37,185,217 bytes (120,443 nodes), +3,876,088 bytes (+11.6%). The decoded-plan review below identifies duplicated window
+  captures as the main avoidable cost and removes the growth. `caps.mjs` sets no plan budget.
 
 ## Checks
 
@@ -251,7 +251,7 @@ expectations and this record changed, and the Bun suite ran again on them):
 - Guidance: Exact skill library `2026-10-05-platforms-v3`, foundations, state/data, accessibility and testing/debugging.
   The current checkout's parser, Contract provider/injection code and native driver are the implementation authority.
 
-Repair development checks, with Bun 1.4.2, on this checkout:
+Occurrence-repair development checks, with Bun 1.4.2, on `c8b10717e`:
 
 | Check | Result |
 | --- | --- |
@@ -279,18 +279,56 @@ Inline ![Logo](assets/logo.png), then ![Shot](docs/shot.png).
 
 It selected the third rendered `markdown-image-actions` node, `media-["md-media","md-asst-1"]-1-4`, through the platform
 agent carrier. After Escape, hovering that image for 750 ms showed `media-tooltip`; hovering `toggle-thread-details` and
-advancing 1,000 ms removed it. This tests agent hover delivery, not global mouse input. `drive.mjs`, `drive.log` and
-`drive-host-log.json` preserve the recipe and results. Use `T3_LOCAL_HOME=target/review-repair/t3-home`, port 16482 and the
+advancing 1,000 ms removed it. This tests agent hover delivery, not global mouse input. `size-before-drive.log` and
+`size-before-drive-host-log.json` preserve these results. Use `T3_LOCAL_HOME=target/review-repair/t3-home`, port 16482 and the
 coordinator's staged `t3-0.0.46-nightly.20261005.2667-darwin-arm64` runtime. The initial port 17482 was refused by the
 development policy (only 16000–16999); `drive-refused-port.log` and its host log retain that resolved setup failure.
 
-## Decision needed
+## Plan size repair, 2026-10-14
 
-The repaired plan is 37,196,589 bytes, 11,372 bytes above the reviewed head. It remains 11.7% above the feature tip's
-33,309,129 bytes (the original PR was +11.6%). FlowRuns inlines the media body 140 times,
-and the body now holds the preview button beside MediaActions with its drawn tooltip, and the copy buttons carry
-MorphCopyCheck's path data. Accept it, as #465's +4.9% was accepted for parity, or ask for a reduction (for example MediaActions'
-failure, video and file media keeping AppKit's help tag, which only the inline image showed empty).
+Commit `95ae39500` moves the unchanged hover state and `hoverTipAt` action from `T3Window` to `T3Code`, beside its existing
+hover clock. The window receives and provides `hoverTip`, `hoverShown` and `hoverTipAt`; the trigger actions, layer,
+placement, opening and closing delays, surface-change cancellation, menus and copy morphs keep their behavior.
+
+The decoded plan and source map showed 175 `MediaPreviewActions` instances (140 in `FlowRuns`, 35 standalone), each with
+four handlers. The window action carried 134 hidden captures of `T3Window` properties into those handlers. At the app root
+it takes only its three authored parameters. No framework change or functionality reduction was needed.
+
+| Measurement | Before, `c8b10717e` | After, `95ae39500` |
+| --- | ---: | ---: |
+| Compiled bytes | 37,196,589 | 33,177,857 |
+| `hoverTipAt` parameters | 137 | 3 |
+| Parameter rows | 310,085 | 160,376 |
+| Argument rows | 736,016 | 583,745 |
+| UI nodes | 120,443 | 120,443 |
+| Bindings | 990,430 | 990,430 |
+
+The reduction is 4,018,732 bytes (10.8%). The isolated PR is now 131,272 bytes below the feature baseline of 33,309,129
+bytes (0.39% smaller). This removes the isolated size tradeoff; the coordinator measures the combined integration.
+The earlier attribution to copy-morph path data was overstated: its four long path strings are interned once, totaling
+2,444 bytes. Removing captures reduced the string pool by 1,392,048 bytes, parameter rows by 1,197,672 bytes and argument
+rows by 1,218,168 bytes.
+
+Both measurements used the same existing compiler, `target/debug/contract build examples/t3-code/app.contract -o <plan>
+--json`. The before artifact is `/tmp/t3-markdown-repair.plan`, SHA-256
+`aea91278bbfd62bdf714780fa5e734db34d356e7056171d299f109e5c56c701a`; after is
+`/tmp/t3-markdown-size-repair.plan`, SHA-256 `4fb6b1b3cb20223ca81a313ce7dac9622bb0da8cfde224c95a58e4cc63e04131`.
+
+Size-repair development checks: 35 focused hover/media/scheduled tests passed; full Bun suite 4,867 passed, one existing
+skip, zero failures; strict TypeScript, Contract compilation, diff check and caps passed. `app.contract` is 1,490 lines.
+The root test/clippy/workspace checks remain the coordinator's integration checks.
+
+The fresh native build passed (Cargo 256.6 s, Swift and packaging passed), and the expanded macOS agent drive passed on
+the same isolated fixture. The tooltip stayed hidden through 500 ms and appeared by 750 ms. The later Shot opened at 3/3;
+previous and next selected Logo 2/3 then Shot 3/3; Escape closed the dialog and returned focus to the clicked occurrence.
+Explicit hover-away dismissed the reopened tooltip, and opening Settings while it was visible dismissed it through the
+unchanged surface-change clock. The global pointer was not used.
+
+`target/review-repair/size-native-build.log`, `size-drive.log`, `size-drive-host-log.json` and the existing `drive.mjs`
+preserve this proof. One fixture attempt held a numeric node id across an asynchronous rerender and could not find it;
+the driver now resolves the current node from its stable authored occurrence id. `size-drive-stale-node.log` records that
+resolved fixture failure. The application source stayed at `95ae39500` throughout both attempts; no second source round
+was needed.
 
 ## Not done / not verified
 
@@ -308,4 +346,4 @@ Draft PR [#541](https://github.com/ccheever/exact2/pull/541) into `feat(example)
 ## Next action
 
 The repair checks passed; implementation is ready for fresh verification. The coordinator performs independent
-review, updates the draft PR from the local repair, decides the plan size, and runs the real-input steps.
+review, updates the draft PR from the local repair, measures the combined integration, and runs the real-input steps.
