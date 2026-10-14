@@ -324,15 +324,6 @@ extension TableListMacTests {
     /// boundaries say `none`, including the top of the following row.
     private static func separatorSource(windowed: Bool = false) -> String {
         """
-        style Plain
-          opacity=1
-        style OwnLine
-          border-bottom="3px solid #ff0000"
-          margin-bottom=8
-        style NoBottom
-          border-bottom="none"
-        style NoTop
-          border-top="none"
         component Separators
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
           derive d1 = seed.concat(seed)
@@ -359,7 +350,9 @@ extension TableListMacTests {
               list \(windowed ? "virtualized=true estimated-item-height=40" : "") flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
                 for r in rows key=`k${r}`
                   row testId=`edge-${r}` height=40 width="100%" box-sizing="border-box" align-items="center"
-                    class=(r % 10 == 1 ? OwnLine : (r % 10 == 2 ? NoBottom : (r % 10 == 4 ? NoTop : (r == 5 and edge == 1 ? NoBottom : (r == 6 and edge == 2 ? NoTop : Plain)))))
+                    border-bottom=(r % 10 == 1 ? "3px solid #ff0000" : (r % 10 == 2 or (r == 5 and edge == 1) ? "none" : none))
+                    border-top=(r % 10 == 4 or (r == 6 and edge == 2) ? "none" : none)
+                    margin-bottom=(r % 10 == 1 ? 8 : 0)
                     text `Row ${r}` flex=1
                     if r % 10 == 7
                       button press=bump testId=`control-${r}`
@@ -480,9 +473,9 @@ extension TableListMacTests {
                 XCTAssertTrue(try f.node("edge-5") === own)
                 XCTAssertTrue(try f.node("edge-6") === next)
                 XCTAssertEqual(own.convert(own.bounds, to: f.document), before, "ownership changes no geometry")
-                XCTAssertEqual(own.wrote("border_style_bottom"), bottom, "class removal clears ownership")
+                XCTAssertEqual(own.wrote("border_style_bottom"), bottom, "a none binding clears ownership")
                 XCTAssertEqual(next.wrote("border_style_top"), top, "the following row owns the preceding boundary")
-                let picture = try separatorPicture(f, name: "\(mode)-class-\(step)")
+                let picture = try separatorPicture(f, name: "\(mode)-binding-\(step)")
                 try assertSeparator(f, picture, row: "edge-5", present: separated, note: "\(mode) \(button)")
                 try assertSeparator(f, picture, row: "edge-6", present: true, note: "\(mode) \(button): the following row's bottom is unowned")
             }
