@@ -309,7 +309,7 @@ EXACT_APP_DIR="$PWD/examples/t3-code" bun host/apple/build.mjs t3-code-macos --b
 
 Use explicit `./examples/...test.ts` paths for focused Bun runs so they cannot match
 copied baseline tests under target. Run affected existing provider/connection/icon tests
-as their files change. Final verification includes the app Bun suite, the required five
+as their files change. Final verification includes the app Bun suite, the required six
 repository checks and a current native app launch; the coordinator may supply unchanged
 integration checks when their source identity covers this PR. Do not broaden repeated
 testing after a pass without a new change or unresolved concern. Read the repository's
@@ -431,8 +431,16 @@ deletion was used.
 
 ## Next action
 
-The coordinator must publish the sanitized evidence with a concrete URL and prepare
-the application PR. Keep this ticket unverified
+Coordinator readback, 2026-10-14: implementation commit
+`a70632fdea2a67a4265bb3d3d9b8502694e5907c` exactly matches the reviewed 70-file
+aggregate `46868b6a9d63983cccaafb92fd704050630c92d094601507ae56ef1e3620fb15`.
+[Published checks, focus observations, reviews and screenshots](https://github.com/ccheever/exact2/blob/110276e2b07f74d021132dd588176d9c1616f95e/dialog-focus-return-and-traps/20261014/README.md)
+are pinned to evidence commit `110276e2b07f74d021132dd588176d9c1616f95e`.
+The coordinator reviewed all four selected screenshots and the final Machines focus
+records. Source checks and the bounded native cases pass; full task verification
+remains open for the qualifications above.
+
+The coordinator prepares the application PR. Keep this ticket unverified
 until the remaining native states above are qualified or explicitly resolved in the
 parent plan. The third repair round is complete; do not restart a new worker to evade
 the fix-loop limit. Publication and merge remain coordinator-owned under the user's
