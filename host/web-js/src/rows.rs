@@ -773,7 +773,7 @@ mod tests {
             serde_json::json!([
                 format!("drop-shadow(0px 2px 4px {})", role("system-orange")),
                 "drop-shadow(0px 2px 4px #010203ff)",
-                null,
+                "unset",
             ])
         );
     }

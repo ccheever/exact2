@@ -608,8 +608,10 @@ fn explicit_clears_preserve_special_host_row_contracts() {
         (RotateAxis, "", false),
         (SymbolRendering, "", true),
     ] {
-        let mut style = StyleProps::default();
-        style.written = StyleMask::of(id);
+        let style = StyleProps {
+            written: StyleMask::of(id),
+            ..Default::default()
+        };
         let (css, warnings) = css_text(&style, &[]);
         assert_eq!(css, expected, "{id:?}");
         assert_eq!(warnings.iter().any(|w| w.row == id), skipped, "{id:?}");

@@ -901,8 +901,10 @@ fn an_href_that_turns_out_empty_is_no_href_to_swift() {
 #[test]
 fn explicit_clears_export_computed_values_and_own_declaration_intent() {
     use exact_kernel::{Env, StyleId, StyleMask, StyleProps};
-    let mut clear = StyleProps::default();
-    clear.written = StyleMask::of(StyleId::PlaceholderColor);
+    let clear = StyleProps {
+        written: StyleMask::of(StyleId::PlaceholderColor),
+        ..Default::default()
+    };
     let only_intent = exact_apple::style::style_json(&clear, &Env::default()).0;
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&only_intent).unwrap(),
