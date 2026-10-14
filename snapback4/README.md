@@ -438,6 +438,152 @@ The app is `bun <this checkout>/scripts/exact.mjs new app --snapback`, run in
 the backend’s directory, which writes these files when there is no existing
 schema and wires their mounts and device.
 
+### A complete online app
+
+For a schema that syncs nothing, install `snapback4@0.4.27` in the backend,
+write this `snapback/schema.q`, then run
+`bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
+It mounts the online adapter and generated operations. Replace the greeting
+with these files; it opens no SQLite partition and needs no wasm:
+
+```quarry
+use personas alice, bob
+
+table notes:
+  author: principal
+  body: text 1..200
+  at: time
+  by byTime: at, id
+  public 'notes are public'
+  insert <- .author = viewer
+  update <- deny
+  delete <- .author = viewer
+  online only
+
+query recent():
+  return notes last 50 by byTime
+
+mutation post(body: text 1..200):
+  require body != 'refused' else FULL
+  row = insert notes { author: viewer, body, at: now }
+  return { id: row.id }
+```
+
+`app.contract`:
+
+```contract
+shape Note
+  id: string
+  author: string
+  body: string
+shape Board
+  complete: bool
+  latest: string
+  notes: list<Note>
+shape Post
+  id: string
+
+component App
+  state persona = "alice"
+  state draft = ""
+  resource board = notes(persona) as shape Board else empty()
+  mutation posted as shape Post refreshes board
+  derive problem = match failure(posted) { case some(f) => f.code, case none => "" }
+  action choosePersona(value: string)
+    persona = value
+  action edit(value: string)
+    draft = value
+  action post
+    send posted = post(persona, trim(draft))
+  view
+    column gap=8 padding=16
+      select value=persona change=choosePersona testId="persona" aria-label="Persona"
+        option value="alice" label="Alice"
+        option value="bob" label="Bob"
+      input value=draft input=edit submit=post testId="draft" aria-label="Note"
+      button press=post disabled=(trim(draft) == "" or pending(posted)) testId="post"
+        text "Post"
+      text problem testId="problem"
+      text (match posted { case some(p) => "Posted.", case none => "" }) testId="notice"
+      when failed(board)
+        text (match failure(board) { case some(f) => f.code, case none => "" }) testId="unavailable"
+      when not pending(board) and not failed(board) and not board.complete
+        text "Partial answer; more rows may exist." testId="partial"
+      text board.latest testId="latest"
+      each note, i in board.notes key=note.id
+        text `${note.author}: ${note.body}` testId=`note-${i}`
+```
+
+`app.ts` (project server rows onto the Contract shape):
+
+```ts
+import type { Answer, Result, Sources, ArgsOf } from './app.contract.d.ts';
+import { Snapback, refused } from './snapback4/snapback.ts';
+import { api } from './backend/api.ts';
+export const appId = 'com.example.app'; // app.json's app.id
+const origin = 'http://127.0.0.1:30100';
+export const grants = `net.fetch ${origin}`;
+const client = (persona: string) => new Snapback({origin,
+  headers: () => ({ 'x-snapback-persona': persona })});
+const sources: Sources = {
+  notes: async ([persona]): Promise<Result<'notes'>> => {
+    const page = await client(persona).read(api.recent, {});
+    if (page.denied) throw refused(page.denied);
+    const notes = (page.data ?? []).map(({id, author, body}) => ({id, author, body}));
+    return {complete: page.complete === true, notes,
+      latest: notes.length ? `${notes[0].author}: ${notes[0].body}` : ''};
+  },
+  post: async ([persona, body]): Promise<Result<'post'>> => {
+    const args: ArgsOf<typeof api.post> = {body};
+    const sent = await client(persona).send(api.post, args);
+    if (sent.state === 'failed') throw refused(sent.why);
+    return {id: sent.result.id};
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+```
+
+`app.test.contract`:
+
+```contract
+fresh
+epoch now
+
+test "the online write is visible to another persona"
+  clock data
+  type "draft" "online hello"
+  tap "post"
+  clock data
+  expect text "notice" == "Posted."
+  type "persona" "bob"
+  clock data
+  expect text "latest" == "dev:alice: online hello"
+
+test "a refused write exposes its domain code"
+  clock data
+  type "draft" "refused"
+  tap "post"
+  clock data
+  expect text "problem" == "FULL"
+  expect text "notice" == ""
+```
+
+Generate the seam once with `bun exact.mjs contract types app.contract -o
+app.contract.d.ts`; subsequent `contract build` refreshes that existing file.
+Start `bun exact.mjs backend` and run `bun exact.mjs test web` in another terminal.
+For production, send a bearer session instead of a development persona.
+Reads preserve the server's `complete`, `cut`, branded `next` cursor and `denied`;
+pass a cursor unchanged to the generated query's cursor argument. A cut or partial
+answer is not an empty complete list. An interrupted write throws and may already
+have committed: read state before retrying it.
+
+The online adapter also exposes `upload` and `download` as in the media section
+below. Pass a source's `storage` to `new Snapback({origin, headers, storage})` for
+downloads and grant `fs.write app:/cache`; picked uploads need `fs.read app:/tmp`.
+These use the server's asset routes and keep no upload intent or offline queue.
+Durable upload intents belong to the device, not an app-local second outbox.
+
 ### Tests share the server
 
 Each test opens the app on a device of its own, but every test of a run, and
@@ -490,7 +636,8 @@ this origin from the build's `net.fetch` grants (`app.ts`'s `grants`), asks
 whether anything listens there, and refuses the run when nothing does.
 **The Exact page's port** is separate: `EXACT_PORT=<n>` (or `--port <n>`)
 serves `web`, `test web` and `agent web` on exactly that port, else a free
-one selected atomically by the OS for temporary tests; no remembered development
+one selected within `PORT_LO`–`PORT_HI` when both are set, else by the OS
+for temporary tests; no remembered development
 page or temporary-store hash supplies it. Reload keeps the same page origin. It never changes the origin the app fetches, and `--port` on `test web`
 is the page's, not the server's. On a machine that assigns you ports, take
 one for `snapback4 dev --port` and the origin, and another for `EXACT_PORT`.
@@ -668,7 +815,7 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
 A Snapback `image <=N` or `video <=N` column holds an asset: the bytes are
 uploaded first, and the mutation takes `{ id }`. `db.upload` and
 `db.download` are the two routes (`POST /assets`, `GET /assets/<id>`), sent
-with the client's `headers`, so a persona or a bearer session decides as it
+with either adapter's `headers`, so a persona or a bearer session decides as it
 does for a query:
 
 ```ts
@@ -700,8 +847,10 @@ if (got.ok) shown = got.path; else why = got.why.code; // E_ASSET_UNKNOWN: missi
   `use` does), to `app:/cache` unless given a path, and keeps nothing for
   you: no retention cap, no purge when the row goes. A `once` asset's
   download spends its one view: give it an `app:/tmp` path.
-- In a test, `tap` the button whose action calls `showPicker`, then `pick
-  "<input testId>" "<file>"` (the file relative to the test file).
+- Give the input both `id="attachment"` and `testId="attachment"`:
+  `showPicker("attachment")` names its `id`; tests name its `testId`.
+  In a test, `tap` the button whose action calls `showPicker`, then
+  `pick "attachment" "<file>"` (the file relative to the test file).
 - Tried on a scratch app against 0.4.16 under `test web` (2026-10-12): a
   picked PNG uploads, is placed, shows from its app file, and another
   persona's download is `E_ASSET_UNKNOWN`. Not yet driven natively.

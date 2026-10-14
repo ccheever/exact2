@@ -96,6 +96,8 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         "}\n\n\
          export type Source = keyof SourceMap;\n\
          export type Args<S extends Source> = SourceMap[S]['args'];\n\
+         /** A generated backend operation's arguments (distinct from this app's source tuple). */\n\
+         export type ArgsOf<O> = O extends { readonly __args?: infer A } ? A : never;\n\
          /** A source's answer. A shape has no exported name: name one by its source,\n\
           * `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`). */\n\
          export type Result<S extends Source> = SourceMap[S]['result'];\n\
