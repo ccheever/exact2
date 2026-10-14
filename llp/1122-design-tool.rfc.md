@@ -1,7 +1,7 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r4, 2026-10-13. Three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES, rounds 2 and 3 with no blocker (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`). r2–r4 take every finding; round 3's are written in without another round, the last allowed (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
+**Status:** Draft r5, 2026-10-13. r5 records Charlie's first rulings on §9 (Q2, Q3); the rest stay open. r1–r4: three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES, rounds 2 and 3 with no blocker (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`). r2–r4 take every finding; round 3's are written in without another round, the last allowed (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The DEFERRED admissions are ruled (§9 Q2): §Tooling and the source-map line are amended for development builds only, together with LLP 1121 §9 Q3. The amendment to `rules/DEFERRED.md` lands with this RFC.
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
 - The Tamber server (LLP 1121 D13): the build relay and its tile sessions (D3), the provenance join (D5), scrubs and the live-or-rebuild answer (D6), `set-row` (D6), held proposals (D10), `commit` (D9).
@@ -672,7 +672,7 @@ is undone in one step.
 
 ## 4. Staging and gates
 
-Each stage needs an implementer, a date and the DEFERRED admissions (§9 Q2). Each lands with
+Each stage needs an implementer and a date; the DEFERRED admissions are ruled (§9 Q2). Each lands with
 or after the Tamber stage it needs.
 
 1. **T1, files** (with Tamber stage 3):
@@ -781,13 +781,14 @@ or after the Tamber stage it needs.
 
 1. **The name.** Candidates if a start helps: **Atelier**, **Loupe**, **Bench**,
    **Swatchbook**.
-2. **DEFERRED.** The tool is a devtools UI (§Tooling). Its inspect joins source maps in the
-   Tamber server and shows provenance, which the 2026-09-10 admission keeps to the driver and
-   refuses as "a general provenance explorer". Amend both, for development builds only,
-   together with LLP 1121 §9 Q3? RULES asks for a take or your waiver; none is offered here.
-3. **The template and style rungs** (D6, `set-row`). Paint rows on one source node, with
-   promote and detach, or only params, tokens and dials? Recommended: yes, paint rows only,
-   in T5, after the system rungs have been used.
+2. **DEFERRED.** **Ruled (Charlie, 2026-10-13): amend them, for development builds only,
+   together with LLP 1121 §9 Q3.** §Tooling admits the design tool, and the 2026-09-10
+   source-map admission is widened so that the Tamber server (not a host) joins maps for
+   inspect. Both apply in development builds only; release builds keep both refusals.
+   This is Charlie's waiver, so no take is named. The `rules/DEFERRED.md` text lands with
+   this RFC.
+3. **The template and style rungs** (D6, `set-row`). **Ruled (Charlie, 2026-10-13): yes.**
+   Paint rows on one source node, with promote and detach, in T5.
 4. **The held `tap`** (D8). Recommended: yes. Without it, pressed and hover looks are edited
    blind.
 5. **A continuous mirror** (D3). Recommended: not in r1. It would need a new agent surface.
