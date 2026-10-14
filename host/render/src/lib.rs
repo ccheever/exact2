@@ -272,7 +272,6 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     projection: Projection,
     now_ms: f64,
 ) -> Result<Rendered, String> {
-    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let direct = direct_for(plan, ids, projection)?;
     let page = settle_at(
         plan, data, viewport, location, deadline, direct, now_ms, None,
@@ -385,6 +384,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
     on_boot: Option<OnBoot<'_, D>>,
 ) -> Result<Settling<D>, String> {
+    // Both complete documents and streamed JS pages settle through this entry.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
