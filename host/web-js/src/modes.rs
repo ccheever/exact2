@@ -269,8 +269,9 @@ impl Modes {
 
     /// The module's call that installs the runtime (`modes.js`), each class
     /// named by `classes` index plus one (`c<n>`): the axes, each class's
-    /// channels, the texts, each class's properties that name a token, and
-    /// the properties of the tokens that name the accent.
+    /// channels, the texts, each class's properties that name a token, the
+    /// properties of the tokens that name the accent, and each varying
+    /// token's name by its property (`layout <id>`).
     pub fn js(&self, plan: &Plan, classes: &[String]) -> String {
         let axes: Vec<String> = plan
             .axes
@@ -316,12 +317,17 @@ impl Modes {
             }
         }
         format!(
-            "$modes([{}],{{{}}},{},{{{}}},{});",
+            "$modes([{}],{{{}}},{},{{{}}},{},{{{}}});",
             axes.join(","),
             channels.join(","),
             serde_json::to_string(&self.texts).unwrap(),
             vars.join(","),
-            serde_json::to_string(&self.accent).unwrap()
+            serde_json::to_string(&self.accent).unwrap(),
+            self.tokens
+                .iter()
+                .map(|(name, prop, _)| format!("{}:{}", json(prop), json(name)))
+                .collect::<Vec<_>>()
+                .join(",")
         )
     }
 }

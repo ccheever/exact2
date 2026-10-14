@@ -49,6 +49,17 @@ pub fn run(args: &[String]) -> ExitCode {
         return ExitCode::from(2);
     };
     let rest = rest.as_slice();
+    // A verb takes only its own flag: refused before the design is read.
+    let fits = match (verb, rest) {
+        ("check", []) | ("eval", []) | ("ir", []) => true,
+        ("eval", [flag, _]) => flag == "--mode",
+        ("ir", [flag, _]) => flag == "-o",
+        _ => false,
+    };
+    if !fits {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    }
     let Some(path) = design(Path::new(&input)) else {
         eprintln!("contract tamber: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
@@ -69,6 +80,15 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
+    // What the compiler refuses of a design beyond the crate's check (a
+    // CSS word as a name, a role that varies by an axis …), as a build would.
+    let refused = admission(&src, path.parent().unwrap_or(Path::new(".")));
+    if !refused.is_empty() {
+        for (line, col, id, message) in &refused {
+            eprintln!("{}:{line}:{col}: {id}: {message}", path.display());
+        }
+        return ExitCode::from(1);
+    }
     match (verb, rest) {
         ("check", []) => {
             let design = &folding.design;
@@ -102,6 +122,44 @@ pub fn run(args: &[String]) -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// The compiler's refusals of design `src`, read as the design of an app
+/// with one empty view and the manifest beside it (its colour profiles):
+/// each `(line, col, id, message)` in the design.
+fn admission(src: &str, beside: &Path) -> Vec<(u32, u32, String, String)> {
+    let dir = std::env::temp_dir().join(format!("contract-tamber-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let manifest = std::fs::read_to_string(beside.join("app.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .map(|mut app| {
+            if let Some(o) = app.as_object_mut() {
+                o.insert("tamber".into(), "app.tamber".into());
+            }
+            app.to_string()
+        });
+    if std::fs::create_dir_all(&dir).is_err()
+        || manifest.is_some_and(|m| std::fs::write(dir.join("app.json"), m).is_err())
+        || std::fs::write(dir.join("app.tamber"), src).is_err()
+        || std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    column\n",
+        )
+        .is_err()
+    {
+        return Vec::new();
+    }
+    let refused = match contract::compile_path_all(&dir.join("app.contract"), false) {
+        Ok(_) => Vec::new(),
+        Err(all) => all
+            .into_iter()
+            .filter(|e| e.file.as_ref().is_some_and(|f| f.ends_with("app.tamber")))
+            .map(|e| (e.span.line, e.span.col, e.id, e.message))
+            .collect(),
+    };
+    let _ = std::fs::remove_dir_all(&dir);
+    refused
 }
 
 /// The design `input` names: a `.tamber` file, or an app's (its directory or

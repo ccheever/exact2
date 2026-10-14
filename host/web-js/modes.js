@@ -14,7 +14,7 @@ import { After, PropHooks, inflight, say } from "./rt.js";
 const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shadow", "-webkit-text-stroke-color"];
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
 const UNSETS = /^\s*(unset|inherit)\s*$/i;
-let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Win = [], Pending = false;
+let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Names = {}, Win = [], Pending = false;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -162,15 +162,25 @@ const refused = pins => {
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
- * varying token; `accent`: the properties of those that name the accent. */
-export function modes(axes, classes, texts, vars, accent) {
-  Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Win = axes.map(() => 0);
+ * varying token; `accent`: the properties of those that name the accent;
+ * `names`: each varying token's name by its property. */
+export function modes(axes, classes, texts, vars, accent, names) {
+  Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Names = names ?? {}; Win = axes.map(() => 0);
   After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {
     // The window's modes, `{axis: value}`.
     read: () => Object.fromEntries(Axes.map(([a, values], i) => [a, values[Win[i]]])),
     check: pins => refused(pins),
+    // `layout <id>`'s token beside a row's value (agent.js): the varying
+    // tokens `text` names, the tuple the element is in, and whether the
+    // boundary wrote the row again. A token folded inline is not one.
+    token: (e, prop, text) => {
+      const names = [...new Set([...String(text).matchAll(/var\((--x-[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
+      if (!names.length) return undefined;
+      const j = CH.indexOf(prop === "--exact-accent" ? "accent-color" : prop);
+      return { names, text: String(text), modes: e.closest("[data-x-modes]")?.getAttribute("data-x-modes") ?? "", implied: j >= 0 && e.$xs?.[j] != null && e.$css?.[prop] === undefined };
+    },
     // The agent's `prefer mode`: every pin checked first, then all set, now.
     set: pins => {
       const why = refused(pins);

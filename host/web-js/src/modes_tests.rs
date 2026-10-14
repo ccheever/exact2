@@ -299,5 +299,10 @@ fn a_pinned_accent_naming_its_token_declares_the_accent_where_the_token_is_a_col
         "{}",
         out.css
     );
-    assert!(out.js.contains(",[\"--x-accent-mix\"]);"), "{}", out.js);
+    assert!(
+        out.js
+            .contains(",[\"--x-accent-mix\"],{\"--x-accent-mix\":\"accent.mix\"});"),
+        "{}",
+        out.js
+    );
 }

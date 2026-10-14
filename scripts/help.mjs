@@ -252,7 +252,7 @@ Ports    none. Runs to completion.`,
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)
   verify <file.contract> [--types] [--prove <Module>] · rust <file.contract> [-o <shapes.rs>]
   lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
-  tamber check | eval | ir <app dir | app.contract | file.tamber> [--mode <axis>=<value>] [-o <tamber.json>]
+  tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>]   (a flag before or after <app>)
                                           the app's design (LLP 1121): checked, its tokens in one mode, its IR
 The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
@@ -273,7 +273,7 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check | eval | ir <app dir | app.contract | file.tamber> [--mode <axis>=<value>] [-o <tamber.json>]',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there'],

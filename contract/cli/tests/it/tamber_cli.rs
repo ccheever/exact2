@@ -70,6 +70,14 @@ fn a_refusal_names_its_line_and_a_mode_is_axis_equals_value() {
     let dir = app("bad", "tamber t\n\ntheme\n  a = #zzz\n");
     let (ok, _, err) = contract(&["tamber", "check", dir.to_str().unwrap()]);
     assert!(!ok && err.contains("app.tamber:4:7: tamber-kind:"), "{err}");
+    // What the compiler refuses of a design beyond the crate's check.
+    let words = app("words", "tamber t\n\ntheme\n  top = #000000\n");
+    let (ok, _, err) = contract(&["tamber", "check", words.to_str().unwrap()]);
+    assert!(
+        !ok && err.contains("app.tamber:4:3: lower-theme-name:"),
+        "{err}"
+    );
+    let _ = std::fs::remove_dir_all(&words);
     let good = app("mode", DESIGN);
     let at = good.to_str().unwrap();
     for modes in [

@@ -124,9 +124,9 @@ export function install(exact) {
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
   const declared = el => {
-    const out = new Set(el.style), classes = new Set([...el.classList].map(c => '.' + c));
+    const out = new Map([...el.style].map(p => [p, el.style.getPropertyValue(p)])), classes = new Set([...el.classList].map(c => '.' + c));
     const walk = rules => { for (const r of rules) {
-      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) out.add(p);
+      if (r.style && classes.has(r.selectorText?.replace(/^&\s+/, ''))) for (const p of r.style) if (!out.has(p)) out.set(p, r.style.getPropertyValue(p));
       if (r.cssRules) walk(r.cssRules);
     } };
     for (const sheet of document.styleSheets) { let rules; try { rules = sheet.cssRules; } catch { continue; } walk(rules); }
@@ -137,7 +137,8 @@ export function install(exact) {
     const el = views.get(nid);
     if (!el || !el.isConnected) return { error: `stale node #${nid} (incarnation 1)` };
     const own = declared(el), cs = getComputedStyle(el), style = {};
-    for (const p of own) if (!p.startsWith('--')) style[rowOf(p)] = { value: cs.getPropertyValue(p), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' };
+    // A row naming a token that varies by an app axis says which (modes.js, LLP 1121 D7).
+    for (const [p, text] of own) if (!p.startsWith('--')) { const token = exact.modes?.token(el, p, text); style[rowOf(p)] = { value: cs.getPropertyValue(p), ...(token ? { token } : {}), source: el.$css?.[p] !== undefined ? 'dynamic' : 'authored' }; }
     for (const [row, prop] of Object.entries(INHERITED)) {
       if (own.has(prop)) continue;
       let from = null;

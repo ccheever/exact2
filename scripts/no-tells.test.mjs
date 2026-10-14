@@ -49,3 +49,9 @@ test("a design's entries are read at the block's own indent, with or without a k
   writeFileSync(join(dir, 'app.tamber'), 'tamber t\n\ntheme\n    surface.card: color = #ffffff\n      when x=y: #000000\n    brand = #c8102e\n');
   assert.deepEqual([...designTokens(join(dir, 'app.contract'))], ['surface.card', 'brand']);
 });
+
+test('a channel may read alpha, and an origin may be an expression over tokens', () => {
+  const tokens = new Set(['brand', 'surface.card']);
+  const source = 'component A\n  view\n    text "x" color="rgb(from brand calc(alpha * 255) g b)" background-color="rgb(from color-mix(in srgb, brand, surface.card) r g b / 0.5)"\n    text "y" color="rgb(from color-mix(in srgb, brand, white) r g b)" background-color="rgb(from rgb(0 0 0) r g b)"\n';
+  assert.deepEqual(tellsIn(source, tokens).map(t => [t.line, t.property]), [[4, 'color'], [4, 'background-color']]);
+});
