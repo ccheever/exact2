@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–7 and 9 are on main; commit 8 (the Bluesky port, bsky5's, in the clone) remains, and then stage 2's gate. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stages 1 and 2 landed** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2 closed 2026-10-14 with its gate met on the Bluesky clone (§10). Stage 3 (the protocol and the design tool over files) is next, as is the `scheme=fixed` follow-up. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -1877,7 +1877,7 @@ Built as D7's "The web" says, with these as-built details:
 - **Left open:** `contract tamber` doesn't resolve a profile colour (`color(--…)`), which
   needs the app's Contract declarations; `contract build` checks it.
 
-### Stage 2's gate (2026-10-14; the Bluesky clone at `7166baf` on exact2 `774575681`, build b40)
+### Stage 2's gate: met (2026-10-14; the Bluesky clone at `7166baf` on exact2 `774575681`, build b40)
 
 The evidence is in `~/.tuft/projects/bluesky-clone-builds/b40/gate/SUMMARY.md`; the port is
 bsky5's.
@@ -1892,7 +1892,7 @@ bsky5's.
 | Expose and the readers unchanged; an app without a design unchanged, with no design payload | **Met.** Stage 1's ports (22/22 and 104/104) and every unthemed app's tests. |
 | `tamber-dial-inert` live; golden IR and folded tables | **Met** (commit 1). |
 | The clone's design adds under 4 KB to its plan | **Met:** the plan shrank by 19,116 bytes (3,888,684 → 3,869,568); `app.tamber` is 6,881 bytes. |
-| First frame unchanged within noise | **Open.** It needs a quiet simulator window, which the lead is scheduling. |
+| First frame unchanged within noise | **Met.** Cold launch on the iOS simulator in a quiet window, the pre-port `e61eaf7` against b40 on the same exact2, 4 interleaved blocks of 3 runs (n = 12 each). Process start to first post: median 1722 ms against 1676 ms; runtime zero to first post: 594 ms against 568 ms. The −46 ms difference is inside a spread of about 200 ms (`…/b40/gate/firstframe/`). |
 | `setRootFontSize("125%")`: the font-size setting scales Dynamic Type at two sizes | **Met.** The clone's Smaller and Larger use `93.75%` and `106.25%`. |
 
 **One gap the port found**, fixed as a stage 2 follow-up: deliberately one-colour tokens
@@ -1900,4 +1900,4 @@ bsky5's.
 168 uses. A token line now takes `scheme=fixed`, and an unmarked one-scheme token is reported
 once, at its declaration (see that follow-up's note).
 
-Stage 2 closes when the first-frame measurement is in.
+**Stage 2 is closed (2026-10-14).** Every gate line is met. The `scheme=fixed` follow-up is a refinement, not a gate item.
