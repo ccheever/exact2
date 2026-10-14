@@ -774,7 +774,9 @@ refreshes within 60 seconds of expiry; `refreshSession(now)` rotates explicitly.
 Use a different secret key for each origin. Auth operations serialize across Exact's
 per-source secret facades; a late auth reply never overwrites a changed session.
 An old-token request denied during refresh waits for auth to finish before
-invalidating, so it cannot discard the replacement token.
+invalidating, so it cannot discard the replacement token. A later poll still
+returns no expired session, but does not delete the old secret while its matching
+rotation is in flight; the pending refresh can commit its replacement.
 Await `logout` before another
 sign-in; its `ok` confirms server revocation, and `offline` means that could
 not be confirmed. Reads and writes interrupted by an account change throw

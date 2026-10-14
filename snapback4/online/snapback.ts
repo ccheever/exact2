@@ -30,6 +30,8 @@ export type Refreshed = { ok: true; session: Session } | { ok: false; denied: Re
 // Exact creates a new secret facade per source answer; facade identity is not store identity.
 // A module realm belongs to one app. Only scheduling is shared, never session values.
 const authJobs = new Map<string, Promise<unknown>>();
+// A later Contract sample may outlive the old token while its replacement is in flight.
+const rotations = new Map<string, string | null>();
 function sessionFrom(raw: string | null, now: number): Session | null {
   if (!Number.isFinite(now) || now < 0) throw refused({code: 'E_CLIENT', message: 'Pass Contract epoch milliseconds to restore/refreshSession.'});
   try {
@@ -86,7 +88,7 @@ export class Snapback {
     const auth = this.options.auth;
     if (!auth) return null;
     const raw = auth.store.get(auth.key), session = sessionFrom(raw, auth.now);
-    if (raw && !session) auth.store.forget(auth.key);
+    if (raw && !session && rotations.get(this.authKey()) !== raw) auth.store.forget(auth.key);
     return session;
   }
   private auth(): AuthOptions {
@@ -164,16 +166,20 @@ export class Snapback {
     const session = this.session;
     if (!session) return {ok: false, denied: {code: 'E_AUTH', message: 'Sign in again.'}};
     const raw = auth.store.get(auth.key);
-    const reply = await this.authRequest('/auth/refresh');
-    this.unchanged(raw);
-    const renewed = sessionFrom(JSON.stringify(reply.body.session ?? null), now);
-    if (reply.ok && renewed && renewed.principal === session.principal) {
-      auth.store.set(auth.key, JSON.stringify(renewed));
-      return {ok: true, session: renewed};
-    }
-    const denied = reply.body.denied ?? {code: 'E_SERVER', message: 'Invalid session refresh reply.'};
-    if (denied.code === 'E_AUTH') this.invalidate(session.token);
-    return {ok: false, denied, ...(denied.code === 'E_OFFLINE' ? {offline: true} : {})};
+    const scope = this.authKey();
+    rotations.set(scope, raw);
+    try {
+      const reply = await this.authRequest('/auth/refresh');
+      this.unchanged(raw);
+      const renewed = sessionFrom(JSON.stringify(reply.body.session ?? null), now);
+      if (reply.ok && renewed && renewed.principal === session.principal) {
+        auth.store.set(auth.key, JSON.stringify(renewed));
+        return {ok: true, session: renewed};
+      }
+      const denied = reply.body.denied ?? {code: 'E_SERVER', message: 'Invalid session refresh reply.'};
+      if (denied.code === 'E_AUTH') this.invalidate(session.token);
+      return {ok: false, denied, ...(denied.code === 'E_OFFLINE' ? {offline: true} : {})};
+    } finally { if (rotations.get(scope) === raw) rotations.delete(scope); }
   }
   /** Always forget locally, even offline. ok confirms server revocation. */
   logout(): Promise<{ok: boolean; offline?: boolean; denied?: Refusal}> {

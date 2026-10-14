@@ -256,3 +256,25 @@ test('old-token denials during refresh cannot discard its successful replacement
     } finally {release(); globalThis.fetch = originalFetch; server.stop(true);}
   }
 });
+
+test('a later poll crossing expiry cannot erase a pending session replacement', async () => {
+  const store = secretStore();
+  const old = {principal: 'alice', kind: 'password', token: 'old', expiresAt: 10_000};
+  store.set('session', JSON.stringify(old));
+  let entered!: () => void, release!: () => void;
+  const started = new Promise<void>(ok => {entered = ok;}), held = new Promise<void>(ok => {release = ok;});
+  const server = Bun.serve({hostname: '127.0.0.1', port: 0, async fetch(request) {
+    await request.arrayBuffer(); entered(); await held;
+    return Response.json({session: {...old, token: 'new', expiresAt: 200_000}});
+  }});
+  const db = (now: number) => new Snapback({origin: `http://127.0.0.1:${server.port}`, auth: {store: {...store}, key: 'session', now}});
+  try {
+    const restoring = db(9_000).restore(9_000).then(session => ({session}), error => ({error}));
+    await started;
+    expect(db(14_000).session).toBeNull(); // the later board poll must never use an expired token
+    expect(store.get('session')).toBe(JSON.stringify(old)); // preserve the matching refresh's commit fence
+    release();
+    expect(await restoring).toMatchObject({session: {token: 'new'}});
+    expect(db(14_000).session?.token).toBe('new');
+  } finally {release(); server.stop(true);}
+});

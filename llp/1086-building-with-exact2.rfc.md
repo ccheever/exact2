@@ -505,7 +505,9 @@ The online adapter adds `signup`, `login`, `logout`, `restore(now)` and explicit
 `refreshSession(now)`, using Exact's `secret.keep` store and Contract epoch time.
 Auth operations sharing an origin/key serialize across per-answer secret facades; requests fenced by the stored session
 reject after identity changes. A refused current token is forgotten after pending auth settles, so an old-token
-refusal cannot discard an in-flight successful rotation; offline logout
+refusal cannot discard an in-flight successful rotation. A later clock sample
+never exposes an expired session, but leaves the matching secret in place while
+that rotation is in flight, so expiry cleanup cannot destroy its replacement; offline logout
 still forgets locally. `readAll` follows opaque cursors, preserves every page's
 completeness/cut, and throws on any page refusal, non-list data, repeated cursors or
 row-limit overflow. Online `Read` and device `Outcome` narrow by their discriminants;
