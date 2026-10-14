@@ -112,6 +112,11 @@ opt-level = 3
 [profile.dev.package.naga]
 opt-level = 3
 
+# Keep number text's own tests fast: they hold its parsing and printing to
+# std's bits over tens of thousands of seeded inputs each.
+[profile.dev.package.exact-num]
+opt-level = 3
+
 # Keep PNG screenshot and image byte loops fast in the same development loop.
 [profile.dev.package.png]
 opt-level = 3
