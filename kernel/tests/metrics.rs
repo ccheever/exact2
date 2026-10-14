@@ -53,7 +53,10 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     assert_eq!(mac.padding_top, Dimension::Points(10.0));
     assert_eq!(mac.max_width, Dimension::Points(744.0));
     assert_eq!(mac.background_color, Some(pair(0xf9f9_f9ff, 0x2727_27ff)));
-    assert_eq!(mac.border_color_bottom, pair(0xefef_efff, 0x3333_33ff));
+    assert_eq!(
+        mac.border_color_bottom,
+        Some(pair(0xefef_efff, 0x3333_33ff))
+    );
     assert_eq!(mac.text_color, role("-exact-label"));
     assert_eq!(mac.appearance, Appearance::Auto);
     assert!(mac.mask.has(StyleId::TextAlign));
@@ -66,14 +69,28 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     let separator = roles::role("-exact-separator").unwrap();
     let card_theme = pair(0xffe0_b0ff, 0x4422_00ff);
     let separator_theme = pair(0xff00_00ff, 0xff55_55ff);
+    roles::set_overrides(vec![(card, card_theme)]);
+    let card_only = read();
+    assert_eq!(
+        card_only.background_color.map(ColorValue::themed),
+        Some(card_theme)
+    );
+    assert_eq!(card_only.border_color_bottom, mac.border_color_bottom);
+    roles::set_overrides(vec![(separator, separator_theme)]);
+    let separator_only = read();
+    assert_eq!(separator_only.background_color, mac.background_color);
+    assert_eq!(
+        separator_only.border_color_bottom.map(ColorValue::themed),
+        Some(separator_theme)
+    );
     roles::set_overrides(vec![(card, card_theme), (separator, separator_theme)]);
     let mut themed = read();
     assert_eq!(
         (
             themed.background_color.map(ColorValue::themed),
-            themed.border_color_bottom.themed()
+            themed.border_color_bottom.map(ColorValue::themed)
         ),
-        (Some(card_theme), separator_theme),
+        (Some(card_theme), Some(separator_theme)),
         "the Mac's compiler-owned surfaces follow the replaced roles"
     );
     themed
@@ -100,6 +117,15 @@ fn a_host_that_says_its_platform_reads_that_platforms_column() {
     assert_eq!(ios.text_color, web.text_color);
     assert_eq!(ios.appearance, web.appearance);
     assert_eq!(ios.mask, web.mask);
+
+    roles::set_overrides(vec![(card, card_theme), (separator, separator_theme)]);
+    for column in [Column::Ios, Column::Web, Column::Neutral] {
+        metrics::set_column(column);
+        let unchanged = read();
+        assert_eq!(unchanged.background_color, web.background_color);
+        assert_eq!(unchanged.border_color_bottom, web.border_color_bottom);
+    }
+    roles::set_overrides(Vec::new());
 
     metrics::set_column(Column::Web);
 }
