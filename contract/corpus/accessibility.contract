@@ -21,7 +21,7 @@ component Accessibility
       text `Count ${count}` aria-live="polite" testId="live-count"
       column aria-live="assertive" testId="live-container"
         text `Nested ${count}`
-      when shown
+      if shown
         button autofocus press=increment testId="first"
           text "Increment"
       // tabindex: a tap focuses it on iOS too, where a button takes no focus from a touch

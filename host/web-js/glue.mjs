@@ -4,7 +4,7 @@
 // the differential driver's headless runtime (semantics/difftest/js/drive.mjs),
 // which lost the bundle when it kept a list of its own (intersect-glue.js,
 // 2026-10-12). The async lane's `difftest-js` inputs read it too.
-import { cpSync } from 'node:fs';
+import { cpSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export const HOST_WEB_GLUE = [
@@ -21,6 +21,17 @@ export const HOST_WEB_GLUE = [
 /** Copy the host/web glue from the repository at `root` into `dir`. */
 export function stageHostGlue(root, dir) {
   for (const f of HOST_WEB_GLUE) cpSync(resolve(root, 'host/web', f), resolve(dir, f));
+}
+
+/**
+ * What the differential driver's headless runtime copies from the repository
+ * at `root`, as paths relative to it: every host/web-js module, the glue, and
+ * navigation.js and its grant admission whole (build.mjs splits them for
+ * chunking). The async lane's `difftest-js` inputs are these files.
+ */
+export function driverRuntime(root) {
+  const own = readdirSync(resolve(root, 'host/web-js')).filter(f => f.endsWith('.js')).sort().map(f => `host/web-js/${f}`);
+  return [...own, ...[...HOST_WEB_GLUE, 'navigation.js', 'grant-admission.js'].map(f => `host/web/${f}`)];
 }
 
 /** A runtime module's `../web/…` imports, pointed at the copies beside it. */

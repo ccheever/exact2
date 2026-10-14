@@ -95,7 +95,7 @@ impl Em<'_> {
         Ok(decl)
     }
 
-    /// An `each`, or a virtualized list's rows when `list` carries the
+    /// A `for`, or a virtualized list's rows when `list` carries the
     /// list's options (list.js `vl`).
     pub(super) fn each(
         &mut self,

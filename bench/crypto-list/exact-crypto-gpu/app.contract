@@ -1,5 +1,5 @@
 // Crypto list (../SPEC.md, "Decisions" included) on exact2, GPU-canvas variant.
-// One `list virtualized=true` with one keyed `each` carries the 5,000 coins
+// One `list virtualized=true` with one keyed `for` carries the 5,000 coins
 // from `data/coins.json`. The data source (`data/`) answers the market, the
 // launch config and the live ticks; everything a row looks like is this file.
 //
@@ -20,11 +20,11 @@ shape Coin
   price: string
   change: string
   up: bool
-  series: list<number>
+  series: number[]
   // Zero or one: the latest price flash, keyed by its sequence number.
-  flash: list<Flash>
+  flash: Flash[]
 shape Market
-  coins: list<Coin>
+  coins: Coin[]
 shape Config
   live: bool
   freeze: bool
@@ -58,7 +58,7 @@ component Crypto
         text "Markets" testId="title" flex=1 font-size=17 font-weight=600
         text (live ? "Live: on" : "Live: off") testId="live" font-size=13 color="#8E8E93"
       list id="coins" virtualized=true estimated-item-height=64 testId="coins" flex=1 min-height=0 width="100%" overflow-x="hidden" background-color="#ffffff"
-        each c in market.coins key=c.id
+        for c in market.coins key=c.id
           CoinRow(c=c, freeze=freeze)
 
 component CoinRow
@@ -80,7 +80,7 @@ component CoinRow
         // by the next tick. See ../GAPS.md §3.
         column position="relative"
           text c.price white-space="nowrap" font-size=16 font-weight=600 font-variant-numeric="tabular-nums" color="#000000"
-          each f in c.flash key=f.seq
+          for f in c.flash key=f.seq
             text c.price position="absolute" top=0 left=0 white-space="nowrap" font-size=16 font-weight=600 font-variant-numeric="tabular-nums" color=(f.up ? "#16a34a" : "#dc2626") background-color="#ffffff" opacity=(f.on ? 1 : 0) transition="opacity 400ms ease"
         text c.change white-space="nowrap" padding-top=2 padding-bottom=2 padding-left=6 padding-right=6 border-radius=4 font-size=12 font-weight=600 color="#ffffff" background-color=(c.up ? "#16a34a" : "#dc2626")
 

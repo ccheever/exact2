@@ -163,9 +163,9 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   behaviorally equivalent and measurably faster. Verified across animation
   frames and resizes, 2026-10-10.
 
-- **A closed dialog still creates an eager `each`'s rows.** Hiding a dialog
-  hides its presentation; an ordinary `each` still instantiates the children.
-  For a large optional list, gate the rows with `when`, or use a supported
+- **A closed dialog still creates an eager `for`'s rows.** Hiding a dialog
+  hides its presentation; an ordinary `for` still instantiates the children.
+  For a large optional list, gate the rows with `if`, or use a supported
   `list virtualized=true` shape. The terminal now reports a closed dialog's
   virtual list with a zero viewport, releasing its row views while retaining
   its index and scroll position. The LLP tree initializes that index on first
@@ -365,7 +365,7 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A link in the app's own scheme never matches.** `signalclone://connect?x=1`
   reaches the root's `navigate` handler as the location `/connect?x=1`: the scheme
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
-  D8). Fix: match on the path (`startsWith(location, "/connect?")`), not the URL.
+  D8). Fix: match on the path (`location.startsWith("/connect?")`), not the URL.
   (Signal Clone, phone path.)
 - **VoiceOver reads the screen behind a full-screen overlay.** A call screen
   or menu drawn as a root child above the bars hides the chat list from sight,
@@ -1076,6 +1076,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   action goes on its cell (`NativeButtonCellMac`). While the session is
   locked, an `AXUIElement` read from any process stops at the application.
   (X84, 2026-10-12.)
+- **An AppKit accessibility action answers the first accessibility error
+  recorded while it runs.** AXPress on an inline run landed and answered
+  `kAXErrorAttributeUnsupported` (-25205) to another process. Cause: AppKit's
+  request handler ignores the action's `Bool` and returns the first error
+  recorded until it returns. The press's update reads values back
+  (`accessibilitySubrole()`, `isAccessibilityRequired()`) from a `NodeView`,
+  which overrides the legacy `accessibilityAttributeValue`, so AppKit asks
+  through the legacy API and records each attribute the view lacks. Fix: an
+  `accessibilityPerform…` that runs the app does it after the request returns
+  (`DispatchQueue.main.async`), as AppKit's `NSMenuItem` does its AXPress, and
+  a test asserts nothing ran inside the call. (X78 follow-up, 2026-10-14.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops

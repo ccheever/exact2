@@ -1,7 +1,7 @@
 // Writes the color fixtures of LLP 1100 §10 into this directory (or the
 // argument's), each with a `<name>.json` of what it should decode to.
 //
-//   swift scripts/fixtures/color/make.swift
+//   swift host/apple/tests/ExactKitTests/ColorFixtures/make.swift
 //
 // Run by hand on macOS 15 or later. The expected values come from the
 // standards' numbers below, never from Core Graphics, so a test holds the

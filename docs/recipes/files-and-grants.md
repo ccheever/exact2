@@ -22,13 +22,13 @@ shape Reply
   error: string
 
 component Journal
-  resource entries = loadEntries() as shape list<Entry> else empty()
+  resource entries = loadEntries() as shape Entry[] else empty()
   mutation added as shape Reply refreshes entries
   action add(text: string)
     send added = addEntry(text)
   view
     column
-      each e in entries key=e.id
+      for e in entries key=e.id
         text e.text
 ```
 

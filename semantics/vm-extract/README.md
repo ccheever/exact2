@@ -80,8 +80,8 @@ sh semantics/vm-extract/check.sh
 ```
 
 regenerates the extraction and checks the proofs (a few minutes; Aeneas runs
-`-sequential`). It skips, naming the missing tool, when one is absent. The
-async lane's `semantics` step runs it.
+`-sequential`). It skips, naming the missing tool, when one is absent (exit status 77). The
+async lane's `vm-extract` check runs it.
 
 Tools, outside the repo (as installed on the build Mac):
 

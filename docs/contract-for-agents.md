@@ -109,7 +109,7 @@ again (`lower-title-twice`), a tab bar of one tab (`lower-single-tab`), a
 `button` with no words and no `aria-label` (`lower-button-unlabelled`), a dialog's
 role on a box (`lower-dialog-role`), an `aria-level` with no `role="heading"`
 (`lower-level-without-heading`), a content-box `width="100%"` with padding, wider than
-its parent by the padding (`lower-width-padding`), screens swapped by a `when` in an app with no
+its parent by the padding (`lower-width-padding`), screens swapped by an `if` in an app with no
 `routes` (`lower-screen-by-state`), a count before a plural noun, `${n} cards`
 (`lower-count-plural`), a
 symbol by an alias, not its role (`lower-symbol-alias`), a
@@ -236,7 +236,7 @@ compile complete examples, parse authored tests, and check local links.
 | `props` / `inject` | Component | Typed interface / inherited bindings |
 | `provide` | Component | Whole-view provider bindings, one per line |
 | `slot` | Component | Accept caller-authored children |
-| `state name = expr` | Component | Stored state |
+| `state name = expr` / `state name: T = expr` | Component | Stored state; its type is inferred unless declared |
 | `derive name = expr` | Component | Dependency-driven computed value |
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
 | `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
@@ -252,8 +252,8 @@ are deeper than the element and begin with `name=`. Parentheses permit multiline
 calls and expressions without creating an indentation block.
 
 Only sixteen words are refused as names, and only where a name is bound (a
-state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `else`,
-`each`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
+state, prop, parameter, `let`, `for` item, shape name, …): `when`, `if`, `else`,
+`for`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
 `none`, `some`. Every other keyword (`key`, `state`, `from`, `refresh`, `view`, …)
 is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
 compile. Shape fields, named arguments and members take any word
@@ -270,17 +270,17 @@ an example too: `contract vocab formatDate`), or says what to write instead
 
 ## Values, expressions, and functions
 
-- Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
+- Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `T[]`,
   and `action` for behavior interfaces. Do not emit authored `any` or object types.
 - `[a, b, c]` is a list of its items, which may span lines and keep a trailing
   comma; the items have one type, met as a ternary's arms are (`[none,
-  some(1)]` is a `list<option<number>>`; `[1, "a"]` is `type-list-item`).
-  `concat(xs, ys)`, `slice(xs, start, end?)`, `includes(xs, x)` and
-  `indexOf(xs, x)` are the web's array methods: `[...xs, x]` is
-  `concat(xs, [x])`, `includes` finds a string, number or bool (by
+  some(1)]` is an `option<number>[]`; `[1, "a"]` is `type-list-item`).
+  `xs.concat(ys)`, `xs.slice(start, end?)`, `xs.includes(x)` and
+  `xs.indexOf(x)` are the web's array methods: `[...xs, x]` is
+  `xs.concat([x])`, `includes` finds a string, number or bool (by
   SameValueZero, as the web does) and `indexOf` says where (by `===`: `NaN` is
-  never found, `-1` for none). Over text, `indexOf(s, t)` is a position in
-  UTF-16 code units, and `split(s, ", ")` cuts text into a `list<string>`
+  never found, `-1` for none). Over text, `s.indexOf(t)` is a position in
+  UTF-16 code units, and `s.split(", ")` cuts text into a `string[]`
   (recipient chips). A list the
   screen keeps for the session — a selection, open or collapsed ids, per-row
   offsets — is `state` built this way; a list the app keeps across launches, or
@@ -290,14 +290,15 @@ an example too: `contract vocab formatDate`), or says what to write instead
   ```contract
   state collapsed = []
   action toggle(id: string)
-    collapsed = includes(collapsed, id) ? filter(collapsed, c => c != id) : concat(collapsed, [id])
+    collapsed = collapsed.includes(id) ? collapsed.filter(c => c != id) : collapsed.concat([id])
   ```
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
-  the other conditional/match arm can also supply it.
+  the other conditional/match arm can also supply it, and a state may declare
+  it: `state picked: option<Item> = none`, `state ids: string[] = []`.
 - An option directly inside an option is refused (`type-option-option`):
   `option<option<T>>` written, `some(none)`, `first` or `at` of a
-  `list<option<T>>`, a mutation `as shape option<T>`. The web erases `some`,
+  `option<T>[]`, a mutation `as shape option<T>`. The web erases `some`,
   so `some(none)` would be `none` there; hold the inner option in a record
   field. A type nests at most 64 deep, through shapes, lists and options
   (`type-too-deep`).
@@ -311,7 +312,7 @@ an example too: `contract vocab formatDate`), or says what to write instead
 - A state's initializer runs before any resource answers and before any derive:
   it reads props, injects and the states declared above it, nothing else
   (`type-initializer-scope`). Derive a value from a resource instead, or keep
-  per-row state in a component used inside `each`.
+  per-row state in a component used inside `for`.
 - `Shape(field=value, …)` constructs every field exactly once.
   `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
   The one positional base comes first. Compiler-owned shapes are not constructible.
@@ -320,12 +321,12 @@ an example too: `contract vocab formatDate`), or says what to write instead
 - Inline match is `match x { case some(v) => a, case none => b }`; the comma is
   required and the `some` arm comes first. The block statement/view form has
   separate indented `case` arms.
-- `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
-  `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
+- `xs.map((x, i) => expr)` and `xs.filter(x => bool)` return values, not nodes.
+  `xs.join(separator)` accepts primitive items. `first(xs)` and `xs.at(i)`
   return options; `at` supports negative indices.
 - Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
-  the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
-  `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
+  the web (`end > start` for `"HH:MM"` times). `s.slice(0, -1)`,
+  `s.replaceAll(find, with)` and `s.toLowerCase()` are the web's string methods.
 - Numbers have `floor`, `ceil`, `round` (JavaScript's `Math.round`: `round(-2.5)` is
   -2), `min`, `max`, `%`, `formatNumber` (`"compact"` is `1.2K`, `"decimal"` `1,234.5`,
   `"percent"` `26%`, `"currency", "USD"` `$1,481.47`), `toFixed` and `formatDecimal`. A
@@ -339,9 +340,9 @@ an example too: `contract vocab formatDate`), or says what to write instead
   cents, and a half cent such as `1.005` has no exact binary value and
   becomes `100`, so keep money in cents from the source when amounts can
   have more places (tax, a split bill). `formatDecimal` of a number that is
-  not an integer prints `""`, so round first. `toFixed(x, 2)` is the web's
-  `x.toFixed(2)`, for a measured number (`toFixed(km, 1)`): it rounds the
-  binary value too (`toFixed(1.005, 2)` is `"1.00"`) and sums of dollars drift
+  not an integer prints `""`, so round first. `x.toFixed(2)` is the web's
+  `x.toFixed(2)`, for a measured number (`km.toFixed(1)`): it rounds the
+  binary value too (`(1.005).toFixed(2)` is `"1.00"`) and sums of dollars drift
   (`0.1 + 0.2`), which is why money is counted in cents. Both take the digits as a whole-number literal (`toFixed` 0–100,
   `formatDecimal` 0–20), never a variable, and print `""` for `NaN` or
   `Infinity` (JavaScript's `toFixed` prints `"NaN"`).
@@ -353,7 +354,7 @@ component Cart
   view
     column
       text `Total $${formatDecimal(cents, 2)}` testId="total"
-      text `${toFixed(km, 1)} km` testId="distance"
+      text `${km.toFixed(1)} km` testId="distance"
 ```
 - Dates: `formatDate(ms, offset, "iso")` is `YYYY-MM-DD`, and `calendarDiff(from, to,
   "years")` (or `"months"`) is the whole periods between two such dates as an
@@ -361,8 +362,13 @@ component Cart
 - There is no general list append: add an item to
   resource-backed data in its source and answer the updated list (a mutation that
   `refreshes` the list's resource, or its own answer).
-- Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
-  There are no object literals, spreads, general lambdas, array indexing,
+- The web's string and array methods are written as methods, with their names
+  and meanings: `s.trim()`, `s.includes(q)`, `xs.filter(x => …)`, `n.toFixed(2)`,
+  `xs.length`. The free spelling (`trim(s)`) is refused with the edit
+  (`syntax-method-form`), and so is a method Contract lacks (`xs.reduce(…)`,
+  `syntax-method-call`). The rest of the roster is functions: `first(xs)`,
+  `round(n)`, `parseNumber(s)`, `formatNumber(…)`. There are no object
+  literals, spreads, general lambdas, array indexing,
   assignment expressions, or JavaScript built-ins by implication.
 - `fn label(done: bool): string = done ? "Done" : "Open"` is a function: parameters
   and the return type are explicit, after `:` (not `->`). Its body is one expression over
@@ -569,7 +575,7 @@ component Row
 
 Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
-actions. A child used under `each` owns row state keyed to that row's identity.
+actions. A child used under `for` owns row state keyed to that row's identity.
 Stable keys matter when content is inserted, removed, filtered, or reordered.
 
 A state cannot start from a resource, but a child's state can start from a prop.
@@ -592,7 +598,7 @@ frame does not need. A write the resource does not hear about (a file or databas
 a mutation without `refreshes saved`, not a `store` write it reads) leaves that
 answer behind: after a restart the form opens with the old fields and keeps them
 when the fresh answer lands. Refresh the resource after each write, as below, or key
-the child by a string or number from the answer (`each d in [saved] key=…`) so a
+the child by a string or number from the answer (`for d in [saved] key=…`) so a
 different answer makes it again.
 
 ```contract
@@ -607,7 +613,7 @@ component App
     send stored = saveDraft(name)
   view
     main
-      when saved.loaded
+      if saved.loaded
         Editor(draft=saved, keep=keep)
 
 component Editor
@@ -670,15 +676,15 @@ component Water
       column gap=16 padding=16
         RingProgress(label="of 2,000 ml", value=ml(total), fraction=total / 2000, tint=none)
         SummaryCard(label="Today", value=ml(total), detail="of 2,000 ml", progress=some(total / 2000), symbol=some("symbol:activity"))
-        each d in days key=d.key
+        for d in days key=d.key
           StatBar(label=d.name, value=ml(d.ml), fraction=d.ml / 2000, tint=none)
         row justify-content="space-between"
-          each d in days key=d.key
+          for d in days key=d.key
             DoneMark(caption=d.name, done=d.ml >= 2000)
-        when total == 0
+        if total == 0
           EmptyState(symbol="symbol:calendar", title="No water yet", message="Each glass you log adds to today.")
             button "Log a glass" press=drink buttonStyle="bordered-prominent"
-        each d in days key=d.key
+        for d in days key=d.key
           RowText(title=d.name, detail="", value=some(ml(d.ml)))
 ```
 
@@ -756,14 +762,14 @@ shape Item
   id: string
 
 component Items
-  resource items = loadItems() as shape list<Item> else empty()
+  resource items = loadItems() as shape Item[] else empty()
   derive banner = match failure(items) {
     case some(f) => f.code == "offline" ? "You're offline" : f.code == "shape" ? "This app needs an update" : "Couldn't load items",
     case none => ""
   }
   view
     column
-      when banner != ""
+      if banner != ""
         text banner testId="banner"
 ```
 
@@ -834,13 +840,13 @@ shape Item
   text: string
 
 component List
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   mutation added as shape Item refreshes items
   action add(text: string)
     send added = addItem(text)
   view
     column
-      each item in items key=item.text
+      for item in items key=item.text
         text item.text
 ```
 
@@ -963,14 +969,14 @@ or authenticated network session is available while baking. See
 
 For an attachment of any type, use `input type="file"` with no `accept` (or
 `accept="*/*"`) and `multiple` when needed. `showPicker("attach")` opens the
-input with `id="attach"`; `change` receives `list<Picked>` with copies under
+input with `id="attach"`; `change` receives `Picked[]` with copies under
 `app:/tmp/picked/`. A specific `accept` list remains bounded to image/video
 types and the app's `file_handlers`. On Linux the agent can answer a held
 picker, but the live picker is unavailable. See [the picker
 spec](../llp/1069.002-media-picker.rfc.md#any-type-input-charlie-2026-10-11).
 
-The view forms are element, component use, `when`/`else` (and `else when`),
-keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
+The view forms are element, component use, `if`/`else` (and `else if`),
+keyed `for`, exhaustive option `match`, and `children`. Wrap root regions in a
 stable element.
 HTML names Contract spells otherwise (the compiler names each): `div` is `column`,
 `row` or `view`; `span`, `p`, `strong`, `em`, `b` and `i` are `text`; `h1`–`h6` are
@@ -979,9 +985,9 @@ HTML names Contract spells otherwise (the compiler names each): `div` is `column
 `ol` and `li` are a `list` or a `column` of rows; `title` and `meta` are `head
 title=… description=…`; a `table` is `view display="grid"` with
 `grid-template-columns` (or a `column` of `row`s); there is no `form` (a field's
-Enter is its `submit`) and no `details` (keep `open` in state, show the body `when
-open`). In expressions a view chooses with `when`, not `if`; a count is
-`length(xs)`, never `count`, `len` or `.size`; a resource's placeholder is `else
+Enter is its `submit`) and no `details` (keep `open` in state, show the body `if
+open`). A view chooses with `if`, as an action does; a count is
+`xs.length`, never `count`, `len` or `.size`; a resource's placeholder is `else
 empty()` (`[]` for a list), never `else []`. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
@@ -1031,7 +1037,7 @@ backgrounds share the existing drawn-gradient limitation for
 
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
-`each`, and one flow root per row. A vertical list needs `height`, `max-height`
+`for`, and one flow root per row. A vertical list needs `height`, `max-height`
 or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "640px")`).
 A percentage bounds it only against a definite containing-block height (a plain
 `column` is content-sized), and the bake refuses (`bake-scroll-unbounded`) only a
@@ -1085,7 +1091,7 @@ Grouped-list row buttons and their detail accessories stay bare by default so
 UIKit can read the cell's face; explicit `appearance="auto"` carries a custom native control.
 `appearance="none"` explicitly asks for your box. `appearance="auto"` explicitly
 asks for the platform's button and refuses unsupported rows or children. The
-switch must resolve to a literal after class merging; use `when` with two
+switch must resolve to a literal after class merging; use `if` with two
 buttons to switch. Its first `text` is the title, its second is the subtitle, and
 its one `image "symbol:…"` is the symbol. These are semantic face data, not
 layout children. A symbol-only face needs a nonempty `aria-label`. With
@@ -1280,7 +1286,7 @@ column navigationKey=`${e.id}` navigationScroll="inbox-list" position="absolute"
   // Pull to refresh: a `refresh` handler on the scroller; `refreshing` holds the
   // spinner until the reload settles.
   scroll id="inbox-list" refresh=reload refreshing=pending(items) flex=1 min-height=0
-    each m in items key=m.id
+    for m in items key=m.id
       // Swipe actions: a horizontal snap scroll naming its content and actions.
       scroll swipeContent=`item-${m.id}` swipeTrailing=`delete-${m.id}` width="100%" overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
         row width="100%"
@@ -1485,7 +1491,7 @@ component Editor
   action edit(v: string)
     body = v
   action selected(s: MarkdownSelection)
-    bold = includes(` ${s.formats} `, " bold ")
+    bold = ` ${s.formats} `.includes(" bold ")
   action embolden
     format("editor", "bold")
   view
@@ -1528,7 +1534,7 @@ Keep `id` and `testId` separate:
 - `testId`: driver/test target and stable inspection name. On the web it is
   `data-testid`, not the DOM `id`: a brief that asks for element ids wants `id=`
   (and `testId=` too where tests target the node).
-- `each` key: data identity for row lifetime, not either node id.
+- `for` key: data identity for row lifetime, not either node id.
 
 Events bind actions (`press=save`, `input=edit(item.id)`). Captured arguments come
 before host payload arguments. Do not add an event object or a JavaScript closure.
@@ -1562,7 +1568,7 @@ is checked against the table, but any other computed string is not checked, so
 always build locations with `path()`. A route's parameter fields are strings, with
 empty strings for absent fields. `select` takes a tab name, not a URL.
 
-`each entry in stack(nav) key=entry.id` gives retained screens their identities.
+`for entry in stack(nav) key=entry.id` gives retained screens their identities.
 Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
@@ -1579,7 +1585,7 @@ Web builds copy this key into the web app manifest; the browser decides which
 schemes it supports and whether the installed app is registered.
 
 Every route (a node with a `navigationKey` under the root) is a direct child of the
-root or of a `role="tabpanel"` in it — through `each` and `when`, never another
+root or of a `role="tabpanel"` in it — through `for` and `if`, never another
 element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
 route `position="absolute" inset=0`: the hosts hide a covered route, as
 `visibility: hidden` does, so an in-flow route still takes its room. A covered
@@ -1620,12 +1626,12 @@ Tabs with a stack each have one layout that works on web, macOS and iOS
 ```text
 main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow display="flex" flex-direction="column" height="100%"
   column flex=1 min-height=0 position="relative"
-    each t in nav.tabs key=t.name
+    for t in nav.tabs key=t.name
       column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-        each e in t.stack key=e.id
+        for e in t.stack key=e.id
           column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` position="absolute" inset=0 display="flex" flex-direction="column"
             header
-              when e.name == "item"
+              if e.name == "item"
                 button id="back" press=back
                   text "Home"
               text e.name role="heading" aria-level=(e.name == "item" ? 2 : 1)
@@ -1635,7 +1641,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
     button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
       image "symbol:home"
       text "Home"
-  when toast != ""
+  if toast != ""
     button position="absolute" … // a root overlay: after the tablist, over everything
 ```
 
@@ -1681,7 +1687,7 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   items by test id and which are in the overflow menu. Its search field arrives with
   AppKit's own animation (`clock +1200 real` before a screenshot).
 - Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
-  tablist with `when`: without it the root has no tabs and the panels' routes are
+  tablist with `if`: without it the root has no tabs and the panels' routes are
   found by no host.
 - Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
   over the routes and the native bars on every host, as later siblings do in CSS.
@@ -1746,8 +1752,8 @@ fast `every` under a long `clock +N` can reach it: tick slower or move the clock
 
 A task with `when` (a gated task), such as
 `task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
-timer only while the gate holds, as a `when` arm has its nodes, and a new key
-restarts it, as a new `each` key makes a new row
+timer only while the gate holds, as an `if` arm has its nodes, and a new key
+restarts it, as a new `for` key makes a new row
 ([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
@@ -1855,7 +1861,7 @@ component Hints
     after(1, forget)
   view
     column key=held keyup=held testId="list"
-      when meta and page.hasFocus
+      if meta and page.hasFocus
         text "⌘ held"
 ```
 
@@ -2013,8 +2019,11 @@ heights, paddings) and what should not in `px`; an action calling
 The app's size stands over the host's (the browser's setting, iOS Dynamic Type's
 body, 13 on macOS, 16 on Linux), as an author's `html { font-size: 20px }` stands over a
 browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
-"Default" choice that follows Dynamic Type calls that. A size of 0 or less is
-refused (a literal at compile time, a computed one in `logs`). It is not kept
+"Default" choice that follows Dynamic Type calls that. Smaller and Larger that
+should scale Dynamic Type instead of replacing it are percentages:
+`setRootFontSize("87.5%")`, `("125%")`, CSS's percentage of `medium`, so the root
+is that share of the host's size and follows it when Dynamic Type or the browser's
+setting changes. A size of 0 or less is refused (a literal at compile time, a computed one in `logs`). It is not kept
 across a launch: a root `task restore mount` with `after(1, applySize)` sets the
 stored size again. Do not multiply a scale factor into every size instead.
 
@@ -2062,7 +2071,7 @@ component App
   resource terminal = exactSurface("terminal") as shape Terminal
   view
     column
-      when terminal.colors == 0
+      if terminal.colors == 0
         text "! Attention required" font-weight=700
       else
         text "Attention required" color="#d78700"
@@ -2409,12 +2418,13 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Refused or misleading form | Accepted direction |
 | --- | --- |
 | `action save writes item` | Delete the clause; effects come from the body |
+| `transform` on a box, inline or through `class` (`lower-attr-tag`) | Box `transform` is deferred (LLP 1055.000 D5). Use `translate`, `rotate` and `scale`: `transform="translate(0px, 25px)"` becomes `translate="0px 25px"`; `transform="scale(0.8)"` becomes `scale=0.8`. SVG elements keep `transform`. |
 | Component `contract` assertions | Authored `test` blocks exercised by the driver |
 | `provide theme = value` around view children | Component `provide` section, wrapper component if needed |
-| `items.map(...)` / `items[0]` | `map(items, …)` / `first(items)` or `at(items, 0)` |
-| `map(items, x => Row(...))` | Keyed `each` with `Row(...)` in its body |
+| `items[0]` | `first(items)` or `items.at(0)`, an option to `match` |
+| `items.map(x => Row(...))` | Keyed `for` with `Row(...)` in its body |
 | `{ title: value }` | Declared record constructor |
-| `[...xs, x]` / `xs.push(x)` / `xs.indexOf(x)` / `s.split(",")` | `concat(xs, [x])` / the same, assigned: `xs = concat(xs, [x])` / `indexOf(xs, x)` (or `includes(xs, x)` to test) / `split(s, ",")` |
+| `[...xs, x]` / `xs.push(x)` | `xs.concat([x])` / the same, assigned: `xs = xs.concat([x])` |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |
@@ -2423,7 +2433,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
 | `button press=add` with no child, or only an `image "symbol:…"` (`lower-button-unlabelled`) | Its words in it (`text "Add"`), or `aria-label="Add"` on a symbol-only button |
 | A heading at the top of a route's content that says its `header` heading again, which shows twice under the iOS bar (`lower-title-twice`) | Drop it; the bar's title names the screen. A heading below names a section: `text "Results" role="heading" aria-level=2` |
-| A list and its detail (or a form) swapped by `when showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
+| A list and its detail (or a form) swapped by `if showingDetail` / `else`, each with its heading, in an app with no `routes` (`lower-screen-by-state`) | Each screen a route: `routes`, a row that `push`es its detail, `back` to return; the web gets Back, reload and links, a wide window the split (`contract vocab screen`) |
 | `column padding=24 width="100%"`, as wide as its parent's content plus the padding: it runs past the screen's right side (`lower-width-padding`) | Drop the width (a block or a stretched flex item fills its parent), or `box-sizing="border-box"` |
 | `text "Results" aria-level=2`, a level with no role, which is no heading to a screen reader on any platform, gets no heading style and is not the iOS bar's title (`lower-level-without-heading`) | `text "Results" role="heading" aria-level=2`; `role="heading"` alone is level 2 |
 | `column role="dialog" aria-modal=true` for a modal you lay out (`lower-dialog-role`) | A sheet, a route with `navigationPresentation="modal"` ([navigation-stack](recipes/navigation-stack.md)); a confirmation is `dialog role="alertdialog"`, opened with `showModal(id)` |
@@ -2434,14 +2444,14 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |
 | Unbounded `scroll` | Real height/max-height or flex in a bounded layout |
-| `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
+| `state item = none` with no usable type | Declare it (`state item: option<Item> = none`), or rethink whether it is mutable state |
 | `let next = …` where `next` is already an action, state or other name (`type-let-shadow`) | A name of its own: `let revised = …` |
 | `let op = ""`, then `op = "tab"` in a branch (`type-let-reassign`) | Choose the value where it is bound: `let op = key == "Tab" ? "tab" : "insert"`; or a `state` |
 | `mutation exported` and `action exported` (`type-duplicate-name`) | One name per declaration: a component's props, states, derives, resources, mutations and actions share names (`action fileSaved`) |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
 | An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
-| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `xs.reduce(…)`, `xs.find(…)`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "Canvas"` in a `style` | `background-color="Canvas"` (or nothing: an unset background is the platform's) |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
 | Two `send`s to one mutation in one action | One combined request, a mutation per request, or `mutation … queue` to run both in order |
@@ -2575,7 +2585,11 @@ value, with `InputEvent.inputType="insertReplacementText"`; it adds no undo
 step. That input type also covers hatch replacements and browser spelling
 corrections, so it does not uniquely identify this command. `select` follows
 input only when the selection changes. URL inputs trim surrounding ASCII
-whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` and `beforeinput` are still unavailable.
+whitespace. Markdown editors, Windows, Android and terminal do not support it yet. Field `selectionchange` reports caret moves through `InputEvent`, and
+`beforeinput` reports the proposed edit's `inputType` and optional `data`.
+Call `preventDefault()` to reject a cancelable edit; composition events
+are noncancelable. See the [form controls](contract-grammar.md#form-controls)
+section for host limits.
 See [form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange).
 
 Book typography is CSS's on every host. `text-align="justify"` fills all but
@@ -2664,7 +2678,7 @@ and shorthands: a row on any conditional arm counts, even if its value is
 make it bare. `appearance="auto"` explicitly asks for the native field and
 refuses background, border and radius rows, naming each longhand. Appearance
 is a literal, resolved from the class then the field's own attribute; to
-switch it, write `when` with two fields. Excluded input types and the Markdown
+switch it, write `if` with two fields. Excluded input types and the Markdown
 editor keep the bare text-input box or their existing specialised control.
 
 A focused field shows the platform's ring: the OS's on a native field, Exact's

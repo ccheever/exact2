@@ -6,7 +6,7 @@ use exact_runner::{
 };
 
 const SOURCE: &str = r#"shape Window
-  rows: list<number>
+  rows: number[]
   earlier: number
   later: number
 component App
@@ -18,7 +18,7 @@ component App
     cursor = history.later
   view
     list virtualized=true height=320 reachstart=start reachend=end
-      each x in history.rows key=x
+      for x in history.rows key=x
         text `${x}` height=1
 "#;
 struct AsyncRows {

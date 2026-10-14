@@ -10,7 +10,7 @@
 //! stable id and a span.
 //!
 //! This crate also owns [`Scope`] and [`Ref`]: how a name resolves to a slot,
-//! derive, resource, prop, parameter, action, `each` item, or `match`
+//! derive, resource, prop, parameter, action, `for` item, or `match`
 //! binding. Later passes resolve names through the same code, so a name means
 //! one thing everywhere.
 
@@ -83,7 +83,7 @@ impl std::fmt::Display for Ty {
             Ty::Bool => write!(f, "bool"),
             Ty::Unit => write!(f, "unit"),
             Ty::Option(t) => write!(f, "option<{t}>"),
-            Ty::List(t) => write!(f, "list<{t}>"),
+            Ty::List(t) => write!(f, "{t}[]"),
             Ty::Record(n) => write!(f, "{n}"),
             Ty::Action(ps) => write!(
                 f,
@@ -348,9 +348,9 @@ pub enum Ref {
     Prop(u32),
     /// An action parameter, by index.
     Param(u32),
-    /// An `each` item, `depth` region frames out (0 = innermost).
+    /// A `for` item, `depth` region frames out (0 = innermost).
     Item(u32),
-    /// An `each` item's position, `depth` region frames out (LLP 1062 D8).
+    /// A `for` item's position, `depth` region frames out (LLP 1062 D8).
     Index(u32),
     /// A `match` binding, `depth` region frames out.
     Bound(u32),
@@ -400,7 +400,7 @@ impl Scope {
         }));
     }
 
-    /// Push a region frame binding at most one name (`each` item or `match` binding).
+    /// Push a region frame binding at most one name (`for` item or `match` binding).
     pub fn push_region(&mut self, name: Option<(String, Ref, Ty)>) {
         self.frames.push(Arc::new(Frame {
             names: name.into_iter().collect(),
@@ -408,7 +408,7 @@ impl Scope {
         }));
     }
 
-    /// Push an `each` row's frame: its item, and its position when named.
+    /// Push a `for` row's frame: its item, and its position when named.
     pub fn push_each(&mut self, item: &str, index: Option<&str>, ty: Ty) {
         let mut names = vec![(item.to_string(), Ref::Item(0), ty)];
         names.extend(index.map(|i| (i.to_string(), Ref::Index(0), Ty::Number)));
@@ -816,8 +816,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{want}`, given `{t}`",
-                                i + 1
+                                "{} expects `{want}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i)
                             ),
                             arg.span(),
                         );
@@ -895,8 +895,8 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{}`, given `{t}`",
-                                i + 1,
+                                "{} expects `{}`, given `{t}`",
+                                contract_syntax::idioms::argument(name, i),
                                 roster_spelling(f, spec)
                             ),
                             arg.span(),
@@ -1025,7 +1025,7 @@ fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeE
         Expr::Arrow { span, .. } => {
             return err(
                 "type-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`: `map(list, (item, index) => …)`",
+                "an arrow function is only the argument of `map` or `filter`: `xs.map((item, index) => …)`",
                 *span,
             )
         }

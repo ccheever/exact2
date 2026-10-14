@@ -82,7 +82,7 @@ final class LaunchURLMacTests: XCTestCase {
             got = location
           view
             main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
-              each e in stack(nav) key=e.id
+              for e in stack(nav) key=e.id
                 column navigationKey=`${e.id}`
                   text `${e.name} ${e.url}`
                   text got
@@ -117,7 +117,7 @@ final class LaunchURLMacTests: XCTestCase {
                 main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
                   text `${top(nav).url}` testId="where"
                   text `${seen}` testId="seen"
-                  each e in stack(nav) key=e.id
+                  for e in stack(nav) key=e.id
                     column navigationKey=`${e.id}`
                       text `${e.name}`
 
@@ -163,7 +163,7 @@ final class LaunchURLMacTests: XCTestCase {
                 main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow
                   text `${top(nav).url}` testId="where"
                   text `${seen}` testId="seen"
-                  each e in stack(nav) key=e.id
+                  for e in stack(nav) key=e.id
                     column navigationKey=`${e.id}`
 
             """

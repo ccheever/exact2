@@ -5,24 +5,24 @@ shape Pair
   key: string
   n: number
 
-fn pair(k: string, n: number): list<Pair> = [Pair(key=k, n=n), Pair(key=k + k, n=n * 2)]
+fn pair(k: string, n: number): Pair[] = [Pair(key=k, n=n), Pair(key=k + k, n=n * 2)]
 
 component App
   state picked = ["a", "b",]
   state counts = [1, 2, 3]
   state maybe = [none, some(1)]
   derive nested = [[], counts, [4]]
-  derive pairs = pair("x", length(picked))
-  derive spread = [length(counts), length(nested), -1]
+  derive pairs = pair("x", picked.length)
+  derive spread = [counts.length, nested.length, -1]
   derive same = [1, 2] == [1, 2]
-  derive shown = join(map(nested, l => toString(length(l))), "-")
+  derive shown = nested.map(l => l.length.toString()).join("-")
   action pick(s: string)
     picked = [s, s + "!"]
   action reset
     picked = []
   view
     column
-      text join(picked, ",") testId="picked"
+      text picked.join(",") testId="picked"
       text shown testId="shown"
       button "pick" press=pick("q") testId="pick"
       button "reset" press=reset testId="reset"

@@ -717,6 +717,7 @@ name = "contract-types"
 version = "0.1.0"
 dependencies = [
  "contract-syntax",
+ "exact-num",
  "exact-plan",
  "exact-route",
 ]

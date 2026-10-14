@@ -14,7 +14,10 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !Path::new(&chrome).exists() {
-        eprintln!("compressImage browser check unavailable: set CHROME");
+        missing(
+            "chrome",
+            "compressImage browser check unavailable: set CHROME",
+        );
         return;
     }
     let sets = GRANTS
@@ -53,7 +56,10 @@ fn chrome_compresses_an_image_upright_within_budget_and_refuses_by_name() {
             .as_str()
             .filter(|_| engine != "chrome")
         {
-            eprintln!("compressImage on {engine} unavailable: {why}");
+            missing(
+                engine,
+                &format!("compressImage on {engine} unavailable: {why}"),
+            );
             continue;
         }
         check(engine, report);
@@ -341,3 +347,14 @@ try {
 }
 console.log(JSON.stringify(reports));
 "#;
+
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
+fn missing(kind: &str, why: &str) {
+    assert_ne!(
+        std::env::var("EXACT_REQUIRED").as_deref(),
+        Ok("1"),
+        "missing {kind}: {why}"
+    );
+    eprintln!("SKIP missing {kind}: {why}");
+}

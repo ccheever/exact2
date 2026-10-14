@@ -88,8 +88,8 @@ const PAINT: &str = r##"component App
       button "Widen" testId="widen" press=widen height=30
       button "Hide" testId="hide" press=hide height=30
       button "Bump" testId="bump" press=bump height=30
-      when shown
-        column hatch="paint" data-n=toString(n) testId="box" width=(wide ? 120 : 60) height=40 margin-left=20 margin-top=20 border-radius=20 background-color="#0000ff"
+      if shown
+        column hatch="paint" data-n=n.toString() testId="box" width=(wide ? 120 : 60) height=40 margin-left=20 margin-top=20 border-radius=20 background-color="#0000ff"
 "##;
 
 /// Every moment records again: one half of the box, past every edge, the
@@ -514,7 +514,7 @@ const CLOCK: &str = r##"component App
     column width=300 height=300
       button "Start" testId="start" press=start height=30
       button "Halt" testId="halt" press=halt height=30
-      column hatch="clock" data-run=(running ? "true" : "false") data-frames=toString(frames) data-presses=toString(presses) press=press testId="clock" width=24 height=24
+      column hatch="clock" data-run=(running ? "true" : "false") data-frames=frames.toString() data-presses=presses.toString() press=press testId="clock" width=24 height=24
 "##;
 
 /// The fixture's clock hatch: a ticket while its node says to run.
@@ -692,7 +692,7 @@ const STORM: &str = r##"component App
     n = n + 1
   view
     column width=300 height=300
-      column hatch="storm" data-n=toString(n) press=bump testId="storm" width=24 height=24
+      column hatch="storm" data-n=n.toString() press=bump testId="storm" width=24 height=24
 "##;
 
 /// More acts than a command may run: a click for every change, begun on the clock.
@@ -796,7 +796,7 @@ const ASKS: &str = r##"component App
       button "Arm" testId="arm" press=arm height=30
       button "Loop" testId="loop" press=loop height=30
       button "Stop" testId="stop" press=stop height=30
-      button "Pressed" hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping ? toString(presses) : "off") press=pressed testId="pressed" height=30
+      button "Pressed" hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping ? presses.toString() : "off") press=pressed testId="pressed" height=30
       input hatch="feed" data-feed=(armed ? "Palo Alto, CA" : "") value=text input=edit maxlength=9 testId="fed" width=200 height=30
       input hatch="feed" data-feed=(armed ? "hunter2" : "") type="password" value=secret input=hide testId="secret" width=200 height=30
       input hatch="feed" data-feed=(armed ? "no" : "") value="locked" disabled=true testId="locked" width=200 height=30
@@ -889,7 +889,7 @@ const WORDS: &str = r##"component App
     column width=300 height=300
       button "Hide" testId="hide" press=hide height=30
       column hatch="known" testId="known" width=40 height=40
-      when shown
+      if shown
         column hatch="unknown" testId="unknown" width=40 height=40
 "##;
 

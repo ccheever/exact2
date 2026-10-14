@@ -12,7 +12,7 @@ component Shared
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
-      when open
+      if open
         box testId="viewer" width=300 height=300
           box sharedElement="photo-1" testId="large" width=300 height=200 background-color="#246"
       else

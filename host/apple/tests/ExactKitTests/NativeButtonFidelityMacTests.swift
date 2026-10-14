@@ -248,7 +248,7 @@ final class NativeButtonFidelityMacTests: XCTestCase {
             column font-size=44 color="red"
               button appearance="auto" testId="show" press=show
                 text "Show"
-              when more
+              if more
                 button appearance="auto" testId="new" -exact-control-size="large" font-size=25
                   text "A new measured face"
 

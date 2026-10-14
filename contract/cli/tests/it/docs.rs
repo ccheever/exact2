@@ -119,6 +119,63 @@ pub(crate) fn blocks() -> Vec<Block> {
 }
 
 #[test]
+fn the_paging_columns_recipe_ignores_leave_and_loads_until_the_last_page() {
+    use exact_kernel::{Kernel, Offer};
+    use exact_plan::Value;
+    use exact_runner::{Event, Runner};
+
+    let source = blocks()
+        .into_iter()
+        .find(|block| {
+            block.doc.ends_with("recipes/responsive-columns.md")
+                && block.info == "contract"
+                && block.body.starts_with("component Feed\n")
+        })
+        .expect("paging columns example")
+        .body;
+    let mut runner = Runner::boot(
+        contract::compile(&source).unwrap(),
+        (),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    runner
+        .act(
+            "loadMore",
+            vec![Value::record(vec![Value::Bool(false), Value::Number(0.0)])],
+        )
+        .unwrap();
+    let cards = |count| Value::list((0..count).map(|n| Value::Number(n as f64)).collect());
+    assert_eq!(runner.slot("cards"), Some(&cards(3)));
+    for count in [6, 9, 12] {
+        let root = runner.kernel().roots()[0];
+        runner
+            .kernel_mut()
+            .compute_layout(root, Offer::definite(390.0, 844.0))
+            .unwrap();
+        let due = runner.intersect_due();
+        assert_eq!(due.len(), 1, "one marker after all columns");
+        let entry = &due[0];
+        assert!(entry.is_intersecting);
+        assert!(runner.intersect_delivered(entry));
+        runner
+            .dispatch(
+                entry.view,
+                Event::Intersect {
+                    is_intersecting: entry.is_intersecting,
+                    intersection_ratio: entry.intersection_ratio,
+                },
+            )
+            .unwrap();
+        assert_eq!(runner.slot("cards"), Some(&cards(count)));
+    }
+    assert!(runner.intersect_due().is_empty());
+    assert!(runner.kernel().find_by_test_id("load-more").is_empty());
+}
+
+#[test]
 fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
     let dir = std::env::temp_dir().join(format!("exact-docs-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -173,7 +230,7 @@ fn every_contract_example_in_the_guides_compiles_and_every_test_parses() {
 /// Blocks marked `<!-- check: app -->`, `<!-- check: route <name> -->` and
 /// `<!-- check: file -->` are one app split across a guide (LLP 1115 D7;
 /// docs/recipes/navigation-stack.md): the `app` blocks in order, each `route` block in
-/// place of the placeholder under `when e.name == "<name>"`, and each `file`
+/// place of the placeholder under `if e.name == "<name>"`, and each `file`
 /// block appended. The assembled app compiles with no diagnostics.
 #[test]
 fn every_split_app_in_the_guides_compiles_assembled() {
@@ -414,7 +471,7 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
                 Some(filled) => app = filled,
                 None => wrong.push((
                     i,
-                    format!("no `when e.name == \"{name}\"` placeholder in the app blocks"),
+                    format!("no `if e.name == \"{name}\"` placeholder in the app blocks"),
                 )),
             }
         }
@@ -427,10 +484,10 @@ pub(crate) fn assemble(parts: &[(&str, &str)]) -> (String, Vec<(usize, String)>)
 }
 
 /// The app with the route's block in place of the lines under
-/// `when e.name == "<name>"` (the placeholder screen and its comment).
+/// `if e.name == "<name>"` (the placeholder screen and its comment).
 fn fill_route(app: &str, name: &str, route: &str) -> Option<String> {
     let lines: Vec<&str> = app.lines().collect();
-    let head = format!("when e.name == \"{name}\"");
+    let head = format!("if e.name == \"{name}\"");
     let at = lines.iter().position(|l| l.trim() == head)?;
     let depth = lines[at].len() - lines[at].trim_start().len();
     let mut end = at + 1;

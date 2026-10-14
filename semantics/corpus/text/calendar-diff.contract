@@ -2,7 +2,7 @@
 // YYYY-MM-DD dates, counted as an age is: a Feb 29 start completes a year
 // on Mar 1 of a common year, a Jan 31 start a month on Mar 1. Earlier
 // second date: the count back, negated. Not a date: none.
-fn shown(n: option<number>): string = match n { case some(v) => toString(v), case none => "none" }
+fn shown(n: option<number>): string = match n { case some(v) => v.toString(), case none => "none" }
 fn years(a: string, b: string): string = shown(calendarDiff(a, b, "years"))
 fn months(a: string, b: string): string = shown(calendarDiff(a, b, "months"))
 

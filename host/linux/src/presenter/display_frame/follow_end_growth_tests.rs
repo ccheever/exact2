@@ -21,12 +21,12 @@ const SOURCE: &str = r#"component App
   state count = 20
   action grow
     count = 200
-  resource rows = growthRows(count) as shape list<number>
+  resource rows = growthRows(count) as shape number[]
   view
     column width=320 height=240
       box testId="grow" press=grow height=24
       list virtualized=true scrollFollowEnd=true width=320 height=180 testId="port"
-        each x in rows key=x
+        for x in rows key=x
           text `${x}` height=24
 "#;
 

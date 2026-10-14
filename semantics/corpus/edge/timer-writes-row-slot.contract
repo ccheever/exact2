@@ -5,9 +5,9 @@ shape Item
   id: string
 
 component App
-  resource a = items(1) as shape list<Item>
-  resource b = items(2) as shape list<Item>
-  derive items = length(a) >= length(b) ? a : b
+  resource a = items(1) as shape Item[]
+  resource b = items(2) as shape Item[]
+  derive items = a.length >= b.length ? a : b
   state beat = 0
   action tick
     beat = beat + 1
@@ -16,7 +16,7 @@ component App
   view
     column
       text `${beat}` testId="beat"
-      each it, i in items key=i
+      for it, i in items key=i
         Row(index=i, beat=beat)
 
 component Row

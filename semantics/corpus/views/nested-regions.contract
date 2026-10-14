@@ -13,10 +13,10 @@ component App
     sel = none
   view
     column
-      when a
+      if a
         match sel
           case some(v)
-            when v > 1
+            if v > 1
               text `big ${v}` testId="big"
             else
               text `small ${v}` testId="small"

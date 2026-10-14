@@ -195,7 +195,9 @@ impl<D: DataSource> Presenter<D> {
         }
         // The paste's default action: the text in at the field's selection
         // (x2apps codeedit #2), after its listeners, as the web's.
-        if field {
+        let queued = self.commands.len();
+        self.commands.retain(|c| c.name != "preventDefault");
+        if field && queued == self.commands.len() {
             self.paste_field(id, text, now);
         }
         Ok(format!(

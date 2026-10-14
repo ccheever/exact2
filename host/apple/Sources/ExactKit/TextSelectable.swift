@@ -67,6 +67,5 @@ extension NodeView {
     #if os(tvOS)
     // tvOS has no text selection (`TextSelectionIOS.swift` is iOS's).
     func touchedText() {}
-    func selectsText(under touch: UITouch) -> Bool { false }
     #endif
 }

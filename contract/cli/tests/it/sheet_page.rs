@@ -26,7 +26,7 @@ const SCREEN: &str = "STYLESroutes nav
 component App
   view
     main navigationKey=`${top(nav).id}` navigationBack=\"back\" testId=\"root\"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` ROUTE position=\"absolute\" inset=0 testId=\"route\"
           header
             text \"New habit\" role=\"heading\" aria-level=2

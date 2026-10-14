@@ -6,6 +6,14 @@ component RangeEdit
   state caret = ""
   state picked = ""
   state inputType = ""
+  state before = ""
+  state moved = ""
+  action moving(e: InputEvent)
+    moved = `${e.selectionStart}-${e.selectionEnd}`
+  action editing(e: InputEvent)
+    before = `${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}`
+    if e.inputType == "insertFromPaste"
+      preventDefault()
   action edited(value: string, e: InputEvent)
     body = value
     inputType = e.inputType
@@ -29,7 +37,7 @@ component RangeEdit
     setRangeText("editor", "bad", 9, 4)
   view
     column testId="root" padding=16 gap=8
-      textarea id="editor" testId="editor" value=body input=edited select=selected rows=3
+      textarea id="editor" testId="editor" value=body input=edited select=selected selectionchange=moving beforeinput=editing rows=3
       button press=pick testId="pick"
         text "Select reference"
       button press=replace testId="replace"
@@ -44,4 +52,4 @@ component RangeEdit
         text "Select replacement"
       button press=refused testId="refused"
         text "Refuse reversed range"
-      text `${body}|${edits}|${caret}|${picked}` testId="result"
+      text `${body}|${edits}|${caret}|${picked}|${moved}|${before}|${inputType}` testId="result"

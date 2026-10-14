@@ -186,7 +186,7 @@ fn check_inject_nodes<'a>(
                 let Ty::List(item) = ty else {
                     return err(
                         "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
+                        format!("`for` needs a list, given `{ty}`"),
                         list.span(),
                     );
                 };

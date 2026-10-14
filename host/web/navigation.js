@@ -9,12 +9,14 @@ const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
+// Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
-  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
-    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+  const all = [...(nav?.getElementsByTagName("*") ?? [])];
+  const owns = el => { for (let p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute("navigationKey")) return p === nav; return false; };
+  for (const list of all.filter(el => el.getAttribute("role") === "tablist" && owns(el))) {
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
-      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
-      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
+      .map(tab => all.find(panel => panel.getAttribute("id") === tab.getAttribute("aria-controls")))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && owns(panel));
     if (panels.length) return [list, panels];
   }
   return [null, []];
@@ -40,15 +42,14 @@ function splitOf([r]) {
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
 const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
   || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
- * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
- * `unselected`; the agent's `inactive`). */
-export function unselected(nav) {
+/** Routes and panels excluded from input or document fields. Only input keeps a visible split list live. */
+function unselectedWithin(nav, keepList) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
   const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
-  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  const beside = keepList && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
+export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -855,22 +856,22 @@ export function pageReporter(agent, platform = globalThis) {
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
-    if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
+    if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
-// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
-// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
-const APP_ROOT = "exact-root-font-size";
+// @ref LLP 1069.000 D3, LLP 1121 D6 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over the root element's own size (the browser's setting, or the agent's
+// `prefer root-font-size`), which can change beneath it; a percentage is a share of that size which follows it (CSS's `125%` of `medium`, or of the agent's substitute); `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here, by the runner's grammar (exact_num's `css_percent`) and its share, `host * ratio` as an f32 above 0.
+const APP_ROOT = "exact-root-font-size", PERCENT = /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i;
 export function appRootFontSize(value, say, platform = globalThis) {
-  const doc = platform.document;
+  const doc = platform.document, host = platform.getComputedStyle ? beneathApp(platform, () => parseFloat(platform.getComputedStyle(doc.documentElement).fontSize) || 16) : 16;
   let rule = doc.getElementById(APP_ROOT);
   if (value === "medium") return void rule?.remove();
-  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  const ratio = typeof value === "string" && PERCENT.test(value) ? parseFloat(value) / 100 : NaN, share = Math.fround(host * ratio), px = typeof value === "number" && Math.fround(value) > 0 && Number.isFinite(Math.fround(value));
+  if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
-  rule.textContent = `:root{font-size:${value}px!important}`;
+  rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -1117,14 +1118,13 @@ export function setFieldRangeText(el, args, log) {
   catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
   el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
-// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
-// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
-// decides, and one that refuses snaps a checkbox or a radio group back.
+// Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
+function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
-  // HTML's `change`: a text field's value committed, on blur or Enter.
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
   on("input", (e) => {
     const value = el.value;
@@ -1135,7 +1135,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then

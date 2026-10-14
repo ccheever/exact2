@@ -143,7 +143,7 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
 }
 
 /// Every name `file` binds locally: component members, parameters, and
-/// `each`, `match`, arrow and `let` binders. The loader renames another
+/// `for`, `match`, arrow and `let` binders. The loader renames another
 /// file's `fn` or shape of one of these names, so the type checker, which
 /// calls a `fn` before a binding, never reaches past the binding to it.
 pub fn bindings(file: &mut File) -> std::collections::HashSet<String> {
@@ -245,7 +245,7 @@ fn walk(file: &mut File, scope: &Scope, seen: Option<&mut Seen>) -> Result<(), S
 struct Rewriter<'a> {
     scope: &'a Scope,
     /// The bindings in scope where the rewrite stands — a component's
-    /// members, an action's or `fn`'s parameters, `each`, `match`, arrow and
+    /// members, an action's or `fn`'s parameters, `for`, `match`, arrow and
     /// `let` binders. A call of one is the binding's, never a top-level name.
     locals: Vec<String>,
     /// For each of `locals`, whether it is an action, prop or inject: the

@@ -36,13 +36,25 @@ pub struct Function {
 }
 
 /// The roster's signature: its parameter types, an optional trailing one in
-/// brackets, and its return type (`slice(any, number[, number]) -> any`).
+/// brackets, and its return type (`slice(any, number[, number]) -> any`), the
+/// first parameter before the name for a function written on its value
+/// (`any.slice(number[, number]) -> any`, `any.length -> number`; LLP 1116.015 D2).
 pub fn signature(f: Stdlib) -> String {
+    let name = f.name();
     let params = f.params();
     let required = params.len() - f.defaults().len();
-    let mut out = format!("{}(", f.name());
-    for (i, p) in params.iter().enumerate() {
-        match (i, i >= required) {
+    let params: Vec<String> = params.iter().map(|p| written(p)).collect();
+    let returns = written(f.returns());
+    if name == "length" {
+        return format!("{}.length -> {returns}", params[0]);
+    }
+    let skip = usize::from(contract_syntax::idioms::is_method(name));
+    let mut out = match skip {
+        1 => format!("{}.{name}(", params[0]),
+        _ => format!("{name}("),
+    };
+    for (i, p) in params.iter().enumerate().skip(skip) {
+        match (i - skip, i >= required) {
             (0, true) => out.push('['),
             (_, true) => out.push_str("[, "),
             (0, false) => {}
@@ -50,10 +62,18 @@ pub fn signature(f: Stdlib) -> String {
         }
         out.push_str(p);
     }
-    out.push_str(&"]".repeat(params.len() - required));
+    out.push_str(&"]".repeat(params.len() - required.max(skip)));
     out.push_str(") -> ");
-    out.push_str(f.returns());
+    out.push_str(&returns);
     out
+}
+
+/// A roster type as an author writes it: the table's `list<T>` is `T[]`.
+fn written(ty: &str) -> String {
+    match ty.strip_prefix("list<").and_then(|t| t.strip_suffix('>')) {
+        Some(inner) => format!("{}[]", written(inner)),
+        None => ty.to_owned(),
+    }
 }
 
 /// The cells of a table row, trimmed.
@@ -62,17 +82,20 @@ fn cells(line: &str) -> Vec<String> {
     inner.split('|').map(|c| c.trim().to_owned()).collect()
 }
 
-/// The names a call cell writes: each code span's leading name, when a `(`
-/// follows it.
+/// The names a call cell writes: in each code span, the name a `(` follows
+/// (`slice` of `xs.slice(start, end?)`), or `length` of `value.length`.
 fn names(call: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for span in call.split('`').skip(1).step_by(2) {
-        let name: String = span
-            .chars()
-            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
-            .collect();
-        if !name.is_empty() && span[name.len()..].starts_with('(') && !out.contains(&name) {
-            out.push(name);
+        let head = span.split('(').next().unwrap_or_default();
+        let name = match span.contains('(') {
+            true => head.rsplit('.').next().unwrap_or_default(),
+            false if span.ends_with(".length") => "length",
+            false => "",
+        };
+        let ident = !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if ident && !out.iter().any(|n| n == name) {
+            out.push(name.to_owned());
         }
     }
     out
@@ -151,9 +174,9 @@ mod tests {
     #[test]
     fn a_signature_brackets_its_optional_tail() {
         let slice = Stdlib::from_name("slice").unwrap();
-        assert_eq!(signature(slice), "slice(any, number[, number]) -> any");
+        assert_eq!(signature(slice), "any.slice(number[, number]) -> any");
         let trim = Stdlib::from_name("trim").unwrap();
-        assert_eq!(signature(trim), "trim(string) -> string");
+        assert_eq!(signature(trim), "string.trim() -> string");
         let now = Stdlib::from_name("performanceNow").unwrap();
         assert_eq!(signature(now), "performanceNow() -> number");
     }

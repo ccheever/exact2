@@ -74,7 +74,7 @@ component PaintGroups
         view testId="hsl" width=60 height=40 background-color=(on ? "hsl(120, 100%, 25%)" : "hsl(0, 100%, 50%)")
         view testId="current" width=60 height=40 color="#0000ff" background-color="currentcolor"
         button testId="flip" press=flip disabled=on width=60 height=40 border-width=0 background-color=(on ? "light-dark(#00ff00, #000000)" : "light-dark(#ff0000, #000000)")
-        when on
+        if on
           view testId="fade" width=60 height=40 background-color="#0000ff" animation="fade 1000ms linear both"
 "##;
 
@@ -114,7 +114,7 @@ component PresenceTimeline
         button "Grow" testId="grow" press=grow width=80 height=30
         button "Hide" testId="hide" press=hide width=80 height=30
       view height=(moved ? 120 : 20) flex-shrink=0
-      when shown
+      if shown
         view testId="card" width=(large ? 180 : 100) height=(large ? 80 : 40) flex-shrink=0 background-color="#ff0000" -exact-layout-transition="1000ms linear" -exact-exit-animation="leave 400ms linear both"
       view testId="sibling" width=50 height=30 flex-shrink=0 background-color="#0000ff" -exact-layout-transition="1000ms linear"
 "##;

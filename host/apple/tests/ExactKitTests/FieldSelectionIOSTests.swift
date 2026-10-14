@@ -32,6 +32,168 @@ final class FieldSelectionIOSTests: XCTestCase {
         return p
     }
 
+    func testCancelableBeforeInputAndCaretChange() throws {
+        let p = presenter()
+        for id: UInt32 in [2, 3] {
+            let node = try XCTUnwrap(p.views[id])
+            node.handlers.formUnion(["selectionchange", "beforeinput"])
+            var edits: [FieldInput] = [], changes: [FieldSelection] = []
+            p.fieldSelections.onBeforeInput = { view, _, _, edit in
+                if view == id { edits.append(edit); p.defaultPrevented = true }
+            }
+            p.fieldSelections.onChange = { view, _, selection in if view == id { changes.append(selection) } }
+            let editor: UIView & UITextInput = try XCTUnwrap((node.textArea as (UIView & UITextInput)?) ?? node.field)
+            editor.becomeFirstResponder()
+            p.fieldSelections.setSelectionRange([id == 2 ? "editor" : "line", 2, 2])
+            let deadline = Date().addingTimeInterval(2)
+            while changes.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+            XCTAssertEqual(changes.last?.start, 2)
+            editor.insertText("X")
+            XCTAssertEqual(node.fieldText, "hello")
+            XCTAssertEqual(edits.last?.inputType, "insertText")
+            XCTAssertEqual(edits.last?.data, "X")
+            XCTAssertEqual(edits.last?.cancelable, true)
+            // The XCTest host has no pasteboard permission. Deliver UIKit's
+            // resolved string to its registered paste delegate.
+            let supporting = try XCTUnwrap(editor as? UITextPasteConfigurationSupporting)
+            XCTAssertTrue(supporting.pasteDelegate === node)
+            _ = node.textPasteConfigurationSupporting(supporting, performPasteOf: NSAttributedString(string: "PASTE"), to: try XCTUnwrap(editor.selectedTextRange))
+            XCTAssertEqual(node.fieldText, "hello", "paste: field \(id)")
+            XCTAssertEqual(edits.last?.inputType, "insertFromPaste", "field \(id)")
+            XCTAssertEqual(edits.last?.data, "PASTE", "field \(id)")
+            editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0))
+            XCTAssertTrue(node.fieldText.contains("あ"))
+            XCTAssertEqual(edits.last?.inputType, "insertCompositionText")
+            XCTAssertEqual(edits.last?.cancelable, false)
+            editor.unmarkText()
+            editor.resignFirstResponder()
+            p.fieldSelections.onBeforeInput = nil
+        }
+    }
+
+    func testSearchClearButtonIsCancelable() throws {
+        let p = presenter()
+        let node = try XCTUnwrap(p.views[3])
+        node.applyProps(set: ["type": "search"], clear: [])
+        node.handlers.insert("beforeinput")
+        let editor = try XCTUnwrap(node.field)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        var edits: [FieldInput] = []
+        var prevent = true
+        p.fieldSelections.onBeforeInput = { _, value, _, edit in
+            XCTAssertEqual(value, "hello")
+            edits.append(edit)
+            p.defaultPrevented = prevent
+        }
+        // UIKit's clear button asks this optional delegate, not shouldChangeCharacters.
+        let allowed = editor.delegate?.textFieldShouldClear?(editor) ?? true
+        if allowed { editor.text = ""; node.fieldChanged() }
+        XCTAssertFalse(allowed)
+        XCTAssertEqual(editor.text, "hello")
+        XCTAssertEqual(edits.last?.inputType, "deleteContentBackward")
+        XCTAssertNil(edits.last?.data)
+        XCTAssertEqual(edits.last?.cancelable, true)
+        editor.text = "hello"
+        prevent = false
+        XCTAssertTrue(editor.delegate?.textFieldShouldClear?(editor) ?? true)
+        XCTAssertEqual(edits.count, 2)
+        var values: [String] = []
+        p.onInput = { _, value in values.append(value) }
+        editor.text = ""
+        node.fieldChanged()
+        XCTAssertEqual(values, [""])
+        XCTAssertEqual(p.fieldSelections.input(node.id)?.inputType, "deleteContentBackward")
+        editor.resignFirstResponder()
+        p.fieldSelections.onBeforeInput = nil
+    }
+
+    func testResolvedPasteIsCancelableForEveryPlainInputType() throws {
+        let p = presenter()
+        let node = try XCTUnwrap(p.views[3])
+        node.handlers.insert("beforeinput")
+        var edits: [FieldInput] = []
+        p.fieldSelections.onBeforeInput = { _, _, _, edit in
+            edits.append(edit)
+            p.defaultPrevented = edit.inputType == "insertFromPaste"
+        }
+        let editor = try XCTUnwrap(node.field)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        for type in ["text", "search", "url", "tel", "password", "email", "number", "custom"] {
+            node.applyProps(set: ["type": type], clear: [])
+            let pasted = type == "number" ? "123" : "a@b.com"
+            edits.removeAll()
+            XCTAssertTrue(editor.pasteDelegate === node, type)
+            let range = try XCTUnwrap(editor.selectedTextRange)
+            _ = editor.pasteDelegate?.textPasteConfigurationSupporting?(editor, performPasteOf: NSAttributedString(string: pasted), to: range)
+            XCTAssertEqual(edits.last?.inputType, "insertFromPaste", type)
+            XCTAssertEqual(edits.last?.data, pasted, type)
+            XCTAssertEqual(editor.text, "hello", type)
+        }
+        editor.resignFirstResponder()
+        p.fieldSelections.onBeforeInput = nil
+    }
+
+    func testHeaderSearchCancelsEditsAndReportsItsLiveCaret() throws {
+        let p = presenter()
+        let node = try XCTUnwrap(p.views[3])
+        node.applyProps(set: ["type": "search"], clear: [])
+        node.handlers.formUnion(["beforeinput", "selectionchange"])
+        let search = HeaderSearch(host: p.navigation)
+        search.field = node
+        let bar = search.controller.searchBar
+        bar.frame = CGRect(x: 0, y: 180, width: 350, height: 60)
+        window.addSubview(bar)
+        bar.text = "hello"
+        let editor = bar.searchTextField
+        XCTAssertTrue(editor.becomeFirstResponder())
+        var edits: [FieldInput] = [], changes: [FieldSelection] = []
+        p.fieldSelections.onBeforeInput = { _, value, selection, edit in
+            XCTAssertEqual(value, "hello")
+            XCTAssertEqual(selection.start, 2)
+            edits.append(edit)
+            p.defaultPrevented = true
+        }
+        p.fieldSelections.onChange = { _, value, selection in
+            XCTAssertEqual(value, "hello")
+            changes.append(selection)
+        }
+        let caret = try XCTUnwrap(editor.position(from: editor.beginningOfDocument, offset: 2))
+        editor.selectedTextRange = editor.textRange(from: caret, to: caret)
+        drainSelectTasks()
+        XCTAssertEqual(changes.last?.start, 2)
+        // Ask the real field delegate, as UIKit does before keyboard replacement.
+        let range = NSRange(location: 2, length: 0)
+        let allowed = editor.delegate?.textField?(editor, shouldChangeCharactersIn: range, replacementString: "X") ?? true
+        if allowed { editor.insertText("X") }
+        XCTAssertFalse(allowed)
+        XCTAssertEqual(editor.text, "hello")
+        XCTAssertEqual(edits.last?.inputType, "insertText")
+        XCTAssertEqual(edits.last?.data, "X")
+        XCTAssertFalse(editor.delegate?.textFieldShouldClear?(editor) ?? true)
+        XCTAssertEqual(edits.last?.inputType, "deleteContentBackward")
+        XCTAssertTrue(editor.pasteDelegate === node)
+        _ = editor.pasteDelegate?.textPasteConfigurationSupporting?(editor, performPasteOf: NSAttributedString(string: "PASTE"), to: try XCTUnwrap(editor.selectedTextRange))
+        XCTAssertEqual(editor.text, "hello")
+        XCTAssertEqual(edits.last?.inputType, "insertFromPaste")
+        p.fieldSelections.onBeforeInput = nil
+        p.fieldSelections.onChange = nil
+        var values: [String] = []
+        p.onInput = { _, value in values.append(value) }
+        // UISearchTextField's programmatic insertText does not ask its delegate.
+        // Deliver the keyboard's permission callback before applying the allowed edit.
+        XCTAssertTrue(editor.delegate?.textField?(editor, shouldChangeCharactersIn: range, replacementString: "Z") ?? true)
+        editor.insertText("Z")
+        search.updateSearchResults(for: search.controller)
+        XCTAssertEqual(editor.text, "heZllo")
+        XCTAssertEqual(values, ["heZllo"])
+        XCTAssertEqual(p.fieldSelections.input(node.id)?.inputType, "insertText")
+        search.field = nil
+        XCTAssertNil(node.headerField)
+        editor.resignFirstResponder()
+        p.fieldSelections.onBeforeInput = nil
+        p.fieldSelections.onChange = nil
+    }
+
     func testATextViewTakesTheScriptsRangeAndTypingReportsTheCaret() throws {
         let p = presenter()
         let editor = try XCTUnwrap(p.views[2]?.textArea)

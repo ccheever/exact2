@@ -150,7 +150,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.title), ["Remove", "Cancel"])
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         XCTAssertEqual(p.menus.observation()?["presentation"] as? String, "alert")
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         let box = alert.view.convert(alert.view.bounds, to: nil)
         print("alert: \(box) in \(window!.bounds)")
@@ -217,7 +217,8 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .default, .default, .cancel])
         let compact = controller.traitCollection.horizontalSizeClass != .regular
         XCTAssertEqual(p.menus.observation()?["presentation"] as? String, compact ? "sheet" : "popover")
-        try XCTSkipUnless(scene && compact, "an unanchored sheet on a compact screen in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
+        try XCTSkipUnless(compact, "an unanchored sheet is on a compact screen")
         XCTAssertNil(alert.popoverPresentationController?.sourceView, "not anchored at its invoker")
         settle { !p.menus.inTransition }
         XCTAssertTrue(alert.actions.last.map { $0.style == .cancel } == true)
@@ -240,7 +241,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertTrue(p.menus.isOpen(try XCTUnwrap(p.views[2])))
         p.dialogCommand("showModal", "confirm")
         XCTAssertTrue(controller.presentedViewController === alert, "showModal on an open one does nothing")
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         try choose(alert.actions[0])
         settle { p.menus.observation() == nil }
@@ -306,7 +307,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
         XCTAssertTrue(try counts(session).hasPrefix("count 1"), "nothing cleared before the choice")
         XCTAssertTrue(p.menus.observation()?["source"] is NSNull, "raised by an action, not an invoker")
-        try XCTSkipUnless(Self.scene, "a presentation completes only in a scene's window")
+        guard Self.scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         // The agent's activation of the alert's action, by its node.
         XCTAssertEqual(p.menus.activate(try node(session, "clear-confirm-clear")), true)

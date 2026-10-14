@@ -113,12 +113,12 @@ impl Asm {
         self.op(Opcode::LoadParam, &[Arg::U16(i)])
     }
 
-    /// Push the `each` item `depth` scopes out.
+    /// Push the `for` item `depth` scopes out.
     pub fn load_item(&mut self, depth: u16) -> &mut Self {
         self.op(Opcode::LoadItem, &[Arg::U16(depth)])
     }
 
-    /// Push the position of the `each` row `depth` scopes out.
+    /// Push the position of the `for` row `depth` scopes out.
     pub fn load_index(&mut self, depth: u16) -> &mut Self {
         self.op(Opcode::LoadIndex, &[Arg::U16(depth)])
     }

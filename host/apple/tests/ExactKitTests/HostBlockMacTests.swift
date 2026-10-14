@@ -41,7 +41,7 @@ final class HostBlockMacTests: XCTestCase {
     component Proof
       state rows = [0, 1]
       action more
-        rows = concat(rows, [length(rows)])
+        rows = rows.concat([rows.length])
       view
         column testId="page" width="100%" height="100%"
           text "Behind the panes" testId="title"
@@ -60,7 +60,7 @@ final class HostBlockMacTests: XCTestCase {
                 box width=120 height=30 background-color="#34a853"
               box press=more testId="more" height=44
                 text "More"
-              each i in rows key=i
+              for i in rows key=i
                 row height=44
                   text `Row ${i}`
           text "Footer" testId="footer"

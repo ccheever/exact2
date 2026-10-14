@@ -19,7 +19,7 @@ shape Delivery
 shape Hud
   score: number
   label: string
-  tags: list<string>
+  tags: string[]
 component Locale
   resource time = exactTime() as shape Time
   resource page = exactPage() as shape Page
@@ -37,6 +37,6 @@ component Locale
       text `${time.locale} ${time.resolvedLocale}` testId="time"
       text `${page.visibilityState} ${page.onLine} ${page.canShare}` testId="page"
       text `${delivery.stream} ${delivery.seq} ${delivery.staged} [${delivery.sunset}]` testId="delivery"
-      text `${hud.score} [${hud.label}] ${length(hud.tags)}` testId="hud"
+      text `${hud.score} [${hud.label}] ${hud.tags.length}` testId="hud"
       button press=more testId="more"
         text t("more")

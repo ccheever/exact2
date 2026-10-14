@@ -472,7 +472,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         ]
         for (alignment, direction, expected) in cases {
             p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": alignment, "direction": direction,
-                               "padding_left": 17.0, "padding_right": 29.0, "padding_top": 3.0, "padding_bottom": 7.0]]]))
+                               "padding_left": 17.0, "padding_right": 29.0, "padding_top": 3.0, "padding_bottom": 7.0]],
+                               contentOp(3, 320, Double(node.bounds.height), padding: [3, 29, 7, 17])]))
             let content = node.contentBox()
             XCTAssertEqual(content.minX, 17)
             XCTAssertEqual(content.maxX, 291)
@@ -638,10 +639,10 @@ final class NativeButtonsIOSTests: XCTestCase {
         faces[2]?.rows.button = ["padding_left": 20]
         let p = presenter(native(2) + [["op": "roots", "ids": [2]]])
         p.buttonFace = { faces[$0] ?? ButtonFace() }
-        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [20.0, 0.0, 100.0, 34.0]]]))
+        p.apply(wireBatch([contentOp(2, 120, 34, padding: [0, 0, 0, 20], button: true)]))
         XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 20)
         faces[2]?.rows.button = ["padding_left": 10]
-        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [10.0, 0.0, 110.0, 34.0]]]))
+        p.apply(wireBatch([contentOp(2, 120, 34, padding: [0, 0, 0, 10], button: true)]))
         XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 10)
     }
 

@@ -431,6 +431,12 @@ pub(super) fn unknown_function(
              root component, with a shape S of the fields you read, and read `r.field`"
         ));
     } else if let Some(candidate) = similar_function(name, scope, shapes) {
+        // A method's name is offered as the method (LLP 1116.015 D2).
+        let candidate = match candidate {
+            "length" => "x.length".to_string(),
+            c if contract_syntax::idioms::is_method(c) => format!("x.{c}(…)"),
+            c => c.to_string(),
+        };
         message.push_str(&format!("; did you mean `{candidate}`?"));
     }
     TypeError {

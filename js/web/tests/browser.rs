@@ -25,7 +25,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !Path::new(&chrome).exists() {
-        eprintln!("browser module sweep unavailable: set CHROME");
+        missing("chrome", "browser module sweep unavailable: set CHROME");
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -1067,7 +1067,7 @@ fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !Path::new(&chrome).exists() {
-        eprintln!("browser storage sweep unavailable: set CHROME");
+        missing("chrome", "browser storage sweep unavailable: set CHROME");
         return;
     }
     let result = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
@@ -1230,3 +1230,14 @@ try {
   process.kill(-child.pid,'SIGKILL');await exited;server.closeAllConnections();await new Promise(resolve=>server.close(resolve));rmSync(profile,{recursive:true,force:true,maxRetries:3,retryDelay:100});
 }
 "#;
+
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
+fn missing(kind: &str, why: &str) {
+    assert_ne!(
+        std::env::var("EXACT_REQUIRED").as_deref(),
+        Ok("1"),
+        "missing {kind}: {why}"
+    );
+    eprintln!("SKIP missing {kind}: {why}");
+}

@@ -90,7 +90,7 @@ fn a_row_has_the_platforms_separator_under_it_unless_its_author_wrote_that_edge(
 #[test]
 fn a_windowed_lists_rows_are_its_wrappers() {
     let r = boot(
-        "list testId=\"it\" virtualized=true estimated-item-height=40 height=400\n  each n in [\"a\", \"b\", \"c\"] key=n\n    text n border-bottom=(n == \"b\" ? \"1px solid red\" : \"none\") testId=`row-${n}`",
+        "list testId=\"it\" virtualized=true estimated-item-height=40 height=400\n  for n in [\"a\", \"b\", \"c\"] key=n\n    text n border-bottom=(n == \"b\" ? \"1px solid red\" : \"none\") testId=`row-${n}`",
     );
     let k = r.kernel();
     let list = k.node(id(&r, "it")).unwrap();
@@ -107,7 +107,7 @@ fn a_windowed_lists_rows_are_its_wrappers() {
         assert!(!k.row_separator(wrapper(name)), "{name}");
     }
     let plain = boot(
-        "list testId=\"it\" virtualized=true estimated-item-height=40 height=400\n  each n in [\"a\", \"b\", \"c\"] key=n\n    text n testId=`row-${n}`",
+        "list testId=\"it\" virtualized=true estimated-item-height=40 height=400\n  for n in [\"a\", \"b\", \"c\"] key=n\n    text n testId=`row-${n}`",
     );
     let k = plain.kernel();
     let wrapper = |name: &str| k.node(id(&plain, name)).unwrap().parent.unwrap();
@@ -122,7 +122,7 @@ fn a_windowed_lists_rows_are_its_wrappers() {
 fn a_list_whose_rows_go_down_the_page_is_marked() {
     assert!(marked("list testId=\"it\"\n  text \"a\""));
     assert!(marked(
-        "list testId=\"it\" virtualized=true estimated-item-height=40 height=200\n  each n in [\"a\", \"b\"] key=n\n    text n"
+        "list testId=\"it\" virtualized=true estimated-item-height=40 height=200\n  for n in [\"a\", \"b\"] key=n\n    text n"
     ));
     assert!(marked(
         "list testId=\"it\" display=\"flex\" flex-direction=\"column\"\n  text \"a\""
@@ -130,7 +130,7 @@ fn a_list_whose_rows_go_down_the_page_is_marked() {
     assert!(marked("list testId=\"it\" class=Down\n  text \"a\""));
     // A component's root is the row; an empty state in the list is a row too.
     assert!(marked(
-        "list testId=\"it\"\n  each n in [\"a\", \"b\"] key=n\n    Row(name=n)\n  when wide\n    text \"none\""
+        "list testId=\"it\"\n  for n in [\"a\", \"b\"] key=n\n    Row(name=n)\n  if wide\n    text \"none\""
     ));
 }
 
@@ -156,7 +156,7 @@ fn a_list_laid_out_sideways_is_a_carousel() {
         "list testId=\"it\" display=\"grid\" grid-template-columns=\"1fr 1fr\"\n  text \"a\""
     ));
     assert!(!marked(
-        "list testId=\"it\" virtualized=true display=\"flex\" height=120 estimated-item-width=120\n  each n in [\"a\", \"b\"] key=n\n    text n"
+        "list testId=\"it\" virtualized=true display=\"flex\" height=120 estimated-item-width=120\n  for n in [\"a\", \"b\"] key=n\n    text n"
     ));
     assert!(!marked(
         "list testId=\"it\" height=120 overflow-x=\"scroll\" overflow-y=\"hidden\"\n  text \"a\""
@@ -171,7 +171,7 @@ fn a_list_laid_out_sideways_is_a_carousel() {
 fn a_list_of_sections_keeps_its_rows() {
     assert!(!marked("list testId=\"it\"\n  section\n    text \"a\""));
     assert!(!marked(
-        "list testId=\"it\"\n  each n in [\"a\", \"b\"] key=n\n    section\n      text n"
+        "list testId=\"it\"\n  for n in [\"a\", \"b\"] key=n\n    section\n      text n"
     ));
     // Through a component too: the inliner has put its root in the list.
     assert!(!marked("list testId=\"it\"\n  Part()"));

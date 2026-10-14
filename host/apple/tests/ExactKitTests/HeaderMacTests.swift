@@ -658,9 +658,9 @@ final class HeaderMacTests: XCTestCase {
         nav = back(nav)
       view
         main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%" position="relative"
-          each e in stack(nav) key=e.id
+          for e in stack(nav) key=e.id
             column navigationKey=`${e.id}` position="absolute" inset=0 testId=`route-${e.name}`
-              when e.name == "library"
+              if e.name == "library"
                 header display="flex" align-items="center" padding="8px 16px" testId="header"
                   text "Library" role="heading" aria-level=1 flex=1
                   button press=add aria-label="Add Book" testId="add"
@@ -669,7 +669,7 @@ final class HeaderMacTests: XCTestCase {
                   button press=open testId="open"
                     text "Open"
                   text `added ${added}` testId="added"
-              when e.name == "book"
+              if e.name == "book"
                 header display="flex" align-items="center" padding="8px 16px" testId="book-header"
                   button id="back" press=back testId="back"
                     text "Back"

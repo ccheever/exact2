@@ -40,7 +40,7 @@ fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<Option<&'a str>> {
 }
 
 /// Whether any node a list holds directly, through the regions that only
-/// choose or repeat (`each`, `when`, `match`), is a `section`.
+/// choose or repeat (`for`, `if`, `match`), is a `section`.
 fn sectioned(children: &[Node]) -> bool {
     children.iter().any(|child| match child {
         Node::Element { tag, .. } => tag == "section",

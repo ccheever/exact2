@@ -1366,7 +1366,7 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                svg_props(kernel, &node, &mut props);
+                svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);

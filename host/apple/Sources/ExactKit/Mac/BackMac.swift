@@ -20,7 +20,10 @@ extension NavigationHost {
         let stack = selection.stack[...selection.at].compactMap { presenter.views[$0] }
         guard stack.count == selection.at + 1, let route = stack.last else { return nil }
         let owners = NavigationRules.segments(presentations: stack.map { $0.props["navigationPresentation"] })
-        return selection.at > (owners.last?.lowerBound ?? 0) ? (root, route) : nil
+        // In a split (LLP 1115.002 D4) the detail's pane begins at a row's
+        // detail, which was not pushed: Back leads from what is above it.
+        let lower = owners.last?.lowerBound ?? 0
+        return selection.at > (lower == 0 ? split.base : lower) ? (root, route) : nil
     }
 
     /// The Back controls a route declares: the live elements in it whose
@@ -51,10 +54,16 @@ extension NavigationHost {
     /// Safari's is, so the title bar is the same on every route. The author
     /// hid the bar, not the way back: Go ▸ Back, ⌘[ and the swipe go from a
     /// route with no bar as from any other.
+    ///
+    /// In a window that shows a list beside its detail (LLP 1115.002 D4, §5
+    /// Q10) the chevron comes with a push inside the detail and goes with
+    /// it, as SwiftUI's does: a list beside its detail has no Back to show,
+    /// and a chevron that is never enabled is not in a hand-built window.
     var backInToolbar: Bool {
         guard hasStack else { return false }
         guard let selection, selection.stack.indices.contains(selection.at) else { return true }
-        return presenter.views[selection.stack[selection.at]]?.props["navigationBar"] != "none"
+        guard presenter.views[selection.stack[selection.at]]?.props["navigationBar"] != "none" else { return false }
+        return !split.active || pushedRoute != nil
     }
 
     /// How Back goes from the selected route, resolved at use as iOS's is
@@ -112,8 +121,12 @@ extension NavigationHost {
             if presenter.dialogs.active != nil || presenter.viewport.window?.attachedSheet != nil { return ("route", "a dialog or a sheet is open over the page") }
             return ("route", goBack() ? "" : "its navigationBack control is disabled or has no press handler")
         }
-        guard let (_, route) = sheetRoute else { return nil }
-        return ("sheet", dismiss(route) ?? "")
+        if let (_, route) = sheetRoute { return ("sheet", dismiss(route) ?? "") }
+        // A split's detail has no Back (LLP 1115.002 D4). A person leaves
+        // it by taking the selection off its row, and the pane's routes go
+        // as their stack goes back: that is the way back from it.
+        guard split.active, split.shown?.detail != nil else { return nil }
+        return ("route", split.closeDetail() ? "" : "the detail's stack did not go back: its navigationBack control is disabled or has no press handler")
     }
 
     /// The platform's dismissal of a modal route: Escape or Command-period

@@ -246,6 +246,15 @@ impl Lowerer<'_> {
             let rows = self.b.constant(&Value::Bool(true));
             bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
         }
+        // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
+        if disabled_look::styled(expanded) {
+            let styled = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(
+                exact_kernel::PropId::DisabledStyled,
+                styled,
+                IMPLIED,
+            ));
+        }
         self.link_color(
             tag,
             parent_tag,

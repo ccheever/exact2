@@ -51,13 +51,15 @@ package enum PageFacts {
     }
 
     /// Nothing of the app can be seen: iOS in the background; macOS hidden,
-    /// or every window fully occluded. A window behind another is visible.
+    /// or every window on screen or in the Dock minimized or fully occluded
+    /// (Chrome reads a window minimized with ⌘M as hidden; AppKit's
+    /// `isVisible` is false for it). A window behind another is visible.
     static var hidden: Bool {
         if substituted { return agent.hidden }
         #if os(macOS)
         if NSApp.isHidden { return true }
-        let windows = NSApp.windows.filter { $0.isVisible }
-        return !windows.isEmpty && windows.allSatisfy { !$0.occlusionState.contains(.visible) }
+        let windows = NSApp.windows.filter { $0.isVisible || $0.isMiniaturized }
+        return !windows.isEmpty && windows.allSatisfy { $0.isMiniaturized || !$0.occlusionState.contains(.visible) }
         #else
         return AppBackground.now
         #endif
@@ -159,10 +161,13 @@ package enum PageFacts {
     static func observe(_ changed: @escaping () -> Void) -> [NSObjectProtocol] {
         if !substituted { startMonitor() }
         #if os(macOS)
-        // Focus (#114): any window's key change or the app's activation; each
-        // session reads its own window, and the same facts again commit nothing.
+        // Visibility: hiding, occlusion, and a minimize or restore, which
+        // need not change the occlusion. Focus (#114): any window's key change
+        // or the app's activation; each session reads its own window, and the
+        // same facts again commit nothing.
         let workspace = [NSApplication.didHideNotification, NSApplication.didUnhideNotification,
-                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didBecomeKeyNotification,
+                         NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
+                         NSWindow.didDeminiaturizeNotification, NSWindow.didBecomeKeyNotification,
                          NSWindow.didResignKeyNotification, NSApplication.didBecomeActiveNotification,
                          NSApplication.didResignActiveNotification, agentChanged]
         #else

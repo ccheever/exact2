@@ -112,9 +112,9 @@ package protocol Canvas2DCanvases: AnyObject {
     var onScale: ((CGFloat) -> Void)? { get set }
     var loadingCount: Int { get }
     func apply(_ id: UInt32, _ payload: [String: Any], layer parent: CALayer?)
-    /// Moves the bitmap of `id` to `origin` in its view, where layout put
-    /// the content box without resizing it, which no draw places.
-    func move(_ id: UInt32, to origin: CGPoint)
+    /// Places the bitmap of `id` at `box`, its view's content box, clipped
+    /// to the content edge's `radii`; every later bitmap shows there too.
+    func place(_ id: UInt32, in box: CGRect, radii: [CGSize])
     func forget(_ id: UInt32)
     func load(_ srcs: [String])
     func waitForReplays(timeout: TimeInterval)
@@ -213,7 +213,7 @@ final class NoCanvas2D: Canvas2DCanvases {
     var onScale: ((CGFloat) -> Void)?
     var loadingCount: Int { 0 }
     func apply(_ id: UInt32, _ payload: [String: Any], layer parent: CALayer?) {}
-    func move(_ id: UInt32, to origin: CGPoint) {}
+    func place(_ id: UInt32, in box: CGRect, radii: [CGSize]) {}
     func forget(_ id: UInt32) {}
     func load(_ srcs: [String]) {}
     func waitForReplays(timeout: TimeInterval) {}

@@ -5,19 +5,19 @@ shape Item
   on: bool
 
 component App
-  resource a = items(1) as shape list<Item>
-  resource b = items(2) as shape list<Item>
-  resource c = items(3) as shape list<Item>
-  derive ab = length(a) >= length(b) ? a : b
-  derive items = length(ab) >= length(c) ? ab : c
+  resource a = items(1) as shape Item[]
+  resource b = items(2) as shape Item[]
+  resource c = items(3) as shape Item[]
+  derive ab = a.length >= b.length ? a : b
+  derive items = ab.length >= c.length ? ab : c
   state onlyOn = false
-  derive shown = filter(items, it => not onlyOn or it.on)
+  derive shown = items.filter(it => not onlyOn or it.on)
   action toggle
     onlyOn = not onlyOn
   view
     column
       button "toggle" press=toggle testId="toggle"
-      each it, i in shown key=`${it.id}/${it.on}`
+      for it, i in shown key=`${it.id}/${it.on}`
         Row(index=i)
 
 component Row
