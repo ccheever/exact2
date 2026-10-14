@@ -36,7 +36,7 @@ const frames: Record<string, { y: number; height: number }> = {
 };
 async function hoverRig() {
   const tipRow = await contractFn('sidebar.contract', 'sidebarTipRow', ['id'], { indexOf: (text: string, part: string) => text.indexOf(part) });
-  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '', outsideDown: false, outsidePresses: 0 };
+  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '', outsideDown: false, outsidePresses: 0, citeFor: '' };
   const root: Env = { sidebarHoverId: '' };
   const rootScope = { data: { sidebar: { searching: false } } };
   // The host's events, as the window's `hover=hoverCard(key)` and the presses' `sidebarHover("", false)` call them.
