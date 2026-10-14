@@ -9,6 +9,23 @@ use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+/// Whether this run has a canvas to drive. A stub module (built without the
+/// Metal toolchain) or no GPU is a missing prerequisite: skipped, and a
+/// failure under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
+fn canvas_or_skip() -> bool {
+    if !ecg_canvas_new(1, 1, 1.0).is_null() {
+        return true;
+    }
+    let why = if ecg_abi() == 0 {
+        "missing metal: exact-canvas-vello was built without the Metal toolchain (xcodebuild -downloadComponent MetalToolchain)"
+    } else {
+        "missing gpu: ecg_canvas_new found no device"
+    };
+    assert_ne!(std::env::var("EXACT_REQUIRED").as_deref(), Ok("1"), "{why}");
+    eprintln!("SKIP {why}");
+    false
+}
+
 struct Slot {
     canvas: *mut c_void,
     surfaces: [IOSurfaceRef; 2],
@@ -94,8 +111,7 @@ fn draw(ctx: &Context2d, seed: &mut u64, w: f64, h: f64) {
 
 #[test]
 fn eight_threads_hammer_the_abi() {
-    if ecg_canvas_new(1, 1, 1.0).is_null() {
-        eprintln!("no GPU: skipped");
+    if !canvas_or_skip() {
         return;
     }
     let slots: Arc<Vec<Mutex<Option<Slot>>>> =
@@ -198,8 +214,7 @@ fn eight_threads_hammer_the_abi() {
 /// once (the host shows the target right after the call).
 #[test]
 fn every_replay_lands_in_its_target_before_it_returns() {
-    if ecg_canvas_new(1, 1, 1.0).is_null() {
-        eprintln!("no GPU: skipped");
+    if !canvas_or_skip() {
         return;
     }
     let bad = Arc::new(std::sync::atomic::AtomicUsize::new(0));

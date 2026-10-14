@@ -9,13 +9,28 @@ use crate::{block_on, load_gpu, Frame, Gpu, Surface};
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Whether a missing prerequisite fails a test rather than skipping it:
+/// `EXACT_REQUIRED=1`, which the async lane sets (scripts/coverage.mjs).
+pub fn required() -> bool {
+    std::env::var("EXACT_REQUIRED").as_deref() == Ok("1")
+}
+
 /// Skip only a classified absent adapter; device and configuration failures fail tests.
+/// Under [`required`] an absent adapter fails too.
 pub fn device_or_skip<T>(result: Result<T, String>) -> Option<T> {
+    device_or(result, required())
+}
+
+/// [`device_or_skip`] with the policy given.
+pub fn device_or<T>(result: Result<T, String>, required: bool) -> Option<T> {
     match result {
         Ok(gpu) => Some(gpu),
-        Err(reason) if reason.starts_with("no adapter:") => {
-            eprintln!("SKIP GPU test: {reason}");
+        Err(reason) if reason.starts_with("no adapter:") && !required => {
+            eprintln!("SKIP missing gpu: {reason}");
             None
+        }
+        Err(reason) if reason.starts_with("no adapter:") => {
+            panic!("missing gpu: {reason} (EXACT_REQUIRED=1)")
         }
         Err(reason) => panic!("GPU device request failed: {reason}"),
     }

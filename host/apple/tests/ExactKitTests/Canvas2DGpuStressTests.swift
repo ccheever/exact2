@@ -49,7 +49,7 @@ final class Canvas2DGpuStressTests: XCTestCase {
     }
 
     func testPresentersReplayConcurrentlyThroughOneModule() throws {
-        guard Canvas2DGpuModule.shared != nil else { throw XCTSkip("no Canvas 2D GPU module (EXACT_CANVAS_GPU_DYLIB)") }
+        guard Canvas2DGpuModule.shared != nil else { throw missing("module", "no Canvas 2D GPU module (EXACT_CANVAS_GPU_DYLIB)") }
         let presenters = 4, canvases = 8, rounds = 120
         let hosts = (0..<presenters).map { _ in Canvas2DHost() }
         let parents = (0..<presenters).map { _ in CALayer() }

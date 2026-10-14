@@ -257,8 +257,9 @@ final class NavigationBarIOSTests: XCTestCase {
     }
 
     func testHeaderOptOutRetiresAnActiveSearchProjection() throws {
-        try XCTSkipUnless(UIApplication.shared.connectedScenes.contains { $0 is UIWindowScene },
-                          "a search presentation completes only in a scene’s window")
+        guard UIApplication.shared.connectedScenes.contains(where: { $0 is UIWindowScene }) else {
+            throw missing("scene", "a search presentation completes only in a scene’s window")
+        }
         let session = try fixture("authored-header-search", module: false)
         let p = session.presenter
         // Isolate search retirement from the header-segment appearance regression.
@@ -324,7 +325,7 @@ final class NavigationBarIOSTests: XCTestCase {
         let header = try node(session, "header-home")
         XCTAssertTrue(header.isHidden, "the bar shows the header: its authored button is hidden")
         let reply = Agent(session: session).aim(["id": Int(compose.id), "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let w = try XCTUnwrap(aim["window"] as? [Double])
         let point = CGPoint(x: w[0], y: w[1])
