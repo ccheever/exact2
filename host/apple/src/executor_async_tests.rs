@@ -3,6 +3,7 @@
 //! ordered slot at the terminal transition, the later-of release, a parked
 //! upload. The rest of the executor's suite runs on this core too
 //! (`the_suite_passes_on_the_asynchronous_core`).
+use super::tests::one_at_a_time;
 use super::*;
 use ibex2::stdlib::fetch::Headers;
 use ibex2::stdlib::fetch_async::{Exchange, Head, HopMetrics, HopRequest, Sink};
@@ -403,6 +404,7 @@ fn upload(url: &str, path: &str, ceiling: u32) -> Request {
 /// later, and starts once the bytes it waits for drain.
 #[test]
 fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 20 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -460,6 +462,7 @@ fn a_parked_upload_starts_when_its_bytes_drain_and_is_not_crowded_out() {
 /// beside it, so it is refused at its park rather than left waiting.
 #[test]
 fn an_upload_that_cannot_fit_beside_the_requests_behind_it_is_refused() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 60 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -649,6 +652,7 @@ fn a_refused_scope_never_runs_its_closure() {
 /// times out there returns its file's charge: no buffer was ever lent.
 #[test]
 fn an_upload_that_times_out_before_its_exchange_starts_returns_its_charge() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/small.bin"), vec![7u8; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -706,6 +710,7 @@ fn transport_admission_refusal_releases_the_lane_and_its_accounting() {
 
 #[test]
 fn portable_upload_reserves_the_blocking_workers_additional_copy() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/large.bin"), vec![7u8; 40 << 20]).unwrap();
     let grants = "net.fetch https://*.example.test\nfs.read app:/tmp";
@@ -779,6 +784,7 @@ fn a_panicking_transport_releases_its_physical_hold_and_the_lane_survives() {
 #[test]
 fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
     use asynch::ReaderPhase;
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), b"upload").unwrap();
     for phase in [ReaderPhase::Spawn, ReaderPhase::Size, ReaderPhase::Read] {
@@ -830,6 +836,7 @@ fn reader_spawn_failure_and_panics_settle_and_release_the_lane() {
 #[test]
 fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
     use asynch::ReaderPhase;
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 2 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -888,6 +895,7 @@ impl Drop for BlockingDrop {
 
 #[test]
 fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -956,6 +964,7 @@ fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
 
 #[test]
 fn releasing_an_upload_buffer_does_not_refund_its_sending_hop() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/file"), vec![5; 1 << 20]).unwrap();
     let script = Arc::new(Script::default());
@@ -1005,6 +1014,7 @@ fn releasing_an_upload_buffer_does_not_refund_its_sending_hop() {
 
 #[test]
 fn a_parked_upload_behind_an_origin_blocked_head_reserves_its_future_bytes() {
+    let _turn = one_at_a_time();
     let files = Files::new();
     std::fs::write(files.0.join("tmp/big.bin"), vec![7u8; 20 << 20]).unwrap();
     let script = Arc::new(Script::default());

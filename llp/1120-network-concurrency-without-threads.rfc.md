@@ -436,6 +436,12 @@ Each line is a test today. The semantic assertions are kept and run against the 
 - **The executor's suite** runs again on the machine (`the_suite_passes_on_the_asynchronous_core`), and `executor_async_tests.rs` adds the cap, the per-origin pass-over and its h2 lift, the ordered slot at a timeout, the later-of release, a forgotten write, and question 8's park and refusal.
 
 
+Real-file upload tests in the worker and async suites share one test guard,
+matching the process-wide four-reader limit. Otherwise unrelated tests can
+consume that capacity and turn an expected timeout into an admission refusal.
+Each test keeps its own concurrent-reader assertions; other tests run in parallel.
+
+
 There are no shims; each step deletes what it replaces in the executor.
 
 1. **ibex2.**
