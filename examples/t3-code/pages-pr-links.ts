@@ -206,7 +206,11 @@ export function linkedThreadItems(client: T3Client, page: string, query: string)
     row: row({ key: item.value, op: 'thread', arg: focused ? item.threadId : fleetThreadId(item.environmentId, item.threadId), icon: 'message-square', title: item.title, description: item.description }) }));
 }
 
-/** ThreadPicker ("Choose a thread"): the panel's server's open threads, a linked one marked and not chosen again. */
+/**
+ * ThreadPicker ("Choose a thread"): the panel's server's open threads, a linked one marked and not chosen again. Its own
+ * dialog (PullRequestThreadLinks display="picker": max-w-md, no close button; palette.contract PaletteThreadPicker),
+ * the palette's page `pr-link-thread` under the panel `picker`: the palette's query, keys, highlight and Enter.
+ */
 export function threadPickerView(client: T3Client, query: string, busy: boolean): PaletteView {
   const context = stateOf(client).context;
   const environment = context ? prEnvironment(client, context.environmentId) : null;
@@ -219,7 +223,7 @@ export function threadPickerView(client: T3Client, query: string, busy: boolean)
     entry.index = entry.kind === 'disabled' ? -1 : index++; entry.top = top; entry.height = 12 + 20 + (candidate.project ? 16 : 0); top += entry.height;
     return entry;
   });
-  return { ...closedView, open: true, page: 'pr-link-thread', panel: 'list', label: 'Choose a thread', testId: 'pull-request-thread-picker', placeholder: 'Search threads or projects...',
+  return { ...closedView, open: true, page: 'pr-link-thread', panel: 'picker', label: 'Choose a thread', testId: 'pull-request-thread-picker', placeholder: 'Search threads or projects...',
     rows, count: index, autoHighlight: true, empty: rows.length ? '' : 'No active threads found.', enterLabel: 'Select', escapeLabel: 'Close', loading: pending };
 }
 

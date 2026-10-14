@@ -10,7 +10,7 @@ import XCTest
 /// Sanitizer too (`swift test --sanitize=thread --filter SvgFilterLiveTests`).
 class SvgFilterLiveTests: XCTestCase {
     func testManyUpdatesLandTheLatestPicture() throws {
-        guard SvgFilterGPU.metal != nil, SvgFilterMetal.shared != nil else { throw XCTSkip("no Metal") }
+        guard SvgFilterGPU.metal != nil, SvgFilterMetal.shared != nil else { throw missing("metal", "no Metal device or SVG filter library") }
         let sub: [Float] = [-10, -10, 80, 70]
         let saturate: [Float] = [1.6, -0.6, -0.1, 0, 0, -0.2, 1.4, -0.1, 0, 0, -0.2, -0.6, 1.9, 0, 0, 0, 0, 0, 1, 0]
         let program: [Float] = sub + [2] + [0, -1, -3] + sub + [0, 2, 2] + [5, 0, -3] + sub + [0] + saturate

@@ -18,6 +18,7 @@ import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
+import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
@@ -164,6 +165,14 @@ export function legacyProjectOrder(client: T3Client, threadId: string): string[]
 
 const blank = { label: '', color: '', dot: '', pulse: false };
 const pillFields = (status: StatusPill | null) => status ?? blank;
+/** LegacySidebar.tsx's glyph for a thread with no current link: useLinkedThreadPullRequest's pull request (its branch's,
+ * read by its summary; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12), none until the summary arrives. */
+function fallbackPr(client: T3Client, thread: Obj): { prIcon: string; prState: string; prTooltip: string; prPending: boolean } {
+  const pr = branchPullRequest(client, thread);
+  if (!pr) return { prIcon: '', prState: '', prTooltip: '', prPending: false };
+  const state = lifecycle(pr.state, pr.isDraft);
+  return { prIcon: lifecycleIcon(state), prState: state, prTooltip: branchPrTooltip(pr), prPending: false };
+}
 function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Omit<LegacyThreadRow, 'enter'> {
   const id = str(thread.id), title = str(thread.title, 'Untitled thread'), session = sidebarSession(client);
   const status = pillFields(statusOf(client, thread));
@@ -177,9 +186,11 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
     terminalCount: terminalProcessCount(client, id),
     renaming: session.renameId === id, running: !canArchive(thread),
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,
-    prIcon: link ? (snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow') : '', prState: state,
-    prTooltip: link ? (snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`) : '',
-    prPending: !!link && !snapshot, ...portLabels(rowPorts(client, id)),
+    ...(link ? {
+      prIcon: snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow', prState: state,
+      prTooltip: snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`,
+      prPending: !snapshot,
+    } : fallbackPr(client, thread)), ...portLabels(rowPorts(client, id)),
     // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
     worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
     remoteMachine: remote ? (remote === 'desktop' ? 'monitor' : remote) : '', remoteLabel: remote ? str(thread.fleetEnvironmentLabel, 'Remote') : '',

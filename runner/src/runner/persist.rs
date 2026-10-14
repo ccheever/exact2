@@ -141,7 +141,7 @@ fn type_name(plan: &Plan, ty: TypesId) -> String {
         TypeKind::String => "string".into(),
         TypeKind::Bool => "bool".into(),
         TypeKind::Option => format!("option<{}>", elem()),
-        TypeKind::List => format!("list<{}>", elem()),
+        TypeKind::List => format!("{}[]", elem()),
         _ => "value of its type".into(),
     }
 }

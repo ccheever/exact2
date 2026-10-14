@@ -148,7 +148,7 @@ fn every_new_row_and_offsets_update_through_one_commit() {
 #[test]
 fn exclusions_require_their_parent_to_contain_them() {
     for parent in ["", "position=\"static\""] {
-        let source = format!("component App\n  view\n    box\n      box {parent}\n        when true\n          box position=\"absolute\" wrap-flow=\"both\"\n");
+        let source = format!("component App\n  view\n    box\n      box {parent}\n        if true\n          box position=\"absolute\" wrap-flow=\"both\"\n");
         let error = contract::compile(&source).unwrap_err();
         assert!(
             error

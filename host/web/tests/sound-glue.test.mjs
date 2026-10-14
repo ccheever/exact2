@@ -10,6 +10,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { chromium as installed } from '../../../scripts/agent-launch.mjs';
+import { browserMissing } from '../../../scripts/agent-playwright.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const glue = readFileSync(resolve(WEB, 'sound-glue.js'), 'utf8');
@@ -49,6 +51,7 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
 </script>`;
 
 const engines = ['chromium', 'firefox', 'webkit'];
+const engineTest = Object.fromEntries(await Promise.all(engines.map(async e => [e, need(e === 'chromium' ? 'chrome' : e, await browserMissing(e))])));
 
 async function launch(name) {
   const playwright = await import('playwright-core');
@@ -81,9 +84,9 @@ async function serve(session) {
 }
 
 for (const engine of engines) {
-  test(`${engine}: voices render at the frames runner time maps to`, async () => {
+  engineTest[engine](`${engine}: voices render at the frames runner time maps to`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();
@@ -120,9 +123,9 @@ for (const engine of engines) {
     } finally { await b.close(); server.close(); }
   }, 60_000);
 
-  test(`${engine}: a held voice starts once, by the formula or by its own time`, async () => {
+  engineTest[engine](`${engine}: a held voice starts once, by the formula or by its own time`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();
@@ -164,9 +167,9 @@ for (const engine of engines) {
     } finally { await b.close(); server.close(); }
   }, 60_000);
 
-  test(`${engine}: the session, the press, and the drop before activation`, async () => {
+  engineTest[engine](`${engine}: the session, the press, and the drop before activation`, async () => {
     const b = await browser(engine);
-    if (!b) return console.log(`skip: ${engine} is not installed`);
+    if (!b) throw new Error(`${engine} did not launch`);
     const server = await serve();
     try {
       const p = await b.newPage();

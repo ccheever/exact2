@@ -20,7 +20,6 @@ import AppKit
 ///   A wheel, scroll key or press in the transcript cancels a restoration. The motion
 ///   after a gesture's last event (momentum, rows measured as they scroll in) is the
 ///   reader's too: it is committed once quiet, on a press, or when the thread is left.
-/// - A field remounted under the focus (the palette's per-appearance subtrees) keeps its caret.
 /// - Diagnostics: R9_INPUT_LOG=<file> logs presses, ⌘ keys, focus and restorations.
 final class R9Input {
     private let agent: Bool
@@ -49,8 +48,6 @@ final class R9Input {
     }
     func destroy() {
         responder = nil; observedWindow = nil
-        if let selection { NotificationCenter.default.removeObserver(selection) }
-        selection = nil
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
         stopTranscript()
@@ -78,43 +75,10 @@ final class R9Input {
         observeWindow()
     }
 
-    // MARK: A text field remounted under the focus (palette per-scheme subtrees)
-
-    private struct FieldMark { weak var field: NSTextField?; let text: String; let range: NSRange }
-    private var fieldMark: FieldMark?
-    private var selection: NSObjectProtocol?
-    /// Carets carried over to a remounted field (tests read it).
-    private(set) var carried = 0
-
-    /// A field whose subtree remounts (one subtree per appearance) takes the focus again on mount
-    /// (`autofocus`), and AppKit selects all of a field it focuses. When the field that had the
-    /// focus has left the window and the new one holds the same text with all of it selected, the
-    /// old caret and selection come back, so typing goes on where it was.
-    func fieldSelectionChanged(_ editor: NSTextView) {
-        guard editor.isFieldEditor, let field = editor.delegate as? NSTextField else { return }
-        let range = editor.selectedRange(), text = field.stringValue
-        if let mark = fieldMark, mark.field !== field, mark.field?.window == nil, mark.text == text,
-           range.location == 0, range.length == (text as NSString).length, mark.range != range {
-            let restored = NSRange(location: min(mark.range.location, range.length), length: min(mark.range.length, range.length - min(mark.range.location, range.length)))
-            fieldMark = FieldMark(field: field, text: text, range: restored)
-            carried += 1
-            log("field-caret restored=\(restored.location),\(restored.length)")
-            DispatchQueue.main.async { if field.currentEditor() === editor { editor.setSelectedRange(restored) } }
-            return
-        }
-        fieldMark = FieldMark(field: field, text: text, range: range)
-    }
-
     /// Follows the composer's window's first responder (re-attached when the view changes windows).
     func observeWindow() {
         guard let window = composer?.window ?? transcript?.scrollView?.window, window !== observedWindow else { return }
         observedWindow = window
-        if selection == nil {
-            selection = NotificationCenter.default.addObserver(forName: NSTextView.didChangeSelectionNotification, object: nil, queue: nil) { [weak self] note in
-                guard let editor = note.object as? NSTextView, editor.isFieldEditor, editor.window === self?.observedWindow else { return }
-                self?.fieldSelectionChanged(editor)
-            }
-        }
         responder = window.observe(\.firstResponder, options: [.new]) { [weak self] window, _ in
             DispatchQueue.main.async { self?.responderChanged(window) }
         }

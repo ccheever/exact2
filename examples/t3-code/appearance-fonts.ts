@@ -4,6 +4,10 @@
 // Contract follows (app.contract `rootFont`, `setRootFontSize`); the prompt and code sizes stay in px
 // so they do not scale twice. Change from the reference: the input is `unknown` (a stored value
 // may be any JSON); a non-number takes the default, as NaN does there.
+import { bridgeReply, ClientError, type Native } from './protocol';
+import type { T3Client } from './client';
+import { obj } from './domain';
+
 export const MIN_INTERFACE_FONT_SIZE = 12;
 export const MAX_INTERFACE_FONT_SIZE = 20;
 export const DEFAULT_INTERFACE_FONT_SIZE = 16;
@@ -29,4 +33,24 @@ export function clampPromptFontSize(value: unknown): number {
 
 export function clampCodeFontSize(value: unknown): number {
   return clampFontSize(value, MIN_CODE_FONT_SIZE, MAX_CODE_FONT_SIZE, DEFAULT_CODE_FONT_SIZE);
+}
+
+
+// Installed fonts are a native capability; keep the catalog with its client, not across windows/tests.
+export type InstalledFont = { family: string; monospace: boolean };
+const fontCatalogs = new WeakMap<T3Client, Promise<InstalledFont[]>>();
+export async function installedFonts(client: T3Client, native: Native | null | undefined): Promise<InstalledFont[]> {
+  if (!native?.available) return [];
+  const previous = fontCatalogs.get(client);
+  if (previous) return previous;
+  const pending = (async () => {
+    const response = await bridgeReply(native, { op: 'installedFonts', generation: 0 });
+    const fonts = obj(response.value).fonts;
+    if (!response.ok || !Array.isArray(fonts) || !fonts.every(font => typeof obj(font).family === 'string' && typeof obj(font).monospace === 'boolean')) {
+      throw new ClientError('The installed font catalog could not be read.', 'fonts');
+    }
+    return fonts.map(font => ({ family: String(obj(font).family), monospace: obj(font).monospace === true }));
+  })();
+  fontCatalogs.set(client, pending);
+  try { return await pending; } catch (error) { fontCatalogs.delete(client); throw error; }
 }

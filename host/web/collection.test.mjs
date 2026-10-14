@@ -8,10 +8,10 @@ import { Cdp } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { collectionBytes } from './collection-glue.js';
 import { motionBytes } from './motion-glue.js';
+import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const test = unavailable ? (name, ...args) => bunTest.skip(`${name} — ${unavailable}`, ...args) : bunTest;
+const test = need('chrome', unavailable, { test: bunTest });
 let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
   if (unavailable) return;

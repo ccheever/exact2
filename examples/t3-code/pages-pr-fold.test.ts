@@ -36,10 +36,10 @@ describe('the header fold belongs to one pull request', () => {
       lines.forEach((line, index) => {
         if (!/^\s*PrdBody\(/.test(line)) return;
         sites.push(`${file}:${index + 1}`);
-        // The nearest enclosing line (less indented, not a comment) must be `each <k> in [detail.ref] key=<k>`.
+        // The nearest enclosing line (less indented, not a comment) must be `for <k> in [detail.ref] key=<k>`.
         let parent = index - 1;
         while (parent >= 0 && (lines[parent].trim() === '' || lines[parent].trim().startsWith('//') || indent(lines[parent]) >= indent(line))) parent--;
-        const keyed = parent >= 0 && /^\s*each (\w+) in \[detail\.ref\] key=(\w+)$/.exec(lines[parent]);
+        const keyed = parent >= 0 && /^\s*for (\w+) in \[detail\.ref\] key=(\w+)$/.exec(lines[parent]);
         if (!keyed || keyed[1] !== keyed[2]) unkeyed.push(`${file}:${index + 1}`);
       });
     }

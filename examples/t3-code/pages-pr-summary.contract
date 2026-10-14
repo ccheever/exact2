@@ -54,8 +54,8 @@ shape PrCommentCard
   kind: string
   saving: bool
   savedSerial: number
-  reactions: list<PrReactionPill>
-  reacted: list<string>
+  reactions: PrReactionPill[]
+  reacted: string[]
   canReact: bool
   // pr-handoffs-and-quick-actions: the finding its Fix hands over ('' for talk and verdicts).
   fix: string
@@ -65,7 +65,7 @@ shape PrCommentGroup
   filesText: string
   latest: string
   latestTip: string
-  faces: list<PrFace>
+  faces: PrFace[]
   more: number
 shape PrReviewerEntry
   key: string
@@ -87,25 +87,25 @@ shape PrSummaryView
   key: string
   activityPending: bool
   activityError: string
-  reviewers: list<PrReviewerEntry>
+  reviewers: PrReviewerEntry[]
   showLabels: bool
   checksStale: bool
   checksState: string
-  checks: list<PrSummaryCheck>
+  checks: PrSummaryCheck[]
   commentsTitle: string
   truncated: bool
   truncatedText: string
   empty: bool
   activeCount: number
-  newest: list<PrCommentCard>
-  oldest: list<PrCommentCard>
+  newest: PrCommentCard[]
+  oldest: PrCommentCard[]
   botCount: number
-  botsNewest: list<PrCommentCard>
-  botsOldest: list<PrCommentCard>
+  botsNewest: PrCommentCard[]
+  botsOldest: PrCommentCard[]
   bots: PrCommentGroup
   finishedCount: number
-  finishedNewest: list<PrCommentCard>
-  finishedOldest: list<PrCommentCard>
+  finishedNewest: PrCommentCard[]
+  finishedOldest: PrCommentCard[]
   finished: PrCommentGroup
 
 fn prsMuted(): string = "light-dark(#71717b, #818181)"
@@ -123,12 +123,12 @@ fn prsBadgeInk(outcome: string): string = outcome == "approved" ? "light-dark(#0
 component PrdSummary
   props
     summary: PrSummaryView
-    labels: list<PrChip>
+    labels: PrChip[]
     hasBody: bool
     bodyId: string
     writes: PrWrites
-    documents: list<ChatDocument>
-    code: list<CodeHighlight>
+    documents: ChatDocument[]
+    code: CodeHighlight[]
     env: MarkdownEnv
     still: bool
     local: action
@@ -179,27 +179,27 @@ component PrdSummary
             PgIcon(name="users", size=14, color=prsMuted())
             text "Reviewers" font-size="0.75rem" line-height="1rem" color=prsMuted()
           row min-width=0 flex-wrap="wrap" align-items="center" gap="0.375rem"
-            when length(summary.reviewers) == 0
+            if summary.reviewers.length == 0
               text "None" font-size="0.75rem" line-height="1rem" color=prsMuted() testId="pull-request-reviewers-none"
             else
               row align-items="center" min-width=0 testId="pull-request-reviewers"
-                each reviewer in summary.reviewers key=reviewer.key
+                for reviewer in summary.reviewers key=reviewer.key
                   PrdReviewerFace(reviewer=reviewer)
             // PullRequestReviewerPicker: wherever the host can take a request and say who could be asked.
-            when writes.reviewers.shown
+            if writes.reviewers.shown
               PrdCandidatePicker(picker=writes.reviewers, which="reviewers", op="reviewer", icon="user-plus", label="Request a review", disabledReason="Asking someone to review needs write access on this repository", searchLabel="Search people with access", emptyLabel="Nobody else has access to this repository.", noMatchLabel="Nobody with access matches that.", errorLabel="The people with access could not be read.", truncatedLabel="This repository has more people with access than are listed here. Ask for the rest on the host.", menuId=`${scrollId}-reviewers-menu`, still=still, act=act)
-        when summary.showLabels
+        if summary.showLabels
           row min-height="1.5rem" align-items="center" gap="0.5rem"
             row width="6rem" align-items="center" gap="0.375rem" flex-shrink=0
               PgIcon(name="tag", size=14, color=prsMuted())
               text "Labels" font-size="0.75rem" line-height="1rem" color=prsMuted()
             row flex-wrap="wrap" align-items="center" gap="0.25rem" min-width=0 testId="pull-request-labels"
-              when length(labels) == 0
+              if labels.length == 0
                 text "None" font-size="0.75rem" line-height="1rem" color=prsMuted()
-              each chip in labels key=chip.key
+              for chip in labels key=chip.key
                 text chip.name max-width="12rem" line-clamp=1 height="1.125rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.75rem" line-height="1.125rem" font-weight=500 color=chip.ink
               // PullRequestLabelPicker: where the host can change labels at all.
-              when writes.labels.shown
+              if writes.labels.shown
                 PrdCandidatePicker(picker=writes.labels, which="labels", op="label", icon="tag", label="Change labels", disabledReason="Changing labels needs triage access on this repository", searchLabel="Search labels", emptyLabel="This repository has no labels.", noMatchLabel="No label matches that.", errorLabel="The labels could not be read.", truncatedLabel="This repository has more labels than are listed here. Apply the rest on the host.", menuId=`${scrollId}-labels-menu`, still=still, act=act)
       // Each section is its own box, so its heading sticks only while the section is in view (`section` + `sticky top-0`).
       column id=`${scrollId}-description` width="100%" role="region" aria-label="Description"
@@ -208,53 +208,53 @@ component PrdSummary
           PrdDescription(bodyId=(hasBody ? bodyId : ""), raw=writes.rawBody, canEdit=writes.canEditChange, saving=writes.bodySaving, serial=writes.bodySerial, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act)
       column id=`${scrollId}-checks` width="100%" role="region" aria-label="Checks"
         PrdSectionHeader(id=`${scrollId}-checks-heading`, label="Checks", open=checksOpen, still=still, press=toggle("checks"), testId="pull-request-checks-toggle")
-        when checksOpen
+        if checksOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-checks"
-            when summary.checksStale
+            if summary.checksStale
               row align-items="center" gap="0.5rem" testId="pull-request-checks-stale"
                 text "Check details are out of date." font-size="0.75rem" line-height="1rem" color=prsMuted()
                 PrdGhostButton(label="Refresh", icon="", press=refresh, ariaLabel="Refresh", testId="pull-request-checks-refresh")
-            when not summary.checksStale and length(summary.checks) == 0
+            if not summary.checksStale and summary.checks.length == 0
               text "No checks reported." font-size="0.75rem" line-height="1rem" color=prsMuted()
-            when not summary.checksStale
-              each check in summary.checks key=check.key
+            if not summary.checksStale
+              for check in summary.checks key=check.key
                 PrdCheckRow(check=check, handoffs=handoffs, surface=surface, act=act)
       column id=`${scrollId}-comments` width="100%" role="region" aria-label="Comments"
         PrdSectionHeader(id=`${scrollId}-comments-heading`, label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
           PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
-        when commentsOpen
+        if commentsOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-comments"
-            when summary.activityPending
+            if summary.activityPending
               PrdConversationGhost(still=still)
             else
-              when summary.activityError != ""
+              if summary.activityError != ""
                 PrdActivityUnavailable(error=summary.activityError, compact=true, retry=retry)
               else
-                when summary.truncated
+                if summary.truncated
                   text summary.truncatedText margin-bottom="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a004d, #fe9a004d)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.75rem" line-height="1rem" color=prsInk() testId="pull-request-comments-truncated"
-                when summary.empty
+                if summary.empty
                   text "No comments yet." padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=prsMuted()
                 else
                   column width="100%" gap="0.75rem"
-                    when order == "oldest" and summary.activeCount > shown
+                    if order == "oldest" and summary.activeCount > shown
                       PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
-                    each card in filter(order == "newest" ? summary.newest : summary.oldest, (c) => c.fromEnd < shown) key=card.key
+                    for card in (order == "newest" ? summary.newest : summary.oldest).filter((c) => c.fromEnd < shown) key=card.key
                       PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
-                    when order == "newest" and summary.activeCount > shown
+                    if order == "newest" and summary.activeCount > shown
                       PrdShowOlder(hidden=(summary.activeCount - shown), bots=false, press=more(false))
-                    when shown > 10
+                    if shown > 10
                       PrdWideButton(label="Show only 10 recent comments", outline=false, press=fewer(false), testId="pull-request-comments-fewer")
-                    when summary.botCount > 0
+                    if summary.botCount > 0
                       PrdCommentGroupBox(group=summary.bots, still=still, testId="pull-request-bot-comments")
-                        each card in filter(order == "newest" ? summary.botsNewest : summary.botsOldest, (c) => c.fromEnd < shownBots) key=card.key
+                        for card in (order == "newest" ? summary.botsNewest : summary.botsOldest).filter((c) => c.fromEnd < shownBots) key=card.key
                           PrdCommentCard(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, still=still, local=local, act=act, handoffs=handoffs, surface=surface)
-                        when summary.botCount > shownBots
+                        if summary.botCount > shownBots
                           PrdShowOlder(hidden=(summary.botCount - shownBots), bots=true, press=more(true))
-                        when shownBots > 10
+                        if shownBots > 10
                           PrdWideButton(label="Show only 10 recent bot comments", outline=false, press=fewer(true), testId="pull-request-bot-comments-fewer")
-                    when summary.finishedCount > 0
+                    if summary.finishedCount > 0
                       PrdCommentGroupBox(group=summary.finished, still=still, testId="pull-request-finished-comments")
-                        each card in (order == "newest" ? summary.finishedNewest : summary.finishedOldest) key=card.key
+                        for card in (order == "newest" ? summary.finishedNewest : summary.finishedOldest) key=card.key
                           PrdCollapsedComment(card=card, choices=writes.reactionChoices, scope=scrollId, documents=documents, code=code, env=env, local=local, act=act, still=still)
 
 // A reviewer's face in the stack (-space-x-1): the verdict rides it as a ring, its words for a
@@ -299,7 +299,7 @@ component PrdGhostButton
     over = value
   view
     button press=press hover=hover aria-label=ariaLabel testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
-      when icon != ""
+      if icon != ""
         PgIcon(name=icon, size=12, color=(over ? prsInk() : prsMuted()))
       text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(over ? prsInk() : prsMuted())
 
@@ -340,7 +340,7 @@ component PrdCheckRow
     over = value
   view
     row width="100%" align-items="center" gap="0.5rem" padding-right=(check.fix != "" ? "0.25rem" : "0px") box-sizing="border-box" border-radius="0.375rem" background-color=(over ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") hover=hover
-      when check.url != ""
+      if check.url != ""
         link href=check.url press=linkOpen(surface == "thread" ? "button" : "button-page", check.url) cursor="pointer" aria-label=`${check.name}: ${check.statusLabel}` testId=`pull-request-check-${check.key}` flex=1 min-width=0 min-height="2.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="flex-start"
           box margin-top="0.125rem" flex-shrink=0
             PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
@@ -352,7 +352,7 @@ component PrdCheckRow
             PgIcon(name=prsCheckIcon(check.status), size=14, color=prsCheckTone(check.status))
           text check.name flex=1 min-width=0 font-size="0.75rem" line-height="1.25rem" color=prsInk() overflow-wrap="anywhere"
           text check.statusLabel flex-shrink=0 font-size="0.75rem" line-height="1.25rem" color=prsMuted()
-      when check.fix != ""
+      if check.fix != ""
         PrdFixButton(finding=check.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-check-${check.key}`)
 
 // The remark's author and when, the time a link to the remark on the host.
@@ -366,7 +366,7 @@ component PrdIdentity
           PrAvatar(avatar=card.avatar, initial=card.initial, size=16)
           text card.author font-size="0.75rem" line-height="1rem" font-weight=500 color=prsInk() line-clamp=1 min-width=0
       Tip(label=card.ageTip, side="top", align="start", offset=20)
-        when card.url != ""
+        if card.url != ""
           link href=card.url cursor="pointer" testId=`pull-request-comment-age-${card.id}`
             text card.age font-size="0.75rem" line-height="1rem" color=prsMuted() white-space="nowrap"
         else
@@ -386,11 +386,11 @@ component PrdLocation
   props
     card: PrCommentCard
   view
-    when card.location != ""
+    if card.location != ""
       row margin-top="0.5rem" min-width=0 align-items="center" gap="0.5rem" testId=`pull-request-comment-location-${card.id}`
         Tip(label=card.location, side="top", align="start", offset=20)
           text card.location font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=prsMuted() line-clamp=1 min-width=0
-        when card.outdated
+        if card.outdated
           text "Outdated" flex-shrink=0 font-size="0.75rem" line-height="1rem" color=prsMuted()
 
 // renderComment: a remark's card (bg-muted/25 header with the reactions, the location, the words
@@ -398,10 +398,10 @@ component PrdLocation
 component PrdCommentCard
   props
     card: PrCommentCard
-    choices: list<PrReactionChoice>
+    choices: PrReactionChoice[]
     scope: string
-    documents: list<ChatDocument>
-    code: list<CodeHighlight>
+    documents: ChatDocument[]
+    code: CodeHighlight[]
     env: MarkdownEnv
     still: bool
     local: action
@@ -416,19 +416,19 @@ component PrdCommentCard
       row flex-wrap="wrap" align-items="flex-start" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#f4f4f540, #ffffff06)"
         row flex=1 min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
           PrdIdentity(card=card)
-          when card.outcome != ""
+          if card.outcome != ""
             PrdOutcomeBadge(outcome=card.outcome, label=card.outcomeLabel)
-          when card.outcome == "" and card.stateLabel != ""
+          if card.outcome == "" and card.stateLabel != ""
             text card.stateLabel font-size="0.75rem" line-height="1rem" color=prsMuted()
         // Review remarks only: a plain comment is talk, not a finding (PullRequestSummaryTab).
-        when card.fix != ""
+        if card.fix != ""
           box margin-top="-0.25rem" flex-shrink=0
             PrdFixButton(finding=card.fix, label=(surface == "thread" ? "Fix in this thread" : "Fix in a thread"), pending=handoffs.pending, surface=surface, act=act, testId=`pull-request-fix-${card.id}`)
         PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-s-${card.id}`, act=act)
-      when card.location != ""
+      if card.location != ""
         column padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
           PrdLocation(card=card)
-      when card.bodyId != "" or card.canEdit
+      if card.bodyId != "" or card.canEdit
         column padding="0.75rem" box-sizing="border-box" min-width=0
           PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-s`, documents=documents, code=code, env=env, still=still, local=local, act=act)
 
@@ -446,10 +446,10 @@ component PrdCommentGroupBox
     column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" overflow="hidden" testId=testId
       row align-items="center" gap="0.75rem" padding-left="0.75rem"
         row flex-shrink=0
-          each person in group.faces key=person.key
+          for person in group.faces key=person.key
             box margin-right="-0.375rem" border-radius="624.9375rem" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" aria-label=person.login role="img"
               PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
-          when group.more > 0
+          if group.more > 0
             row width="1.5rem" height="1.5rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0a)" box-shadow="0 0 0 2px light-dark(#fcfcfc, #0a0a0a)" align-items="center" justify-content="center"
               text `+${group.more}` font-size="0.5625rem" line-height="0.75rem" color=prsMuted()
         button press=toggle aria-label=group.label aria-expanded=open testId=`${testId}-toggle` flex=1 min-width=0 padding-top="0.75rem" padding-bottom="0.75rem" padding-right="0.75rem" padding-left="0.375rem" box-sizing="border-box" gap="0.75rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
@@ -457,9 +457,9 @@ component PrdCommentGroupBox
             text group.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272ae6, #f5f5f5e6)"
             row flex-wrap="wrap" gap="0.375rem"
               text group.authorsText font-size="0.6875rem" line-height="1rem" color=prsMuted()
-              when group.filesText != ""
+              if group.filesText != ""
                 text `· ${group.filesText}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
-              when group.latest != ""
+              if group.latest != ""
                 Tip(label=group.latestTip, side="top", align="start", offset=20)
                   text `· Latest ${group.latest}` font-size="0.6875rem" line-height="1rem" color=prsMuted()
           box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true
@@ -472,10 +472,10 @@ component PrdCommentGroupBox
 component PrdCollapsedComment
   props
     card: PrCommentCard
-    choices: list<PrReactionChoice>
+    choices: PrReactionChoice[]
     scope: string
-    documents: list<ChatDocument>
-    code: list<CodeHighlight>
+    documents: ChatDocument[]
+    code: CodeHighlight[]
     env: MarkdownEnv
     local: action
     act: action
@@ -497,11 +497,11 @@ component PrdCollapsedComment
               PgIcon(name="chevron-down", size=14, color=prsMuted())
           PrdReactionBar(pills=card.reactions, reacted=card.reacted, canReact=card.canReact, choices=choices, subject=card.id, pickerId=`${scope}-react-f-${card.id}`, act=act)
         PrdLocation(card=card)
-        when not open and card.preview != ""
+        if not open and card.preview != ""
           button press=toggle testId=`pull-request-finished-preview-${card.id}` width="100%" margin-top="0.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row"
             text card.preview flex=1 min-width=0 text-align="left" font-size="0.75rem" line-height="1rem" color=prsMuted() white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       // A dismissal carries no more words than an approval does; kept where the pencil lives.
-      when open and (card.bodyId != "" or card.canEdit)
+      if open and (card.bodyId != "" or card.canEdit)
         column padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" min-width=0
           PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-f`, documents=documents, code=code, env=env, still=still, local=local, act=act)
 

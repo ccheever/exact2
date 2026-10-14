@@ -157,6 +157,8 @@ pub fn compress(
 /// The native storage provider's bounded, cooperatively cancellable entry.
 /// `check` is consulted before each decode/encode trial; a running native call
 /// finishes before that worker's reservation is released.
+/// `max_scratch_bytes` is a conservative estimate used for native-memory admission,
+/// not an allocator cap on ImageIO or a bound on process RSS.
 #[allow(clippy::too_many_arguments)]
 pub fn compress_controlled(
     source: &[u8],

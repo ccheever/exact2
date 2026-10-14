@@ -26,27 +26,25 @@ use kmKeyEnd from "./menu-keys.contract"
 use kmArrow from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 
-// The surface body under the panel's tab bar. Rebuilt per scheme so SVG glyphs
-// resolve their light-dark() side (file icons, chevrons).
+// The surface body under the panel's tab bar; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88) (file icons, chevrons).
 component R4FilesBody
   props
+    family: string
     files: R4Files
     // markdown-links-and-files-preview PA-3: app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     scheme: string
     sheet: bool
     local: action
     searchFocus: action
   view
-    when scheme == "dark"
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
-    else
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+    R4FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
 
 component R4FilesSurface
   props
+    family: string
     files: R4Files
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     scheme: string
     sheet: bool
     local: action
@@ -71,37 +69,37 @@ component R4FilesSurface
       focus("file-editors-keys")
   view
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" testId="files-surface"
-      when files.path != ""
+      if files.path != ""
         R4FileHeader(files=files, sheet=sheet, local=local, menuEnd=setMenuEnd)
-      when files.truncatedNote != ""
+      if files.truncatedNote != ""
         text files.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
-        when files.path != "" and files.preview != ""
+        if files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            R4FilePreview(files=files, documents=documents, scheme=scheme, local=local)
-        when files.showExplorer
+            R4FilePreview(family=family, files=files, documents=documents, scheme=scheme, local=local)
+        if files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
             R4Explorer(files=files, sheet=sheet, local=local, searchFocus=searchFocus)
-      when files.crumbMenu.open
+      if files.crumbMenu.open
         button press=local("surface-files-crumb-close", "", "") aria-label="Close folder menu" position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="crumb-menu-backdrop" title=""
         column position="absolute" left=files.crumbMenu.x top=(sheet ? "2rem" : "1.625rem") z-index=10 min-width="10rem" max-width="20rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" testId="crumb-menu"
-          KeyMenu(menuId="crumb-menu-keys", items=concat((files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []), map(files.crumbMenu.entries, (entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
-            when files.crumbMenu.back != ""
+          KeyMenu(menuId="crumb-menu-keys", items=(files.crumbMenu.back != "" ? [KmItem(id="crumb-back", label=files.crumbMenu.back)] : []).concat(files.crumbMenu.entries.map((entry) => KmItem(id=`crumb-entry-${entry.path}`, label=entry.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
+            if files.crumbMenu.back != ""
               R4CrumbItem(keysId="crumb-menu-keys", label=files.crumbMenu.back, icon="arrow-left", token="", trailing=false, current=false, ignored=false, test="crumb-back", press=local("surface-files-crumb-dir", files.crumbMenu.backPath, ""))
               box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-            when files.crumbMenu.status != ""
+            if files.crumbMenu.status != ""
               text files.crumbMenu.status height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" font-size="0.875rem" line-height="1.75rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)"
-            each entry in files.crumbMenu.entries key=entry.id
+            for entry in files.crumbMenu.entries key=entry.id
               R4CrumbItem(keysId="crumb-menu-keys", label=entry.label, icon=(entry.directory ? "folder" : ""), token=entry.token, trailing=entry.directory, current=entry.current, ignored=entry.ignored, test=`crumb-entry-${entry.path}`, press=local(entry.directory ? "surface-files-crumb-dir" : "surface-file", entry.path, ""))
-      when files.editorsOpen and files.editorShow
+      if files.editorsOpen and files.editorShow
         button press=closeEditors aria-label="Close editor menu" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 z-index=9 padding=0 border-width=0 background-color="#00000000" testId="file-editors-backdrop" title=""
         column position="absolute" right="6.5rem" top=(sheet ? "2.25rem" : "1.875rem") z-index=10 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="file-editors"
-          KeyMenu(menuId="file-editors-keys", items=(files.editorUnavailable != "" ? [] : map(files.editors, (editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
-            when files.editorUnavailable != "" or length(files.editors) == 0
+          KeyMenu(menuId="file-editors-keys", items=(files.editorUnavailable != "" ? [] : files.editors.map((editor) => KmItem(id=`file-editor-${editor.id}`, label=editor.label))), keyed=kmEndKeyed(menuEnd), gap="0px", modal=false)
+            if files.editorUnavailable != "" or files.editors.length == 0
               text (files.editorUnavailable != "" ? files.editorUnavailable : "No installed editors found") padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-unavailable"
-            when files.editorHint != "" and files.editorUnavailable == ""
+            if files.editorHint != "" and files.editorUnavailable == ""
               text files.editorHint padding="0.5rem" font-size="0.75rem" color="light-dark(#71717b, #a1a1aa)" testId="file-editor-remote-hint"
-            each editor in files.editors key=editor.id
+            for editor in files.editors key=editor.id
               button id=`file-editor-${editor.id}` press=local("surface-files-open-editor", files.absolutePath, editor.id) hover=editorHover(editor.id) focus=editorFocus(editor.id, true) blur=editorFocus(editor.id, false) role="menuitem" testId=`file-editor-${editor.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(editorLit == editor.id ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
                 ShellEditorIcon(editor=editor.id, size=16)
                 text editor.label flex=1 min-width=0 text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -131,9 +129,9 @@ component R4FileHeader
       // lane r7-polish: a clip whose `w-max min-w-full` trail is end-justified (r7-polish-crumbs.ts), faded on its left while it overflows.
       row hatch="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
         row hatch="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
-          each crumb in files.crumbs key=crumb.id
+          for crumb in files.crumbs key=crumb.id
             R4CrumbView(crumb=crumb, open=(files.crumbMenu.open and files.crumbMenu.root == crumb.id), local=local, menuEnd=menuEnd)
-      when files.absolutePath != "" and files.editorShow
+      if files.absolutePath != "" and files.editorShow
         row flex-shrink=0 height="1.5rem" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" role="group" aria-label="Open in editor"
           box position="relative"
             button disabled=(files.editorUnavailable != "" or files.editorId == "") press=local("surface-files-open-editor", files.absolutePath, files.editorId) hover=hover("editor") aria-label="Open file in preferred editor" testId="file-open-editor" width="1.5rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(hovered == "editor" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
@@ -142,14 +140,14 @@ component R4FileHeader
           box width=1 height="1.375rem" background-color="light-dark(#d4d4d8, #ffffff14)"
           button press=openEditors key=editorsKey focus=menuEnd("") hover=hover("editors") aria-label="Choose editor" aria-expanded=files.editorsOpen id="file-choose-editor" testId="file-choose-editor" width="1.4375rem" height="1.375rem" padding=0 border-width=0 border-radius="0.4375rem" background-color=(files.editorsOpen or hovered == "editors" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
             ShellIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
-      when files.canRender
+      if files.canRender
         R4Toggle(id="render", label=files.renderLabel, icon=files.renderIcon, pressed=files.rendered, hovered=hovered, hover=hover, press=local("surface-files-render", files.path, ""))
       // Word wrap reaches only the text bodies: an image, a video, a rendered document or page has none (showsRawText).
-      when files.rawText
+      if files.rawText
         R4Toggle(id="wrap", label=(files.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", pressed=files.wrap, hovered=hovered, hover=hover, press=local("surface-files-wrap", "", ""))
-      when files.openInBrowser
+      if files.openInBrowser
         R4Toggle(id="open-browser", label="Open file in preview browser", icon="earth", pressed=false, hovered=hovered, hover=hover, press=local("surface-files-open-browser", files.path, ""))
-      when files.preview != ""
+      if files.preview != ""
         R4Toggle(id="explorer", label=(files.explorer ? "Hide file explorer" : "Show file explorer"), icon="folder-tree", pressed=files.explorer, hovered=hovered, hover=hover, press=local("surface-files-explorer", "", ""))
 
 // One row of a folder crumb's menu: its Pierre glyph, label and a chevron for a folder; the open file is the checked
@@ -177,15 +175,15 @@ component R4CrumbItem
   view
     button id=test press=press hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=test width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : current ? "light-dark(#0a0a0a14, #fafafa14)" : "#00000000")
       box margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex"
-        when token != ""
+        if token != ""
           FileTypeIcon(token=token, size=16)
         else
-          when icon == "arrow-left"
+          if icon == "arrow-left"
             R4Icon(name="arrow-left", size=16, color="light-dark(#71717b, #818181)")
           else
             ShellIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
       text label flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.875rem" line-height="1.25rem" color=(ignored ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-      when trailing
+      if trailing
         box margin-left="-0.125rem" margin-right="-0.125rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
 
@@ -229,10 +227,10 @@ component R4CrumbView
   view
     // r6-polish: hooked so the folder menu opens under the crumb as laid out (r4-surfaces-files.ts crumbMenu).
     box hatch="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
-      when crumb.id != "."
+      if crumb.id != "."
         box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
-      when crumb.current
+      if crumb.current
         text crumb.label max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
       else
         button press=openMenu key=crumbKey focus=menuEnd("") hover=hover aria-label=`Browse ${crumb.label}` testId=`crumb-${crumb.id}` max-width="10rem" padding-left="0.125rem" padding-right="0.125rem" border-radius="0.25rem" border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
@@ -244,8 +242,9 @@ component R4CrumbView
 // keeps its starting text fixed for the session); each change is written back.
 component R4FilePreview
   props
+    family: string
     files: R4Files
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     scheme: string
     local: action
   action noCite(blockId: string, runId: string, s: Selection)
@@ -270,48 +269,48 @@ component R4FilePreview
       preventDefault()
       blur()
   view
-    when files.preview == "loading"
+    if files.preview == "loading"
       column flex=1 align-items="center" justify-content="center" testId="file-loading"
         R4Icon(name="loader", size=24, color="light-dark(#71717b, #818181)")
-    when files.preview == "error"
+    if files.preview == "error"
       column flex=1 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem"
         text files.previewError text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)" testId="file-error"
-    when files.preview == "markdown"
+    if files.preview == "markdown"
       scroll flex=1 min-height=0 width="100%" testId="file-markdown"
         column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
           // FileMarkdownPreview: ChatMarkdown with the file's own folder for its links and images (r4-surfaces-files.ts renderedMarkdown).
-          each document in filter(documents, (entry) => entry.id == `file:${files.path}`) key=document.id
+          for document in documents.filter((entry) => entry.id == `file:${files.path}`) key=document.id
             DiagramBlocks(document=document, local=local, code=files.code, diagrams=files.diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=files.codeCopied, copiedNonce=files.codeCopyNonce, env=files.md, urls=files.mdUrls, source="", cite=noCite, markStart=-1, markEnd=-1)
-    when files.preview == "table"
+    if files.preview == "table"
       scroll flex=1 min-height=0 width="100%" testId="file-table"
         column min-width="100%"
-          each row in files.table key=row.id
+          for row in files.table key=row.id
             row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
-              each cell in row.cells key=cell.id
+              for cell in row.cells key=cell.id
                 text cell.text flex=1 max-width="20rem" min-width="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size="0.75rem" line-height="1rem" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
     // media-actions: an image or video file with its menu, tooltip and failure states (FilesMedia).
-    when files.preview == "media"
+    if files.preview == "media"
       FilesMedia(media=files.media, local=local)
     // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame);
     // a PDF, always rendered, in the module's PDFView (X29), as an attachment's.
-    when files.preview == "html" or files.preview == "pdf"
+    if files.preview == "html" or files.preview == "pdf"
       box hatch="t3-media" data-media-url=files.url data-media-kind=files.preview data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId=`file-${files.preview}`
-    when files.preview == "code"
+    if files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
         column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
-          each line in files.lines key=line.id
-            when line.kind == "line"
-              R4CodeRow(line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
-            when line.kind == "note"
+          for line in files.lines key=line.id
+            if line.kind == "line"
+              R4CodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
+            if line.kind == "note"
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
-            when line.kind == "draft"
+            if line.kind == "draft"
               // The focus ops are the Diff panel's ⌘↩ hand-off (diff-review.ts): while the draft holds the focus the composer's Send
               // declares no chord, so ⌘↩ reaches DiffDraftCard's `keys` (diff-file-comments.ts, audit-wave-followups FU-3).
               DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
-          when files.editing
-            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+          if files.editing
+            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975; files-gutter-parity FG-1, FG-2). A press on the number starts
 // a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
@@ -328,6 +327,7 @@ component R4FilePreview
 // under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
 component R4CodeRow
   props
+    family: string
     line: R4CodeLine
     gutter: number
     wrap: bool
@@ -374,14 +374,14 @@ component R4CodeRow
   view
     row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"
       box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
-      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
-        each run in line.runs key=run.id
+      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family=family font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+        for run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
-      when not open and (line.pin or not line.pinned or dragging)
+      if not open and (line.pin or not line.pinned or dragging)
         button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true
             path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"
-      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
+      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family=family font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
 // below in the inline panel), status lines, then the compact tree (24pt rows,
@@ -414,21 +414,21 @@ component R4Explorer
           TipBubble(label=(files.loading ? "Refreshing…" : "Refresh files"), side="bottom", align="start", offset=28, inset=0, shown=(hovered == "refresh"))
         row flex=1 min-width=0 height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center"
           input value=files.query input=local("surface-files-search", "") key=searchKey focus=searchFocus(true) blur=searchFocus(false) placeholder="Search files" aria-label=`Search ${files.project} files` testId="files-search" autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        when files.hasDirectories
+        if files.hasDirectories
           box position="relative" flex-shrink=0
             button press=local("surface-files-expand-all", "", "") hover=hover("expand") aria-label=(files.allExpanded ? "Collapse all folders" : "Expand all folders") testId="files-expand-all" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(hovered == "expand" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
               R4Icon(name=(files.allExpanded ? "chevrons-down-up" : "chevrons-up-down"), size=14, color="light-dark(#71717b, #a1a1aa)")
             TipBubble(label=(files.allExpanded ? "Collapse all folders" : "Expand all folders"), side="bottom", align="end", offset=28, inset=0, shown=(hovered == "expand"))
-      when files.error != ""
+      if files.error != ""
         button press=local("surface-files-refresh", "", "") padding="1rem" border-width=0 background-color="#00000000" testId="files-error"
           text `${files.error} Click to retry.` text-align="left" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
-      when files.truncated
+      if files.truncated
         text "More matches available. Refine your search." padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      when files.loading or not files.ready
+      if files.loading or not files.ready
         text "Loading files…" role="status" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       scroll flex=1 min-height=0 width="100%" role="tree" aria-label=`${files.project} files` testId="files-tree"
         column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box"
-          each row in files.rows key=row.id
+          for row in files.rows key=row.id
             R4TreeRowView(row=row, local=local)
 
 component R4TreeRowView
@@ -441,9 +441,9 @@ component R4TreeRowView
   view
     // context-menu-gaps: FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat).
     button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=local("surface-files-row-menu", row.path, "") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
-      each guide in row.guides key=guide.id
+      for guide in row.guides key=guide.id
         box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"
-      when row.directory
+      if row.directory
         ShellIcon(name=(row.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#84848a, #8b8b92)")
       else
         FileTypeIcon(token=row.token, size=16)

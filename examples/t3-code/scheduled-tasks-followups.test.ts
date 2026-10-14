@@ -128,7 +128,7 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
     const dialogs = await component('app-settings.contract', 'ProjectDialogs');
     expect(dialogs).toContain('SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, open=restOpen, taskBase=taskBase)');
     // A new task closing after a Runs on change gives the focus back to New task.
-    expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or startsWith(restSubject, "new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
+    expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
     expect(await source('app-window.contract')).toContain('restClose=restClose, restOpen=restOpen, sbPicker=sbPicker,');
   });
   test('the labels a Runs on change rewrites are plain texts the host repaints (X64 #327 and X82 #494, fixed on main; round 11)', async () => {
@@ -187,13 +187,13 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
   test('each button hands its frame to the window layer as a 600 ms top tooltip on hover and keyboard focus', async () => {
     const button = await component('thread-automations.contract', 'AutomationButton');
     expect(button).toContain('  inject\n    rem: number\n    hoverTipAt: action');
-    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
+    expect(button).toContain('hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(tip.length / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)');
     expect(button).toContain('action hover(over: bool)\n    hovered = over\n    show(over)');
     expect(button).toContain('button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey');
     // No AppKit help tag beside the drawn tooltip.
     expect(button).toContain('title=""');
     const layer = await source('hover-layer.contract');
-    expect(layer).toContain('(kind == "tooltip" ? 600 : 0)');
+    expect(layer).toContain('(kind == "tooltip" or kind == "code" ? 600 : 0)');
     expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"');
   });
   test('a press closes the tooltip before it acts, as TooltipTrigger closeOnClick (Base UI 1.5.0 default true)', async () => {
@@ -203,9 +203,9 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     expect(button).not.toContain('press=press ');
     // The window's close: the trigger's leave ends a shown tooltip at once (a TooltipPopup has no close delay) and stops
     // one still waiting for its 600 ms (hoverUntil at the current tick, hoverShown false).
-    const window = await source('app-window.contract');
-    expect(window).toContain('else if tip.key == hoverTip.key and hoverOn == part\n      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait');
-    expect(window).toContain('derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)');
+    const root = await source('app.contract');
+    expect(root).toContain('else if tip.key == hoverTip.key and hoverOn == part\n      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait');
+    expect(root).toContain('derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
   });
   test('the words are the reference TooltipPopups: Manage scheduled tasks, Edit automation, Run now', async () => {
@@ -214,9 +214,10 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     // Manage sits at the panel's right edge: its tooltip ends at the button's right edge, where Base UI's shift keeps it
     // inside the window (the layer has no shift, X17 #112); the row buttons' tooltips fit centred.
     expect(tips).toEqual([['settings-2', 'Manage scheduled tasks', 'end'], ['pencil', 'Edit automation', 'center'], ['play', 'Run now', 'center']]);
-    // The layer's end placement: a 22.5rem row ending at the trigger's right edge, its bubble at the row's end.
+    // The layer's end placement: a 22.5rem row (a "code" tip's 32.5rem) ending at the trigger's right edge, its bubble at the row's end.
     const layer = await component('hover-layer.contract', 'HoverLayer');
-    expect(layer).toContain('derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)');
+    expect(layer).toContain('derive span = tip.kind == "code" ? 32.5 : 22.5');
+    expect(layer).toContain('derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)');
     expect(layer).toContain('derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")');
   });
 });

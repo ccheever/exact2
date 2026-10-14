@@ -95,6 +95,13 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
+    /// Event paths keep the authored parent across a native container.
+    /// A home that has disappeared ends the path.
+    func parent(of node: NodeView) -> NSView? {
+        guard let entry = entries[node.id], entry.node === node else { return node.superview }
+        return entry.home
+    }
+
     /// The node children `home` holds, with the subtrees that left it for a
     /// container of their own back in their places: its authored children,
     /// for a reader of the tree's shape (a stack's routes). Each goes after
@@ -114,7 +121,8 @@ final class BlockHost {
     /// hears its used size, now and whenever layout gives it another.
     func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
-        if entries[node.id] == nil {
+        // A node of another runner may have had this id (a restart): its entry is not this node's.
+        if entries[node.id]?.node !== node {
             let home = node.superview, siblings = home?.subviews ?? []
             let next = siblings.firstIndex(of: node).flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
             // Its authored siblings, those already in containers of their own among them.

@@ -242,7 +242,7 @@ final class DialogSheetIOSTests: XCTestCase {
         XCTAssertEqual(p.menus.observation()?["kind"] as? String, "confirmation")
         XCTAssertTrue(p.menus.ownsConfirmationNode(try XCTUnwrap(p.views[22])))
         XCTAssertTrue(try XCTUnwrap(p.views[20]).isHidden, "its rows are the alert's, never shown")
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle { !p.menus.inTransition }
         p.dialogCommand("close", "confirm")
         settle { closed.count == 1 }

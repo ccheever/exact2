@@ -62,7 +62,7 @@ const APP: &str = r##"component App
   view
     column width=320 height=240
       input value=draft input=edit testId="input" height=32
-      when showing
+      if showing
         box press=press testId="target" width=100 height=32 background-color="#cc3300"
       box press=hide testId="hide" height=16
       box press=show testId="show" height=16
@@ -935,7 +935,7 @@ impl DataSource for TimerRows {
 }
 #[test]
 fn timer_demand_collection_feedback_still_refines_after_empty_advance() {
-    let source = "component App\n  resource rows = timerRows() as shape list<number>\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      each x in rows key=x\n        text `${x}` height=24\n";
+    let source = "component App\n  resource rows = timerRows() as shape number[]\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      for x in rows key=x\n        text `${x}` height=24\n";
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
         TimerRows,

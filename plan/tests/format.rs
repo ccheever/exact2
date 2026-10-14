@@ -11,7 +11,7 @@ use exact_plan::{
 
 /// A small but complete plan: a counter slot, a derive, a resource, an
 /// action with a write, a timer, a root node with a text binding, and a
-/// `when` region with two arms.
+/// `if` region with two arms.
 fn sample() -> Plan {
     let mut b = PlanBuilder::new(0xdead_beef, 0x1234);
     let number = b.primitive(TypeKind::Number);

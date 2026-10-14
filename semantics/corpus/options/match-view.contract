@@ -12,7 +12,7 @@ component App
         case some(s)
           column testId="chosen"
             text s testId="name"
-            text `${length(s)}` testId="len"
+            text `${s.length}` testId="len"
         case none
           text "pick one" testId="empty"
       button "a" press=pick("alpha") testId="pick-a"

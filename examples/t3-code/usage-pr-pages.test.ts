@@ -28,7 +28,7 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
     expect(headline).toContain('UnpricedInfo(open=(shown == "unpriced"), enter=enterSeg("unpriced"), press=pin("unpriced"))');
     const page = await component('pages-usage.contract', 'UsagePage');
     expect(page).toContain('shown=shown, setBreakdown=setBreakdown, enterSeg=enterSeg, pin=pin, op=op)');
-    expect(page).toContain('when shown == "unpriced"\n                    UnpricedPopup(text=page.unpriced, x=popX, y=popY, w=popW, enterPop=enterPop)');
+    expect(page).toContain('if shown == "unpriced"\n                    UnpricedPopup(text=page.unpriced, x=popX, y=popY, w=popW, enterPop=enterPop)');
     // Light dismiss and Escape read the popup's own frame by the id every segment popover has.
     expect(page).toContain('let pop = frame(`usage-seg-pop-${held}`)');
     expect(page).toContain('focus(`usage-seg-${shown}`)');
@@ -52,10 +52,10 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
     const summary = await component('pages-usage.contract', 'UsageSummary');
     expect(summary).toContain('Segment(label="Model", title="", ');
     const segment = await component('pages-usage.contract', 'Segment');
-    expect(segment).toContain('when title != ""\n      button press=press hover=hover disabled=disabled title=title role="radio"');
+    expect(segment).toContain('if title != ""\n      button press=press hover=hover disabled=disabled title=title role="radio"');
     expect(await component('pages-usage.contract', 'UsageOption')).toContain('hover=hover title=title role="option"');
     const fn = (await source('pages-usage.contract')).match(/^fn usageTitle\(.+$/m)?.[0];
-    expect(fn).toBe('fn usageTitle(keys: list<UsageKey>, id: string, label: string): string = match first(filter(keys, (k) => k.id == id)) { case some(k) => k.title, case none => label }');
+    expect(fn).toBe('fn usageTitle(keys: UsageKey[], id: string, label: string): string = match first(keys.filter((k) => k.id == id)) { case some(k) => k.title, case none => label }');
   });
 
   test('the environment menu grows to its rows on an opaque popup (PG-5)', async () => {
@@ -104,13 +104,13 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)');
     // Opened by a press, the Author popup's KeyMenu sees no keyboard opening, so it leaves the focus in the search.
     expect(menu).toContain('KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)');
-    expect(menu).toContain('map(authors, (person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
+    expect(menu).toContain('authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
     const sub = await component('pages-prs.contract', 'PrFilterSub');
     expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" aria-label="Search authors"');
     // Its keys stay in the field but ↓; Escape closes the submenu (audit-wave-followups-3 FW-3, menu-keys.test.ts).
     expect(sub).toContain('action searchKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
-    expect(sub).toContain('each person in authors key=person.key');
-    expect(sub).toContain('when length(authors) == 0\n          text "No authors found"');
+    expect(sub).toContain('for person in authors key=person.key');
+    expect(sub).toContain('if authors.length == 0\n          text "No authors found"');
     // The search field precedes Anyone.
     expect(sub.indexOf('pr-author-search')).toBeLessThan(sub.indexOf('testId="pr-author-anyone"'));
   });
@@ -131,17 +131,17 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(back).toContain('button press=escape aria-keyshortcuts=(held ? "" : "Escape") aria-label="Back" tabindex=-1 testId="pull-requests-key-back"');
     expect(back).toContain('  action escape\n    blur()\n    back()');
     // The list holds Back while no panel shows; the panel holds it (with its editors' hold) while it shows.
-    expect(await component('pages-prs.contract', 'PrList')).toContain('      when not panelOpen\n        PrPageBack(held=false, back=back)');
+    expect(await component('pages-prs.contract', 'PrList')).toContain('      if not panelOpen\n        PrPageBack(held=false, back=back)');
     expect(await component('pages-pr-detail.contract', 'PrPanel')).toContain('      PrPageBack(held=escapeHeld, back=back)');
     // useNavigateBack: the Usage page and both Pull Requests Backs go to the page before (pageBack), not straight home.
     const cover = await component('app-main.contract', 'PagesCover');
     expect(cover).not.toContain('openPage(""');
-    expect(cover.split('\n').filter(line => /UsagePage\(|PrList\(|PrPanel\(/.test(line)).map(line => /back=pageBack[,)]/.test(line))).toEqual([true, true, true, true, true]);
+    expect(cover.split('\n').filter(line => /UsagePage\(|PrList\(|PrPanel\(/.test(line)).map(line => /back=pageBack[,)]/.test(line))).toEqual([true, true, true]);
     const root = await source('app.contract');
     expect(root).toContain('  action openPage(name: string)\n    pageTrailNote(name)\n    utilityPage = name');
     expect(root).toContain('      if op != "thread-pull-requests"\n        pageTrailNote(op)\n      utilityPage = op == "thread-pull-requests" ? utilityPage : op');
     expect(root).toContain('  action pageTrailNote(name: string)\n    pageTrail = pageTrailNext(pageTrail, utilityPage, name)');
-    expect(root).toContain('  action pageBack\n    utilityPage = match at(pageTrail, -1) { case some(page) => page, case none => "" }\n    pageTrail = slice(pageTrail, 0, -1)');
+    expect(root).toContain('  action pageBack\n    utilityPage = match pageTrail.at(-1) { case some(page) => page, case none => "" }\n    pageTrail = pageTrail.slice(0, -1)');
   });
 
   test('history: a trail of pages, as the reference\'s router history goes back through them (PG-7)', async () => {
@@ -206,7 +206,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
   });
 
   test('a hold stands where the data says its editor is still open: the draft, a reply not yet sent (PG-7)', async () => {
-    const live = await contractFn('pages-pr-detail.contract', 'prdEscapeLive', ['field', 'code'], { length: (items: unknown[]) => items.length, startsWith: (text: string, head: string) => text.startsWith(head) });
+    const live = await contractFn('pages-pr-detail.contract', 'prdEscapeLive', ['field', 'code']);
     const code = (draftOpen: boolean, threads: { id: string; repliedSerial: number }[] = []) => ({ draftOpen, threads });
     expect(live('pr-code-draft', code(true))).toBe(true);
     expect(live('pr-code-draft', code(false))).toBe(false);

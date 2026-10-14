@@ -14,6 +14,7 @@ import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -39,8 +40,7 @@ const hostCommitBody = `
   return applyBatch;
 `;
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // A `linear()` easing at input x (0–1): the last point at or before x, then
 // linearly on to the next; two points at one input are a jump.

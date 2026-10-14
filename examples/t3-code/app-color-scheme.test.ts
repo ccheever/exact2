@@ -68,8 +68,8 @@ describe('one resolved colour scheme', () => {
     // PA-11: the right panel's terminal surface (inline and as a sheet).
     expect(main.match(/SurfacePanel\([^\n]*scheme=scheme, /g)?.length).toBe(2);
     // PG-1: the Usage page and its model dialog.
-    expect(main).toContain('          when scheme == "dark"\n            UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme="dark", ');
-    expect(main).toContain('      when scheme == "dark"\n        UsageModelLayer(page=usage, scheme="dark", ');
+    expect(main).toContain('          UsagePage(controlsLeft=data.controlsLeft, page=usage, keys=usageShortcuts, scheme=scheme, ');
+    expect(main).toContain('      UsageModelLayer(page=usage, scheme=scheme, ');
     expect(main).toContain('UsagePricesLayer(page=usage, scheme=scheme, ');
     // PA-11, dark: the drawer's top edge and the terminal toolbar are ThreadTerminalDrawer's border-border/80 (white at
     // 6%, at 80%), not 80% white, which drew a bright line over a dark drawer.
@@ -79,9 +79,9 @@ describe('one resolved colour scheme', () => {
     // TH-7: the expanded Mermaid diagram's card.
     expect(await source('app-overlays.contract')).toContain('DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)');
     // audit-wave-followups-3 FW-1: the card is the page's colour as the window draws it (the drawing's paints resolve by
-    // the same appearance), so a light drawing never sits on a black card; the drawing is still rebuilt per scheme.
+    // the same appearance), so a light drawing never sits on a black card; the drawing stays mounted across a scheme change.
     const dialog = await source('timeline-mermaid.contract');
-    expect(dialog).toContain('background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff12), 0 25px 50px -12px #00000040"\n            when scheme == "dark"\n              MermaidSvg(');
+    expect(dialog).toContain('background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff12), 0 25px 50px -12px #00000040"\n            MermaidSvg(');
     expect(dialog).not.toContain('background-color="#0a0a0a"');
   });
 
@@ -90,7 +90,7 @@ describe('one resolved colour scheme', () => {
   test('the theme editor opens on the resolved scheme', async () => {
     expect(await source('app.contract')).toContain('settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore');
     expect(await source('app.ts')).toContain("String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));");
-    const native = { available: true } as unknown as Native;
+    const native = { available: true, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) } as unknown as Native;
     const opened = async (mode: string, scheme: string, kind: string, subject: string) => {
       const client = { local: { deviceSettings: { appearanceMode: mode }, clientSettings: decodeClientPrefs({}), customThemes: [] }, ready: true, environmentId: 'env1', revision: 0,
         config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;

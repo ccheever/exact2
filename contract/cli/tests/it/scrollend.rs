@@ -21,7 +21,7 @@ impl DataSource for Rows {
 const APP: &str = r#"component App
   state ends = 0
   state moves = 0
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action ended
     ends = ends + 1
   action moved(x: number, y: number)
@@ -32,7 +32,7 @@ const APP: &str = r#"component App
       scroll scroll=moved scrollend=ended testId="pane" height=100
         text "a"
       list virtualized=true scrollend=ended testId="feed" height=100 estimated-item-height=20
-        each r in rows key=r
+        for r in rows key=r
           text r
       column testId="plain"
 "#;

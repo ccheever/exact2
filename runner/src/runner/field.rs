@@ -121,7 +121,58 @@ pub fn utf16_len(text: &str) -> u32 {
     text.encode_utf16().count().try_into().unwrap_or(u32::MAX)
 }
 
+/// The edit's DOM metadata, shared by beforeinput and input.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct InputDetails {
+    /// DOM inputType, such as insertText or historyUndo.
+    pub input_type: String,
+    /// The inserted text; absent for deletion and history.
+    pub data: Option<String>,
+    /// Whether preventDefault can stop this edit.
+    pub cancelable: bool,
+    /// Whether this edit is part of an IME composition.
+    pub is_composing: bool,
+}
+
 impl Event {
+    /// ABI 53 (beforeinput) and 54 (input): type, cancelable, composing,
+    /// UTF-8 data length (-1 for null), data, then the field selection payload.
+    pub fn edit_payload(kind: u32, payload: &str) -> Option<Self> {
+        let mut parts = payload.splitn(5, ',');
+        let input_type = parts.next()?.to_owned();
+        let flag = |s| match s {
+            "0" => Some(false),
+            "1" => Some(true),
+            _ => None,
+        };
+        let cancelable = flag(parts.next()?)?;
+        let is_composing = flag(parts.next()?)?;
+        let len: i64 = parts.next()?.parse().ok()?;
+        let rest = parts.next()?;
+        let (data, rest) = if len == -1 {
+            (None, rest)
+        } else {
+            let len = usize::try_from(len).ok()?;
+            (Some(rest.get(..len)?.to_owned()), rest.get(len..)?)
+        };
+        let (selection, text) = FieldSelection::parse(rest)?;
+        let edit = InputDetails {
+            input_type,
+            data,
+            cancelable,
+            is_composing,
+        };
+        match kind {
+            53 => Some(Self::BeforeInput(text.into(), selection, edit)),
+            54 => Some(Self::Input(ControlValue::Edit(
+                text.into(),
+                selection,
+                edit,
+            ))),
+            _ => None,
+        }
+    }
+
     /// Decode ABI kind 40 (a text field's `input`), 41 (its `change`) or 42
     /// (its `select`), or 48 (a scripted replacement input), each carrying its selection then its text
     /// ([`FieldSelection::parse`]).
@@ -136,6 +187,7 @@ impl Event {
             40 => Some(Event::Input(value)),
             41 => Some(Event::Change(value)),
             42 => Some(Event::FieldSelect(text.into(), selection)),
+            52 => Some(Event::FieldSelectionChange(text.into(), selection)),
             _ => None,
         }
     }
@@ -154,6 +206,7 @@ impl<D: DataSource> Runner<D> {
         view: ViewId,
         payload: &Value,
         reported: Option<FieldSelection>,
+        edit: Option<&InputDetails>,
         replacement: bool,
     ) -> Value {
         let node = self.kernel.node(view);
@@ -183,11 +236,17 @@ impl<D: DataSource> Runner<D> {
             Value::Number(f64::from(start)),
             Value::Number(f64::from(end)),
             Value::str(direction.name()),
-            Value::str(if replacement {
+            Value::str(if let Some(edit) = edit {
+                &edit.input_type
+            } else if replacement {
                 "insertReplacementText"
             } else {
                 ""
             }),
+            edit.and_then(|e| e.data.as_ref())
+                .map_or(Value::NONE, |s| Value::some(Value::str(s))),
+            Value::Bool(edit.is_some_and(|e| e.cancelable)),
+            Value::Bool(edit.is_some_and(|e| e.is_composing)),
         ])
     }
 }
@@ -195,6 +254,28 @@ impl<D: DataSource> Runner<D> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edit_payload_keeps_null_empty_and_utf8_data_distinct() {
+        for (payload, expected) in [
+            ("insertText,1,0,0,0,0,none,", Some("")),
+            ("historyUndo,1,0,-1,0,0,none,", None),
+            ("insertText,1,0,7,a,\n😀0,0,none,", Some("a,\n😀")),
+        ] {
+            let Event::BeforeInput(_, _, edit) = Event::of_host_kind(53, payload).unwrap() else {
+                panic!("beforeinput")
+            };
+            assert_eq!(edit.data.as_deref(), expected);
+        }
+        for payload in [
+            "insertText,2,0,0,0,0,none,",
+            "insertText,1,0,-2,0,0,none,",
+            "insertText,1,0,1,😀0,0,none,",
+            "insertText,1,0,0,2,1,none,abc",
+        ] {
+            assert!(Event::of_host_kind(53, payload).is_err(), "{payload}");
+        }
+    }
 
     #[test]
     fn replacement_input_reports_its_type_and_selection() {

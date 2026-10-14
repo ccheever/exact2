@@ -473,7 +473,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
 
   it('a screenshot\'s and a recording\'s buttons keep their toast (toastAct)', () => {
     const rule = line(source('app.contract'), '    toastDismissed = op == "copy"');
-    expect(rule).toContain('op == "copy" or startsWith(op, "shelllocal:surface-browser-artifact-") ? toastDismissed :');
+    expect(rule).toContain('op == "copy" or op.startsWith("shelllocal:surface-browser-artifact-") ? toastDismissed :');
   });
 });
 

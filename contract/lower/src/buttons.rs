@@ -70,7 +70,7 @@ impl Lowerer<'_> {
             None => None,
             Some(a) => match &a.value {
                 Expr::Str(v, _) if v == "auto" || v == "none" => Some(v.as_str()),
-                _ => return err("lower-appearance", "a `button`'s `appearance` is a literal: `\"auto\"` (the platform's own button) or `\"none\"` (the bare box). To switch between them, write `when` with two buttons", a.span),
+                _ => return err("lower-appearance", "a `button`'s `appearance` is a literal: `\"auto\"` (the platform's own button) or `\"none\"` (the bare box). To switch between them, write `if` with two buttons", a.span),
             },
         };
         if explicit == Some("none") {

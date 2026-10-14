@@ -45,7 +45,7 @@ shape BrowserPanel
   failMessage: string
   failLabel: string
   live: bool
-  profiles: list<BrowserProfileChoice>
+  profiles: BrowserProfileChoice[]
   // part 2: zoom, appearance, the viewport, the preview's chords, the empty state's lists
   zoomFactor: number
   zoomLabel: string
@@ -59,10 +59,10 @@ shape BrowserPanel
   presetId: string
   presetLabel: string
   aspectLocked: bool
-  presets: list<BrowserPresetChoice>
+  presets: BrowserPresetChoice[]
   keys: string
-  recents: list<BrowserRecent>
-  servers: list<BrowserServer>
+  recents: BrowserRecent[]
+  servers: BrowserServer[]
   capture: BrowserCapture // part 3 (browser-surface-capture)
 
 // browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview, and the separate window

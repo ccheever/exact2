@@ -109,6 +109,28 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertEqual(q.views[1]?.layer.sublayers?.count, layers - 1)
     }
 
+    func testALeafKeepsTheContentBoxLayoutSentForTheViewItBecomes() throws {
+        // A bar padded by a percentage, created flat with its content box
+        var padded = bar(2, x: 0)
+        padded[0]["style"] = (padded[0]["style"] as? [String: Any] ?? [:]).merging(["padding_left": ["pct": 10]]) { _, new in new }
+        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]] + padded
+            + [contentOp(2, 3, 20, padding: [0, 0, 0, 1]), ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]])
+        XCTAssertNil(p.views[2], "flat")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 1, y: 0, width: 2, height: 20), "promoted with it")
+        XCTAssertEqual(p.views[2]?.padding("left"), 1)
+        // Demoted and promoted again, the box goes with it, a box cleared while flat too
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 0]]))
+        XCTAssertNil(p.views[2], "flat again")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 1, y: 0, width: 2, height: 20))
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 0]]))
+        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": NSNull()]]))
+        XCTAssertNil(p.views[2], "a content box alone keeps it flat")
+        p.apply(wireBatch([["op": "rank", "id": 2, "rank": 1]]))
+        XCTAssertEqual(try XCTUnwrap(p.views[2]).contentBox(), CGRect(x: 0, y: 0, width: 3, height: 20))
+    }
+
     func testATouchOnALeafIsItsParents() throws {
         let p = presenter(row())
         let parent = try XCTUnwrap(p.views[1])

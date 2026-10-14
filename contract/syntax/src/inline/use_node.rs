@@ -129,7 +129,7 @@ pub(super) fn inline_use(
     }
     // Closure-convert child props/injects into hidden action
     // parameters. A handler evaluates these curried arguments
-    // at its exact node site, so intervening `when`/`match`
+    // at its exact node site, so intervening `if`/`match`
     // frames and arbitrarily nested rows cannot change what the
     // lifted action reads.
     let captures: Vec<(Param, Expr, String)> = c

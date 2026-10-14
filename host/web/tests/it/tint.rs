@@ -134,7 +134,7 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
         r##"component App
   view
     column testId="root" accent-color="-exact-system-teal"
-      view testId="fill" height=8 background-color="AccentColor"
+      view testId="fill" height=8 accent-color="AccentColor" background-color="AccentColor"
       text "Link" testId="ink" color="LinkText"
       text "Plain" testId="plain" color="CanvasText"
 "##,
@@ -158,6 +158,11 @@ fn the_accent_colour_role_is_the_nearest_accent_color() {
         "{root}"
     );
     let fill = create("fill");
+    assert!(
+        fill.contains("accent-color:var(--exact-accent, AccentColor);")
+            && !fill.contains("--exact-accent:"),
+        "the accent role must inherit without a custom-property cycle: {fill}"
+    );
     assert!(
         fill.contains("background-color:var(--exact-accent, AccentColor);"),
         "{fill}"

@@ -59,15 +59,15 @@ component Gallery
         button press=flip testId="backdrop" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 background-color="#f8fafc"
           text (dark ? "dark" : "light") font-size=13
       row flex-wrap="wrap" gap=8 padding-left=12 padding-right=12
-        when page == 1
+        if page == 1
           Shapes(bg=(dark ? "#000000" : "#ffffff"))
-        when page == 2
+        if page == 2
           Paint(bg=(dark ? "#000000" : "#ffffff"))
-        when page == 3
+        if page == 3
           Sequences(step=step, bg=(dark ? "#000000" : "#ffffff"))
-        when page == 4
+        if page == 4
           Text(bg=(dark ? "#000000" : "#ffffff"))
-        when page == 5
+        if page == 5
           Pictures(bg=(dark ? "#000000" : "#ffffff"))
 
 // Shapes and paths: arcs first (the direction under Core Graphics' flip).

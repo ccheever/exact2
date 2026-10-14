@@ -30,7 +30,7 @@ component R6VideoFace
     local: action
   view
     box position="relative" width="6.3125rem" height="4.734375rem" flex-shrink=0 testId=`attachment-video-${id}`
-      when url != ""
+      if url != ""
         video url muted=true playsinline=true preload="metadata" aria-hidden=true width="100%" height="100%" box-sizing="border-box" overflow="hidden" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="#000000" object-fit="contain" testId=`attachment-video-frame-${id}`
       else
         box width="100%" height="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffff14)" background-color="#000000" role="status" aria-label="Loading video"

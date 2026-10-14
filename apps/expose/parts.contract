@@ -23,7 +23,7 @@ shape Thread
   time: string
   unread: bool
 shape Inbox
-  threads: list<Thread>
+  threads: Thread[]
   unread: number
 shape Message
   id: string
@@ -37,7 +37,7 @@ shape Conversation
   name: string
   initials: string
   kind: string
-  messages: list<Message>
+  messages: Message[]
   streaming: bool
   error: string
 shape Turn
@@ -53,9 +53,9 @@ shape Article
   title: string
   deck: string
   pull: string
-  body: list<string>
+  body: string[]
 shape Library
-  articles: list<Article>
+  articles: Article[]
   lead: string
 shape Hour
   id: string
@@ -69,7 +69,7 @@ shape Weather
   high: string
   low: string
   place: string
-  hours: list<Hour>
+  hours: Hour[]
 shape ModelChoice
   id: string
   name: string
@@ -81,7 +81,7 @@ shape Intelligence
   keyHint: string
   model: string
   modelName: string
-  models: list<ModelChoice>
+  models: ModelChoice[]
 
 // The system's surfaces: near-black and near-white, the scheme's choice.
 style Page
@@ -131,7 +131,7 @@ component StatusBar
       button press=press testId="status-time" height=30 display="flex" flex-direction="row" align-items="center"
         text time font-family="Exciting Lilt" font-weight=700 font-size=17 color=tone
       row align-items="center" gap=7
-        when airplane
+        if airplane
           svg viewBox="0 0 24 24" width=16 height=16
             path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" fill=tone
         else
@@ -162,9 +162,9 @@ component AppTile
     button press=press testId=`app-${id}` aria-label=label -exact-press-scale=0.94 width=78 display="flex" flex-direction="column" align-items="center" gap=7
       column width=66 height=66 border-radius=17 background-color=tile align-items="center" justify-content="center" position="relative"
         text glyph font-family="Exciting" font-weight=900 font-size=(small ? 24 : 34) line-height="40px" color=ink
-        when badge > 0
+        if badge > 0
           column position="absolute" top=-6 right=-6 min-width=22 height=22 border-radius=11 background-color="#ff6a2b" align-items="center" justify-content="center" padding-left=6 padding-right=6 box-sizing="border-box"
-            text toString(badge) font-size=12 font-weight=700 color="#ffffff"
+            text badge.toString() font-size=12 font-weight=700 color="#ffffff"
       text label font-size=12 font-weight=500 color="#ffffffd9" line-clamp=1
 
 // The same tile in the dock, without a label.
@@ -262,7 +262,7 @@ component Bubble
     row width="100%" justify-content=(role == "me" ? "flex-end" : "flex-start") testId=`bubble-${id}`
       row max-width="82%" padding-top=9 padding-bottom=9 padding-left=14 padding-right=14 border-radius=20 align-items="flex-end" gap=2 background-color=(role == "me" ? "light-dark(#0b0b0c, #f5f5f7)" : "light-dark(#e9e9ee, #202024)")
         text (streaming and body == "" ? "Thinking" : body) font-size=(17 * scale) line-height=1.32 white-space="pre-wrap" overflow-wrap="anywhere" color=(role == "me" ? "light-dark(#ffffff, #0b0b0c)" : "light-dark(#0b0b0c, #f5f5f7)")
-        when streaming
+        if streaming
           box width=3 height=(17 * scale) border-radius=1 margin-bottom=2 background-color="#ff6a2b" animation="blink 900ms ease-in-out infinite"
 
 // The home indicator: tapping it goes home, as the gesture would.

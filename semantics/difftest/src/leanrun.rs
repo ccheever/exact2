@@ -97,52 +97,59 @@ pub fn module(cases: &[LeanCase]) -> String {
 /// `verify` turn it on; `DIFFTEST_CACHE=1` or `0` decides for any command).
 pub static CACHE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-fn caching() -> bool {
-    match std::env::var("DIFFTEST_CACHE").as_deref() {
+/// The library's digest when observations are kept and reused.
+fn caching() -> Option<&'static str> {
+    let on = match std::env::var("DIFFTEST_CACHE").as_deref() {
         Ok("1") => true,
         Ok("0") => false,
         _ => CACHE.load(std::sync::atomic::Ordering::Relaxed),
-    }
+    };
+    library_digest().filter(|_| on)
 }
 
 /// A digest of everything that decides what Lean prints for a case beside
-/// the case itself: the semantics' sources, the toolchain, the Lake file.
-fn library_digest() -> &'static str {
-    static DIGEST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    DIGEST.get_or_init(|| {
-        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-            let Ok(entries) = std::fs::read_dir(dir) else {
-                return;
-            };
-            for e in entries.flatten() {
-                let p = e.path();
-                if p.is_dir() {
-                    walk(&p, out);
-                } else if p.extension().is_some_and(|x| x == "lean") {
-                    out.push(p);
+/// the case itself: the semantics' sources, the toolchain, the Lake files,
+/// and this file, which writes the harness around a case, runs Lean and
+/// splits its output (so editing it starts the cache afresh). `None` when a
+/// source cannot be read: then nothing is reused.
+fn library_digest() -> Option<&'static str> {
+    static DIGEST: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    DIGEST
+        .get_or_init(|| {
+            fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Option<()> {
+                for e in std::fs::read_dir(dir).ok()? {
+                    let p = e.ok()?.path();
+                    if p.is_dir() {
+                        walk(&p, out)?;
+                    } else if p.extension().is_some_and(|x| x == "lean") {
+                        out.push(p);
+                    }
                 }
+                Some(())
             }
-        }
-        let root = project();
-        let mut files = vec![
-            root.join("Contract.lean"),
-            root.join("lean-toolchain"),
-            root.join("lakefile.toml"),
-        ];
-        walk(&root.join("Contract"), &mut files);
-        files.sort();
-        let mut h = Digest::default();
-        for f in files {
-            h.add(
-                f.strip_prefix(&root)
-                    .unwrap_or(&f)
-                    .to_string_lossy()
-                    .as_bytes(),
-            );
-            h.add(&std::fs::read(&f).unwrap_or_default());
-        }
-        h.hex()
-    })
+            let root = project();
+            let mut files = vec![
+                root.join("Contract.lean"),
+                root.join("lean-toolchain"),
+                root.join("lakefile.toml"),
+                root.join("lake-manifest.json"),
+            ];
+            walk(&root.join("Contract"), &mut files)?;
+            files.sort();
+            let mut h = Digest::default();
+            h.add(include_str!("leanrun.rs").as_bytes());
+            for f in files {
+                h.add(
+                    f.strip_prefix(&root)
+                        .unwrap_or(&f)
+                        .to_string_lossy()
+                        .as_bytes(),
+                );
+                h.add(&std::fs::read(&f).ok()?);
+            }
+            Some(h.hex())
+        })
+        .as_deref()
 }
 
 /// Two independent 64-bit FNV-1a lanes: a cache key, not a signature.
@@ -169,9 +176,9 @@ impl Digest {
 
 /// Where a case's observation is kept: keyed by its embedding (whatever
 /// its `def`'s name), oracle and events, and the library.
-fn cache_file(dir: &Path, c: &LeanCase) -> PathBuf {
+fn cache_file(dir: &Path, library: &str, c: &LeanCase) -> PathBuf {
     let mut h = Digest::default();
-    h.add(library_digest().as_bytes());
+    h.add(library.as_bytes());
     h.add(
         c.program
             .replacen(&format!("def {} ", c.name), "def _ ", 1)
@@ -192,11 +199,11 @@ pub fn memo(
     module: &str,
     f: impl FnOnce() -> Result<Vec<String>, String>,
 ) -> Result<Vec<String>, String> {
-    if !caching() {
+    let Some(library) = caching() else {
         return f();
-    }
+    };
     let mut h = Digest::default();
-    h.add(library_digest().as_bytes());
+    h.add(library.as_bytes());
     h.add(module.as_bytes());
     let file = dir.join("cache").join(format!("{}.txt", h.hex()));
     if let Ok(t) = std::fs::read_to_string(&file) {
@@ -217,10 +224,10 @@ pub fn memo(
 /// are those of a case run before is answered from what that run printed
 /// (Lean's run is deterministic), and only the rest reach Lean.
 pub fn run(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>, String> {
-    if !caching() {
+    let Some(library) = caching() else {
         return run_uncached(cases, dir, tag);
-    }
-    let files: Vec<PathBuf> = cases.iter().map(|c| cache_file(dir, c)).collect();
+    };
+    let files: Vec<PathBuf> = cases.iter().map(|c| cache_file(dir, library, c)).collect();
     let mut results: Vec<Option<Vec<String>>> = files
         .iter()
         .map(|f| {
@@ -253,7 +260,7 @@ fn run_uncached(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<Str
     if cases.is_empty() {
         return Ok(Vec::new());
     }
-    let text = run_module(&module(cases), dir, tag)?;
+    let text = run_module_uncached(&module(cases), dir, tag)?;
     let mut results: Vec<Vec<String>> = Vec::new();
     for line in text {
         if line.starts_with("#case ") {
@@ -272,9 +279,15 @@ fn run_uncached(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<Str
     Ok(results)
 }
 
-/// Run a generated module's `main` in one Lean process; its output lines.
-/// `dir` keeps the module for a failure's reproduction.
+/// Run a generated module's `main` in one Lean process; its output lines,
+/// kept and reused by [`memo`] when caching is on. `dir` keeps the module
+/// for a failure's reproduction.
 pub fn run_module(module: &str, dir: &Path, tag: &str) -> Result<Vec<String>, String> {
+    memo(dir, module, || run_module_uncached(module, dir, tag))
+}
+
+/// [`run_module`], never cached.
+pub fn run_module_uncached(module: &str, dir: &Path, tag: &str) -> Result<Vec<String>, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     // One module per process and batch: runs side by side never share one.
     let file = dir.join(format!("{tag}-{}.lean", std::process::id()));
@@ -303,8 +316,6 @@ pub fn run_module(module: &str, dir: &Path, tag: &str) -> Result<Vec<String>, St
 /// process: the semantics' number printing, for comparison with the
 /// runner's `format_number` over many values at once.
 pub fn numbers(bits: &[u64], dir: &Path) -> Result<Vec<String>, String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let file = dir.join(format!("numbers-{}.lean", std::process::id()));
     let data: Vec<String> = bits.iter().map(|b| format!("{b:016x}")).collect();
     let module = format!(
         "import Contract.OracleText\nopen Contract\n\ndef data : String := \"{}\"\n\n\
@@ -314,22 +325,5 @@ pub fn numbers(bits: &[u64], dir: &Path) -> Result<Vec<String>, String> {
          | .none => IO.println \"?\"\n",
         data.join(" ")
     );
-    std::fs::write(&file, module).map_err(|e| format!("{}: {e}", file.display()))?;
-    let out = Command::new(lake())
-        .args(["env", "lean", "--run"])
-        .arg(&file)
-        .current_dir(project())
-        .output()
-        .map_err(|e| format!("lake env lean: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{}: lean failed:\n{}",
-            file.display(),
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .map(str::to_string)
-        .collect())
+    run_module(&module, dir, "numbers")
 }

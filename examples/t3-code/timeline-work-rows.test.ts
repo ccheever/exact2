@@ -259,7 +259,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     expect(entries).toContain('max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)`');
     expect(entries).toContain('WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)');
     // A running total: a report replaces that row's last one.
-    expect(entries).toContain('action entrySized(id: string, extra: number)\n    let previous = match first(filter(extras, (e) => e.id == id)) { case some(e) => e.extra, case none => 0 }\n    opened = max(0, opened - previous + extra)');
+    expect(entries).toContain('action entrySized(id: string, extra: number)\n    let previous = match first(extras.filter((e) => e.id == id)) { case some(e) => e.extra, case none => 0 }\n    opened = max(0, opened - previous + extra)');
     const entry = await component('timeline-work.contract', 'WorkEntry');
     // Only an open row adds; a shut one (a provider error's detail line included) reports 0.
     expect(entry).toContain('action rowSized(width: number, height: number)\n    sized(entry.id, expanded ? max(0, height - 1.5 * rem) : 0)');

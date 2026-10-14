@@ -11,7 +11,7 @@ impl DataSource for Rows {
 const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action receive(item: string, before: option<string>)
     count = count + 1
   action block
@@ -22,7 +22,7 @@ const SOURCE: &str = r#"component App
       button testId="block" press=block width=60 height=20
       column testId="other-motion" width=20 height=20 scale=1 transition="scale -exact-spring(300,30,1)"
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;
@@ -459,8 +459,8 @@ const BOARD: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource initial = cards() as shape list<Card>
-  mutation moved as shape list<Card>
+  resource initial = cards() as shape Card[]
+  mutation moved as shape Card[]
   derive cards = match moved { case some(v) => v, case none => initial }
   action dropA(item: string, before: option<string>, e: ReorderEvent)
     log = `${item} ${e.from}>${e.to}`
@@ -471,10 +471,10 @@ component App
   view
     row
       list id="a" testId="a" virtualized=true reorderGroup="g" reorderdrop=dropA height=100 width=100
-        each c in filter(cards, k => k.col == "a") key=c.id
+        for c in cards.filter(k => k.col == "a") key=c.id
           column reorderFor="a" testId=`grip-${c.id}` height=20
       list id="b" testId="b" virtualized=true reorderGroup="g" reorderdrop=dropB height=100 width=100
-        each c in filter(cards, k => k.col == "b") key=c.id
+        for c in cards.filter(k => k.col == "b") key=c.id
           column reorderFor="b" testId=`grip-${c.id}` height=20
 "#;
 #[test]
@@ -610,7 +610,7 @@ fn refused_group_drop_publishes_timer_receipts() {
     ).replace("    send moved = move(item, \"b\")", "    send moved = fail()")
         .replace("  view\n    row", "  view\n    column\n      text notice testId=\"notice\"\n      row")
         .replace("\n      list id=", "\n        list id=")
-        .replace("\n        each c in", "\n          each c in")
+        .replace("\n        for c in", "\n          for c in")
         .replace("\n          column reorderFor", "\n            column reorderFor");
     let cards = [("a1", "a"), ("a2", "a"), ("b1", "b")]
         .map(|(i, c)| (i.to_owned(), c.to_owned()))

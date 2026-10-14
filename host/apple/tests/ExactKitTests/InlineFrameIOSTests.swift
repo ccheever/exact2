@@ -11,7 +11,7 @@ final class InlineFrameIOSTests: XCTestCase {
     private func checkEdgeCase(_ name: String) throws {
         let session = ExactApp.shared.makeSession(label: "inline-edge")
         defer { session.destroy() }
-        XCTAssertNil(session.boot(plan: InlineFrameFixture.plan, size: CGSize(width: 600, height: 400)).error)
+        XCTAssertNil(session.boot(plan: try InlineFrameFixture.plan(), size: CGSize(width: 600, height: 400)).error)
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 600, height: 400))
         let view = ExactView(session: session)
         view.frame = window.bounds

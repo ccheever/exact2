@@ -4,7 +4,7 @@
 // checker does not read it back from the actions' writes), so its payload
 // goes through typed `fn`s here.
 fn str(s: string): string = s
-fn len(s: string): number = length(s)
+fn len(s: string): number = s.length
 fn isX(s: string): bool = s == "x"
 
 component App

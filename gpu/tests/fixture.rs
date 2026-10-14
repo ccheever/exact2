@@ -222,9 +222,10 @@ fn save_creates_the_directory_it_is_pointed_at() {
 
 #[test]
 fn only_no_adapter_is_a_skip() {
-    assert_eq!(fixture::device_or_skip(Ok(7)), Some(7));
+    // The policy is given, not read from EXACT_REQUIRED, so this holds in the lane too.
+    assert_eq!(fixture::device_or(Ok(7), false), Some(7));
     assert_eq!(
-        fixture::device_or_skip::<()>(Err("no adapter: unavailable".into())),
+        fixture::device_or::<()>(Err("no adapter: unavailable".into()), false),
         None
     );
     for reason in [
@@ -233,7 +234,18 @@ fn only_no_adapter_is_a_skip() {
         "shader validation failed",
     ] {
         assert!(
-            std::panic::catch_unwind(|| fixture::device_or_skip::<()>(Err(reason.into()))).is_err()
+            std::panic::catch_unwind(|| fixture::device_or::<()>(Err(reason.into()), false))
+                .is_err()
         );
     }
+}
+
+#[test]
+fn a_required_gpu_fails_when_no_adapter_is_found() {
+    assert_eq!(fixture::device_or(Ok(7), true), Some(7));
+    assert!(std::panic::catch_unwind(|| fixture::device_or::<()>(
+        Err("no adapter: unavailable".into()),
+        true
+    ))
+    .is_err());
 }

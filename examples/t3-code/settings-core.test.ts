@@ -41,7 +41,7 @@ function fake(settings: Obj = {}, ready = true): Fake {
   };
   return client;
 }
-const native = { available: true } as unknown as Native;
+const native: Native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) };
 const as = (client: Fake) => client as unknown as T3Client;
 
 describe('device settings', () => {

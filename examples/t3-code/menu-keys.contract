@@ -19,12 +19,12 @@ shape KmItem
   id: string
   label: string
 
-fn kmIndex(items: list<KmItem>, current: string): number = indexOf(map(items, (item) => item.id), current)
-fn kmAfter(items: list<KmItem>, current: string): list<KmItem> = concat(slice(items, kmIndex(items, current) + 1), slice(items, 0, kmIndex(items, current) + 1))
-fn kmLetter(k: string): bool = length(k) == 1 and trim(k) != ""
+fn kmIndex(items: KmItem[], current: string): number = items.map((item) => item.id).indexOf(current)
+fn kmAfter(items: KmItem[], current: string): KmItem[] = items.slice(kmIndex(items, current) + 1).concat(items.slice(0, kmIndex(items, current) + 1))
+fn kmLetter(k: string): bool = k.length == 1 and k.trim() != ""
 // The item a key moves the focus to: ↓ the next (the first from the popup), ↑ the previous (the last
 // from the popup), wrapping; Home, End; a letter the next label that starts with it.
-fn kmTarget(items: list<KmItem>, current: string, k: string): option<KmItem> = k == "ArrowDown" ? first(kmAfter(items, current)) : (k == "ArrowUp" ? at(items, kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1) : (k == "Home" ? first(items) : (k == "End" ? at(items, -1) : (kmLetter(k) ? first(filter(kmAfter(items, current), (item) => startsWith(toLowerCase(item.label), toLowerCase(k)))) : none))))
+fn kmTarget(items: KmItem[], current: string, k: string): option<KmItem> = k == "ArrowDown" ? first(kmAfter(items, current)) : (k == "ArrowUp" ? items.at(kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1) : (k == "Home" ? first(items) : (k == "End" ? items.at(-1) : (kmLetter(k) ? first(kmAfter(items, current).filter((item) => item.label.toLowerCase().startsWith(k.toLowerCase()))) : none))))
 // Enter or Space on a trigger opens its menu from the keyboard.
 fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"
 // ↓ and ↑ on a trigger open its menu too, at the first and the last item (Base UI Menu's trigger).
@@ -33,7 +33,7 @@ fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"
 // (positive the first item, negative the last), so every opening differs from the one the popup saw.
 fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1)
 // The first or the last item, by the sign of a keyboard opening.
-fn kmEnd(items: list<KmItem>, keyed: number): option<KmItem> = keyed < 0 ? at(items, -1) : first(items)
+fn kmEnd(items: KmItem[], keyed: number): option<KmItem> = keyed < 0 ? items.at(-1) : first(items)
 // A menu its owner mounts from state: the end a key on its trigger asks for ("first" from Enter, Space
 // or ↓, "last" from ↑, "" for any other key), and the node the owner focuses as it opens the menu (the
 // popup itself after a pointer press, else its `-first` or `-last` box, which hand the focus on). A menu
@@ -57,7 +57,7 @@ fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 
 component KeyMenu
   props
     menuId: string
-    items: list<KmItem>
+    items: KmItem[]
     keyed: number
     gap: string
     // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
@@ -93,7 +93,7 @@ component KeyMenu
         focus(item.id)
       case none
   action enteredLast
-    match at(items, -1)
+    match items.at(-1)
       case some(item)
         current = item.id
         focus(item.id)
@@ -104,13 +104,13 @@ component KeyMenu
       column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast
         column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst
           children
-      each item in items key=item.id
+      for item in items key=item.id
         KmDoor(id=item.id, enter=pointed(item.id))
 
 component KeyMenuWatched
   props
     menuId: string
-    items: list<KmItem>
+    items: KmItem[]
     keyed: number
     gap: string
     // A painted popover menu is modal while it shows (Base UI Menu modal): only shortcuts inside it are
@@ -150,7 +150,7 @@ component KeyMenuWatched
         focus(item.id)
       case none
   action enteredLast
-    match at(items, -1)
+    match items.at(-1)
       case some(item)
         current = item.id
         focus(item.id)
@@ -161,7 +161,7 @@ component KeyMenuWatched
       column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast blur=left
         column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst blur=left
           children
-      each item in items key=item.id
+      for item in items key=item.id
         KmDoor(id=item.id, enter=pointed(item.id))
 
 // A row's door (`${id}-km`): focused as the pointer enters the row, it tells the menu and hands the focus on.

@@ -313,7 +313,7 @@ final class NativeContextsIOSTests: XCTestCase {
         let control = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
         control.layoutIfNeeded()
         let reply = Agent(session: session).aim(["id": 3, "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let w = try XCTUnwrap(aim["window"] as? [Double])
         let local = control.convert(CGPoint(x: w[0], y: w[1]), from: nil)
@@ -374,7 +374,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(alert.actions.map(\.title), ["Delete", "Cancel"])
         XCTAssertNil(alert.title, "its popover has no label; the invoker's is not one")
         XCTAssertEqual(alert.actions.map(\.style), [.destructive, .cancel])
-        guard scene != nil else { return }
+        guard scene != nil else { throw missing("scene", "a presentation completes only in a scene's window") }
         let settled = expectation(description: "presented")
         func poll() { if p.menus.inTransition { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: poll) } else { settled.fulfill() } }
         poll()
@@ -461,7 +461,7 @@ final class NativeContextsIOSTests: XCTestCase {
         for (index, expected) in [(0, [UInt32(3)]), (2, [5]), (3, [])] {
             let (p, controller, scene) = chooser({ Self.providers })
             defer { p.menus.reset(); window.isHidden = true }
-            try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+            guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
             var pressed: [UInt32] = []
             p.onPress = { pressed.append($0) }
             XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
@@ -510,7 +510,7 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(presentation.sourceRect, source.bounds, "the whole invoker, not its label")
         XCTAssertEqual(presentation.permittedArrowDirections, [])
         XCTAssertTrue(presentation.canOverlapSourceViewRect)
-        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        guard scene else { throw missing("scene", "a presentation completes only in a scene's window") }
         settle(p) { !p.menus.inTransition }
         let sheet = alert.view.convert(alert.view.bounds, to: nil), invoker = source.convert(source.bounds, to: nil)
         print("position-area center: sheet \(sheet), invoker \(invoker)")

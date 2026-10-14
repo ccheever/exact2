@@ -9,20 +9,20 @@ component App
   state ids = ["a", "b", "b"]
   state to = "ann, bo,, 😀"
   state open = "b"
-  derive openAt = indexOf(ids, open)
-  derive at = join([indexOf(concat(nums, [0 / 0]), 0 / 0), indexOf(nums, 0), openAt, indexOf([true, false], false), indexOf(to, "bo"), indexOf(to, "😀"), indexOf(to, ""), indexOf("abc", "z")], ",")
-  derive chips = split(to, ", ")
-  derive units = split("a😀", "")
-  derive halfAt = indexOf(join(units, ""), slice("😀", 0, 1))
-  derive counts = join([length(units), length(split("", "")), length(split("", ",")), length(split("aaa", "aa"))], ",")
-  derive overlap = join(split("aaa", "aa"), "|")
+  derive openAt = ids.indexOf(open)
+  derive at = [nums.concat([0 / 0]).indexOf(0 / 0), nums.indexOf(0), openAt, [true, false].indexOf(false), to.indexOf("bo"), to.indexOf("😀"), to.indexOf(""), "abc".indexOf("z")].join(",")
+  derive chips = to.split(", ")
+  derive units = "a😀".split("")
+  derive halfAt = units.join("").indexOf("😀".slice(0, 1))
+  derive counts = [units.length, "".split("").length, "".split(",").length, "aaa".split("aa").length].join(",")
+  derive overlap = "aaa".split("aa").join("|")
   action pick(id: string)
     open = id
   action add(chip: string)
     to = `${to}, ${chip}`
   view
     column
-      text join(chips, "|") testId="chips"
+      text chips.join("|") testId="chips"
       text `${openAt}` testId="open"
       button "a" press=pick("a") testId="a"
       button "z" press=pick("z") testId="z"

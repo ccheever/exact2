@@ -1,5 +1,5 @@
 # Tabs and stacks (contract/corpus/tabs.contract, docs/contract-for-agents.md):
-# a pushed screen whose content is a keyed `each` survives a visit to the other
+# a pushed screen whose content is a keyed `for` survives a visit to the other
 # tab and back (shop F26), a modal sheet paints its own background over the
 # dimmed route it covers (recipes F6), the hidden tablist takes no room, a toast
 # after the tablist paints over the routes, and a location typed into the root

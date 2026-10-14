@@ -276,7 +276,7 @@ pub fn project(
     Ok(out)
 }
 
-/// Every `each` row's roots, through any region at its top.
+/// Every `for` row's roots, through any region at its top.
 fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {
     fn roots(
         plan: &Plan,
@@ -616,9 +616,10 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         StyleId::AnimationTrigger => vec![],
         StyleId::Animation => vec![with("animation", NONE)],
         // @ref LLP 1069.011 D8 — and the custom property a native button reads.
+        // The accent role must inherit, never write a self-reference.
         StyleId::AccentColor => vec![
             with("accent-color", "v=>v"),
-            with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
+            with("--exact-accent", "v=>v==null||typeof v===\"string\"&&v.trim()===\"var(--exact-accent, AccentColor)\"?null:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
         StyleId::PositionTryFallbacks => vec![with(
             "position-try-fallbacks",
@@ -851,6 +852,42 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    #[test]
+    fn a_bound_accent_role_leaves_the_inherited_accent_unset() {
+        let writes = style_writes(StyleId::AccentColor as u16, false).unwrap();
+        let values = ["AccentColor", " accentcolor ", "#5856d6", "auto", "inherit"];
+        let maps: Vec<_> = writes
+            .iter()
+            .map(|write| {
+                let map = format!(
+                    "v=>({})(({})(v))",
+                    write.map.unwrap(),
+                    SYSTEM_COLOR_MAP.as_str()
+                );
+                (write.name.as_str(), run(&map, &values))
+            })
+            .collect();
+        assert_eq!(
+            maps,
+            vec![
+                (
+                    "accent-color",
+                    serde_json::json!([
+                        "var(--exact-accent, AccentColor)",
+                        " var(--exact-accent, AccentColor) ",
+                        "#5856d6",
+                        "auto",
+                        "inherit"
+                    ])
+                ),
+                (
+                    "--exact-accent",
+                    serde_json::json!([null, null, "#5856d6", "AccentColor", "inherit"])
+                )
+            ]
+        );
+    }
 
     #[test]
     fn balanced_wrap_writes_the_same_property_for_bound_values() {

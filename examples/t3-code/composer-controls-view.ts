@@ -4,6 +4,7 @@
 // composerFooterLayout.ts (icon-only before overflow), TraitsPicker.tsx
 // (buildTraitsTriggerDisplay), ChatView.tsx (woke/parked/background banners,
 // tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
+import { branchMismatchNotice } from './composer-controls-branch';
 import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
 import { systemComposerNotices } from './server-update-notices';
 import { autoBalanceState } from './auto-balance'; // auto-balance
@@ -180,6 +181,7 @@ function backgroundWork(client: T3Client): ComposerNotice | null {
 }
 
 export function composerNotices(client: T3Client, now: number): ComposerNotice[] {
+  const mismatch = branchMismatchNotice(client); // returning to Home resets revelation, but keeps session dismissals
   // ChatView projectCloneBannerItem: a project added by cloning shows its clone where its draft is (project-clones-live.ts).
   const clone = projectCloneNotice(client);
   const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
@@ -213,6 +215,7 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
     if (visited < Date.parse(woke)) items.push(notice({ id: `thread-woke:${client.threadId}`, icon: 'alarm', title: 'Thread woke from snooze',
       description: 'Send a message to continue', dismiss: `cclocal:dismiss-woke`, dismissLabel: 'Dismiss Woke notification' }));
   }
+  if (mismatch) items.push(notice(mismatch));
   if (snoozed || settled) items.push(notice({ id: `thread-${snoozed ? 'snoozed' : 'settled'}:${client.threadId}`, icon: snoozed ? 'alarm' : 'circle-check',
     title: `This thread is ${snoozed ? 'snoozed' : 'settled'}`, description: `Send a message to ${snoozed ? 'wake' : 'unsettle'}`,
     action: snoozed ? 'cc:unsnooze' : 'unsettle', actionLabel: snoozed ? 'Wake now' : 'Un-settle' }));

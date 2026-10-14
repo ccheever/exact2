@@ -10,8 +10,8 @@ shape Hit
 component App
   state query = Query(text="x", limit=3)
   state cursor = none
-  resource hits = search(query, cursor) as shape list<Hit>
-  derive ids = join(map(hits, h => h.id), ",")
+  resource hits = search(query, cursor) as shape Hit[]
+  derive ids = hits.map(h => h.id).join(",")
   action more
     query = Query(query, limit=query.limit + 1)
   action same

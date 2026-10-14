@@ -17,12 +17,12 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB_JS = resolve(ROOT, 'host/web-js');
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // A field the app rewrites in lower case as it hears it, and what it heard: the app `hosted_tests.rs` gives Android.
 const CONTRACT = `component Hold
@@ -150,7 +150,8 @@ check('the JS target holds a value the app writes while a field composes, and wr
 // A compiled plan on each target, when its dist is named.
 const dists = { wasm: process.env.EXACT_WEB_DIST, JS: process.env.EXACT_WEB_JS_DIST };
 for (const [target, dist] of Object.entries(dists)) {
-  (dist && !unavailable ? test : test.skip)(`the ${target} target's compiled plan holds the app's value through a composition${dist ? '' : ' (no dist named)'}`, async () => {
+  const named = target === 'wasm' ? 'EXACT_WEB_DIST' : 'EXACT_WEB_JS_DIST';
+  (unavailable ? need('chrome', unavailable) : need('fixture', dist ? null : `no ${target} dist: name one with ${named}`))(`the ${target} target's compiled plan holds the app's value through a composition`, async () => {
     const tmp = mkdtempSync(resolve(tmpdir(), 'exact-compose-plan-'));
     try {
       const source = resolve(tmp, 'hold.contract'), plan = resolve(tmp, 'hold.plan');

@@ -2,7 +2,7 @@
 
 Date: 2026-10-05. Reference: T3 Code `f870c419fc` (HEAD `1e2ecbd975`). exact2 base `c1522fdac`; checked against main `d2cb661eb`.
 
-The newest clone source is in the mc-orch worktree (`~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805/examples/t3-code/`, untracked, round 11 + an unfinished round 12). This directory holds an older copy (Oct 3) until the move. The full plan with item IDs is `~/.claude/plans/humble-humming-kay.md`. The framework-level list is in `EXACT2-GAPS.md`.
+Current source is tracked here on `feat(example)/t3-code`. The [continuation report](.exact/implementation/20261005-t3code-macos-parity/reviews/20261014-first-wave-resume.md) records the eleven first-wave repair PRs and their remaining verification limits. [Main adoption round 14](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261014-adopt-main-fixes-r14.md) takes main `178ae7237`; its local repository and native integration checks pass. All eleven first-wave PRs merged remotely at `1e3152209`; adoption [#549](https://github.com/ccheever/exact2/pull/549) merged at `3710af842`. The eight dependent application follow-ups are next. The dated sections below preserve earlier observations; the portable [plan](.exact/implementation/20261005-t3code-macos-parity/plan.md) and `EXACT2-GAPS.md` hold task and framework details.
 
 ## 1. Done (round 11, verified by tests and agent drives against the web oracle)
 
@@ -39,11 +39,11 @@ IDs follow the plan.
 
 - **Framework vs T3 work (user, 2026-10-08).** Framework issues are fixed on separate branches from `main`, outside the T3 work. A T3 task blocked on a framework issue resumes after that issue's fix merges to `main` and a main-adoption round brings it in; such rows name their bucket (below).
 - **Upstream state by bucket (reclassified 2026-10-08, last checked 2026-10-08T12:30Z; a 2026-10-08 snapshot: since 2026-10-09 each open issue's live state is its main `issues/` file, and `issues/README.md` maps each X record to one).** Charlie decided 40 issues on 2026-10-08 (08:07Z); no decision came after that. Counts by upstream issue:
-  - 1, done on main (7): #101 (X2, main #309), #103 (X4), #129 and #225 (X11), #285 (main #304), #286 (main #325, closed 11:15Z, new) and #300 (X59, main #305). Round 7 adopts them.
+  - 1, done on main (8, including the #116 correction of 2026-10-14): #116 (any-type file input, `3657d330a`, adopted in round 11), #101 (X2, main #309), #103 (X4), #129 and #225 (X11), #285 (main #304), #286 (main #325, closed 11:15Z, new) and #300 (X59, main #305). Round 7 adopts them.
   - 2, fix in an open PR (8, and PR #239): main PR #327 (Charlie) fixes #280 (X52), #281 (X51), #284 (X50), #315 (X63), #316 (X64) and #322 (X62), and is partial for #282 (X53) and #292; PR #239 (kmagiera) covers X44's remote SVG. T3 waits and does not touch them. (2026-10-12: #327 merged as `ad7ebfc2f` and was adopted in round 11, [adopt-main-fixes-r11](.exact/implementation/20261005-t3code-macos-parity/tasks/closed/20261012-adopt-main-fixes-r11.md), which retired or kept each workaround with why; #292 stays open on main, and main closed #282's issue on 2026-10-13 by `f94fdc273`, not adopted.)
   - 3, Charlie's next core investment (2): #112 (X17) and #126 (X21).
   - 4, approved, no fix in progress (18): #140, #141, #266, #267, #268, #270, #271, #272, #273, #274, #275, #277, #278, #279, #283, #287, #301 and #302. Main-side work; T3 keeps its workarounds.
-  - 5, design or policy pending (8): #116 (any-type file input), #131, #224 (notification click), #235 (Shift+F10), #269 (the async quit hold), #318, #319 and #321.
+  - 5, design or policy pending (7): #131, #224 (notification click), #235 (Shift+F10), #269 (the async quit hold), #318, #319 and #321.
   - 6, closed or deferred, a permanent declared difference (7): #100 (X1), #108 (X9: the root rewrite is the remedy), #117 (X31), #124 (X19), #127 (X22), #130 (X12) and #276 (X20's chips). Also the parts other issues leave out: the View item (#101), readback and transcode (#116), the Dock badge (#224), font smoothing (#266) and `PDFView` (#273).
   - 7, attempt withdrawn, no fix in progress (3): #291 (X57), #317 (X65) and #320 (X67, which blocks round 7).
   - The four local "fix built" branches (X9, X19, X21, X22) are superseded by the decisions or by main and not pursued (recorded only).

@@ -42,9 +42,9 @@ shape R5Probe
 
 component R5TextProbes
   props
-    probes: list<R5Probe>
+    probes: R5Probe[]
   view
     column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-text-probes"
-      each probe in probes key=probe.key
+      for probe in probes key=probe.key
         box hatch="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
           text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

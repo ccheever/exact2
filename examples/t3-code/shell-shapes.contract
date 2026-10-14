@@ -30,7 +30,7 @@ shape ShellToast
   copyText: string
   copied: bool
   index: number
-  details: list<ShellToastDetail>
+  details: ShellToastDetail[]
   expandLabel: string
   collapseLabel: string
   extraLabel: string // browser-surface part 3: ThreadToastData.additionalActions (one), and each button's "Copied!" state
@@ -87,7 +87,7 @@ shape ShellEditor
   label: string
   selected: bool
 shape ShellView
-  toasts: list<ShellToast>
+  toasts: ShellToast[]
   toastCount: number
   ticking: bool
   openRequest: string
@@ -102,9 +102,9 @@ shape ShellView
   keySidebar: string
   serverThread: bool
   projectPath: string
-  surfaces: list<ShellSurface>
-  titleMenu: list<ShellMenuItem>
-  titleSubmenu: list<ShellMenuItem>
+  surfaces: ShellSurface[]
+  titleMenu: ShellMenuItem[]
+  titleSubmenu: ShellMenuItem[]
   notifications: string
   // r4-surfaces-panel.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
   panel: R4Panel
@@ -124,7 +124,7 @@ shape ShellDetails
   // r6-polish: the project script row (r6-polish-scripts.ts): the primary script and every script for its menu.
   scriptName: string
   scriptIcon: string
-  scripts: list<CardScript>
+  scripts: CardScript[]
   inline: bool
   error: string
   folderName: string
@@ -132,7 +132,7 @@ shape ShellDetails
   cwd: string
   editorId: string
   editorLabel: string
-  editors: list<ShellEditor>
+  editors: ShellEditor[]
   editorShortcut: string
   // OpenInPicker's remote states (remote-open.ts): the row shows, the hint until the first remote
   // open, "No SSH route to <label>" and "No installed editors found".
@@ -160,7 +160,7 @@ shape ShellDetails
   envLabel: string
   envKind: string
   lineageTitle: string
-  lineage: list<ShellLineage>
+  lineage: ShellLineage[]
   showLineage: bool
   previousCount: number
   previousFailed: number

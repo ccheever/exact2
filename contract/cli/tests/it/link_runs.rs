@@ -52,7 +52,7 @@ const PAGE: &str = "component App
         text \"Call 555 0100\" testId=\"words\"
       link testId=\"mixed\" href=\"/x\"
         image \"symbol:share\"
-        when on
+        if on
           text \"Share\"
       link testId=\"authored\" href=\"/x\" color=\"red\"
         text \"Red\"
@@ -91,11 +91,7 @@ fn a_link_is_link_text_unless_its_author_colours_it() {
         !block.style.written.has(StyleId::TextColor),
         "implied, not written (LLP 1115.000 D2)"
     );
-    assert_eq!(
-        color(&r, "mixed"),
-        link,
-        "text and images, a `when` of them"
-    );
+    assert_eq!(color(&r, "mixed"), link, "text and images, an `if` of them");
     assert_eq!(color(&r, "authored"), red, "an authored colour wins");
     assert!(node(&r, "authored").style.written.has(StyleId::TextColor));
     assert_eq!(

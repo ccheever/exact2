@@ -96,7 +96,7 @@ shape GalleryState
   canInsert: bool
   canPagePrevious: bool
   canPageNext: bool
-  viewer: list<ViewerState>
+  viewer: ViewerState[]
 
 component InteractionGallery
   resource initial = gallery() as shape GalleryState
@@ -114,7 +114,7 @@ component InteractionGallery
   // The stop the sheet is at, by its authored name (180, 360, 640).
   derive sheetNominal = sheetPx == sheetFull ? 640 : (sheetPx == sheetRead ? 360 : sheetPx)
   derive fullCollection = gallery.mode != "photos" and rendering != "manual"
-  resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape list<Photo>
+  resource rows = galleryRows(gallery.revision, (fullCollection ? 0 : gallery.page), fullCollection) as shape Photo[]
 
   action chooseRendering(value: string)
     if value == "windowed" or value == "manual" or value == "eager"
@@ -159,7 +159,7 @@ component InteractionGallery
     send changed = galleryReorder(item, before, gallery.revision)
 
   action edit(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
 
   provide
@@ -186,15 +186,15 @@ component InteractionGallery
             text "+ Add study" font-size=(12 * k) color=theme.ink
           button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "Reset" font-size=(12 * k) color=theme.muted
-      when gallery.mode != "photos"
+      if gallery.mode != "photos"
         row gap=8 padding-left=20 padding-right=20 padding-bottom=8 flex-shrink=0 align-items="center" flex-wrap="wrap"
           RenderButton(name="windowed", label="Windowed", selected=rendering, choose=chooseRendering)
           RenderButton(name="manual", label="Manual 12", selected=rendering, choose=chooseRendering)
           RenderButton(name="eager", label="Eager all", selected=rendering, choose=chooseRendering)
-          text `${length(rows)} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=(11 * k) color=theme.muted
-      when gallery.mode == "photos"
-        when gallery.viewerOpen
-          each viewer in gallery.viewer key=viewer.viewerToken
+          text `${rows.length} supplied · ${gallery.total} logical · ${rendering == "windowed" ? "viewport rows mounted" : rendering == "eager" ? "all supplied rows mounted" : "manual page"}` testId="supplied-count" font-size=(11 * k) color=theme.muted
+      if gallery.mode == "photos"
+        if gallery.viewerOpen
+          for viewer in gallery.viewer key=viewer.viewerToken
             Viewer(viewer=viewer, gallery=gallery, command=command)
         else
           scroll testId="photos-scroll" flex=1 min-height=0 overflow-x="hidden"
@@ -203,7 +203,7 @@ component InteractionGallery
                 text "Places to pause." font-size=(32 * k) font-weight=600 color=theme.ink
                 text "Six studies in light, texture and distance. Open a photograph to look a little closer." font-size=(14 * k) color=theme.muted
               row flex-wrap="wrap" gap=18 align-items="flex-start"
-                each photo in rows key=photo.id
+                for photo in rows key=photo.id
                   PhotoCard(photo=photo, returned=(gallery.returnId == photo.id), command=command)
               column gap=8 testId="swipe-list"
                 text "Swipe a study aside to reveal what it keeps." font-size=(12 * k) color=theme.muted
@@ -212,35 +212,35 @@ component InteractionGallery
                 SwipeRow(n=3)
                 SwipeRow(n=4)
               CardDeck()
-              when gallery.total == 0
+              if gallery.total == 0
                 text "A clean slate. Add a study or reset your collection." font-size=(18 * k) color=theme.muted
-      when gallery.mode == "reorder"
+      if gallery.mode == "reorder"
         column flex=1 min-height=0
           column padding=20 gap=8 flex-shrink=0
             text "Find a new rhythm." font-size=(28 * k) font-weight=600 color=theme.ink
             text "Pick up a study, preview a position, then Place. Cancel keeps the original order." font-size=(13 * k) color=theme.muted
-            when gallery.reordering
+            if gallery.reordering
               row gap=8 flex-wrap="wrap" align-items="center" padding=10 background-color=theme.wash border-radius=8
                 text gallery.previewLabel testId="move-preview" font-size=(12 * k) color=theme.accent flex=1
                 ActionButton(id="earlier", label="Earlier", op="earlier", target="", n=gallery.dragToken, shortcut="Meta+, Control+,", command=command)
                 ActionButton(id="later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="Meta+. Control+.", command=command)
                 ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="Meta+p Control+p", command=command)
                 ActionButton(id="cancel", label="Cancel", op="cancel", target="", n=gallery.dragToken, shortcut="Escape", command=command)
-          when rendering == "windowed"
+          if rendering == "windowed"
             list id="arrange-list" appearance="none" reorderdrop=dropArrange virtualized=true scrollFollowEnd=true testId="reorder-scroll" flex=1 min-height=0 width="100%" overflow-x="hidden"
-              each photo in rows key=photo.id
+              for photo in rows key=photo.id
                 column width="100%" box-sizing="border-box" padding-left=20 padding-right=20 padding-bottom=10 testId=`arrange-row-${photo.id}`
                   ArrangeCard(photo=photo, gallery=gallery, windowed=true, command=command)
           else
             scroll testId="reorder-scroll" flex=1 min-height=0 overflow-x="hidden"
               column padding=20 padding-top=0 gap=10
-                each photo in rows key=photo.id
+                for photo in rows key=photo.id
                   ArrangeCard(photo=photo, gallery=gallery, windowed=false, command=command)
-      when gallery.mode == "sheet"
+      if gallery.mode == "sheet"
         column id="sheet-bay" flex=1 min-height=0 position="relative" overflow="hidden" testId="sheet-stage"
-          when gallery.hasSelection
+          if gallery.hasSelection
             image gallery.selected.asset aria-label=gallery.selected.alt width="100%" height="100%" object-fit="cover"
-          when sheetNominal != 640
+          if sheetNominal != 640
             column position="absolute" top=16 left=20 right=20 max-width=340 padding=12 box-sizing="border-box" border-radius=10 background-color="#203b37" gap=5
               text "A little closer." font-size=(30 * k) font-weight=600 color="#ffffff"
               text "Drag the header or choose a height; scroll the notes inside." font-size=(13 * k) color="#ffffff"
@@ -252,18 +252,18 @@ component InteractionGallery
               SheetButton(name="peek", label="Peek", px=180, selected=sheetNominal, choose=chooseSheet)
               SheetButton(name="read", label="Read", px=360, selected=sheetNominal, choose=chooseSheet)
               SheetButton(name="full", label="Full", px=640, selected=sheetNominal, choose=chooseSheet)
-            when rendering == "windowed"
+            if rendering == "windowed"
               list appearance="none" virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
-                each photo in rows key=photo.id
+                for photo in rows key=photo.id
                   column width="100%" box-sizing="border-box" padding-bottom=12 testId=`read-row-${photo.id}`
                     NoteCard(photo=photo, selected=gallery.selected.id, command=command)
             else
               scroll flex=1 min-height=0 testId="sheet-scroll" overscroll-behavior="contain" overflow-x="hidden"
                 column gap=12
-                  each photo in rows key=photo.id
+                  for photo in rows key=photo.id
                     NoteCard(photo=photo, selected=gallery.selected.id, command=command)
       column flex-shrink=0 padding=12 gap=8 border-top-width=1 border-color=theme.edge background-color=theme.card
-        when not fullCollection
+        if not fullCollection
           row gap=8 align-items="center" flex-wrap="wrap"
             button press=command("previousPage", "", 0) testId="previous-page" disabled=(not gallery.canPagePrevious) aria-label="Previous page" padding=7 border-width=0 background-color=theme.page border-radius=6
               text "Previous 12" font-size=(12 * k) color=theme.ink
@@ -492,10 +492,10 @@ component ArrangeCard
         text photo.notes font-size=(13 * k) line-height=1.4 color=theme.muted
         text photo.subtitle font-size=(10 * k) color=theme.muted
       column gap=6
-        when windowed
+        if windowed
           box reorderFor="arrange-list" disabled=gallery.reordering touch-action="none" testId=`arrange-grip-${photo.id}` aria-label=`Drag ${photo.title} to reorder` padding=8 border-radius=6 background-color=theme.page
             text "⋮⋮" font-size=(16 * k) color=theme.muted
-        when gallery.reordering and gallery.liftedId != photo.id
+        if gallery.reordering and gallery.liftedId != photo.id
           ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
         else
           ActionButton(id=`lift-${photo.id}`, label="Pick up", op="lift", target=photo.id, n=0, shortcut="", command=command)

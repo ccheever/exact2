@@ -89,7 +89,7 @@ fn a_hosts_facts_re_answer_the_resource_in_one_commit_and_the_agent_sees_them() 
         })
         .unwrap()
         .expect("the resource is declared, so its answer changed");
-    // One commit: the two texts changed, and the `when` arm swapped one
+    // One commit: the two texts changed, and the `if` arm swapped one
     // text node for the other.
     assert!(
         !receipt.touched.is_empty() || !receipt.created.is_empty(),

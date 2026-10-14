@@ -618,7 +618,7 @@ extension Agent {
         if req["contextmenu"] as? Bool == true || req["dblclick"] as? Bool == true {
             let event = req["contextmenu"] as? Bool == true ? "contextmenu" : "dblclick"
             // Selectable text (LLP 1115.000 D11.6): a double tap, and a long
-            // press its own `contextmenu` does not take, select the word
+            // press no enclosing context menu takes, select the word
             // there. UIKit synthesizes neither, so the selection is the
             // recognized one; a long press's stops there, as a finger's does.
             var selection: [String: Any]?

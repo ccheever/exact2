@@ -39,7 +39,7 @@ component A
 == type-literal-digits
 component A
   view
-    text toFixed(1.5, 101)
+    text (1.5).toFixed(101)
 ---
 == type-list-item
 component A
@@ -86,7 +86,7 @@ component App
 component A
   state n = 1
   view
-    each x in n key=x
+    for x in n key=x
       text "a"
 ---
 == type-match-subject
@@ -380,7 +380,7 @@ component A
 component A
   state on = true
   view
-    when on
+    if on
       text "a"
     else
       text "b"
@@ -551,7 +551,7 @@ component A
 == syntax-empty-block
 component A
   view
-    when true
+    if true
     text "always"
 ---
 == type-unknown
@@ -725,7 +725,7 @@ component A
 ---
 == type-shape-recursive
 shape Left
-  right: list<Right>
+  right: Right[]
 shape Right
   left: option<Left>
 component A
@@ -878,7 +878,7 @@ component A
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
       column align-items="center"
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=`${e.id}`
             text e.url
 ---
@@ -891,7 +891,7 @@ component A
     nav = back(nav)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           scroll id="feed" height=400
             text e.url
@@ -915,10 +915,10 @@ component App
   state chosen = ""
   action choose(id: string, why: string)
     chosen = id
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(item=item, pick=choose)
 component Row
   props
@@ -1232,31 +1232,85 @@ component A
 # LLP 1017.003: an arrow is only the callback of `map` or `filter`.
 component A
   view
-    text toString(x => 1)
+    text round(x => 1).toString()
 ---
 == type-arrow-parameters
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text join(map(xs, (a, a) => a), ",")
+    text xs.map((a, a) => a).join(",")
 ---
 == syntax-method-call
-# The web's `xs.map(f)`: Contract spells it `map(xs, f)`.
+# A method Contract does not have: `reduce` is computed in the data source.
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text join(xs.map(x => x * 2), ",")
+    text xs.reduce(x => x * 2).toString()
+---
+== syntax-method-form
+# LLP 1116.015 D2: a roster function is called on its value, `s.trim()`.
+component A
+  state s = " a "
+  view
+    text trim(s)
+---
+== syntax-method-form
+# LLP 1116.015 D2: a list's length is `xs.length`.
+component A
+  state xs = [1]
+  view
+    text toString(length(xs))
+---
+== syntax-list-type
+# LLP 1116.015 D2: a list type is `T[]`.
+shape S
+  xs: list<number>
+component A
+  view
+    text "a"
+---
+== syntax-length-field
+# LLP 1116.015 D2: `.length` is a list's or text's length, so no field takes the name.
+shape S
+  length: number
+component A
+  view
+    text "a"
 ---
 == syntax-map-view
-# The JSX habit: children repeat with `each`.
+# The JSX habit: children repeat with `for`.
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
     column
       map(xs, x => text x)
 ---
+== syntax-map-view
+# The JSX habit as a method call: children repeat with `for`.
+component A
+  resource xs = xs() as shape number[]
+  view
+    column
+      xs.map(x => text x)
+---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view chooses with `if`, not `when`.
+component A
+  state n = 0
+  view
+    when n > 0
+      text "a"
+---
+== syntax-view-keyword
+# LLP 1116.015 D1: a view repeats with `for`, not `each`.
+component A
+  state xs = ["a"]
+  view
+    each x in xs key=x
+      text x
+---
 == syntax-else-keyword
-# An action branches with `if`, a view with `when`: `else if` here.
+# `else when` is not a construct: `else if` here.
 component A
   state n = 0
   action a
@@ -1269,22 +1323,22 @@ component A
 ---
 == syntax-callback-view
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
-    text join(map(xs, x => text x), "")
+    text xs.map(x => text x).join("")
 ---
 == type-callback-view
 component A
-  resource xs = xs() as shape list<string>
+  resource xs = xs() as shape string[]
   view
-    text join(map(xs, x => Row(label=x)), "")
+    text xs.map(x => Row(label=x)).join("")
 ---
 == type-refused-idiom
 # `reduce`, `find`, `sort`, `slice`, `toFixed`…: refused, with what to do instead.
 component A
-  resource xs = xs() as shape list<number>
+  resource xs = xs() as shape number[]
   view
-    text toString(reduce(xs, (a, x) => a + x, 0))
+    text reduce(xs, (a, x) => a + x, 0).toString()
 ---
 == type-geometry-outside-action
 # LLP 1051.000 D2: a derive that read layout would feed layout back into the tree it lays out.
@@ -1292,20 +1346,20 @@ component A
   derive h = frame("box").height
   view
     column id="box"
-      text toString(h)
+      text h.toString()
 ---
 == type-geometry-outside-action
 component A
   view
     column id="box"
-      text toString(measure("box").height)
+      text measure("box").height.toString()
 ---
 == type-geometry-outside-action
 # A `fn` can be called from a view, so its body is outside an action.
 fn roomOf(id: string): number = frame(id).height
 component A
   view
-    text toString(roomOf("x"))
+    text roomOf("x").toString()
 ---
 == type-geometry-outside-action
 # LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
@@ -1319,22 +1373,22 @@ component A
 component A
   derive hits = elementsFromPoint(10, 10)
   view
-    text toString(length(hits))
+    text hits.length.toString()
 ---
 == type-geometry-outside-action
 component A
   derive hits = querySelectorAll("[data-paint~=\"accent\"]")
   view
-    text toString(length(hits))
+    text hits.length.toString()
 ---
 == type-data-selector
 component A
   state count = 0
   action read
-    count = length(querySelectorAll("button"))
+    count = querySelectorAll("button").length
   view
     button press=read
-      text toString(count)
+      text count.toString()
 ---
 == type-measure-literal-id
 # The runner answers `measure` before the action runs, so its id is a literal.
@@ -1345,7 +1399,7 @@ component A
     h = measure(target).height
   view
     button press=size
-      text toString(h)
+      text h.toString()
 ---
 == type-record-missing
 # LLP 1035.005.000 D3: a record names every field; none is defaulted.
@@ -1432,12 +1486,12 @@ component A
 == lower-reorder-collection
 component A
   state moved = ""
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   action drop(item: string, before: option<string>)
     moved = item
   view
     list id="cities" reorderdrop=drop height=300
-      each city in rows key=city
+      for city in rows key=city
         row
           box reorderFor="cities" width=24 height=24
           text city
@@ -1482,7 +1536,7 @@ shape Hit
   src: string
   gain: number
   group: string
-fn noHits(): list<Hit> = []
+fn noHits(): Hit[] = []
 component A
   state hits = noHits()
   action go
@@ -1497,7 +1551,7 @@ shape Hit
   at: number
   gain: string
   group: string
-fn noHits(): list<Hit> = []
+fn noHits(): Hit[] = []
 component A
   state hits = noHits()
   action go

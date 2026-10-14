@@ -45,7 +45,6 @@
     "t3-media",
     "t3-launcher",
     "t3-measure",
-    "t3-select-on-open",
     "t3-tool-icon",
     "t3-timeline-tip",
     "t3-row-drop"
@@ -96,6 +95,8 @@
     "tool-icon-dark",
     "tool-icon-muted",
     "thread-key",
-    "thread-open"
+    "thread-open",
+    "paint",
+    "pick"
   ]
 }

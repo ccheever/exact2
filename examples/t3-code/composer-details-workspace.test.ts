@@ -124,7 +124,7 @@ describe('the details card\'s Add project script', () => {
     expect(app).toMatch(/and op != "ui:add-script" and[^\n]*not commandPending\n\s+commandPending = true\n\s+send changed = command\(/);
     // ProjectDialogs mounts with the window, over the thread, and shows the settings' Add Action editor for that project.
     expect(await source('app-window.contract')).toMatch(/\n\s+ProjectDialogs\(restEditor=restEditor, restSubject=restSubject,[^\n]*projectsSettings=projectsSettings/);
-    expect(await source('app-settings.contract')).toMatch(/when restEditor == "card-action"\n\s+each blank in projectsSettings\.blankActions key=blank\.id\n\s+ProjectActionEditor\(item=blank, scope=restSubject, editing=false, [^\n]*raw=restRaw, close=restClose\)/);
+    expect(await source('app-settings.contract')).toMatch(/if restEditor == "card-action"\n\s+for blank in projectsSettings\.blankActions key=blank\.id\n\s+ProjectActionEditor\(item=blank, scope=restSubject, editing=false, [^\n]*raw=restRaw, close=restClose\)/);
     // A new action's Save and Return send sb:action-add for that scope; Cancel closes.
     const editor = await source('settings-b-actions.contract');
     expect(editor.match(/raw\(\(editing \? "sb:action-save" : "sb:action-add"\), scope, payload\)/g)).toHaveLength(2);

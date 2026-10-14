@@ -706,9 +706,13 @@ public final class ExactSession {
             apply(runtime.change(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
         }
         presenter.onInput = { [unowned self] id, value in
-            apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now()))
+            if let edit = presenter.fieldSelections.input(id), let selection = presenter.fieldSelections.reported(id, value) {
+                apply(runtime.fieldEvent(id, 54, edit.payload(value, selection), now: now()))
+            } else { apply(runtime.input(id, value, selection: presenter.fieldSelections.reported(id, value), now: now())) }
         }
-        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.replacementInput(id, value, selection, now: now())) }
+        presenter.fieldSelections.onReplacement = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 54, (presenter.fieldSelections.input(id) ?? FieldInput(inputType: "insertReplacementText", cancelable: false)).payload(value, selection), now: now())) }
+        presenter.fieldSelections.onChange = { [unowned self] id, value, selection in apply(runtime.fieldEvent(id, 52, selection.payload(value), now: now())) }
+        presenter.fieldSelections.onBeforeInput = { [unowned self] id, value, selection, edit in apply(runtime.fieldEvent(id, 53, edit.payload(value, selection), now: now())) }
         presenter.fieldSelections.onSelect = { [unowned self] id, value, selection in apply(runtime.fieldSelect(id, value, selection, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
         // each where the node hears it.

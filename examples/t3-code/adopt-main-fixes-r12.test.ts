@@ -42,7 +42,7 @@ describe('RT-3: workarounds main\'s fixes end', () => {
     ['settings-appearance-import.contract', 'testId="add-theme-file"', 'ThemeImportDialog.tsx:520'],
     ['providers-wizard.contract', 'text "No compatible agents found"', 'AcpRegistrySearchStep.tsx:198'],
     ['settings-a-telemetry.contract', 'text "Desktop host signals not connected"', 'ResourceTelemetryDiagnostics.tsx:1151'],
-    ['settings-keybindings.contract', 'when length(view.lines) == 0 and view.error == ""', 'KeybindingsSettings.tsx:687'],
+    ['settings-keybindings.contract', 'if view.lines.length == 0 and view.error == ""', 'KeybindingsSettings.tsx:687'],
   ];
   for (const [file, anchor, reference] of dashed) {
     test(`#287: the box at ${reference} is dashed, as the reference's border-dashed (${file})`, async () => {
@@ -50,7 +50,7 @@ describe('RT-3: workarounds main\'s fixes end', () => {
       const at = lines.findIndex(line => line.includes(anchor));
       expect(at).toBeGreaterThanOrEqual(0);
       // The anchor is the box itself (a testId) or the line right before (its `when`) or after (its first text) it.
-      const box = anchor.startsWith('testId=') ? lines[at] : anchor.startsWith('when ') ? lines[at + 1] : lines[at - 1];
+      const box = anchor.startsWith('testId=') ? lines[at] : anchor.startsWith('if ') ? lines[at + 1] : lines[at - 1];
       expect(box).toContain('border-style="dashed"');
       expect(box).not.toContain('border-style="solid"');
     });
@@ -60,7 +60,7 @@ describe('RT-3: workarounds main\'s fixes end', () => {
 describe('Main\'s new warning lower-width-padding (LLP 1116.009 D5)', () => {
   test('the pull request list\'s error notes (width 100%, 0.75rem padding each side) are border-box, as Tailwind\'s', async () => {
     const lines = (await source('pages-prs.contract')).split('\n');
-    const at = lines.findIndex(line => line.includes('each note in page.errors key=note.key'));
+    const at = lines.findIndex(line => line.includes('for note in page.errors key=note.key'));
     expect(at).toBeGreaterThan(0);
     const box = lines[at - 1];
     expect(box).toContain('width="100%"');

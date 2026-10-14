@@ -194,14 +194,14 @@ describe('the Tab stops and the focus as the wizard opens, by screen', () => {
 });
 
 describe('the contract wiring (browser-profiles.contract, app.contract)', () => {
-  /** The lines of one `when wizard.step == "<step>"` screen of BrowserImportWizard. */
+  /** The lines of one `if wizard.step == "<step>"` screen of BrowserImportWizard. */
   async function screen(step: string): Promise<string> {
     const profiles = await source('browser-profiles.contract');
     const wizardText = profiles.slice(profiles.indexOf('component BrowserImportWizard'), profiles.indexOf('component BiHeader'));
-    const start = wizardText.indexOf(`        when wizard.step == "${step}"`);
+    const start = wizardText.indexOf(`        if wizard.step == "${step}"`);
     expect(start).toBeGreaterThan(0);
     const rest = wizardText.slice(start + 1);
-    const end = rest.search(/\n {8}when /);
+    const end = rest.search(/\n {8}if /);
     return end < 0 ? rest : rest.slice(0, end);
   }
   /** The ids of a screen's focusable elements, in tree order (its buttons, Allow and the tiles). */
@@ -221,7 +221,7 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
     const wizardText = profiles.slice(profiles.indexOf('component BrowserImportWizard'), profiles.indexOf('component BiHeader'));
     for (const line of wizardText.split('\n').filter(line => /BiButton\(|BiTile\(|BiClose\(/.test(line))) expect(line).toContain('track=track)');
     // The X follows every screen.
-    expect(profiles.indexOf('        when wizard.canClose\n          BiClose(')).toBeGreaterThan(profiles.indexOf('        when wizard.step == "blocked"'));
+    expect(profiles.indexOf('        if wizard.canClose\n          BiClose(')).toBeGreaterThan(profiles.indexOf('        if wizard.step == "blocked"'));
   });
   test('the popup takes the focus and tells the root; from it Tab reaches the first stop and Shift+Tab the guard before it', async () => {
     const profiles = await source('browser-profiles.contract');
@@ -242,13 +242,13 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
     expect(app).toContain('  action importWizardFocusMoved(id: string, on: bool)\n    if on\n      importWizardFocused = id\n    else if importWizardFocused == id\n      importWizardFocused = ""\n');
     expect(app).toContain('  task importWizardStepFocus when integrations.browserProfiles.wizard.focusAt != importWizardAt\n    after(1, importWizardStep)\n  action importWizardStep\n'
       + '    let wizard = integrations.browserProfiles.wizard\n    if wizard.openedAt > importWizardAt\n      focus(wizard.openFocus)\n'
-      + '    else if wizard.focusAt >= 0 and importWizardFocused != "browser-import-popup" and not includes(map(filter(wizard.mounted, (element) => element.since <= importWizardAt), (element) => element.id), importWizardFocused)\n'
+      + '    else if wizard.focusAt >= 0 and importWizardFocused != "browser-import-popup" and not wizard.mounted.filter((element) => element.since <= importWizardAt).map((element) => element.id).includes(importWizardFocused)\n'
       + '      focus("browser-import-popup")\n    importWizardAt = wizard.focusAt\n');
     expect(app).toContain('importWizardFocusMoved=importWizardFocusMoved');
     expect(await source('app-window.contract')).toContain('importWizardFocusMoved=importWizardFocusMoved');
     expect(await source('app-settings.contract')).toContain('BrowserProfileDialogs(view=integrations.browserProfiles, local=restLocal, track=importWizardFocusMoved,');
     // The confirm: Cancel as it opens; then the row's options button, or Add profile once the row is gone (removed).
-    expect(app).toContain('  task removalFocus when integrations.browserProfiles.removalId != removalAt\n    after(1, removalFlip)\n  action removalFlip\n    if removalAt == ""\n      focus("browser-profile-remove-cancel")\n    else if includes(map(integrations.browserProfiles.rows, (row) => row.id), removalAt)\n      focus(`browser-profile-options-${removalAt}`)\n    else\n      focus("browser-profiles-add")\n    removalAt = integrations.browserProfiles.removalId\n');
+    expect(app).toContain('  task removalFocus when integrations.browserProfiles.removalId != removalAt\n    after(1, removalFlip)\n  action removalFlip\n    if removalAt == ""\n      focus("browser-profile-remove-cancel")\n    else if integrations.browserProfiles.rows.map((row) => row.id).includes(removalAt)\n      focus(`browser-profile-options-${removalAt}`)\n    else\n      focus("browser-profiles-add")\n    removalAt = integrations.browserProfiles.removalId\n');
     const profiles = await source('browser-profiles.contract');
     expect(profiles).toContain('BiButton(buttonId="browser-profile-remove-cancel", label="Cancel"');
     expect(profiles).toContain('        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}`');

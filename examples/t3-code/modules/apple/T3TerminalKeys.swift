@@ -35,6 +35,26 @@ enum T3TerminalKeys {
         return event.modifierFlags.contains(.command) && text?.lowercased() == "v"
     }
 
+    /// What a keydown is while an input method composes text in the terminal (T3TerminalView.routeTerminalKey).
+    enum Composing: Equatable {
+        /// A ⌘ chord: the app's, as without a composition.
+        case chord
+        /// A ⌃ chord: offer it to the input context, then commit only if it declines.
+        case commitFirst
+        /// ⌥Return (the Korean input method's Hanja list): the input context's, before WebKit's keyDown.
+        case inputContextFirst
+        /// Any other key: the input method's, through WebKit's keyDown.
+        case inputMethod
+    }
+
+    static func composing(_ event: NSEvent) -> Composing {
+        let flags = event.modifierFlags.intersection([.command, .control, .option])
+        if flags.contains(.command) { return .chord }
+        if flags.contains(.control) { return .commitFirst }
+        if flags.contains(.option), event.keyCode == 36 || event.keyCode == 76 { return .inputContextFirst }
+        return .inputMethod
+    }
+
     /// AppKit must not turn the terminal's readline keys into menu commands. These are the
     /// same data as ThreadTerminalDrawer.handleBeforeKey, matched by physical key for Korean.
     static func input(_ event: NSEvent) -> String? {

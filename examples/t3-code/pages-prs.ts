@@ -356,6 +356,14 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
   live.due = false;
   return lists.get(client) ?? cached;
 }
+/**
+ * The list last drawn, per client, with the server it was drawn for. pr-list-place-and-thread-picker PLS-1: while the
+ * focused connection resynchronizes on the same server (a return to the app resubscribes its shell and thread streams,
+ * T3Transport.applicationActive, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
+ * reference's list keeps its data (`answered ?? carried`); an empty "loading" view there emptied the list for a moment
+ * and brought it back at its top on every refocus (realinput-1011c).
+ */
+const lastDrawn = new WeakMap<object, { environmentId: string; view: PrListView }>();
 export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
@@ -369,6 +377,8 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   });
   if (!input.open) listLiveAsk(client, input);
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
+  const carried = lastDrawn.get(client);
+  if (input.open && native?.available && !client.ready && client.environmentId && carried?.environmentId === client.environmentId) return carried.view;
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
@@ -425,6 +435,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   native.watch?.('t3.pr');
   presented.speedMode = await readSpeedMode(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
+  lastDrawn.set(client, { environmentId: client.environmentId, view: presented });
   return presented;
 }
 

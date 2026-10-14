@@ -270,9 +270,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             slot.0
         );
     }
-    // Localized strings (LLP 1060): the tables, and the locale slot (the
-    // base) before any initializer, which may call `t`; after boot the page's
-    // locale picks the table (rt.js `language`, the runner's `set_place`).
+    // Localized strings (LLP 1060): select the launch locale before any
+    // initializer, which may call `t`; `language` publishes it after mount.
     if let Some(slot) = plan.locale {
         let tables: Vec<String> = plan
             .locales
@@ -297,17 +296,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let init = code::expression(plan, plan.code(plan.slot(slot).init), &top, &mut em.uses)?;
+        let locale = em.uses.rt("locale");
         let strings = em.uses.rt("strings");
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{init},\"s\",{})",
+                "$devSig({},{locale}(),\"s\",{})",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!("{}({init},\"s\")", em.uses.rt("sig"))
+            format!("{}({locale}(),\"s\")", em.uses.rt("sig"))
         };
         let _ = write!(
             body,
@@ -1284,6 +1283,7 @@ impl Em<'_> {
                 | EventKind::Cut
                 | EventKind::Paste
                 | EventKind::Selectionchange
+                | EventKind::Beforeinput
                 | EventKind::Beforeunload
                 | EventKind::Wheel
                 | EventKind::Drop
@@ -1327,6 +1327,9 @@ impl Em<'_> {
                 | EventKind::Transformgeometry
                 | EventKind::Transformrelease => self.motion = true,
                 EventKind::Reachstart | EventKind::Reachend if virtualized => {}
+                EventKind::Reachstart | EventKind::Reachend => {
+                    return Err(contract::collection_edge_refusal(h.event.name()))
+                }
                 EventKind::Reorderdrop if virtualized => self.motion = true,
                 k => {
                     return Err(format!(
@@ -1378,12 +1381,12 @@ impl Em<'_> {
             let opts = self.list_options(i, scope, &edges)?;
             let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             };
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
-                    "node {i}: a virtualized list needs one direct `each`"
+                    "node {i}: a virtualized list needs one direct `for`"
                 ));
             }
             self.list = true;
