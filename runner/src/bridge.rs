@@ -226,8 +226,8 @@ pub fn set_plan_style(
     set_style(patch, id, value, plan.stacks.len())
 }
 
-/// The full app tuple `text`'s pins (`axis:value` or `axis=value`, space-
-/// or comma-separated) make over `base`, axis by axis (LLP 1121 D5); `None` when a
+/// The full app tuple `text`'s pins (`axis=value`, space- or comma-
+/// separated) make over `base`, axis by axis (LLP 1121 D5); `None` when a
 /// pin names no axis or value of `plan`'s.
 pub fn pinned(plan: &exact_plan::Plan, text: &str, base: u32) -> Option<u32> {
     let axes: Vec<(&str, Vec<&str>)> = plan
@@ -245,7 +245,7 @@ pub fn pinned(plan: &exact_plan::Plan, text: &str, base: u32) -> Option<u32> {
     // Each axis once, as the compiler checks a literal pin.
     let mut pinned = 0u64;
     for pin in text.split([' ', ',']).filter(|p| !p.is_empty()) {
-        let (axis, value) = pin.split_once([':', '='])?;
+        let (axis, value) = pin.split_once('=')?;
         let i = axes.iter().position(|(name, _)| *name == axis)?;
         if i >= 64 || pinned & (1 << i) != 0 {
             return None;

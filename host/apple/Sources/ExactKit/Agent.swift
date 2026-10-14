@@ -431,7 +431,7 @@ public final class Agent {
         // set after every other one in one commit; the scheme stays the system's.
         var modes: [String: String]?
         if let mode {
-            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == ":" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `:`"] }
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `=`"] }
             let checked = session.runtime.setModes(mode, check: true)
             if let error = checked.error { return ["error": "prefer mode: \(error)"] }
             modes = checked.modes

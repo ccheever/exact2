@@ -9,7 +9,7 @@ export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefer
 export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'] }; // `prefer`'s CSS media features and values (the display's two: LLP 1100 D9)
 export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-open-files': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
-export const MODE_FACT = { mode: ['<axis>:<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
+export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
  * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
@@ -26,7 +26,7 @@ export function preferGroups(facts) {
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
-    else if (name === 'mode' && /^[\w.-]+[:=][\w.-]+([ ,]+[\w.-]+[:=][\w.-]+)*$/.test(String(value))) for (const pin of String(value).split(/[ ,]+/)) { const [axis, v] = pin.split(/[:=]/); mode[axis] = v; }
+    else if (name === 'mode' && /^[\w.-]+=[\w.-]+([ ,]+[\w.-]+=[\w.-]+)*$/.test(String(value))) for (const pin of String(value).split(/[ ,]+/)) { const [axis, v] = pin.split('='); mode[axis] = v; }
     else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new Error('prefer: gap needs segments <cols>x<rows>');

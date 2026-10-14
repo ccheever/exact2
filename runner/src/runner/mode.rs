@@ -154,7 +154,7 @@ impl<D: DataSource> Runner<D> {
                 reason: format!(
                     "{} names an axis or value the app's design lacks, or an axis twice",
                     pins.iter()
-                        .map(|(a, v)| format!("`{a}:{v}`"))
+                        .map(|(a, v)| format!("`{a}={v}`"))
                         .collect::<Vec<_>>()
                         .join(" ")
                 ),

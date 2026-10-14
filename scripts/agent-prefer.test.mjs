@@ -25,8 +25,9 @@ test('Chrome refuses display-mode emulation instead of reporting an unapplied ov
 });
 
 test('prefer mode is the app modes group (LLP 1121 D13): each pin, the scheme left alone', () => {
-  const { media, mode } = preferGroups({ mode: 'dark-style:dim, density=compact' });
+  const { media, mode } = preferGroups({ mode: 'dark-style=dim, density=compact' });
   expect(mode).toEqual({ 'dark-style': 'dim', density: 'compact' });
   expect(media).toEqual({});
-  expect(() => preferGroups({ mode: 'dim' })).toThrow(/mode <axis>:<value>/);
+  expect(() => preferGroups({ mode: 'dim' })).toThrow(/mode <axis>=<value>/);
+  expect(() => preferGroups({ mode: 'dark-style:dim' })).toThrow(/mode <axis>=<value>/);
 });

@@ -552,7 +552,7 @@ uint32_t exact_set_launch_time(ExactRuntime rt, double epoch_at_zero, double utc
 uint32_t exact_set_launch_place(ExactRuntime rt, size_t len);
 /* Beside the date: the locale and IANA time zone, as locale NUL timeZone input. */
 uint32_t exact_set_place(ExactRuntime rt, size_t len);
-/* @ref LLP 1121 D5: an app mode, `axis:value` input (the agent's `prefer mode`). */
+/* @ref LLP 1121 D5: app modes, `axis=value` pins comma-separated (the agent's `prefer mode`); a leading `?` only checks them. */
 uint32_t exact_set_mode(ExactRuntime rt, size_t len);
 /* @ref LLP 1061 D4, LLP 1069.000 D1: the user's display preferences, told
  * after boot and on each change — bit 0 reduced motion, bit 1 reduced

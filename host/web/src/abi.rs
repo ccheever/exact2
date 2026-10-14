@@ -1284,7 +1284,7 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().changed(len as usize))
         }
 
-        /// An app mode, `axis:value` in the input buffer (LLP 1121 D5);
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5);
         /// returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_set_mode(len: u32) -> u32 {

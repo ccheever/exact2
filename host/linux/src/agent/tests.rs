@@ -1163,10 +1163,10 @@ fn prefer_mode_sets_the_apps_modes() {
     )
     .unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
-    let bytes = contract::bake(plan, NoData).unwrap().encode();
+    let bytes = contract::bake(plan, ()).unwrap().encode();
     let (mut p, _) = Presenter::boot_with(
         &bytes,
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),

@@ -7,7 +7,7 @@ use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
-    /// App modes, `axis:value` pins comma-separated in the input buffer
+    /// App modes, `axis=value` pins comma-separated in the input buffer
     /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
     pub fn set_mode(&mut self, len: usize) -> u32 {
         let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
@@ -20,12 +20,12 @@ impl<D: DataSource> Bridge<D> {
             .split(',')
             .filter(|pin| !pin.is_empty())
             .map(|pin| {
-                pin.split_once(':')
+                pin.split_once('=')
                     .map(|(a, v)| (a.to_owned(), v.to_owned()))
             })
             .collect();
         let Some(pins) = pins else {
-            return self.emit(exact_runner::agent::error("mode: expected axis:value pins"));
+            return self.emit(exact_runner::agent::error("mode: expected axis=value pins"));
         };
         let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
         let out = self.host.as_mut().map_or_else(not_booted, |h| match check {

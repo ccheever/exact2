@@ -738,7 +738,7 @@ fn set_mode_sets_the_windows_slice_in_its_actions_commit() {
         "set-mode",
         &[
             ("app.tamber", MODES),
-            ("app.contract", "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  action black\n    setMode(\"dark-style\", \"black\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      button press=black testId=\"black\"\n        text \"black\"\n      column -exact-mode=\"dark-style:black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n"),
+            ("app.contract", "component App\n  action dim\n    setMode(\"dark-style\", \"dim\")\n  action black\n    setMode(\"dark-style\", \"black\")\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      button press=dim testId=\"dim\"\n        text \"dim\"\n      button press=black testId=\"black\"\n        text \"black\"\n      column -exact-mode=\"dark-style=black\" testId=\"pinned\" background-color=\"page\"\n        text \"p\"\n"),
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
@@ -827,4 +827,34 @@ fn a_colour_only_set_mode_on_a_thousand_rows_lays_nothing_out() {
         parsed("light-dark(#ffffff, #161e27)")
     );
     eprintln!("setMode over 1000 rows {took:?}");
+}
+
+#[test]
+fn a_mode_is_written_axis_equals_value_and_a_colon_is_refused() {
+    let path = app(
+        "pin-colon",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  view\n    column -exact-mode=\"dark-style:dim\"\n      text \"a\"\n"),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "tamber-mode", "{e:?}");
+    assert!(e.message.contains("`dark-style=dim`"), "{}", e.message);
+    // A computed one is the runner's: the row is unset, the tuple around stands.
+    std::fs::write(
+        &path,
+        "component App\n  state pin: string = \"dark-style:dim\"\n  view\n    column -exact-mode=pin\n      text \"a\" testId=\"text\" color=\"ink\"\n",
+    )
+    .unwrap();
+    let r = booted(contract::compile_path(&path).unwrap());
+    assert_eq!(
+        row(&r, "text", StyleId::TextColor),
+        parsed("light-dark(#111111, #eeeeee)")
+    );
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.contains("invalid mode value")),
+        "{journal:?}"
+    );
 }
