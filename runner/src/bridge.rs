@@ -200,6 +200,14 @@ pub fn set_plan_style(
                     .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
             )
         });
+    // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
+    let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!())).then(|| {
+        exact_kernel::style::theme::declarations(plan.theme.iter().flat_map(|row| {
+            let value = plan.str(row.value);
+            std::iter::once((plan.str(row.name), value))
+                .chain((!plan.str(row.role).is_empty()).then(|| (plan.str(row.role), value)))
+        }))
+    });
     set_style(patch, id, value, plan.stacks.len())
 }
 

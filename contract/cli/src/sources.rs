@@ -809,6 +809,8 @@ impl Loader<'_> {
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
             color_profiles: all!(color_profiles),
+            // The app's theme is its root file's (LLP 1095 D4).
+            theme: files[0].theme.take(),
             fns: all!(fns),
             components: all!(components),
         }

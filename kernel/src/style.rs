@@ -50,6 +50,7 @@ mod shadow;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub mod theme;
 pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
@@ -782,6 +783,14 @@ impl ColorValue {
         // vocabularies (animated terminal runs use hex on every frame).
         if start.starts_with('#') {
             return None;
+        }
+        // @ref LLP 1095 D4 — a theme name, or a role the theme overrides,
+        // reads the colour its entry stands for.
+        if let Some(value) = theme::resolved(text, |value| {
+            ColorValue::parse_light_dark(value)
+                .or_else(|| Color::parse(value).map(ColorValue::Fixed))
+        }) {
+            return value;
         }
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));

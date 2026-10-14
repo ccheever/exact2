@@ -46,6 +46,9 @@ pub struct File {
     pub timelines: Vec<TimelineDecl>,
     /// `color-profile` declarations, in order (LLP 1100 D3).
     pub color_profiles: Vec<ColorProfileDecl>,
+    /// The app's `theme`, its own colours named once (LLP 1095 D4): the
+    /// root file's only.
+    pub theme: Option<ThemeDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -588,6 +591,17 @@ pub struct ColorProfileDecl {
     pub name: String,
     /// The descriptors, literal: `src` and `rendering-intent`.
     pub attrs: Vec<Attr>,
+    /// Where.
+    pub span: Span,
+}
+
+/// `theme`, one `name="colour"` line an entry (LLP 1095 D4): a colour any
+/// row takes, another entry's name, or a role's; an entry named like a role
+/// overrides it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeDecl {
+    /// The entries, in order; each value a string literal.
+    pub entries: Vec<Attr>,
     /// Where.
     pub span: Span,
 }

@@ -54,6 +54,7 @@ pub mod style_names;
 mod svg;
 mod symbols;
 pub mod tags;
+mod theme;
 mod timers;
 mod values;
 pub mod vocab;
@@ -113,6 +114,8 @@ pub(crate) fn prop_row(id: exact_kernel::PropId, expr: Code, written: bool) -> B
 
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
+    /// The app's theme, resolved (LLP 1095 D4).
+    pub theme: Vec<theme::ThemeEntry>,
     sites: Option<Sites>,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
@@ -245,6 +248,7 @@ fn lower_with_sites(
         .collect();
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
+        theme: Vec::new(),
         sites: capture_sites.then(|| Sites::declared(ex)),
         types,
         root,
@@ -282,6 +286,8 @@ fn lower_with_sites(
     };
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
+    // Bound before any style is parsed, as the profiles below are.
+    let _theme = l.declare_theme(file);
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {

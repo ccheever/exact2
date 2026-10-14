@@ -2785,6 +2785,14 @@ line height. The styles are `-exact-large-title`, `-exact-title1`, `-exact-title
 A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
 a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
 natively), or `light-dark(a, b)`; the kernel parses it once for every host.
+An app names its own colours once, in a root `theme` block, one
+`name="colour"` line an entry: a colour, a role (`card="secondary-grouped-background"`)
+or another entry's name. A row writes the name as any colour, in every colour
+row and inside shadows and gradients (`color="brand"`,
+`box-shadow="0 1px 2px brand"`), and a string from data naming it reads the same
+colour. An entry named like a role (`-exact-secondary-label`, or LLP 1095 D4's
+bare `secondary-label`, or `Canvas`) overrides that role where a row names it.
+Cycles, and a name inside `light-dark()`, are refused (LLP 1095 D4).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).

@@ -401,6 +401,58 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// the literal path writes for each of its functions; any other is refused
 /// (an invalid computed declaration: CSS unset, with a diagnostic).
 pub fn color_map(plan: &Plan) -> String {
+    let map = platform_map(plan);
+    match theme_map(plan) {
+        Some(theme) => format!("(T=>v=>({map})(T(v)))({theme})"),
+        None => map,
+    }
+}
+
+/// @ref LLP 1095 D4 — a bound colour that names a theme entry, or a role the
+/// theme overrides, writes what the literal path writes for the entry: the
+/// kernel's CSS for the colour it stands for. `None` without a theme.
+fn theme_map(plan: &Plan) -> Option<String> {
+    if plan.theme.is_empty() {
+        return None;
+    }
+    let _theme = exact_kernel::style::theme::declarations(plan.theme.iter().flat_map(|row| {
+        let value = plan.str(row.value);
+        std::iter::once((plan.str(row.name), value))
+            .chain((!plan.str(row.role).is_empty()).then(|| (plan.str(row.role), value)))
+    }));
+    let (mut names, mut roles) = (Vec::new(), Vec::new());
+    for row in &plan.theme {
+        let value = plan.str(row.value);
+        let Some(colour) = exact_kernel::ColorValue::parse_light_dark(value)
+            .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed))
+        else {
+            continue;
+        };
+        let mut css = String::new();
+        exact_kernel::gradient::color_css(&mut css, colour);
+        names.push(format!(
+            "{}:{}",
+            serde_json::to_string(plan.str(row.name)).unwrap(),
+            serde_json::to_string(&css).unwrap()
+        ));
+        let role = plan.str(row.role);
+        if !role.is_empty() {
+            roles.push(format!(
+                "{}:{}",
+                serde_json::to_string(&role.to_ascii_lowercase()).unwrap(),
+                serde_json::to_string(&css).unwrap()
+            ));
+        }
+    }
+    Some(format!(
+        r#"((N,R)=>v=>typeof v==="string"?v.replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
+        names.join(","),
+        roles.join(",")
+    ))
+}
+
+/// [`SYSTEM_COLOR_MAP`] behind the platform-colour gate.
+fn platform_map(plan: &Plan) -> String {
     let admitted: Vec<String> = plan
         .strings
         .iter()
@@ -895,6 +947,36 @@ pub fn style_marker(id: StyleId) -> (String, String) {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+
+    /// @ref LLP 1095 D4 — a bound colour naming a theme entry or an
+    /// overridden role writes the entry's CSS, as the literal path does.
+    #[test]
+    fn a_bound_theme_name_writes_its_entry() {
+        let plan = contract::compile("theme\n  brand = \"#c8102e\"\n  ink = \"brand\"\n  -exact-secondary-label = \"light-dark(#111, #eee)\"\n\ncomponent App\n  view\n    text \"a\"\n").unwrap();
+        let values = [
+            "brand",
+            "ink",
+            "-exact-secondary-label",
+            "-Exact-Secondary-Label",
+            "0 1px 2px brand",
+            "BRAND",
+            "CanvasText",
+            "#123456",
+        ];
+        assert_eq!(
+            run(&color_map(&plan), &values),
+            serde_json::json!([
+                "#c8102eff",
+                "#c8102eff",
+                "light-dark(#111111ff, #eeeeeeff)",
+                "light-dark(#111111ff, #eeeeeeff)",
+                "0 1px 2px #c8102eff",
+                "BRAND",
+                run(&SYSTEM_COLOR_MAP, &["CanvasText"])[0].clone(),
+                "#123456"
+            ])
+        );
+    }
 
     #[test]
     fn a_bound_accent_role_leaves_the_inherited_accent_unset() {

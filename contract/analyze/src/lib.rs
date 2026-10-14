@@ -170,6 +170,17 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
             );
         }
     }
+    // @ref LLP 1095 D4 — the theme is the app's, declared once at its root;
+    // a package's own tokens wait on LLP 1121 D11.
+    if let Some(theme) = &file.theme {
+        if !root_file {
+            return err(
+                "analyze-theme-not-root",
+                "`theme` belongs to the app's root file: a package's views use the app's names",
+                theme.span,
+            );
+        }
+    }
     Ok(())
 }
 
