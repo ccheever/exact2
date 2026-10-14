@@ -108,6 +108,7 @@ final class T3SettingsSlider: ExactNativeInstance {
     override init(events: ExactNativeEvents) {
         super.init(events: events)
         slider.isUserInteractionEnabled = false; slider.isAccessibilityElement = false
+        slider.frame = input.bounds
         slider.autoresizingMask = [.flexibleWidth, .flexibleHeight]; input.addSubview(slider)
         input.adjust = { [weak self] direction in
             guard let self, self.slider.isEnabled else { return }
