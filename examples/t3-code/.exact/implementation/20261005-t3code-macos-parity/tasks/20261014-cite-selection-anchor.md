@@ -7,7 +7,7 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-cite-selection-anchor
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/540
 verified_commit: 18b934b1d
 ---
 
@@ -185,7 +185,7 @@ tree differs only in `app.contract`'s argument order in one call and two test fi
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code`: see `pr_url`.
+Draft PR [#540](https://github.com/ccheever/exact2/pull/540) into `feat(example)/t3-code`.
 
 ## Next action
 
