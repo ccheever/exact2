@@ -318,6 +318,264 @@ extension TableListMacTests {
     }
 }
 
+extension TableListMacTests {
+    /// An interior authored line has room after it, so a second native line
+    /// cannot disappear beneath the author's red pixels. The other owned
+    /// boundaries say `none`, including the top of the following row.
+    private static func separatorSource(windowed: Bool = false) -> String {
+        """
+        style Plain
+          opacity=1
+        style OwnLine
+          border-bottom="3px solid #ff0000"
+          margin-bottom=8
+        style NoBottom
+          border-bottom="none"
+        style NoTop
+          border-top="none"
+        component Separators
+          state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+          derive d1 = seed.concat(seed)
+          derive d2 = d1.concat(d1)
+          derive d3 = d2.concat(d2)
+          derive d4 = d3.concat(d3)
+          derive rows = d4.map((n, i) => i).slice(0, \(windowed ? 160 : 10))
+          state edge = 0
+          state bumps = 0
+          action change(n: number)
+            edge = n
+          action bump
+            bumps = bumps + 1
+          view
+            column width="100%" height="100%"
+              row gap=8
+                button press=change(1) testId="own"
+                  text "Own bottom"
+                button press=change(2) testId="next"
+                  text "Own next top"
+                button press=change(0) testId="clear"
+                  text "Clear"
+                text `Bumps ${bumps}` testId="status"
+              list \(windowed ? "virtualized=true estimated-item-height=40" : "") flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
+                for r in rows key=`k${r}`
+                  row testId=`edge-${r}` height=40 width="100%" box-sizing="border-box" align-items="center"
+                    class=(r % 10 == 1 ? OwnLine : (r % 10 == 2 ? NoBottom : (r % 10 == 4 ? NoTop : (r == 5 and edge == 1 ? NoBottom : (r == 6 and edge == 2 ? NoTop : Plain)))))
+                    text `Row ${r}` flex=1
+                    if r % 10 == 7
+                      button press=bump testId=`control-${r}`
+                        text "Bump"
+
+        """
+    }
+
+    /// A 1x capture of the list, shared by all boundary checks in a state.
+    private func separatorPicture(_ f: TableFixture, name: String, list: NodeView? = nil) throws -> NSBitmapImageRep {
+        let view = try XCTUnwrap((list ?? f.list).scroll)
+        f.window.layoutIfNeeded()
+        f.window.displayIfNeeded()
+        let size = view.bounds.size
+        let rep = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width), pixelsHigh: Int(size.height), bitsPerSample: 8,
+                                                 samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        rep.size = size
+        view.cacheDisplay(in: view.bounds, to: rep)
+        if let directory = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"] {
+            let url = URL(fileURLWithPath: directory).appendingPathComponent("separator-\(name).png")
+            XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "proof captures must not overwrite an earlier run")
+            if !FileManager.default.fileExists(atPath: url.path) {
+                try XCTUnwrap(rep.representation(using: .png, properties: [:])).write(to: url)
+            }
+        }
+        return rep
+    }
+
+    private func separatorBoundary(_ f: TableFixture, row: NodeView, list: NodeView? = nil) throws -> CGFloat {
+        let list = list ?? f.list, view = try XCTUnwrap(list.scroll)
+        if let feed = f.presenter.tables.feeds[list.id], let item = feed.rows.first(where: { $0.node === row || $0.root == row.id }) {
+            return feed.table.convert(feed.table.rect(ofRow: item.index), to: view).maxY
+        }
+        return row.convert(row.bounds, to: view).maxY
+    }
+
+    /// Nothing in this central crop is text or a control. In these clear
+    /// rows its alpha is the separator's, not a background or selection's.
+    private func boundaryInk(_ rep: NSBitmapImageRep, y: CGFloat) throws -> Int {
+        let center = Int(y.rounded()), x = rep.pixelsWide / 2
+        XCTAssertGreaterThanOrEqual(center - 2, 0)
+        XCTAssertLessThan(center + 1, rep.pixelsHigh)
+        guard center >= 2, center + 1 < rep.pixelsHigh else { return -1 }
+        var count = 0
+        for yy in center - 2...center + 1 {
+            for xx in x - 1...x + 1 {
+                if try XCTUnwrap(rep.colorAt(x: xx, y: yy)).alphaComponent > 0.02 { count += 1 }
+            }
+        }
+        return count
+    }
+
+    private func assertSeparator(_ f: TableFixture, _ rep: NSBitmapImageRep, row: String, present: Bool, note: String, list: NodeView? = nil,
+                                 file: StaticString = #filePath, line: UInt = #line) throws {
+        let y = try separatorBoundary(f, row: f.node(row), list: list)
+        let ink = try boundaryInk(rep, y: y)
+        if present { XCTAssertGreaterThan(ink, 0, "\(note), \(row), y=\(y): the unowned boundary has a separator", file: file, line: line) }
+        else { XCTAssertEqual(ink, 0, "\(note), \(row), y=\(y): no platform separator at an owned boundary", file: file, line: line) }
+    }
+
+    private func checkInteriorSeparators(_ f: TableFixture, name: String, last: Bool) throws {
+        let picture = try separatorPicture(f, name: name)
+        for (row, present) in [(0, true), (2, false), (3, false), (4, true), (5, true), (6, true), (8, true)] {
+            try assertSeparator(f, picture, row: "edge-\(row)", present: present, note: name)
+        }
+        if last { try assertSeparator(f, picture, row: "edge-9", present: false, note: name) }
+        let own = try f.node("edge-1"), view = try XCTUnwrap(f.list.scroll)
+        let end = own.convert(own.bounds, to: view).maxY
+        // The author's three red pixels remain; the gap below them stays clear.
+        let x = picture.pixelsWide / 2
+        for y in Int(end.rounded()) - 3..<Int(end.rounded()) {
+            let color = try XCTUnwrap(picture.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+            XCTAssertGreaterThan(color.alphaComponent, 0.95, name)
+            XCTAssertGreaterThan(color.redComponent, 0.95, name)
+            XCTAssertLessThan(color.greenComponent, 0.05, name)
+            XCTAssertLessThan(color.blueComponent, 0.05, name)
+        }
+        let boundary = try separatorBoundary(f, row: own)
+        // In the painted list the platform would draw at the authored edge;
+        // in the native table it draws half way through the eight-point gap.
+        if f.presenter.tables.feeds[f.list.id] != nil {
+            XCTAssertGreaterThan(boundary - end, 2)
+            XCTAssertEqual(try boundaryInk(picture, y: boundary), 0, "\(name): no second line below the authored red edge")
+        }
+        XCTAssertEqual(try boundaryInk(picture, y: end + 4), 0, "\(name): the gap holds no second line")
+        let control = try f.node("control-7"), point = control.convert(NSPoint(x: control.bounds.midX, y: control.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(f.window.contentView?.hitTest(point))
+        XCTAssertTrue(hit === control || hit.isDescendant(of: control), "a row's own button keeps its hit in \(name)")
+    }
+
+    func testInteriorAuthoredEdgesWinAndPaintedRowsKeepUnownedSeparators() throws {
+        let f = try TableFixture(count: 0, source: Self.separatorSource())
+        fixture = f
+        let retained = try (0..<10).map { try f.node("edge-\($0)") }
+        for (name, painted) in [("native", false), ("painted", true), ("native-again", false)] {
+            f.presenter.tables.painted = painted
+            f.settle()
+            XCTAssertEqual(f.presenter.tables.feeds[f.list.id] == nil, painted)
+            for (i, row) in retained.enumerated() { XCTAssertTrue(try f.node("edge-\(i)") === row, "changing chrome retains the authored rows") }
+            try checkInteriorSeparators(f, name: name, last: true)
+        }
+    }
+
+    func testSeparatorOwnershipChangesAndClearsOnTheSameRows() throws {
+        let f = try TableFixture(count: 0, source: Self.separatorSource())
+        fixture = f
+        let own = try f.node("edge-5"), next = try f.node("edge-6"), bits = try f.node("edge-8")
+        for painted in [false, true] {
+            let mode = painted ? "painted" : "native"
+            f.presenter.tables.painted = painted
+            f.settle()
+            let before = own.convert(own.bounds, to: f.document)
+            for (step, item) in [("clear", true, false, false), ("own", false, true, false), ("clear", true, false, false),
+                                  ("next", false, false, true), ("clear", true, false, false)].enumerated() {
+                let (button, separated, bottom, top) = item
+                f.presenter.press(try f.node(button).id)
+                f.settle()
+                XCTAssertTrue(try f.node("edge-5") === own)
+                XCTAssertTrue(try f.node("edge-6") === next)
+                XCTAssertEqual(own.convert(own.bounds, to: f.document), before, "ownership changes no geometry")
+                XCTAssertEqual(own.wrote("border_style_bottom"), bottom, "class removal clears ownership")
+                XCTAssertEqual(next.wrote("border_style_top"), top, "the following row owns the preceding boundary")
+                let picture = try separatorPicture(f, name: "\(mode)-class-\(step)")
+                try assertSeparator(f, picture, row: "edge-5", present: separated, note: "\(mode) \(button)")
+                try assertSeparator(f, picture, row: "edge-6", present: true, note: "\(mode) \(button): the following row's bottom is unowned")
+            }
+            // A host batch may change provenance alone. Keep every effective
+            // value, the same NodeView and the same frame for all three states.
+            let original = bits.style
+            var plain = original
+            plain["border_style_bottom"] = .string("none")
+            plain["border_width_bottom"] = .number(0)
+            let written = (plain["written"]?.array ?? []).filter { !["border_style_bottom", "border_width_bottom"].contains($0.string ?? "") }
+            plain["written"] = .array(written)
+            let frame = bits.convert(bits.bounds, to: f.document)
+            for (step, owned) in [false, true, false].enumerated() {
+                var style = plain
+                if owned { style["written"] = .array(written + [.string("border_style_bottom")]) }
+                f.presenter.apply(wireBatch([["op": "style", "id": bits.id, "style": style.mapValues(\.any)]]))
+                f.settle()
+                XCTAssertTrue(try f.node("edge-8") === bits)
+                XCTAssertEqual(bits.convert(bits.bounds, to: f.document), frame)
+                XCTAssertEqual(bits.style.filter { $0.key != "written" }, plain.filter { $0.key != "written" })
+                XCTAssertEqual(bits.wrote("border_style_bottom"), owned)
+                let picture = try separatorPicture(f, name: "\(mode)-bits-\(step)")
+                try assertSeparator(f, picture, row: "edge-8", present: !owned, note: "\(mode): only ownership changed, step \(step)")
+            }
+            f.presenter.apply(wireBatch([["op": "style", "id": bits.id, "style": original.mapValues(\.any)]]))
+        }
+    }
+
+    func testWindowedSeparatorOwnershipSurvivesRemountingAndChromeChanges() throws {
+        let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
+        fixture = f
+        let first = try f.node("edge-0"), own = try f.node("edge-1")
+        let wrapped = try XCTUnwrap(f.feed.rows.first { $0.root == own.id })
+        XCTAssertFalse(wrapped.node === own, "the runner's wrapper and authored row are different nodes")
+        XCTAssertNotNil(wrapped.node.props["listItemKey"])
+        try checkInteriorSeparators(f, name: "windowed-start", last: false)
+        f.scroll(to: 4_000)
+        XCTAssertNil(f.presenter.views[first.id], "the old first row left the mounted window")
+        f.scroll(to: 0)
+        XCTAssertFalse(try f.node("edge-0") === first)
+        XCTAssertTrue(try f.node("edge-1").wrote("border_style_bottom"))
+        try checkInteriorSeparators(f, name: "windowed-return", last: false)
+        let retained = try f.node("edge-1")
+        f.presenter.tables.painted = true
+        f.settle()
+        XCTAssertTrue(try f.node("edge-1") === retained)
+        XCTAssertNil(f.presenter.tables.feeds[f.list.id])
+        try checkInteriorSeparators(f, name: "windowed-painted", last: false)
+        f.presenter.tables.painted = false
+        f.settle()
+        XCTAssertTrue(try f.node("edge-1") === retained)
+        try checkInteriorSeparators(f, name: "windowed-native-again", last: false)
+    }
+
+    func testPaintedSeparatorsRequireTheContractRowMark() throws {
+        let source = """
+        component Guards
+          state display = "block"
+          view
+            column width="100%" height="100%"
+              list height=100 width="100%" testId="rows"
+                text "Marked first" height=40 padding="8px 16px" box-sizing="border-box" testId="marked-first"
+                text "Marked last" height=40
+              list appearance="none" height=100 width="100%" testId="opted"
+                text "Authored first" height=40 padding="8px 16px" box-sizing="border-box" testId="opted-first"
+                text "Authored last" height=40
+              list display=display height=100 width="100%" testId="bound"
+                text "Bound first" height=40 padding="8px 16px" box-sizing="border-box" testId="bound-first"
+                text "Bound last" height=40
+              list height=100 width="100%" testId="outer"
+                column height=100
+                  list height=100 width="100%" testId="inner"
+                    text "Nested first" height=40 padding="8px 16px" box-sizing="border-box" testId="inner-first"
+                    text "Nested last" height=40
+
+        """
+        let f = try TableFixture(count: 0, table: false, source: source)
+        fixture = f
+        for painted in [true, false] {
+            f.presenter.tables.painted = painted
+            f.settle()
+            let mode = painted ? "agent" : "platform"
+            for (id, row, marked) in [("rows", "marked-first", true), ("opted", "opted-first", false), ("bound", "bound-first", false), ("inner", "inner-first", true)] {
+                let list = try f.node(id)
+                XCTAssertEqual(list.props["listRows"] == "true", marked)
+                XCTAssertEqual(f.presenter.tables.feeds[list.id] != nil, !painted && id == "rows", "nested rows remain painted under platform chrome")
+                let picture = try separatorPicture(f, name: "guard-\(mode)-\(id)", list: list)
+                try assertSeparator(f, picture, row: row, present: marked, note: "\(mode) \(id)", list: list)
+            }
+        }
+    }
+}
+
 private extension TableFixture {
     /// The rows of a list the runner does not window, wherever each is mounted.
     var mountedRows: Int { presenter.views.values.filter { ($0.props["testId"] ?? "").hasPrefix("row-") && $0.window != nil }.count }
