@@ -55,8 +55,9 @@ immediately.
 
 The implementation preserves LLP 1048.000 D10's 2-second per-socket hold,
 64 KiB read cap, 256 held-connection cap, bounded inbox, and immediate
-half-close. The server's separate `Stopper` drain remains bounded by the lesser
-of twice the render deadline and 10 seconds.
+half-close. The server's separate `Stopper` waits up to twice the render deadline plus
+10 seconds for render workers, then drains the closing thread's remaining
+2-second socket holds.
 
 On native x86_64 Windows, with four Cargo jobs and `EXACT_HTTP_ASYNC` unset:
 

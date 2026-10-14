@@ -302,8 +302,9 @@ existing `UnixStream` and `poll` path. Pending wake state clears only after a
 byte is consumed, and wake-channel failure releases queued and held sockets.
 Both platforms retain LLP 1048.000 D10's 2-second per-socket hold, 64 KiB read
 cap, 256 held-connection cap, bounded inbox, and immediate half-close. The
-server's separate `Stopper` drain remains bounded by the lesser of twice the
-render deadline and 10 seconds.
+server's separate `Stopper` waits up to twice the render deadline plus
+10 seconds for render workers, then drains the closing thread's remaining
+2-second socket holds.
 
 On native Windows, the focused real loopback executor test passed, followed by
 118 unit tests, 37 integration tests, and one look test, with nine ignored and
@@ -322,13 +323,33 @@ source-attributed commands, hashes, superseded first implementation, retained
 failures, and app drive are recorded in the
 [closed Windows HTTP issue](../../issues/closed/20261013-exact-render-windows-http.md).
 
-### Remaining rollout and device boundaries
+### Physical-device evidence and remaining rollout boundaries
 
-The physical iPhone fixture built and installed from Exact `32b88bbed4` with
-async enabled, but launch was refused because the device was locked. At the
-v5 check the phone could not supply trusted connectivity/power assertions.
-No Q/v5 physical-device interaction is claimed. Charlie assigned the historical
-bsky4 rollout campaign to the agent on Tuft; LLP 1120 §5 records the original
-baseline and remaining measured gate. Async remains off by default. Independent
-code review is complete, but the controlled TLS setup-stall diagnostic and Mac
-smoke do not substitute for that campaign.
+Six bounded ImageIO/ImageJob cases passed on a physical iPhone 17 Pro Max running
+iOS 27.0.1 (24A446), using production codec and vendored job code from Exact
+`a01c62241440300f3644ecde83592606262c58e7`. They cover four concurrent image
+transforms, RGBA16 input, predecode refusal, cancellation, owner close, and
+cancellation after commit starts. The largest observed process resident peak
+was 195,837,952 bytes; sampled physical footprint peaked at 118,916,840 bytes.
+[LLP 1069.002](../../llp/1069.002-media-picker.rfc.md) records the fixtures,
+source hashes, retained receipts and limits. This finite workload does not prove
+a whole-app memory limit or behavior under memory pressure.
+
+The async-enabled iPhone app launched, but its control connection could not be
+established. Rebuilding the scratch fixture with the documented local-network
+permission setting reached a connection timeout. Network navigation and
+same-store restart interaction remain unqualified pending device connectivity
+and consent; the image results above do not substitute for them.
+
+The isolated arm64 Android Shelf APK also built with the authenticated v5
+bundle from Exact `a01c62241440300f3644ecde83592606262c58e7`. Its SHA-256 is
+`2dc2aa1ed32f146d77e79962ec5b6b04611e30ad7affa68c4fe4a676c66f5588`;
+it requires Android API 31 or newer. No physical Android device was
+reachable for installation and interaction in this follow-up, so this remains
+build evidence only.
+
+Charlie assigned the historical bsky4 rollout campaign to the agent on Tuft;
+LLP 1120 §5 records the original baseline and remaining measured gate. Async
+remains off by default. Independent stage-1 code review, controlled TLS
+setup-stall diagnostics, Mac smoke, and the bounded image tests do not replace
+that campaign.
