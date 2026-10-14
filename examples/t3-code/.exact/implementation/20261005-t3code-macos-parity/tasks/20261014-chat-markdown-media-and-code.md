@@ -1,8 +1,8 @@
 ---
 name: 20261014-chat-markdown-media-and-code
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
+implementation: in-progress
+verification: stale
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -82,11 +82,14 @@ check at once and back at about 1.2 s (frames over CDP); the 2,960-character tem
 **G4-05, the image's press.** The clone's Markdown image sat in MediaActions (a box with the menu, keys and an AppKit title)
 and had no press; the expanded image dialog served sent attachments and a file link's media only. Now a settled image is
 `MediaPreviewActions` (`media-actions.contract`): a `button` "Preview <alt>" (`alt.trim() || "image"`), `tabindex=0`,
-the zoom-in cursor, MediaActions' menu and keys kept. Its press is `image-md-open` with its media key, its document's owner
-and its node id (`timeline-attachments.ts`): every renderer notes its document by the owner its chips carry
+the zoom-in cursor, MediaActions' menu and keys kept. Its press is `image-md-open` with its media key, document owner,
+node id and ordinal in the rendered document (`timeline-attachments.ts`). Every renderer notes its document by the owner its chips carry
 (`noteMarkdownDocument`, called by `messageChips`: a message row's id, `files:<path>` for Files, `attachment:<id>` for a sent
 attachment), and `markdownGallery` lists the document's images in order as `markdownImageGallery` does (an image that can
-load; not a video, not one in a table cell or a link's text, which draw their alt text). The existing dialog shows the
+load; not a video, not one in a table cell or a link's text, which draw their alt text). The renderer derives gallery
+occurrence ids from the same parsed blocks and runs that draw each image. The press sends
+that ordinal; the data action checks its media key and selects that entry, so Shot, Logo, Shot opens the later Shot at 3/3.
+Standalone images use their own block's alt text, even when a shared chip points to the same URL. The existing dialog shows the
 gallery: "Shot (1/3)", previous and next round both ways, the media's own menu; its URL list gains the gallery's web images
 as written and its host paths signed through the thread (a draft's own in Files). A secondary click focuses the image, as the
 reference's mousedown does, and closing the dialog gives the focus back to the image that opened it (Base UI Dialog's final
@@ -168,6 +171,9 @@ beside it on the same seed. Never send a message.
    (`…/projects/work/assets/logo.png`) above it. New thread › work, right panel › Files › docs › media.md › Show rendered
    markdown; hover the first "Shot" in "Beside the file: [Shot] and its parent: [Logo]": the tooltip shows
    `…/projects/work/docs/shot.png` whole, not cut by the Files column (reference: the same, over the column's edge).
+   Then open an image's expanded dialog, press Escape while the pointer remains over its opener, and move the pointer
+   into empty space. Confirm that the tooltip closes and stays closed while clicking an unrelated control. This
+   dismiss-on-pointer-away case is unverified; the earlier agent clicks did not move the pointer.
 4. **G4-09, Shift+F10 after a media right-click.** Back in "Markdown media": right-click the "Badge" image, press Escape
    (the focus on "Preview Badge"), then click the right panel's toggle or the Toggle thread details button (a button that takes
    no focus). Press Shift+F10: no menu opens. Press the ContextMenu key if the keyboard has one: no media menu opens.
@@ -176,7 +182,7 @@ beside it on the same seed. Never send a message.
 
 ## Tests
 
-- `chat-markdown-media-and-code.test.ts` (10): KD: the 2,960-character line finishes under 0.6 of the limit with every
+- `chat-markdown-media-and-code.test.ts` (11): KD: the 2,960-character line finishes under 0.6 of the limit with every
   character in its scopes (before the memo fix 1.2e10 units); sliced, it spreads over turns and paints as unsliced; a
   5,920-character line stops at the limit, the rest plain, the next line from where it stopped, plain in `highlight()`.
   G4-05: the press opens the document's gallery in order (a video and a table cell's image left out), steps round both ways,
@@ -200,19 +206,20 @@ beside it on the same seed. Never send a message.
 - The message's Copy button (`timeline-work.contract` CopyButton: MessageCopyButton's copy, check or x for 2 s) still
   cross-fades by keyframes; recorded under X18 in `EXACT2-GAPS.md`.
 - After the dialog closes under a still pointer, the hover layer shows the image's tooltip (the host re-reads hover under a
-  resting pointer); in the agent drive it then stays through clicks elsewhere, since the agent's clicks move no pointer. A
-  real pointer moving away closes it (step 3 checks it).
+  resting pointer); in the historical agent drive it then stayed through clicks elsewhere, since the agent's clicks move no
+  pointer. The repair drive explicitly moved agent hover to the toolbar and the tooltip disappeared. Real-pointer movement
+  has not been verified; step 3 explicitly checks this case.
 - A template-dense cpp line over about 5,000 characters: its first function-definition search takes up to 105 ms in Hermes by
   itself, past the runner's 100 ms answer budget (declared in `EXACT2-GAPS.md` "Shiki's line time limit"). Minified lines of
   20,000 characters or more in a chat fence take many short turns (katex.min.css 922 turns of at most 12 ms), since each long
   search is charged its whole rest.
-- Plan size: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); this branch's is 37,185,217 bytes (120,443 nodes), +3,876,088 bytes (+11.6%). Most of it is
+- Plan size before this repair: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); the reviewed head's is 37,185,217 bytes (120,443 nodes), +3,876,088 bytes (+11.6%). Most of it is
   FlowRuns' 140 inlined uses of the media body, which now holds MediaPreviewActions beside MediaActions, and the copy buttons'
   MorphCopyCheck path data. `caps.mjs` sets no plan budget; #465's +4.9% was accepted by the coordinator for parity.
 
 ## Checks
 
-Once, on `e867bef04` (the code of the final head; after it only `scheduled-tasks-followups.test.ts`'s two hover-layer text
+Historical checks before this repair, on `e867bef04` (after it only `scheduled-tasks-followups.test.ts`'s two hover-layer text
 expectations and this record changed, and the Bun suite ran again on them):
 
 | Check | Exit | Note |
@@ -230,9 +237,57 @@ expectations and this record changed, and the Bun suite ran again on them):
 | `bun scripts/boot.mjs` | 0 | |
 | `host/apple/build.mjs t3-code-macos --bundle` | 0 | before the live drive, from `2c8d30b12`'s app code |
 
+## Review repair, 2026-10-14
+
+- Reference source checked read-only at `apps/web/src/components/chat/markdownImageGallery.ts`: the gallery selects the
+  clicked element by identity. The shared URL is not the occurrence identity.
+- The new behavioral regression opens the last image in Shot, Logo, Shot at 3/3, preserves its own alt text and return
+  focus id, steps both ways, and rejects mismatched or out-of-range ordinals. It failed at 1/3 before the repair.
+- `EXACT2-GAPS.md` now distinguishes the hover layer used for settled Markdown images from in-place `MediaTip`.
+- The existing MSU-1 Files image contains after and reference only. No before capture for that scenario was retained;
+  it cannot prove a before/after Files comparison. The chat before capture and historical report remain separate evidence.
+- Existing MSU-1 and X18 Bun tests check source wiring, not runtime behavior. Their historical agent drives and film
+  are the runtime evidence; this repair does not claim that those source assertions exercise timers or hover.
+- Guidance: Exact skill library `2026-10-05-platforms-v3`, foundations, state/data, accessibility and testing/debugging.
+  The current checkout's parser, Contract provider/injection code and native driver are the implementation authority.
+
+Repair development checks, with Bun 1.4.2, on this checkout:
+
+| Check | Result |
+| --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 4,867 passed, one existing skip, zero failures |
+| strict `tsc`, README command | Exit 0 |
+| `target/debug/contract build examples/t3-code/app.contract -o /tmp/t3-markdown-repair.plan --json` | Exit 0; 37,196,589 bytes; existing dialog/colour warnings |
+| Compiled `markdownGalleryIds` fixture, executed with `exact-terminal <fixture.plan> --size 100x10 print` | Output `b0,b1-r1,b1-r3`, `clicked-index=2`; video, blocked image, table and code entries excluded |
+| `host/apple/build.mjs t3-code-macos --bundle` with `EXACT_APP_DIR=examples/t3-code` | Exit 0; refreshed app bake 341.3 s, Swift/package passed |
+| Isolated macOS agent drive, 1280 × 840, local server port 16482 | Exit 0; later rendered Shot opened 3/3, previous Logo 2/3, next Shot 3/3, Escape closed, explicit hover-away dismissed the reopened tooltip |
+| `cargo build --all-targets --keep-going`, `cargo fmt --all -- --check`, caps and boot | Exit 0 |
+| Root test/clippy/workspace | Coordinator owns these checks. The worker's root test run was interrupted on that direction; clippy/workspace were not started |
+
+The compiled helper fixture and native drive records are local-only under `target/review-repair/`. The helper imported
+`markdownGalleryIds` from the application, using a standalone Shot block and one inline block with a video, Logo, a blocked
+image and a repeated Shot, followed by table and code blocks. It exercised the compiled expression in the runner; it did
+not render the macOS controls.
+
+The native drive used its own copied home and workspace, with this fixture in `md-media`'s assistant message:
+
+```markdown
+![Shot](docs/shot.png)
+
+Inline ![Logo](assets/logo.png), then ![Shot](docs/shot.png).
+```
+
+It selected the third rendered `markdown-image-actions` node, `media-["md-media","md-asst-1"]-1-4`, through the platform
+agent carrier. After Escape, hovering that image for 750 ms showed `media-tooltip`; hovering `toggle-thread-details` and
+advancing 1,000 ms removed it. This tests agent hover delivery, not global mouse input. `drive.mjs`, `drive.log` and
+`drive-host-log.json` preserve the recipe and results. Use `T3_LOCAL_HOME=target/review-repair/t3-home`, port 16482 and the
+coordinator's staged `t3-0.0.46-nightly.20261005.2667-darwin-arm64` runtime. The initial port 17482 was refused by the
+development policy (only 16000–16999); `drive-refused-port.log` and its host log retain that resolved setup failure.
+
 ## Decision needed
 
-The plan grows by 11.6% (37,185,217 bytes against the feature tip's 33,309,129): FlowRuns inlines the media body 140 times,
+The repaired plan is 37,196,589 bytes, 11,372 bytes above the reviewed head. It remains 11.7% above the feature tip's
+33,309,129 bytes (the original PR was +11.6%). FlowRuns inlines the media body 140 times,
 and the body now holds the preview button beside MediaActions with its drawn tooltip, and the copy buttons carry
 MorphCopyCheck's path data. Accept it, as #465's +4.9% was accepted for parity, or ask for a reduction (for example MediaActions'
 failure, video and file media keeping AppKit's help tag, which only the inline image showed empty).
@@ -241,7 +296,10 @@ failure, video and file media keeping AppKit's help tag, which only the inline i
 
 - G4-05 (a click, the focus, a second right-click while the menu is open), MSU-1 (the tooltip under a real pointer) and
   G4-09 (Shift+F10 after a media right-click) under real input: open, "Real-input batch steps" 1-4 for the coordinator's
-  final session (the Mac's screen is locked; agent drives and AppKit tests only).
+  final session (agent drives and AppKit tests only).
+- MSU-1 after closing the image dialog: moving the pointer away must dismiss the reopened tooltip. This is still
+  unverified under real input, with explicit reproduction in step 3; the explicit agent hover-away check passed.
+- The MSU-1 Files proof lacks a before panel; its existing image demonstrates after/reference only.
 
 ## Delivery
 
@@ -249,4 +307,5 @@ Draft PR [#541](https://github.com/ccheever/exact2/pull/541) into `feat(example)
 
 ## Next action
 
-The coordinator: review the draft PR, decide the plan size, run the real-input steps.
+The repair checks passed; implementation is ready for fresh verification. The coordinator performs independent
+review, updates the draft PR from the local repair, decides the plan size, and runs the real-input steps.
