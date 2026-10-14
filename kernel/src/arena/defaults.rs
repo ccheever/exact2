@@ -1,19 +1,19 @@
 //! Live platform defaults below authored rows. @ref LLP 1115.000 D2, D4.13, D17.
 use super::*;
-use crate::generated::{metric, METRICS};
 use crate::style::metrics::{self, Column};
 use std::borrow::Cow;
 
 static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
     let mut style = StyleProps::default();
-    for (id, index) in [
-        (StyleId::BackgroundColor, metric::HEADER_GROUND),
-        (StyleId::TextColor, metric::HEADER_COLOR),
-        (StyleId::BorderWidthBottom, metric::HEADER_EDGE_WIDTH),
-        (StyleId::BorderStyleBottom, metric::HEADER_EDGE_STYLE),
-        (StyleId::BorderColorBottom, metric::HEADER_EDGE_COLOR),
+    for (id, name) in [
+        (StyleId::BackgroundColor, "-exact-header-ground"),
+        (StyleId::TextColor, "-exact-header-color"),
+        (StyleId::BorderWidthBottom, "-exact-header-edge-width"),
+        (StyleId::BorderStyleBottom, "-exact-header-edge-style"),
+        (StyleId::BorderColorBottom, "-exact-header-edge-color"),
     ] {
-        let value = metrics::as_written(id, METRICS[index].neutral).expect("neutral header row");
+        let metric = metrics::named(name).expect("schema header metric");
+        let value = metrics::as_written(id, metric.neutral).expect("neutral header row");
         style.set_dynamic(id, &value).expect("schema header value");
     }
     style
