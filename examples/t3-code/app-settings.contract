@@ -291,7 +291,7 @@ component SettingsWindow
     when settingsOpen
       // Settings is a route in the reference (its sidebar is navigation "Settings"), no dialog: the row writes no
       // `role="dialog"`, which the Mac exposes as AXApplicationDialog since main #457 (adopt-main-fixes-r10 RT-6).
-      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") testId="settings-dialog"
+      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or dialogShown or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") testId="settings-dialog" id="settings-dialog" data-paint="canvas" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : "")
         when data.sidebarOpen
           SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=sidebarWidth, pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=escapeOwned, edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar, updateTip=hoverUpdateTip)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"

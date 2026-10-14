@@ -19,6 +19,7 @@ import { rememberDelivery, updateConfirmation } from './settings-a-about';
 import { killConfirmation } from './settings-a-telemetry';
 import { hostChecks, hostEditorView } from './settings-a-hosts';
 import { libraryCards, removalPicks } from './settings-a-collections';
+import { installedFonts } from './appearance-fonts';
 import { fontDiffPreview } from './settings-font-previews';
 
 /** The scope sentence keys each label on its text, so a changed label remounts (a reused one-line text kept its old string). */
@@ -85,7 +86,7 @@ export async function settingsCore(client: T3Client, native: Native | null | und
   if (dialogKind !== 'import') resetImport(client);
   let sections: CoreSection[] = [];
   if (active && route === 'general' && scope.kind !== 'unavailable') sections = generalSections(client, context);
-  if (active && route === 'appearance') sections = appearanceSections(prefs, true);
+  if (active && route === 'appearance') sections = appearanceSections(prefs, true, await installedFonts(client, native));
   sections = sections.map(section => ({ ...section, rows: section.rows.map((row, index) => ({ ...row, divider: index > 0 })) }));
   // ProjectSettingsPanel renders ProjectDefaultsSettings' modelRow: the Project page's Model row is General's, in the project scope.
   const projectModel = active && route === 'projects' && project ? generalSections(client, context).flatMap(section => section.rows).filter(row => row.id === 'default-model').map(row => ({ ...row, divider: false })) : [];

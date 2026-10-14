@@ -97,7 +97,7 @@ component LegacySidebar
   action dropped(item: string, before: option<string>)
     local("legacy-reorder", item, match before { case some(b) => b, case none => "" })
   view
-    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar"
+    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="legacy-sidebar" id="legacy-sidebar" data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       // SidebarChromeHeader: the titlebar row with the stage artwork or the version pill.
       when data.look.artwork
         NightlyBackdrop()

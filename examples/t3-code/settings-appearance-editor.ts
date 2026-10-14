@@ -185,9 +185,9 @@ function followName(draft: Draft, custom: CustomTheme[]): void {
 /** A family row: its value, the picker's starting point for it, and the last picker op applied (`seq`). */
 export type EditorRow = { id: string; label: string; role: string; value: string; seq: number } & PickerFields;
 export type EditorGroup = { id: string; title: string; rows: EditorRow[] };
-export type EditorView = { open: boolean; title: string; saveLabel: string; saveIcon: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; canSave: boolean; session: string };
+export type EditorView = { open: boolean; title: string; saveLabel: string; saveIcon: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; allRows: EditorRow[]; canSave: boolean; session: string };
 export function editorView(draft: Draft | null, custom: CustomTheme[] = []): EditorView {
-  if (!draft) return { open: false, title: '', saveLabel: '', saveIcon: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], canSave: false, session: '' };
+  if (!draft) return { open: false, title: '', saveLabel: '', saveIcon: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], allRows: [], canSave: false, session: '' };
   const colors = draft.colors[draft.appearance];
   const row = ([id, label, role]: [string, string, string]): EditorRow => {
     const value = colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000';
@@ -199,7 +199,7 @@ export function editorView(draft: Draft | null, custom: CustomTheme[] = []): Edi
   const name = draft.name.trim();
   const submit = submitLabel(draft, custom);
   return { open: true, title: draft.editingId ? 'Edit theme' : 'Create theme', saveLabel: submit.label, saveIcon: submit.icon, name: draft.name, appearance: draft.appearance,
-    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `session-${draft.sessionId}` };
+    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, allRows: ROLE_GROUPS.flatMap(group => group.families.map(row)), canSave: name.length <= 48, session: `session-${draft.sessionId}` };
 }
 const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.some(([, , familyRole]) => familyRole === role));
 
@@ -234,6 +234,7 @@ export function editDraft(client: T3Client, part: string, value: string): void {
   if (!draft) throw new ClientError('Open the theme editor first.');
   if (part === 'name') { if (value.length > 48) throw new ClientError('Use a name of 48 characters or fewer.'); draft.name = value; followName(draft, customOf(client)); return; }
   if (part === 'appearance') { if (value !== 'light' && value !== 'dark') throw new ClientError('Choose Light or Dark.'); draft.appearance = value; return; }
+  if (part === 'inspect') { if (value !== 'canvas' && value !== 'accent') draft.advanced = true; draft.filter = ''; return; }
   if (part === 'advanced') { draft.advanced = value === 'true'; return; }
   if (part === 'filter') { draft.filter = value.slice(0, 64); return; }
   if (part.startsWith('color:')) {

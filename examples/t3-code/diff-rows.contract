@@ -42,6 +42,7 @@ component DiffTool
 // comment (saved or draft) under its line, or a header skeleton while a large diff loads.
 component DiffRow
   props
+    family: string
     item: DiffItem
     wrap: bool
     command: action
@@ -79,14 +80,14 @@ component DiffRow
       // The numbers come after every cell's code (DiffNumber).
       when item.kind == "split"
         row width="100%" align-items="stretch" position="relative"
-          DiffCell(tone=item.leftTone, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
-          DiffCell(tone=item.rightTone, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin, open=commentOpen, command=command, begin=beginComment)
-          DiffNumber(number=item.leftNumber, tone=item.leftTone, selected=item.leftSelected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
-          DiffNumber(number=item.rightNumber, tone=item.rightTone, selected=item.rightSelected, gutter=item.gutter, size=size, scheme=scheme, left="50%")
+          DiffCell(family=family, tone=item.leftTone, segments=item.leftSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="deletions", line=item.leftLine, selected=item.leftSelected, pinned=item.pinned, pin=item.leftPin, open=commentOpen, command=command, begin=beginComment)
+          DiffCell(family=family, tone=item.rightTone, segments=item.rightSegments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side="additions", line=item.rightLine, selected=item.rightSelected, pinned=item.pinned, pin=item.rightPin, open=commentOpen, command=command, begin=beginComment)
+          DiffNumber(family=family, number=item.leftNumber, tone=item.leftTone, selected=item.leftSelected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
+          DiffNumber(family=family, number=item.rightNumber, tone=item.rightTone, selected=item.rightSelected, gutter=item.gutter, size=size, scheme=scheme, left="50%")
       when item.kind == "line"
         row width="100%" align-items="stretch" position="relative"
-          DiffCell(tone=item.tone, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, pinned=item.pinned, pin=item.pin, open=commentOpen, command=command, begin=beginComment)
-          DiffNumber(number=item.number, tone=item.tone, selected=item.selected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
+          DiffCell(family=family, tone=item.tone, segments=item.segments, gutter=item.gutter, wrap=wrap, scheme=scheme, size=size, path=item.path, side=item.side, line=item.line, selected=item.selected, pinned=item.pinned, pin=item.pin, open=commentOpen, command=command, begin=beginComment)
+          DiffNumber(family=family, number=item.number, tone=item.tone, selected=item.selected, gutter=item.gutter, size=size, scheme=scheme, left="0%")
 
 // "N unmodified lines": a press opens them from the file's contents (git sources; Pierre's hunk expansion).
 component DiffGap
@@ -158,6 +159,7 @@ component DiffFileHeader
 // drawn over this cell's gutter after the row's code.
 component DiffCell
   props
+    family: string
     tone: string
     segments: list<DiffSegment>
     gutter: number
@@ -219,7 +221,7 @@ component DiffCell
                 pattern id="diff-deletion-stripes" patternUnits="userSpaceOnUse" width=4 height=2
                   rect x=0 y=0 width=4 height=1 fill=diffInk(scheme, "del")
               rect x=0 y=0 width=4 height=400 fill="url(#diff-deletion-stripes)"
-      text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-family=family font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
       // The empty side of a split run: Pierre's [data-gutter-buffer] flat and its [data-content-buffer] hatched, 45° stripes
@@ -249,6 +251,7 @@ component DiffCell
 // alone, so a number before the code would move what ⌘C takes.
 component DiffNumber
   props
+    family: string
     number: string
     tone: string
     selected: bool
@@ -257,4 +260,4 @@ component DiffNumber
     scheme: string
     left: string
   view
-    text number position="absolute" left=left top=0 width=((gutter - 2) * size / 13 + 2) padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true font-family="ui-monospace" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
+    text number position="absolute" left=left top=0 width=((gutter - 2) * size / 13 + 2) padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true font-family=family font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion" ? diffInk(scheme, "del") : tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")

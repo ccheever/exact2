@@ -366,7 +366,7 @@ component PrdCodeRow
             button press=press("retry", "") testId="pull-request-code-retry" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
               text "Retry" font-size="0.75rem" line-height="1rem" font-weight=500 color=pcInk()
       when item.kind == "line" or item.kind == "split" or item.kind == "gap" or item.kind == "pad"
-        DiffRow(item=item, wrap=code.wrap, command=rowCommand, scheme=scheme, size=size, commentOpen=(code.draftOpen or not code.canComment), draftText=draftText, editDraft=editDraft, beginComment=begin, cancelComment=cancel, saveComment=add)
+        DiffRow(family=env.codeFont, item=item, wrap=code.wrap, command=rowCommand, scheme=scheme, size=size, commentOpen=(code.draftOpen or not code.canComment), draftText=draftText, editDraft=editDraft, beginComment=begin, cancelComment=cancel, saveComment=add)
 
 // A file's header (@pierre/diffs with renderHeaderPrefix and renderHeaderMetadata): the chevron, the
 // status glyph and the path fold the file; the counts; the Viewed tick, which keeps its press to itself.
