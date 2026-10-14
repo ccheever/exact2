@@ -122,6 +122,25 @@ check('appearance none keeps authored root tabs across selection and restores th
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
 }), 30000);
 
+check('retained root tabs yield to changed authored placement and restore without losing selection', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
+  const samples = [];
+  for (const [id, property, changed, restored] of [
+    ['nav', 'display', 'block', 'flex'],
+    ['bar', 'position', 'absolute', 'relative'],
+    ['nav', 'flexDirection', 'row', 'column'],
+    ['bar', 'flexDirection', 'column', 'row'],
+  ]) {
+    for (const value of [changed, restored]) {
+      samples.push(await evaluate(`document.getElementById(${JSON.stringify(id)}).style[${JSON.stringify(property)}] = ${JSON.stringify(value)}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
+    }
+  }
+  expect(samples).toEqual(Array.from({ length: 4 }, () => [[false, true, false], [true, true, false]]).flat());
+  await size(390);
+  expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
+  await size(1280);
+  expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar'), shown('r2')]`)).toEqual([true, [0, 0, 240, 800], true]);
+}), 30000);
+
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
   // Wide, nothing chosen: the list is a 320-wide column, its disclosure gone; the rest of the stack's width is the
   // platform's placeholder (LLP 1116.006 D2), one line in the secondary label's colour (the look's, which its sheet carries).
