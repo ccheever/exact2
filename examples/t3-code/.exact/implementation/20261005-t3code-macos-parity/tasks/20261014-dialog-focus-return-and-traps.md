@@ -3,11 +3,11 @@ name: 20261014-dialog-focus-return-and-traps
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-dialog-focus-return-and-traps
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/553
 verified_commit: null
 ---
 
@@ -130,7 +130,7 @@ Do not reintroduce the library examples' retired `when`/`each`/free-function spe
 The coordinator created the implementation checkout from `origin/feat(example)/t3-code`
 after both merge gates passed. The actual base is `a218ee78fec42b1a4590b199297f30667876de67`.
 No task branch, task record or PR with this slug existed at the fresh lookup. The new
-branch is `feat(example)/t3-code-dialog-focus-return-and-traps`; delivery is still none.
+branch is `feat(example)/t3-code-dialog-focus-return-and-traps`; delivery is merged through PR #553.
 
 Issue assessment, checked from the local repository and plan records on 2026-10-14:
 
@@ -362,7 +362,7 @@ inferences from the Bun model. No iOS, web or Linux parity is claimed.
 | Repository gates | Final workspace check passes on `46868…` (212.34 seconds). Build/test/clippy/fmt/boot retain passing receipts with unchanged framework inputs. Prior Contract sweep passed 94 roots/195 imports; direct final app compilation covers the changed owner. |
 | Native checks | Four authored cases pass on aggregate `033965…`; OS provider/icon/server-confirm observations retained on that source. Final `46868…` build proves Machines Copy focus, Escape/trigger return, deliberate outside focus, and no-copy popup fallback. Full native acceptance remains incomplete. |
 | Independent implementation review | All 70 runtime/test file hashes independently checked. Full/menu-owner source and both later owner-specific increments approved; final source review found no remaining confirmed source issue. |
-| Delivery | Local implementation only. Coordinator owns evidence publication, PR, and merge. Frontmatter remains `in-progress` / `unverified` / `none`. |
+| Delivery | PR #553 merged into `feat(example)/t3-code` at `6a7a3cad0cb5f66fb7b5d677d21f8e130356e5d7`, 2026-10-14 05:48:59 UTC. Implementation remains `in-progress` and verification `unverified` for the native qualifications above. |
 
 ## Attempts and evidence
 
@@ -440,11 +440,12 @@ The coordinator reviewed all four selected screenshots and the final Machines fo
 records. Source checks and the bounded native cases pass; full task verification
 remains open for the qualifications above.
 
-The coordinator prepares the application PR. Keep this ticket unverified
-until the remaining native states above are qualified or explicitly resolved in the
+PR #553 is merged. Remote readback confirms merge commit
+`6a7a3cad0cb5f66fb7b5d677d21f8e130356e5d7` in `feat(example)/t3-code`.
+Keep this ticket unverified until the remaining native states above are qualified or explicitly resolved in the
 parent plan. The third repair round is complete; do not restart a new worker to evade
-the fix-loop limit. Publication and merge remain coordinator-owned under the user's
-existing authorization.
+the fix-loop limit. The remaining native qualifications belong to the integrated attended-input pass;
+merging the bounded repair does not close this ticket.
 
 Preparation completion, 2026-10-14: the coordinator verified remote first-wave and R14
 merge evidence, refreshed the feature head, searched for duplicate work, created the
