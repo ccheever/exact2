@@ -164,15 +164,6 @@ describe('DP-3: a press on a pill button starts no drag', () => {
     expect(button).not.toContain('pan=');
     expect(button).toContain('position="relative" flex-shrink=0 width="1.5rem" height="1.5rem"');
   });
-
-  test('the pill\'s size is the reference\'s at the sm width: 24 pt buttons in a 56 × 32 pill, the dot\'s centre on the close button\'s top edge', () => {
-    // icon-xs is size-6 (24) from the sm breakpoint; border 1, padding 2, gap 2: 1 + 2 + 24 + 2 + 24 + 2 + 1.
-    const pill = 1 + 2 + 24 + 2 + 24 + 2 + 1;
-    expect(pill).toBe(56);
-    // The 26 pt content row centres the 24 pt button 4 pt below the pill's top: the dot (8 pt, centred 4 pt in) meets it.
-    const buttonTop = 1 + 2 + (32 - 2 - 4 - 24) / 2;
-    expect(buttonTop).toBe(4);
-  });
 });
 
 describe('DP-10: the player at 840 × 620', () => {

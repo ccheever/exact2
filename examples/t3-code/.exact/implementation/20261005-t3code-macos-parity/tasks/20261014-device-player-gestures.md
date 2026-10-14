@@ -1,9 +1,9 @@
 ---
 name: 20261014-device-player-gestures
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: partial
-delivery: draft-pr
+implementation: in-progress
+verification: stale
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-gestures
@@ -12,6 +12,11 @@ verified_commit:
 ---
 
 # The floating device player's drag, resize and pill
+
+Parent: [macOS parity specification](../spec.md). Guidance for this review repair: Exact knowledge library
+`20261005-platforms-v3` (foundations, platforms, motion, accessibility, testing and debugging), checked against the
+checkout's `docs/testing.md` and existing Contract/data tests. The repair removes an ineffective test and preserves
+existing captures; it changes no application or framework behavior.
 
 ## Outcome
 
@@ -128,10 +133,10 @@ a draft 240×520 at canvas 380,36 in both; a thread 172×372 at 448,12 in the re
 | --- | --- | --- |
 | DP-2 | pass (Bun test; agent drive with the clock moving, reference by CDP): a (−320, −160) drag in 20 moves, held: before y to the top clamp (canvas 672,12), after 672,96, the reference 672,96 (928,148 page); one serial for the whole drag | [image](https://raw.githubusercontent.com/ccheever/exact2/b84e431345fa6de3da00c9bdf62a67a9abb7b5b6/device-player-gestures/dp2-drag.png), [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
 | DP-3 | pass (Bun test; agent drive; reference): a press on "Open preview in right panel" dragged (−100, +100): before the player moved to the bottom, after and the reference it stays and the button does not fire (the player still floats); the padding's drag (+60, +200) ends at 732,256 in both | [image](https://raw.githubusercontent.com/ccheever/exact2/aecc9b6e3ccde590a52d1b55830c92edb496ebb0/device-player-gestures/dp3-button-press.png), [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
-| DP-4a | pass against the reference's code and app (Bun test: eight zones, six moves equal one resize; the harness: 26 of 26 scenarios equal the reference's own layout code, 11 of 26 before; agent drive, eight zones): before W drifted to 552 then 569, SW to 502 then 528; after W out 60 → 612,12 277×600, in 200 → 672,12 240×520 (the reference app 612,12 273×592 → 672,12; the height differs by the composer's height, below); the stop wording: see "Cause and fix" | [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
+| DP-4a | pass against the reference's code and app (Bun test: eight zones, six moves equal one resize; the harness: 26 of 26 scenarios equal the reference's own layout code, 11 of 26 before; agent drive, eight zones): before W drifted to 552 then 569, SW to 502 then 528; after W out 60 → 612,12 277×600, in 200 → 672,12 240×520 (the reference app 612,12 273×592 → 672,12; the height differs by the composer's height, below); the stop wording: see "Cause and fix" | [before/after images and limits](#review-repair-2026-10-14), [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
 | DPC-3 | pass (Bun test; agent drive; reference): the docked card, the top edge up 37: before 721,145 291×631 and the full card, after and the reference 755,219 257×557 and the compact card (Open in Cursor, Add project script, main, Changes); 32 more: before 691,12 313×678, after and the reference 740,187 272×589 and the essential card (Add project script, main, Changes) | [compact](https://raw.githubusercontent.com/ccheever/exact2/d58e80616a089292988dc6ef7bb77a004356e2f4/device-player-gestures/dpc3-compact.png), [essential](https://raw.githubusercontent.com/ccheever/exact2/107a1bd0f4902376114f818e34177820f708e0b9/device-player-gestures/dpc3-essential.png) |
 | DPC-4 | pass (Bun test; agent drive; reference): 37 more leaves the card under 160 pt (the header's popover, 723,150 289×626 in both); opened, then the top edge down 150: before the player at 691,169 (81 pt left) and no card, after and the reference 723,256 240×520 and the docked card back in full | [image](https://raw.githubusercontent.com/ccheever/exact2/85c52e5bf51e94e3e2d5e44457eeebf4b4642521/device-player-gestures/dpc4-back-inline.png) |
-| DP-6 | pass in agent mode (before and after: the moves arrive outside the window): after, (+56, −136) out past the right edge, held: 772,120 (x clamped, y exactly −136); back (−450, +150), held: 672,256 (the lane stop, y clamped), as the reference's realinput 964,344; before the same path overshot to the top. A real pointer: real-input step 5 | [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
+| DP-6 | pass in agent mode (before and after: the moves arrive outside the window): after, (+56, −136) out past the right edge, held: 772,120 (x clamped, y exactly −136); back (−450, +150), held: 672,256 (the lane stop, y clamped), as the reference's realinput 964,344; before the same path overshot to the top. A real pointer: real-input step 5 | [before/after images and limits](#review-repair-2026-10-14), [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
 | DP-5 | not reproduced in agent mode (a simulator and the real hub): every move of a slow drag reaches the hub from the panel and from the floating player, and the floating drag pages; no change. A real pointer: real-input step 4 | [image](https://raw.githubusercontent.com/ccheever/exact2/62d631a9bb13186a2e7d211503e4bf00d16d0dd2/device-player-gestures/dp5-float-pages.png), [record](https://raw.githubusercontent.com/ccheever/exact2/2b8613cbd83a4dec0c8c3e0dcff31e570e109977/device-player-gestures/dp-record.txt) |
 | DP-10 | pass, no change (Bun test; agent drive at 840×620; reference): a draft 240×520 at canvas 380,36 in both (the reference's 624,124 on screen); a thread fits above the docked composer in both (reference 172×372, clone 175×380); the recorded cells were a thread (clone) and a draft (reference) | [image](https://raw.githubusercontent.com/ccheever/exact2/140efb234c206edb7eb0319c49f4674999311d96/device-player-gestures/dp10-cells.png) |
 | Real pointer: DP-2, DP-3, DP-4, DP-5, DP-6, DP-7's rest half, DPC-3, DPC-4 | open: "Real-input batch steps" | — |
@@ -184,15 +189,17 @@ B9 lane (the fixture hub, the Pixel, as `realinput-1011c` B9): the docked card o
 
 ## Tests
 
-- `device-player-gestures.test.ts` (17): DP-2, the contract's `pan` with the clock moving keeps one serial for a drag (a
+- `device-player-gestures.test.ts` (16): DP-2, the contract's `pan` with the clock moving keeps one serial for a drag (a
   new one for the next) and a (−320, −160) drag moves the frame by the total once (672,96), the padding drag after it
   (732,256); DP-4a, each of the eight zones in six moves equals one resize of the total from the press's frame, and the
   W numbers from the lane stop (612 → 645 with the right edge held) and from the reference's own start (672,12 273×592);
   DPC-3 and DPC-4, the docked card's density per top-edge drag (compact, essential, the popover, back in full) at the
   reference app's frames; DP-3, the pill holds no pan, its first child is the grab box, the buttons are positioned 24 pt
-  buttons over it, ten pans in the player; the 56 × 32 pill and the dot on the close button's edge; DP-10, a draft at
+  buttons over it, ten pans in the player; DP-10, a draft at
   840×620 keeps 240×520 at 380,36 and a thread equals the canvas layout with the docked composer. Against the base's
-  `r6-device.contract` 9 of the 17 fail (DP-2, S/W/SW zones, the W numbers, DPC, DP-3).
+  `r6-device.contract` 9 of the original 17 failed (DP-2, S/W/SW zones, the W numbers, DPC, DP-3). The review repair
+  removes the arithmetic-only pill-size test, leaving 16 tests; the structural DP-3 test still checks the authored
+  button dimensions and stacking. Pill geometry remains covered by the recorded native drive, not by arithmetic.
 
 ## Checks
 
@@ -212,16 +219,57 @@ Run once on `6d2785d46` (the app code of `eae68d2e8`; `origin/feat(example)/t3-c
 | `bun scripts/boot.mjs` | 0 | |
 | `host/apple/build.mjs t3-code-macos --bundle` | 0 | twice: the base for the before drive, this branch once before the after drive |
 
+## Review repair, 2026-10-14
+
+The independent review of `9927329b6` found no blocking correctness problems. It requested removal of the
+arithmetic-only test and visual evidence for DP-4a and DP-6. The test has been removed. The original agent-mode
+captures were still available under `target/dpg/{before,after}/s3` (DP-4a) and `s2` (DP-6); the copies below are
+byte-for-byte originals, inspected alongside their `ops.json`, `frames.txt` and the published `dp-record.txt`.
+
+These are the earlier runs: before `609f392d5`, after application code `eae68d2e8`, macOS agent mode at 1280×840,
+fixture device hub, Timeline verification thread. They are not new real-pointer checks. The fixture's missing-provider
+banner and connecting-video placeholder appear in both runs; these captures prove player placement, not live video
+or provider operation.
+
+| Captured state | Before | After | Recorded canvas frame, before → after |
+| --- | --- | --- | --- |
+| DP-4a: W resize out 60, held | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp4-west-out60-before.png) | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp4-west-out60-after.png) | 552,12 277×600 → 612,12 277×600 |
+| DP-6: pointer outside the window, held | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp6-outside-held-before.png) | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp6-outside-held-after.png) | 772,12 240×520 → 772,120 240×520 |
+| DP-6: pointer back inside, still held | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp6-back-held-before.png) | [image](../evidence/20261014-device-player-gestures/20261014-review-repair/dp6-back-held-after.png) | 672,30 240×520 → 672,256 240×520 |
+
+DP-4a's reference frame remains the recorded CDP measurement, 612,12 273×592 (868,64 page); the composer-height
+difference is explained below. A reference screenshot for that W resize was not saved: the original reference drive
+records its frame without calling `shot`. DP-6 has no matching reference capture in this attempt. Those reference
+images remain missing. Per the parent specification's 2026-10-06 continuation direction, this repair preserves the
+measured behavior and reports the gap without repeating a visual-polish capture loop. DP-4b is the separate cursor
+fix and has no new evidence here.
+
+Focused verification on `9927329b6` plus this test deletion, with Bun 1.4.2:
+
+```sh
+bun test examples/t3-code/device-player-gestures.test.ts \
+  examples/t3-code/device-player-compact-and-rail-keys.test.ts \
+  examples/t3-code/chat-canvas-view.test.ts \
+  examples/t3-code/chat-canvas-layout.test.ts \
+  examples/t3-code/r6-media-device.test.ts --timeout 60000
+```
+
+Result: 67 passed, 0 failed, 3,938 assertions across five files (including all 16 remaining gesture tests).
+`bun scripts/caps.mjs` and `git diff --cached --check` also passed. Native builds and the full repository checks above
+were not repeated for this test deletion and evidence update.
+
 ## Next action
 
-The coordinator: review draft PR #539, then the real-input batch steps above (B5 with a simulator, B9 with the
-fixture hub); DP-7's rest half and DP-4's cursors (DP-4b, the main fix) re-run in the same batch.
+Ready for the coordinator's verification of this repair and draft PR #539 amendment. Then run the real-input batch
+steps above (B5 with a simulator, B9 with the fixture hub); DP-7's rest half and DP-4's cursors (DP-4b, the main fix)
+re-run in the same batch. This task stays active until those acceptance limits are resolved.
 
 ## Not done / not verified
 
 - The real-pointer halves of DP-2, DP-3, DP-4, DP-5, DP-6, DP-7 (rest) and DPC-3/DPC-4: the steps above, for the
   coordinator's batch (the screen is locked; agent mode only).
 - DP-5: not reproduced in agent mode, so no cause was found to fix; step 4 re-runs it with a real pointer.
+- DP-4a and DP-6: before/after clone images are now preserved above; matching reference screenshots are missing.
 
 ## Seen while building, not a finding row
 
