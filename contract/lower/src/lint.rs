@@ -183,7 +183,8 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 pub fn lint(file: &File) -> Vec<LowerError> {
     // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
     // row's value is one, so each stands for any.
-    let entries = file.theme.iter().flat_map(|t| &t.entries);
+    let theme = crate::theme::theme_decl(file);
+    let entries = theme.iter().flat_map(|t| &t.entries);
     let _theme = exact_kernel::style::theme::declarations(
         entries.map(|e| (e.name.as_str(), "transparent", false)),
     );
@@ -254,7 +255,12 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 }
                                 Some(_) => Ok(()),
                             };
-                            errors.extend(checked.err());
+                            // An expression over a token is folded by the
+                            // build (a synthetic token, LLP 1121 D3), not here.
+                            let folded = matches!(&a.value, contract_syntax::Expr::Str(t, _)
+                                if t.contains('(') && t.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
+                                    .any(exact_kernel::style::theme::names));
+                            errors.extend(checked.err().filter(|_| !folded));
                         }
                     }
                     walk(children, errors);

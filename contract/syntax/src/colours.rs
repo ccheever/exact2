@@ -1,5 +1,5 @@
-//! The colour declarations: CSS's `@color-profile` (LLP 1100 D3) and the
-//! app's `theme` (LLP 1095 D4).
+//! The colour declarations: CSS's `@color-profile` (LLP 1100 D3), the
+//! app's `theme` (LLP 1095 D4) and its design, `app.tamber` (LLP 1121 D2).
 
 use crate::{Attr, Span};
 
@@ -23,4 +23,16 @@ pub struct ThemeDecl {
     pub entries: Vec<Attr>,
     /// Where.
     pub span: Span,
+}
+
+/// The app's design (LLP 1121 D2): `app.tamber` beside `app.contract`, or
+/// the file `app.json`'s `"tamber"` names, read by the driver. The
+/// compiler checks and folds it with `exact-tamber`, as it does an inline
+/// `theme`; an app has one or the other.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DesignSource {
+    /// The file, as the driver found it.
+    pub path: String,
+    /// Its text.
+    pub text: String,
 }

@@ -41,6 +41,22 @@ pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) ->
         .collect()
 }
 
+/// Whether a theme is bound, and `text` names one of its entries: a name
+/// exactly, a role's spelling without case.
+pub fn names(text: &str) -> bool {
+    ENTRIES.with(|e| {
+        e.borrow().as_ref().is_some_and(|t| {
+            t.iter()
+                .any(|(name, _, role)| **name == *text || *role && name.eq_ignore_ascii_case(text))
+        })
+    })
+}
+
+/// Whether a theme with any entry is bound.
+pub fn bound() -> bool {
+    ENTRIES.with(|e| e.borrow().as_ref().is_some_and(|t| !t.is_empty()))
+}
+
 /// Bind a plan's table while its styles are parsed.
 pub fn bind(table: &Table) -> ThemeScope {
     ThemeScope {
@@ -68,13 +84,19 @@ impl Drop for ThemeScope {
 /// plan cannot make a name stand for itself.
 pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T> {
     let text = text.trim();
-    if INSIDE.with(|i| i.get()) || text.is_empty() || text.contains(['(', ' ', '#']) {
+    if INSIDE.with(|i| i.get()) || text.is_empty() {
+        return None;
+    }
+    // A synthetic token (LLP 1121 D3) is named by its whole expression,
+    // which the build folded; no other text with these is a name.
+    let synthetic = text.contains('(');
+    if !synthetic && text.contains([' ', '#']) {
         return None;
     }
     let table = ENTRIES.with(|e| e.borrow().clone())?;
-    let (_, value, _) = table
-        .iter()
-        .find(|(name, _, role)| **name == *text || *role && name.eq_ignore_ascii_case(text))?;
+    let (_, value, _) = table.iter().find(|(name, _, role)| {
+        **name == *text || !synthetic && *role && name.eq_ignore_ascii_case(text)
+    })?;
     INSIDE.with(|i| i.set(true));
     struct Out;
     impl Drop for Out {

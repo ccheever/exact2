@@ -85,19 +85,20 @@ fn names_read_their_entry_and_a_role_entry_overrides_the_role() {
         parsed("CanvasText"),
         "an unknown name is an invalid colour: the row's initial"
     );
-    // The plan carries the table.
+    // The plan carries the table, each value as the crate folds it (LLP
+    // 1121 D7: CSS's serialization).
     let plan = contract::compile(&src).unwrap();
     let rows: Vec<(&str, &str, &str)> = plan
         .theme
         .iter()
         .map(|t| (plan.str(t.name), plan.str(t.role), plan.str(t.value)))
         .collect();
-    assert!(rows.contains(&("ink", "", "#c8102e")), "{rows:?}");
+    assert!(rows.contains(&("ink", "", "#c8102eff")), "{rows:?}");
     assert!(
         rows.contains(&(
             "secondary-label",
             "-exact-secondary-label",
-            "-exact-platform-color(ios secondaryLabelColor, light-dark(#6b6b73, #a1a1aa))"
+            "-exact-platform-color(ios secondaryLabelColor, light-dark(#6b6b73ff, #a1a1aaff))"
         )),
         "{rows:?}"
     );
@@ -159,21 +160,17 @@ fn a_theme_name_is_a_colour_in_every_colour_row_and_embedded_colour() {
 #[test]
 fn a_theme_is_checked_where_it_is_declared() {
     for (body, id) in [
-        ("  a = \"b\"\n  b = \"a\"\n", "lower-theme-cycle"),
+        ("  a = \"b\"\n  b = \"a\"\n", "tamber-cycle"),
         (
             "  secondary-label = \"-exact-secondary-label\"\n",
-            "lower-theme-cycle",
+            "tamber-cycle",
         ),
         (
             "  label = \"-exact-platform-color(ios labelColor, label)\"\n",
-            "lower-theme-value",
+            "tamber-cycle",
         ),
-        (
-            "  brand = \"light-dark(ink, #000)\"\n  ink = \"#000\"\n",
-            "lower-theme-value",
-        ),
-        ("  brand = \"blurple\"\n", "lower-theme-value"),
-        ("  red = \"#c8102e\"\n", "lower-theme-name"),
+        ("  brand = \"blurple\"\n", "tamber-unknown-token"),
+        ("  red = \"#c8102e\"\n", "tamber-name-reserved"),
         (
             "  brand = \"#000\"\n  brand = \"#111\"\n",
             "syntax-duplicate-declaration",
@@ -181,12 +178,12 @@ fn a_theme_is_checked_where_it_is_declared() {
         ("  brand = 3\n", "syntax-theme-entry"),
         (
             "  secondary-label = \"#000\"\n  -exact-secondary-label = \"#111\"\n",
-            "lower-theme-duplicate",
+            "tamber-duplicate",
         ),
         ("  LinkText = \"#000\"\n", "lower-theme-tint"),
         ("  link = \"#000\"\n", "lower-theme-tint"),
-        ("  none = \"#000\"\n", "lower-theme-name"),
-        ("  inherit = \"#000\"\n", "lower-theme-name"),
+        ("  none = \"#000\"\n", "tamber-name-reserved"),
+        ("  inherit = \"#000\"\n", "tamber-name-reserved"),
         ("  top = \"#000\"\n", "lower-theme-name"),
         ("  srgb = \"#000\"\n", "lower-theme-name"),
         ("  AccentColor = \"LinkText\"\n", "lower-theme-tint"),
@@ -195,9 +192,9 @@ fn a_theme_is_checked_where_it_is_declared() {
         let errors = contract::compile(&src).unwrap_err();
         assert!(format!("{errors:?}").contains(id), "{body}: {errors:?}");
     }
-    // A row naming no entry, role or colour is refused as it was.
+    // A row naming no token, role or colour (LLP 1121 D3).
     let src = format!("{THEME}component App\n  view\n    text \"a\" color=\"brnad\"\n");
-    assert!(format!("{:?}", contract::compile(&src).unwrap_err()).contains("lower-attr-value"));
+    assert!(format!("{:?}", contract::compile(&src).unwrap_err()).contains("tamber-unknown-token"));
 }
 
 /// A role the theme replaces is replaced where the kernel resolves it: its

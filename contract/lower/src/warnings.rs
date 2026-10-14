@@ -127,7 +127,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         root,
         &checked.file.styles,
         &checked.file.fns,
-        checked.file.theme.as_ref(),
+        crate::theme::theme_decl(checked.file).as_ref(),
         &mut out,
     );
     out

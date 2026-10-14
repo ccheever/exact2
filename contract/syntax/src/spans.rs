@@ -81,11 +81,12 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, theme, fns, tests, launch, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, theme, design, fns, tests, launch, components }
     KeyframesDecl { name, frames, span }
     TimelineDecl { name, span }
     ColorProfileDecl { name, attrs, span }
     ThemeDecl { entries, span }
+    DesignSource { path, text }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }

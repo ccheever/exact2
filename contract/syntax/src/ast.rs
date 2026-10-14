@@ -1,6 +1,6 @@
 //! The abstract syntax tree.
 
-pub use crate::colours::{ColorProfileDecl, ThemeDecl};
+pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
 
@@ -49,6 +49,8 @@ pub struct File {
     pub color_profiles: Vec<ColorProfileDecl>,
     /// The app's `theme` (LLP 1095 D4): the root file's only.
     pub theme: Option<ThemeDecl>,
+    /// The app's design, `app.tamber` (LLP 1121 D2), set by the driver.
+    pub design: Option<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
