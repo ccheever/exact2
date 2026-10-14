@@ -35,6 +35,7 @@ use T3Window from "./app-window.contract" // the window's view; its uses load th
 use ChatCanvasView from "./chat-canvas.contract" // floating-device-player
 use TerminalDrawerView from "./terminal.contract" // terminal-drawer
 use HoverTip, noHoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract"
+use legacyTipOwner from "./legacy-sidebar.contract"
 component T3Code
   state themeInspecting = false // Color inspection owns Escape while its floating editor remains open.
   action setThemeInspecting(value: bool)
@@ -101,18 +102,20 @@ component T3Code
   state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}` // chat-markdown-media-and-code: a thread change too (a media tooltip whose image went with no leave)
+  task hoverSurface key=`${settingsOpen}|${settingsRoute}|${utilityPage}|${modal}|${prSelected}|${data.threadId}|${hoverOwnerValid}` // also close a legacy tip whose row vanished without leave
     after(1, hoverTicked)
   action hoverTicked
+    if not hoverOwnerValid
+      hoverTipAt(noHoverTip(), "", true)
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end
-  // Root ownership avoids capturing T3Window props in every hover handler. Show after the open delay, keep cards
-  state hoverTip = noHoverTip() // through their close delay, and block reopening until pointer reentry; a surface change advances the clock to dismiss.
+  state hoverTip = noHoverTip() // Root ownership avoids T3Window captures; surface changes and removed owners dismiss.
   state hoverOn = ""
   state hoverOpen = 0
   state hoverUntil = 0
-  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+  derive hoverOwnerValid = hoverTip.key != "legacy-tip" or (data.legacy.enabled and data.sidebarOpen and legacyTipOwner(hoverTip.testId, data.legacy.projects))
+  derive hoverShown = hoverOwnerValid and hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
       let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
@@ -444,7 +447,6 @@ component T3Code
         if result.message == "terminal:focus-composer"
           focus("composer")
       case none
-  // RL-4: the reference's hash router opens a draft for a Markdown #fragment; sidebar:new-thread focuses its composer.
   mutation fragmentChanged as shape Change refreshes data then fragmentOpened
   action fragmentOpened
     match fragmentChanged
@@ -745,7 +747,7 @@ component T3Code
           focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
-        if result.message.startsWith("focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
+        if result.message.startsWith("focus:") and (result.message != "focus:composer" or data.sidebar.renameId == "") // an opening rename owns focus over its row's late thread-open result
           focus(result.message.slice(6))
         if result.message.startsWith("sidebar:pr-page:") // legacy-sidebar-full LS-1: with no thread open, the pull request on the Pull Requests page (before any branch below sets utilityPage: openPage reads it)
           openPage("pull-requests")
@@ -775,9 +777,9 @@ component T3Code
           focus("palette-input")
         if result.message.startsWith("pr-select:") // pr-links-previews-and-routing: a pull request link opens on the page
           prSelect(result.message.slice(10))
-        if result.message == "sidebar:navigate" and data.sidebar.navigateKind == "project-settings"
+        if result.message.startsWith("sidebar:project-settings:")
           openSettings() // a project link replaces the whole scope (retainSettingsScope)
-          settingsProjectId = data.sidebar.navigateProject
+          settingsProjectId = result.message.slice(25)
           settingsRoute = "projects"
       case none
     pendingModal = ""

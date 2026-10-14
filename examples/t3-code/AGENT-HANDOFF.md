@@ -116,11 +116,24 @@ print it). Under the agent the native context menus never pop up (`T3ContextMenu
 script must be a project settings override (`ensureProject(…, { scripts })`): this server reads
 project scripts from settings. Re-run `bun seed.mjs` after a drive that merged or readied a seeded
 pull request. Probe results and the drive: task `20261007-real-github-lane`. A normal launch for
-real input: copy the bundle with its own bundle id, launch it by path with `CFFIXED_USER_HOME` in the
-lane dir, click by window coordinates (the AX press only hovers Exact's buttons) and send single keys
-(`orca type-text` doubles text in Exact fields; this Mac's Korean input source turns Latin keys into
-Hangul, so put text in with `set-value`); delete the copy's Keychain item
-(`com.exact.t3code.macos.access-token`, account `<origin>\n<environment id>`) and preferences after.
+real input uses the unchanged packaged bundle with task-owned server and module-data roots.
+Before launch, keep complete private snapshots of both the actual preference domain and the
+manifest bundle-ID domain, and ensure no other process is writing them during the check or cleanup.
+A named agent store isolates module files and Contract storage; it does not isolate native defaults
+or Keychain. Use fresh fixture environment IDs and ports: the fixed Keychain service is
+`com.exact.t3code.macos.access-token`, with account `<origin>\n<environment id>`.
+Afterward, restore only the owned changed keys/catalog entries and remove only the exact fixture
+Keychain account, preserving all unrelated typed values. Never delete a whole preference domain.
+Compare both disk plists and ordinary defaults with the private prelaunch snapshots.
+`EXACT_AGENT=live` enables persistent credentials and saved environments. On macOS 26.6.2 the
+standalone executable used preference domain `T3 Code (Exact)`, not the manifest bundle ID.
+Neither `CFFIXED_USER_HOME` alone nor its combination with `__CFPREFERENCES_AVOID_DAEMON=1`
+isolated that domain: the latter hid changes from ordinary daemon reads while still writing the
+shared plist. An in-process or suite-name probe therefore does not establish isolation.
+For checks needing no OS input, use `EXACT_AGENT=1`; credentials and saved environments then stay
+in module memory. For authorized OS checks, click by window coordinates (AX press only hovers
+Exact's buttons) and send single keys (`orca type-text` doubles text in Exact fields; this Mac's
+Korean input source turns Latin keys into Hangul, so use `set-value` for text).
 The agent drive freezes the window clock, so a resource that takes `shellClock` and sends a read slower
 than a tick livelocks only on a normal launch: each tick lets go of the answer still waiting. The
 composer strip did this on real GitHub until #236. To send a message from a lane server, give its Claude

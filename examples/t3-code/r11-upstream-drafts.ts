@@ -88,8 +88,7 @@ export async function draftChoice(client: T3Client, native: Native, projectId: s
   switch (choice) {
     case 'project-settings':
       if (!hasProject) return '';
-      sidebarSession(client).navigate = { kind: 'project-settings', projectId };
-      return 'sidebar:navigate';
+      return `sidebar:project-settings:${projectId}`;
     case 'copy-path': if (workspacePath) await copy(client, native, workspacePath, 'Path copied', 'Failed to copy path'); return '';
     case 'copy-branch': if (context.branch) await copy(client, native, context.branch, 'Branch copied', 'Failed to copy branch'); return '';
     case 'discard': if (hasContent(client, key)) discardDraft(client, native, key, true); return '';

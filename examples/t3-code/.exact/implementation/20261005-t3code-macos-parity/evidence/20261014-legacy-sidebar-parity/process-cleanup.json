@@ -1,0 +1,76 @@
+{
+  "checkedAt": "2026-10-14T06:56:58.016396+00:00",
+  "recordedProcesses": [
+    {
+      "record": "before/live2-controller.pid",
+      "pid": 40834,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/agent-controller.pid",
+      "pid": 85525,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/live-controller.pid",
+      "pid": 33025,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/agent-clean-controller.pid",
+      "pid": 7748,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/live-app.pid",
+      "pid": 33054,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/agent-clean-app.pid",
+      "pid": 7752,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/live2-app.pid",
+      "pid": 40863,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "before/agent-app.pid",
+      "pid": 85539,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "after/agent-controller.pid",
+      "pid": 23148,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "after/agent-app.pid",
+      "pid": 23178,
+      "alive": false,
+      "command": null
+    },
+    {
+      "record": "owned background lane",
+      "pid": 26139,
+      "alive": false,
+      "command": null
+    }
+  ],
+  "listeners": {
+    "16566": "",
+    "16567": ""
+  },
+  "fixtureFilesPreserved": true
+}

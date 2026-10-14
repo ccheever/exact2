@@ -8,7 +8,7 @@
 import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { terminalFocused } from './terminal-focus';
-import { fleet, fleetThreads, type EnvironmentFleet } from './settings-b-fleet';
+import { fleet, fleetThreads, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from './settings-b-fleet';
 import { groupLabel, logicalKey } from './r6-polish-groups';
 import { projectGlyph } from './r3-sidebar-glyph';
 import type { ProjectGlyph } from './r3-sidebar-glyph';
@@ -25,7 +25,7 @@ import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativ
   resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads, type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
 export interface LegacyThreadRow {
-  id: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
+  id: string; dropKey: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
   terminalCount: number;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   prIcon: string; prState: string; prTooltip: string; prPending: boolean; portLabel: string; portTip: string;
@@ -90,7 +90,7 @@ export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet)
   type Row = LegacyMember & { project: Obj; environmentId: string };
   const rows: Row[] = client.shell.projects.map(project => ({
     id: str(project.id), physicalKey: `${client.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-    environmentLabel: '', remote: false, project, environmentId: client.environmentId }));
+    environmentLabel: str(obj(client.config.environment).label), remote: false, project, environmentId: client.environmentId }));
   for (const entry of source.entries.values()) {
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
     const label = str(obj(entry.config.environment).label);
@@ -182,7 +182,7 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
   const worktree = str(thread.worktreePath).trim(), branch = str(thread.branch);
   const remote = str(thread.fleetMachine);
   return {
-    id, title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
+    id, dropKey: parseFleetThreadId(id) ? id : fleetThreadId(client.environmentId, id), title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
     terminalCount: terminalProcessCount(client, id),
     renaming: session.renameId === id, running: !canArchive(thread),
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,

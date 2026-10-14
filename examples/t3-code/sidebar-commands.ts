@@ -331,14 +331,15 @@ export async function sidebarSelecting(client: T3Client, nativeHandle: Native, i
     // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
     const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
-      session.selection = session.selection.includes(id) ? session.selection.filter(key => key !== id) : [...session.selection, id];
-      session.anchor = id;
+      const removing = session.selection.includes(id);
+      session.selection = removing ? session.selection.filter(key => key !== id) : [...session.selection, id];
+      if (!removing) session.anchor = id;
       return true;
     }
     if (flags.shift === true) {
-      const anchor = session.anchor || client.threadId, from = rows.indexOf(anchor), to = rows.indexOf(id);
-      session.selection = from < 0 || to < 0 ? [id] : rows.slice(Math.min(from, to), Math.max(from, to) + 1);
-      if (!session.anchor) session.anchor = anchor || id;
+      const from = rows.indexOf(session.anchor), to = rows.indexOf(id), missing = from < 0 || to < 0;
+      session.selection = [...new Set([...session.selection, ...(missing ? [id] : rows.slice(Math.min(from, to), Math.max(from, to) + 1))])];
+      if (missing) session.anchor = id;
       return true;
     }
   }
@@ -435,8 +436,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     const group = client.projectGroups().find(entry => entry.key === value), member = group?.members[0];
     session.scopeOpen = false; session.scopeQuery = '';
     if (!member) return '';
-    session.navigate = { kind: 'project-settings', projectId: str(member.id) };
-    return 'sidebar:navigate';
+    return `sidebar:project-settings:${str(member.id)}`;
   }
   if (op === 'open-draft') {
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, id); }
@@ -527,7 +527,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
     }
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
     case 'copy-thread-id': await copy(client, nativeHandle, id, 'Thread ID copied'); return '';
-    case 'project-settings': session.navigate = { kind: 'project-settings', projectId: str(thread.projectId) }; return 'sidebar:navigate';
+    case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
     case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // legacy-sidebar-full LS-5: Sidebar.tsx carries the branch the same way
     case 'archive':
       if (settings?.confirmThreadArchive) { session.dialog = { kind: 'archive', threadIds: [id], title: str(thread.title) }; return ''; }

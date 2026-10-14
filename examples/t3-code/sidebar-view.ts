@@ -67,7 +67,7 @@ export interface SidebarView {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
-  scopeOpen: boolean; scopeQuery: string; scopeFirst: string; navigateKind: string; navigateProject: string;
+  scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
   renameId: string; renameTitle: string; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
   calendar: SnoozeCalendar;
@@ -278,7 +278,6 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopes: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity),
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
-      navigateKind: session.navigate.kind, navigateProject: session.navigate.projectId,
       renameId: session.renameId, renameTitle: session.renameTitle, selectionCount: session.selection.length,
       undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // r11-upstream: drafts (95edeb753b)
       undoUntil: undo && live ? undo.at + 5000 : 0, // lane r8-keys: the window hides the notice at this wall time (showThreadUndoNotice's 5 s)

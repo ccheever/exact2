@@ -8,7 +8,7 @@ use exact_runner::{Answer, DataError, DataSource, Request, Store, Value};
 use std::collections::HashMap;
 
 #[derive(Default)]
-struct Replies(HashMap<String, Value>);
+pub(super) struct Replies(pub(super) HashMap<String, Value>);
 
 impl DataSource for Replies {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -48,7 +48,7 @@ fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) 
 }
 
 impl Replies {
-    fn fixture(&mut self, plan: &Plan, name: &str, fields: &[(&[&str], Value)]) {
+    pub(super) fn fixture(&mut self, plan: &Plan, name: &str, fields: &[(&[&str], Value)]) {
         let resource = plan
             .resources
             .iter()
@@ -62,7 +62,7 @@ impl Replies {
     }
 }
 
-extern "C" fn measure(_: *mut std::ffi::c_void, _: *const CRequest) -> CMetrics {
+pub(super) extern "C" fn measure(_: *mut std::ffi::c_void, _: *const CRequest) -> CMetrics {
     CMetrics::default()
 }
 
