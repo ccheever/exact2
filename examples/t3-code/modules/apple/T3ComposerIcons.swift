@@ -103,6 +103,10 @@ enum T3ComposerIcons {
         "git-pull-request-draft": ("<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M18 6V5\"/><path d=\"M18 11v-1\"/><line x1=\"6\" x2=\"6\" y1=\"9\" y2=\"21\"/>", 2),
         "git-merge": ("<circle cx=\"18\" cy=\"18\" r=\"3\"/><circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 21V9a9 9 0 0 0 9 9\"/>", 2),
         "git-pull-request-closed": ("<circle cx=\"6\" cy=\"6\" r=\"3\"/><path d=\"M6 9v12\"/><path d=\"m21 3-6 6\"/><path d=\"m21 9-6-6\"/><path d=\"M18 11.5V15\"/><circle cx=\"18\" cy=\"18\" r=\"3\"/>", 2),
+        // composer-chips-accessibility G1-8: a terminal excerpt (TerminalContextInlineChip's TerminalIcon, lucide 0.564).
+        "terminal": ("<path d=\"M12 19h8\"/><path d=\"m4 17 6-6-6-6\"/>", 2),
+        // An unresolved reference (UnresolvedChip's CircleDashedIcon, lucide 0.564).
+        "circle-dashed": ("<path d=\"M10.1 2.182a10 10 0 0 1 3.8 0\"/><path d=\"M13.9 21.818a10 10 0 0 1-3.8 0\"/><path d=\"M17.609 3.721a10 10 0 0 1 2.69 2.7\"/><path d=\"M2.182 13.9a10 10 0 0 1 0-3.8\"/><path d=\"M20.279 17.609a10 10 0 0 1-2.7 2.69\"/><path d=\"M21.818 10.1a10 10 0 0 1 0 3.8\"/><path d=\"M3.721 6.391a10 10 0 0 1 2.7-2.69\"/><path d=\"M6.391 20.279a10 10 0 0 1-2.69-2.7\"/>", 2),
         "message-square-text": ("<path d=\"M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z\"/><path d=\"M7 11h10\"/><path d=\"M7 15h6\"/><path d=\"M7 7h8\"/>", 2),
     ]
 
@@ -144,6 +148,7 @@ enum T3ComposerIcons {
             switch kind {
             case "file": return "pierre:" + token(for: chip.label)
             case "thread": return "messages-square"
+            case "terminal": return "terminal"
             case "preview-annotation": return "mouse-pointer-click" // browser-surface part 3: an Annotate chip
             case "image": return "image"
             case "video": return "film" // r4-composer: FileChipContent's FilmIcon

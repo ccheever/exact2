@@ -53,7 +53,7 @@ final class T3ComposerChipPress {
     /// The open citation's source link, by which it follows its chip through edits around it (`validate`).
     private var link = ""
     private var observers: [NSObjectProtocol] = []
-    private var elements: [Element] = []
+    private var elements: [T3ComposerChipElement] = []
     private var monitor: Any?
 
     init(styler: T3ComposerStyler) { self.styler = styler }
@@ -96,7 +96,7 @@ final class T3ComposerChipPress {
             select(open, in: view, window: window)
             return true
         }
-        guard let chip = styler.citationAction(at: point) ?? styler.skillChip(at: point) else { close(); return false }
+        guard let chip = styler.citationAction(at: point) ?? styler.popoverChip(at: point) else { close(); return false }
         // A composition still open is the text view's to commit (it does so on any press).
         let taken = !view.hasMarkedText()
         if taken { select(chip, in: view, window: window) }
@@ -257,6 +257,11 @@ final class T3ComposerChipPress {
         guard let chip, let styler else { return ["seq": seq, "open": false, "surface": surface] }
         var value: [String: Any] = ["seq": seq, "open": true, "surface": surface, "owner": owner(), "kind": chip.kind, "name": chip.label,
                                     "label": styler.displayLabel(chip), "frame": frame]
+        // composer-chips-accessibility G1-8: a terminal excerpt's details; the app reads its record by the context id.
+        if chip.kind == "context", styler.chipKind(chip) == "terminal" {
+            value["kind"] = "terminal"
+            value["context"] = styler.contextPath(chip).map { String($0.dropFirst("terminal/".count)) } ?? ""
+        }
         if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length {
             // The chip's source link (its href carries the comment), the popover's anchor and the outside presses.
             value["link"] = (view.string as NSString).substring(with: chip.range)
@@ -312,15 +317,13 @@ final class T3ComposerChipPress {
         observers.removeAll()
     }
 
-    // MARK: Accessibility (ContextChipPopover's trigger: a button "Skill <label>. Show details")
+    // MARK: Accessibility (composer-chips-accessibility: T3ComposerAccessibility.swift)
 
-    /// One button element per skill chip and per citation's comment button, children of the text view.
+    /// Every chip's element (a citation's link and comment button), children of the text view in text order.
     func refreshAccessibility() {
         guard let styler, let view = styler.view else { elements = []; return }
-        // diff-cite-popover DC-1: a citation's comment button too (its PopoverTrigger).
-        let skills = styler.chips.filter { $0.kind == "skill" || $0.kind == "citation" }
-        if skills.isEmpty && elements.isEmpty { return }
-        elements = skills.map { Element(press: self, chip: $0, view: view) }
+        if styler.chips.isEmpty && elements.isEmpty { return }
+        elements = T3ComposerChipNames.elements(styler, view: view)
         view.setAccessibilityChildren(elements.isEmpty ? nil : elements)
     }
 
@@ -332,46 +335,7 @@ final class T3ComposerChipPress {
         close()
     }
 
-    var accessibilityElements: [NSAccessibilityElement] { elements }
-
-    final class Element: NSAccessibilityElement {
-        /// NSAccessibilityElement does not adopt the NSAccessibilityElement protocol at run time, so a Swift
-        /// reader of the text view's `accessibilityChildrenInNavigationOrder()` (typed by that protocol and
-        /// filled from its children, as the agent's accessibility walk reads it) traps on a plain one in a
-        /// checked build; this subclass adopts it.
-        private static let adopted: Bool = objc_getProtocol("NSAccessibilityElement").map { class_addProtocol(Element.self, $0) } ?? false
-        private weak var press: T3ComposerChipPress?
-        private weak var view: NSTextView?
-        let chip: T3ComposerChip
-
-        init(press: T3ComposerChipPress, chip: T3ComposerChip, view: NSTextView) {
-            _ = Element.adopted
-            self.press = press
-            self.chip = chip
-            self.view = view
-            super.init()
-            setAccessibilityRole(.button)
-            // realinput-1010c-fixes RC-4: an NSAccessibilityElement reports itself disabled unless told otherwise
-            // (`isAccessibilityEnabled` is false by default), so Accessibility Inspector and VoiceOver read the
-            // chip's button as dimmed; the reference's PopoverTrigger is an enabled button.
-            setAccessibilityEnabled(true)
-            setAccessibilityParent(view)
-            setAccessibilityLabel(chip.kind == "citation" ? (chip.detail == "comment" ? "Edit citation comment" : "Add comment to citation")
-                : "Skill \(press.styler?.displayLabel(chip) ?? chip.label). Show details")
-        }
-
-        override func accessibilityFrame() -> NSRect {
-            guard let view, let window = view.window,
-                  let rect = chip.kind == "citation" ? press?.styler?.citationActionRect(chip) : press?.styler?.chipRect(chip) else { return .zero }
-            return window.convertToScreen(view.convert(rect, to: nil))
-        }
-
-        override func accessibilityPerformPress() -> Bool {
-            guard let press else { return false }
-            press.press(chip)
-            return true
-        }
-    }
+    var accessibilityElements: [T3ComposerChipElement] { elements }
 
     deinit { unfollow(); if let monitor { NSEvent.removeMonitor(monitor) } }
 }
