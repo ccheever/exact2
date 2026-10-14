@@ -507,6 +507,11 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     for (const name of ['triggerDown', 'planeDown', 'hueDown']) expect(picker).toMatch(new RegExp(`action ${name}\\(e: PointerEvent\\)\\n(    .*\\n)*?    outsideDown\\(e\\)`));
     for (const name of ['triggerUp', 'planeUp', 'hueUp']) expect(picker).toMatch(new RegExp(`action ${name}(\\(e: PointerEvent\\))?\\n    outsideUp\\(\\)`));
     expect(picker).toContain('pointerdown=triggerDown pointerup=triggerUp');
+    // cite-selection-anchor: an answer's box hears its presses for Cite's place and hands each on to the window's.
+    const md = await component('markdown.contract', 'AnswerMarkdown');
+    expect(md).toContain('  action down(e: PointerEvent)\n    outsidePressDown(e)');
+    expect(md).toContain('  action up(e: PointerEvent)\n    let bounds = frame("transcript")\n    outsidePressUp()');
+    expect(md).toContain('column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys');
     // A text field's press reaches no pointerdown on macOS: the theme editor's fields count their focus.
     expect(window).toContain('action outsideFocus\n    outsidePresses = outsidePresses + 1');
     const editor = await source('settings-appearance-editor.contract');
@@ -535,6 +540,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'browser-capture.contract browser-mini-player',
       'diff-rows.contract diff-line-${path}-${side}-${line}',
       'diff-rows.contract diff-comment-${path}-${side}-${line}',
+      'markdown.contract ',
       'pages-usage.contract usage-page',
       'r4-surfaces-files.contract file-line-${line.number}',
       'r4-surfaces-files.contract file-comment-${line.number}',

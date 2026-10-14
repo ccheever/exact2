@@ -312,7 +312,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     const app = source('app.contract');
     expect(app).toContain('  task citeWait when citeWaitAsked > citeWaitDone key=citeWaitAsked\n    after(500, citeWaitOver)');
     expect(app).toContain('  task citeBlur when not page.hasFocus\n    after(1, citeBlurred)');
-    expect(app).toContain('T3Window(citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeBlurs=citeBlurs, data=data,');
+    expect(app).toContain(', citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeBlurs=citeBlurs)\n');
   });
 
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {
