@@ -492,7 +492,9 @@ compile failure. `--json` stays a single diagnostic array.
 Automatic page and resident ports stay within inclusive `PORT_LO`/`PORT_HI` when
 both are set; named `--port`/`EXACT_PORT` still wins. Exhaustion or a malformed
 range refuses. `snapback --port` preserves the origin's quotes, slash and other
-source bytes, and writes nothing when the port and mounts already agree.
+source bytes, and writes nothing when the port and mounts already agree. Matching
+grants and test prefixes migrate with or without that slash; transport boundaries
+remove trailing slashes before joining device request and asset paths.
 A literal `showPicker` target with no declared file input id is diagnosed at
 compile time; a dynamic id or target retains runtime resolution. TestId remains
 the driver's identifier. The author guide shows form values, held pickers,

@@ -870,7 +870,7 @@ test('upload sends bytes to /assets and download writes the asset to an app file
   const png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='), c => c.charCodeAt(0));
   const files = new Map<string, Uint8Array>();
   const withFiles = (persona: string, dir: string, at = origin) => Snapback.open({
-    app: 'test.exact.snapback4', name: `photos-${persona}`, origin: at, viewer: `dev:${persona}`,
+    app: 'test.exact.snapback4', name: `photos-${persona}`, origin: at + '/', viewer: `dev:${persona}`,
     headers: () => ({ 'x-snapback-persona': persona }), wasm: `file://${wasm}`,
     storage: { ...storage(dir), fs: { async writeFile(path: string, data: Uint8Array) { files.set(path, data); } } },
   });

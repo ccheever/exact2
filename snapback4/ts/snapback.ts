@@ -858,7 +858,7 @@ export class Snapback {
       // A copy: the bytes sent are these, whatever the caller does with its buffer meanwhile.
       : { method: 'POST', headers, body: Uint8Array.from(ArrayBuffer.isView(file) ? new Uint8Array(file.buffer, file.byteOffset, file.byteLength) : new Uint8Array(file)) };
     let response: Response;
-    try { response = await fetch(`${this.options.origin}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
     check();
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
     check();
@@ -879,7 +879,7 @@ export class Snapback {
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
-    try { response = await fetch(`${this.options.origin}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
     check();
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
@@ -912,7 +912,7 @@ export class Snapback {
       headers['x-snapback-device'] = JSON.stringify(engine.ok);
     }
     try {
-      const response = await fetch(`${this.options.origin}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
+      const response = await fetch(`${this.options.origin.replace(/\/+$/, '')}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
       const text = await response.text();
       let parsed: Json = null;
       try { parsed = JSON.parse(text) as Json; } catch { parsed = null; }

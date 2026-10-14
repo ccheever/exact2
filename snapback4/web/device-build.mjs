@@ -35,7 +35,7 @@ export const mountsSnapback = app => Object.values(app.manifest?.typescript?.sou
 export async function serverDeviceVersion(origin, ms = 1500) {
   for (const path of ['/dev/status', '/']) {
     try {
-      const response = await fetch(origin + path, { signal: AbortSignal.timeout(ms) });
+      const response = await fetch(origin.replace(/\/+$/, '') + path, { signal: AbortSignal.timeout(ms) });
       if (!response.ok) continue;
       const body = await response.json();
       if (Object.hasOwn(body ?? {}, 'device_compatibility')) {

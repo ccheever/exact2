@@ -149,6 +149,16 @@ test "one online write"
   expect text "latest" == "again"
 `);
     }
+    if (!online && mode === 'dev') {
+      const oldPort = port === 30199 ? 30198 : 30199;
+      const from = `http://127.0.0.1:${port}`, old = `http://127.0.0.1:${oldPort}`;
+      const source = readFileSync(join(app, 'app.ts'), 'utf8').replaceAll(from, old).replace(`const origin = '${old}'`, `const origin = '${old}/'`);
+      writeFileSync(join(app, 'app.ts'), source);
+      writeFileSync(join(app, 'app.test.contract'), readFileSync(join(app, 'app.test.contract'), 'utf8').replaceAll(from, old));
+      run(process.execPath, ['exact.mjs', 'snapback', '--port', String(port)], app);
+      assert.ok(readFileSync(join(app, 'app.ts'), 'utf8').includes(`const origin = '${from}/'`));
+      assert.ok(readFileSync(join(app, 'app.test.contract'), 'utf8').includes(`fail fetch "${from}"`));
+    }
     assert.match(readFileSync(join(app, 'app.ts'), 'utf8'), /import \{ api \} from '.\/backend\/api.ts'/);
     if (mode === 'serve') {
       const schema = join(project, 'snapback/schema.q');

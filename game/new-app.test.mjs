@@ -532,6 +532,8 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.equal(statSync(portSource).mtimeMs, mtime);
     wireSnapback(dir, {build: false, port: 4412});
     assert.equal(readFileSync(portSource, 'utf8'), unchanged.replaceAll('http://127.0.0.1:4411', 'http://127.0.0.1:4412'));
+    assert.match(readFileSync(resolve(dir, 'app.test.contract'), 'utf8'), /fail fetch "http:\/\/127\.0\.0\.1:4412"/);
+    assert.match(readFileSync(resolve(dir, 'tests/nested/offline.test.contract'), 'utf8'), /4412\/sync/);
     assert.throws(() => wireSnapback(dir, { build: false, port: 'x' }), /is not a port/);
     const custom = resolve(parent, 'custom');
     assert.match(createApp(custom, { snapback: { build: false, port: 4412 } }), /backend already has a schema: kept the greeting app[^]*dev --port 4412/);

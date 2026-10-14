@@ -371,6 +371,7 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
     const currentPort = new URL(origin).port || (next.protocol === 'https:' ? '443' : '80');
     const moved = currentPort === String(port) ? origin
       : origin.replace(/^(https?:\/\/(?:\[[^\]]+\]|[^/:]+))(?::\d+)?/, (_, authority) => `${authority}:${port}`);
+    const fromPrefix = origin.replace(/\/+$/, ''), toPrefix = moved.replace(/\/+$/, '');
     const files = [source];
     const tests = (path, nested = false) => {
       for (const entry of readdirSync(path, { withFileTypes: true })) {
@@ -381,9 +382,9 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
     tests(dir);
     for (const file of files) {
       const before = readFileSync(file, 'utf8');
-      const after = before.replaceAll(origin, (match, at) => {
+      const after = before.replaceAll(fromPrefix, (match, at) => {
         const next = before[at + match.length];
-        return next === undefined || /[\s\\/?#'"`]/.test(next) ? moved : match;
+        return next === undefined || /[\s\\/?#'"`]/.test(next) ? toPrefix : match;
       });
       if (after !== before) writeFileSync(file, after);
     }

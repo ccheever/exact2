@@ -58,7 +58,7 @@ export class Snapback {
   private async exchange(path: string, args: unknown): Promise<Record<string, unknown>> {
     const headers = { ...this.headers(), 'content-type': 'application/json' };
     let response: Response;
-    try { response = await fetch(this.options.origin.replace(/\/$/, '') + path, { method: 'POST', headers, body: JSON.stringify({ args }) }); }
+    try { response = await fetch(this.options.origin.replace(/\/+$/, '') + path, { method: 'POST', headers, body: JSON.stringify({ args }) }); }
     catch { throw refused({ code: 'E_OFFLINE', message: 'The server was not reached; a write may already have committed. Read its state before retrying.' }); }
     const body = await response.json().catch(() => null) as Record<string, unknown> | null;
     if (!body || typeof body !== 'object' || Array.isArray(body)) throw refused({ code: 'E_SERVER', message: `Invalid reply (HTTP ${response.status}); read state before retrying a write.` });
@@ -85,7 +85,7 @@ export class Snapback {
       // A copy: the bytes sent are these, whatever the caller does with its buffer meanwhile.
       : { method: 'POST', headers, body: Uint8Array.from(ArrayBuffer.isView(file) ? new Uint8Array(file.buffer, file.byteOffset, file.byteLength) : new Uint8Array(file)) };
     let response: Response;
-    try { response = await fetch(`${this.options.origin.replace(/\/$/, '')}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets${query}`, init); } catch (error) { return { ok: false, why: unreached(error) }; }
     const body = await response.json().catch(() => null) as { asset?: Asset; denied?: Refusal } | null;
     if (response.ok && body?.asset?.id) return { ok: true, asset: body.asset };
     return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered the upload with HTTP ${response.status}` } };
@@ -102,7 +102,7 @@ export class Snapback {
     const fs = this.options.storage?.fs;
     if (!fs) return { ok: false, why: { code: 'E_CLIENT', family: 'client', message: 'download writes an app file: pass the dispatcher\'s `storage`, and grant fs.write for the path' } };
     let response: Response;
-    try { response = await fetch(`${this.options.origin.replace(/\/$/, '')}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
+    try { response = await fetch(`${this.options.origin.replace(/\/+$/, '')}/assets/${encodeURIComponent(id)}`, { headers: this.headers() }); } catch (error) { return { ok: false, why: unreached(error) }; }
     if (!response.ok) {
       const body = await response.json().catch(() => null) as { denied?: Refusal } | null;
       return { ok: false, why: body?.denied ?? { code: 'E_SERVER', family: 'transport', retryable: response.status >= 500, message: `the server answered asset ${id} with HTTP ${response.status}` } };

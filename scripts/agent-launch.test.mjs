@@ -141,7 +141,7 @@ test('device preflight refuses server skew, stale provenance and empty wasm befo
     await expect(devicePreflight(app, [origin])).rejects.toThrow('snapback4.engine');
     writeFileSync(path, wasm);
     writeFileSync(path + '.json', JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
-    await expect(devicePreflight(app, [origin])).rejects.toThrow(/E_DEVICE_VERSION.*server.*1.2.4.*snapback --rebuild/);
+    await expect(devicePreflight(app, [origin + '/'])).rejects.toThrow(/E_DEVICE_VERSION.*server.*1.2.4.*snapback --rebuild/);
     version = engineVersion();
     writeFileSync(resolve(dir, 'app.ts'), "const headers = { 'X-Snapback-Device': 'old' };\n");
     const warnings = [], warn = console.warn;
