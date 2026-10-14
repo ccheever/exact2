@@ -1,9 +1,9 @@
 ---
 name: 20261014-device-player-gestures
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: stale
-delivery: draft
+implementation: implemented
+verification: partial
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-gestures
