@@ -4,6 +4,7 @@
 // packages/shared/src/{themePalettes,themePreview}.ts. Palette roles were converted from the
 // reference OKLCH tokens to sRGB hex (scratch gen-palette.ts); T3 Code keeps the stock index.css tokens.
 import { coreRow, CLIENT_DEFAULTS, type ClientPrefs, type CoreRow, type CoreSection } from './settings-core';
+import type { InstalledFont } from './appearance-fonts';
 import type { CustomTheme } from './settings-themes';
 
 const ROLES = ['canvas', 'surface', 'text', 'textMuted', 'border', 'input', 'accent', 'accentForeground', 'muted', 'mutedForeground', 'sidebar',
@@ -160,33 +161,25 @@ export function modeTiles(mode: string, prefs: Pick<ClientPrefs, 'themeLight' | 
 }
 
 // ── Fonts ──────────────────────────────────────────────────────────────────
-// Contract resolves font families at compile time to generic stacks or bundled faces
-// (LLP 1019), so a typed family maps to the macOS stack it names; anything else
-// keeps the default and says so instead of pretending to apply.
-const SANS_STACKS: Record<string, string> = { '': 'system-ui', 'sf pro': 'system-ui', 'sf pro text': 'system-ui', 'system-ui': 'system-ui', '-apple-system': 'system-ui',
-  'new york': 'ui-serif', 'ui-serif': 'ui-serif', 'sf pro rounded': 'ui-rounded', 'ui-rounded': 'ui-rounded', times: 'serif', 'times new roman': 'serif', serif: 'serif',
-  helvetica: 'sans-serif', 'helvetica neue': 'sans-serif', arial: 'sans-serif', 'sans-serif': 'sans-serif', 'sf mono': 'ui-monospace', menlo: 'monospace', monospace: 'monospace' };
-const MONO_STACKS: Record<string, string> = { '': 'ui-monospace', 'sf mono': 'ui-monospace', 'ui-monospace': 'ui-monospace', menlo: 'monospace', monaco: 'monospace', courier: 'monospace',
-  'courier new': 'monospace', monospace: 'monospace' };
-/** FontFamilyPicker's families, limited to the distinct faces this app can draw (the host's
- * generic stacks, LLP 1019: system → SF Pro, ui-rounded → SF Pro Rounded, serif → New York,
- * monospace → SF Mono): the default first under its own name with a "default" tag, each in its face. */
-const SANS_FAMILIES = ['SF Pro Rounded', 'New York', 'SF Mono'];
-const MONO_FAMILIES: string[] = [];
-export function fontFamilies(selected: string, mono: boolean, defaultLabel: string) {
+// Generic aliases retain the platform's named system faces. An installed family keeps its own name.
+const SYSTEM_FONTS: Record<string, string> = { 'sf pro': 'system-ui', 'sf pro text': 'system-ui', '-apple-system': 'system-ui',
+  'sf pro rounded': 'ui-rounded', 'new york': 'ui-serif', 'sf mono': 'ui-monospace' };
+const GENERIC_FONTS = new Set(['system-ui', 'ui-sans-serif', 'sans-serif', 'ui-serif', 'serif', 'ui-rounded', 'ui-monospace', 'monospace']);
+export function fontFamilies(selected: string, mono: boolean, defaultLabel: string, installed: InstalledFont[] = []) {
   const current = selected.trim();
-  const named = (mono ? MONO_FAMILIES : SANS_FAMILIES).map(family => ({ id: family, value: family, label: family, detail: fontStack(family, mono) ?? (mono ? 'ui-monospace' : 'system-ui'),
+  const named = installed.map(({ family }) => ({ id: family, value: family, label: family, detail: fontStack(family, mono),
     icon: `${family} ${family.toLowerCase()} ${family.toUpperCase()}`, selected: current.toLowerCase() === family.toLowerCase(), disabled: false }));
-  return [{ id: 'default', value: '', label: defaultLabel, detail: mono ? 'ui-monospace' : 'system-ui', icon: 'default', selected: current === '', disabled: false }, ...named];
+  return [{ id: 'default', value: '', label: defaultLabel, detail: fontStack(defaultLabel, mono), icon: 'default', selected: current === '', disabled: false }, ...named];
 }
-export function fontStack(family: string, mono: boolean): string | undefined {
-  const key = family.trim().replace(/^["']|["']$/g, '').toLowerCase();
-  return (mono ? MONO_STACKS : SANS_STACKS)[key];
+export function fontStack(family: string, mono: boolean): string {
+  const name = family.trim().replace(/^["']|["']$/g, ''), key = name.toLowerCase();
+  if (!key) return mono ? 'ui-monospace' : 'system-ui';
+  return SYSTEM_FONTS[key] ?? (GENERIC_FONTS.has(key) ? key : `${JSON.stringify(name)}, ${mono ? 'ui-monospace' : 'system-ui'}`);
 }
 
 // ── Appearance rows ────────────────────────────────────────────────────────
 const option = (value: string, label: string, selected: boolean) => ({ id: value, value, label, detail: '', icon: '', selected, disabled: false });
-export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean): CoreSection[] {
+export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean, installed: InstalledFont[] = []): CoreSection[] {
   const row = (key: keyof ClientPrefs, id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}) =>
     coreRow(id, title, description, kind, { checked: prefs[key] === true, value: String(prefs[key]), resettable: prefs[key] !== CLIENT_DEFAULTS[key], target: key, ...extra });
   const slider = (key: 'appearanceContrast' | 'glassOpacity' | 'panelAnimationDurationMs', min: number, max: number, step: number, suffix: string) =>
@@ -213,16 +206,16 @@ export function appearanceSections(prefs: ClientPrefs, artworkVisible: boolean):
       // An unset Prompt font is the interface font (--font-composer falls back to --font-sans).
       driver: fontStack(familyKey === 'fontFamilyComposer' && !prefs.fontFamilyComposer.trim() ? prefs.fontFamilySans : prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal')
         ?? (familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal' ? 'ui-monospace' : 'system-ui'),
-      status: fontStack(prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal') ? '' : `${prefs[familyKey]} is not available in this app; the default font is used.`,
+      status: '',
       info: { 'interface-font': prefs.typographyAdvanced ? '' : 'preview-prompt', 'prompt-font': 'preview-prompt', 'code-font': prefs.typographyAdvanced ? 'preview-code' : 'preview-code-terminal', 'terminal-font': 'preview-terminal' }[id] ?? '',
-      options: fontFamilies(prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal', placeholder), label: prefs[familyKey].trim() || placeholder,
+      options: fontFamilies(prefs[familyKey], familyKey === 'fontFamilyCode' || familyKey === 'fontFamilyTerminal', placeholder, installed), label: prefs[familyKey].trim() || placeholder,
       resettable: prefs[familyKey] !== '' || prefs[sizeKey] !== CLIENT_DEFAULTS[sizeKey], options2: sizes(min, max).map(([value, label]) => option(value, label, value === String(prefs[sizeKey]))) });
   const typography = [
     font('fontFamilySans', 'fontSizeInterface', 'interface-font', 'Interface font', 'Everything outside code blocks and the terminal.', 'SF Pro', 12, 20),
     ...(prefs.typographyAdvanced ? [font('fontFamilyComposer', 'fontSizePrompt', 'prompt-font', 'Prompt font', 'Only the box you write prompts in. Mono works well here.', prefs.fontFamilySans || 'SF Pro', 12, 20)] : []),
     prefs.typographyAdvanced ? font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Code font', 'Code blocks, diffs, and file previews.', 'SF Mono', 10, 18)
       : font('fontFamilyCode', 'fontSizeCode', 'code-font', 'Monospace font', 'Code blocks, diffs, file previews, and the terminal.', 'SF Mono', 10, 18),
-    ...(prefs.typographyAdvanced ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', prefs.fontFamilyCode || 'SF Mono', 8, 20),
+    ...(prefs.typographyAdvanced ? [font('fontFamilyTerminal', 'fontSizeTerminal', 'terminal-font', 'Terminal font', 'Terminal output, independent from code blocks and diffs.', 'SF Mono', 8, 20),
       row('fontSmoothing', 'font-smoothing', 'Font smoothing', 'Use thinner grayscale text smoothing instead of the macOS default.', 'switch')] : []),
     row('wordWrap', 'word-wrap', 'Word wrap', 'Wrap long lines in code blocks, tables, diffs, and file previews by default.', 'switch'),
   ];

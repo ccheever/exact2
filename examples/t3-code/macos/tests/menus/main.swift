@@ -684,11 +684,28 @@ final class MenuTests: XCTestCase {
     }
 }
 
+final class InstalledFontTests: XCTestCase {
+    func testCatalogContainsInstalledFamiliesAndFixedPitchTraits() {
+        let catalog = T3InstalledFonts.catalog()
+        let names = catalog.compactMap { $0["family"] as? String }
+        XCTAssertEqual(Set(names), Set(NSFontManager.shared.availableFontFamilies))
+        XCTAssertEqual(names.count, Set(names).count)
+        XCTAssertEqual(catalog.first { $0["family"] as? String == "Arial" }?["monospace"] as? Bool, false)
+        XCTAssertEqual(catalog.first { $0["family"] as? String == "Menlo" }?["monospace"] as? Bool, true)
+        let arial = NSFontManager.shared.font(withFamily: "Arial", traits: [], weight: 5, size: 14)
+        let menlo = NSFontManager.shared.font(withFamily: "Menlo", traits: [], weight: 5, size: 14)
+        XCTAssertEqual(arial?.familyName, "Arial")
+        XCTAssertEqual(menlo?.familyName, "Menlo")
+        XCTAssertNotEqual(arial?.fontName, menlo?.fontName)
+    }
+}
+
 let suite = XCTestSuite(name: "Menus")
 suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
+suite.addTest(InstalledFontTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 46 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 47 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
 

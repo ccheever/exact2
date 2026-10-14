@@ -30,6 +30,7 @@ use kmEndKeyed from "./menu-keys.contract"
 // resolve their light-dark() side (file icons, chevrons).
 component R4FilesBody
   props
+    family: string
     files: R4Files
     // markdown-links-and-files-preview PA-3: app.contract's filesMarkdown, the rendered file as ChatMarkdown parses it.
     documents: list<ChatDocument>
@@ -39,12 +40,13 @@ component R4FilesBody
     searchFocus: action
   view
     when scheme == "dark"
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+      R4FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
     else
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+      R4FilesSurface(family=family, files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
 
 component R4FilesSurface
   props
+    family: string
     files: R4Files
     documents: list<ChatDocument>
     scheme: string
@@ -78,7 +80,7 @@ component R4FilesSurface
       row flex=1 min-height=0 width="100%" overflow="hidden" align-items="stretch"
         when files.path != "" and files.preview != ""
           column flex=1 min-width=0 min-height=0 overflow="hidden"
-            R4FilePreview(files=files, documents=documents, scheme=scheme, local=local)
+            R4FilePreview(family=family, files=files, documents=documents, scheme=scheme, local=local)
         when files.showExplorer
           column min-height=0 flex-shrink=(files.path != "" and files.preview != "" ? 0 : 1) flex-grow=(files.path != "" and files.preview != "" ? 0 : 1) width=(files.path != "" and files.preview != "" ? "46%" : "100%") max-width=(files.path != "" and files.preview != "" ? "22rem" : "6250rem") min-width=(files.path != "" and files.preview != "" ? "16rem" : "0px") box-sizing="border-box" border-left-width=(files.path != "" and files.preview != "" ? 1 : 0) border-left-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId="files-explorer"
             R4Explorer(files=files, sheet=sheet, local=local, searchFocus=searchFocus)
@@ -244,6 +246,7 @@ component R4CrumbView
 // keeps its starting text fixed for the session); each change is written back.
 component R4FilePreview
   props
+    family: string
     files: R4Files
     documents: list<ChatDocument>
     scheme: string
@@ -302,7 +305,7 @@ component R4FilePreview
         column position="relative" width=(files.wrap ? "100%" : "auto") min-width="100%" min-height="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" press=local("surface-files-begin-edit", files.path, "") role="code" aria-label=files.path testId="file-lines"
           each line in files.lines key=line.id
             when line.kind == "line"
-              R4CodeRow(line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
+              R4CodeRow(family=family, line=line, gutter=files.gutter, wrap=files.wrap, path=files.path, open=(files.commentOpen or files.editing), local=local, begin=beginComment)
             when line.kind == "note"
               DiffCommentCard(text=line.text, remove=local("surface-files-comment-delete", files.path, line.entry))
             when line.kind == "draft"
@@ -311,7 +314,7 @@ component R4FilePreview
               DiffDraftCard(rangeLabel=line.label, text=draftText, selected=false, edit=editDraft, cancel=cancelComment, save=saveComment, focusIn=local("surface-files-comment-focus", files.path, ""), focusOut=local("surface-files-comment-blur", files.path, ""))
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
-            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) key=editorKey blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family=family font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // FilePreviewPanel's File over @pierre/diffs (CDP, 1e2ecbd975; files-gutter-parity FG-1, FG-2). A press on the number starts
 // a selection that follows the pointer over the file's lines (Shift extends it), a press on the gutter's "+" a range from the
@@ -328,6 +331,7 @@ component R4FilePreview
 // under it stay the surface's, and there is no bar; diff-gutter-selection-followups GS-2).
 component R4CodeRow
   props
+    family: string
     line: R4CodeLine
     gutter: number
     wrap: bool
@@ -374,14 +378,14 @@ component R4CodeRow
   view
     row id=`fl:${line.line}:${path}` width="100%" align-items="flex-start" hover=hover position="relative"
       box width=gutter flex-shrink=0 align-self="stretch" min-height="20px" press=comment pointerdown=down(false) pointermove=move pointerup=up aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` background-color=(line.selected ? "light-dark(#d5e6ff, #254566)" : "#00000000")
-      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family=family font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
       when not open and (line.pin or not line.pinned or dragging)
         button press=comment pointerdown=down(true) pointermove=move pointerup=up aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=(gutter - 9.83) top=0 width=20 height=20 padding=0 border-radius=4 border-width=0 opacity=(line.pin or (hovering and not line.pinned) ? 1 : 0) background-color="#009fff" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           svg width=16 height=16 viewBox="0 0 16 16" color="light-dark(#ffffff, #111111)" flex-shrink=0 aria-hidden=true
             path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3" fill="currentColor"
-      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
+      text line.number position="absolute" left=0 top=0 width=gutter padding-right=9.83 box-sizing="border-box" pointer-events="none" user-select="none" aria-hidden=true text-align="right" font-family=family font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
 // below in the inline panel), status lines, then the compact tree (24pt rows,

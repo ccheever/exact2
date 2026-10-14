@@ -8,6 +8,13 @@ extension T3Module {
     /// Window-level popup frames (R8KeysMeasure.swift), device presentation, the folder picker and the clipboard.
     func windowOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
+        if request["op"] as? String == "installedFonts" {
+            DispatchQueue.main.async {
+                reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0,
+                            "value": ["fonts": T3InstalledFonts.catalog()]])
+            }
+            return
+        }
         if request["op"] as? String == "devicePresentation" {
             DispatchQueue.main.async { [weak self] in
                 self?.chrome.setAppearance(request["appearanceMode"] as? String ?? "system")

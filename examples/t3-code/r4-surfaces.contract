@@ -322,7 +322,7 @@ component R4SurfaceBody
     when panel.kind == "terminal"
       TerminalContent(view=panel.terminal, look=look, dark=(scheme == "dark"), closePending=closePending, command=command, confirm=confirm)
     when panel.kind == "files" or panel.kind == "file"
-      R4FilesBody(files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+      R4FilesBody(family=look.codeFont, files=panel.files, documents=filesDocuments, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
     when panel.kind == "pull-requests"
       R4PrsBody(prs=panel.prs, scheme=scheme, local=local, command=command, link=paletteShow("command", "link-pr"))
     when panel.kind == "device"

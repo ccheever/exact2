@@ -120,7 +120,7 @@ component DiffPanelBody
               // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
               list appearance="none" virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
                 each item in data.diffItems key=item.id
-                  DiffRow(item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment)
+                  DiffRow(family=data.look.codeFont, item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment)
         when data.diffTree and length(data.diffFiles) > 0
           DiffTree(data=data, command=command, scheme=data.look.diff)
       // The rail sits inside the panel and above its body: an overflowing child is not hit-testable natively.

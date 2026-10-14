@@ -78,7 +78,7 @@ component Sidebar
   action draftMenu(id: string)
     menuDraft = id
   view
-    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="sidebar"
+    column width=width height="100%" flex-shrink=0 box-sizing="border-box" background-color=(data.look.themed ? data.look.sidebar : "light-dark(#f9f9f9, #030303)") border-right-style="solid" border-right-width=1 border-color=(data.look.themed ? data.look.sidebarBorder : "light-dark(#e4e4e7, #141414)") position="relative" testId="sidebar" id="sidebar" data-paint=`${(data.look.themed ? "sidebar" : "")} ${(data.look.themed ? "border" : "")}` data-pick=((data.look.themed ? "sidebar" : "") != "" ? (data.look.themed ? "sidebar" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       ThreadMenu(threads=data.threads, owner=menuThread, run=run)
       DraftMenu(drafts=data.sidebar.drafts, owner=menuDraft, run=run)
       // Environment identification (Appearance): the stage artwork, a version pill, or neither.
