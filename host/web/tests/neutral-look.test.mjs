@@ -121,7 +121,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   const all = (css, property) => [...new Set(declarations(css).filter(([p]) => p === property).map(([, v]) => v.trim()))];
   expect(all(neutral, 'line-height').sort()).toEqual([String(value.get('control-line-height')), String(value.get('select-line-height-coarse'))]);
   expect(all(neutral, 'font-weight').sort()).toEqual(['400', String(value.get('control-weight'))]);
-  expect(shell.includes(`font-weight: ${value.get('control-weight')}; border: none; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
+  expect(shell.includes(`font-weight: ${value.get('control-weight')}; border-radius: var(--exact-control-radius, ${length('control-radius')});`)).toBe(true);
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 

@@ -255,9 +255,7 @@
      platform's, as the sidebar's and the split's are; a colour the author wrote still wins. The card says it is
      above its siblings (`z-index`): WebKit paints a sidebar that scrolls over the scrim otherwise. */
   :where(#exact-root [navigationPresentation="modal"]) { color: var(--exact-label); }
-  /* The shell gives an unsaid sheet the engine's `Canvas` (#425), and each engine's dark `Canvas` is its own: Firefox's
-     and WebKit's are not this look's ground. So the look's ground outranks the shell's rule here, and a ground the
-     author wrote, which is on the node itself, still outranks both. */
+  /* Every browser uses the same sheet ground; an authored ground still wins. */
   #exact-root [navigationPresentation="modal"] { background-color: var(--exact-background); }
   @media (min-width: 900px) {
     #exact-root [navigationPresentation="modal"] { position: fixed !important; inset: 0 !important; margin: auto !important; box-sizing: border-box !important; width: min(35rem, calc(100vw - 64px)) !important; height: fit-content !important; max-height: min(45rem, calc(100vh - 64px)) !important; z-index: 1; border-radius: 12px; overflow: clip; box-shadow: var(--exact-modal), 0 0 0 100vmax var(--exact-scrim); }
