@@ -280,7 +280,7 @@ component T3Code
   state paletteBusy = false
   resource palette = paletteView(paletteOpen, paletteMode, palettePage, paletteQuery, `${paletteCase ? "case " : ""}${paletteWord ? "word " : ""}${paletteRegex ? "regex" : ""}`, paletteCursor >= 0, wallTime.epochAtZero + elapsed, scheme, data.revision) as shape PaletteView
   mutation paletteChanged as shape PaletteResult refreshes data then paletteDone
-  derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and paletteCursor == -1 ? 0 : -1))
+  derive paletteHighlight = palette.count == 0 ? -1 : (paletteCursor >= 0 ? min(paletteCursor, palette.count - 1) : (palette.autoHighlight and (paletteCursor == -1 or palette.panel == "picker") ? 0 : -1))
   derive paletteListHeight = min(330, min(448, viewport.height * 0.7))
   action paletteShow(mode: string, page: string)
     let show = page != "" or not (paletteOpen and paletteMode == mode)

@@ -37,7 +37,7 @@ final class T3Module: ExactModule {
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     let browserSessions: T3BrowserSessions // browser-surface: this session's Browser pages (T3BrowserSessions.swift)
     let browserAutomation: T3BrowserAutomation // browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift)
-    private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
+    private let r10: R10Connect // lane r10-connect: wake, chords by physical key, hover under a still pointer (R10Connect.swift).
     let textMenu: T3TextContextMenu // realinput-1010d, shell-context-menu: the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
     // The SSH password dialog's secure field (T3SshAuth.swift).
@@ -128,7 +128,7 @@ final class T3Module: ExactModule {
         panelTabs.install(element); toolIcons.install(element); timelineTips.install(element)
         frames.install(element); scrollEnds.install(element)
         composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
-        launcher.install(element); measure.install(element); r9.install(element); r10.install(element); mediaFocus.install(element)
+        launcher.install(element); measure.install(element); r9.install(element); mediaFocus.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
         rowDrop.install(element) // legacy-sidebar-full LS-3: a legacy row's file drop target
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)

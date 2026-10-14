@@ -40,8 +40,7 @@ component BcIcon
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 pointer-events="none" aria-hidden=true
       path d=bcPath(name)
 
-// PreviewChromeRow's Annotate, Capture and Float preview, between the address and More: rebuilt per scheme so the
-// glyphs resolve light-dark().
+// PreviewChromeRow's Annotate, Capture and Float preview, between the address and More; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
 component BrowserCaptureButtons
   inject
     scheme: string
@@ -50,10 +49,7 @@ component BrowserCaptureButtons
     tabId: string
     local: action
   view
-    when scheme == "dark"
-      BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme="dark")
-    else
-      BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme="light")
+    BrowserCaptureRow(view=view, tabId=tabId, local=local, scheme=scheme)
 
 component BrowserCaptureRow
   props

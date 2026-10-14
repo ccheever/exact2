@@ -66,10 +66,7 @@ component RequestBanner
     maximumHeight: number
     scheme: string
   view
-    when scheme == "dark"
-      RequestStack(data=data, command=command, busy=busy, compact=compact, maximumHeight=maximumHeight)
-    else
-      RequestStack(data=data, command=command, busy=busy, compact=compact, maximumHeight=maximumHeight)
+    RequestStack(data=data, command=command, busy=busy, compact=compact, maximumHeight=maximumHeight)
 
 component RequestStack
   props
@@ -269,10 +266,7 @@ component RequestActions
     busy: bool
     scheme: string
   view
-    when scheme == "dark"
-      QuestionActions(data=data, command=command, busy=busy)
-    else
-      QuestionActions(data=data, command=command, busy=busy)
+    QuestionActions(data=data, command=command, busy=busy)
 
 component QuestionActions
   props

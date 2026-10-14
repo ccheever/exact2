@@ -275,8 +275,8 @@ describe('FU-5: Escape in the command palette over Settings closes only the pale
     expect(line(settings, 'derive escapeOwned =')).toContain(' or paletteOpen or ');
     expect(line(settings, 'SettingsNav(')).toContain('menuOpen=escapeOwned,');
     expect(line(await source('app-window.contract'), 'SettingsWindow(')).toContain('paletteOpen=paletteOpen');
-    // The palette's own Escape stays (its hidden close button), in both of its views.
+    // The palette's own Escape stays (its hidden close button), in each of its three views.
     const palette = await source('palette.contract');
-    expect(palette.split('\n').filter(text => text.includes('testId="palette-escape"') && text.includes('aria-keyshortcuts="Escape"'))).toHaveLength(2);
+    expect(palette.split('\n').filter(text => text.includes('testId="palette-escape"') && text.includes('aria-keyshortcuts="Escape"'))).toHaveLength(3);
   });
 });
