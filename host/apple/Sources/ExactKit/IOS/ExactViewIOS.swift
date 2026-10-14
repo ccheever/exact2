@@ -255,35 +255,36 @@ public final class ExactView: UIView {
         // hide notification is not a request to drop the composer below
         // those moving keys; keep the current viewport until it settles.
         guard !presenter.navigation.preservesKeyboardViewport else { return }
-        let container = presenter.modals.coordinateView ?? self
-        let safe = container.safeAreaInsets
+        // @ref LLP 1123 D1 — the document is the session view's; a
+        // presentation lays its routes out in their own blocks (D2)
+        let safe = safeAreaInsets
         let cover = presenter.viewportFit == "cover"
         // A native container showing its bars takes the whole view, as
         // UIKit's do: the bar's material reaches under the status bar. Its
         // routes keep their content inside its safe area through covers
         // (LLP 1075.003 §3.5); `env()` stays what the page authored.
         let whole = cover || presenter.navigation.wantsWholeView
-        var frame = whole ? container.bounds : container.bounds.inset(by: safe)
+        var frame = whole ? bounds : bounds.inset(by: safe)
         var insets = cover ? safe : .zero
         if presenter.keyboardPolicy == "resizes-content" {
             let top: CGFloat
-            // A sheet's guide remains in its local coordinates as UIKit moves
-            // the sheet, including during interactive dismissal.
-            // A focused editor uses that same local guide. After rotation the
-            // notification can include margin above the keys; after a cancelled
-            // pop it can still announce hiding. Neither replaces the guide's
-            // occupied geometry while this session retains its editor.
+            // The session view's own keyboard layout guide, while a sheet is up
+            // or an editor holds focus (a sheet's routes read the sheet's
+            // guide, `OwnerBlocks.block`). After rotation the notification
+            // can include margin above the keys; after a cancelled pop it can
+            // still announce hiding. Neither replaces the guide's occupied
+            // geometry while this session retains its editor.
             if presenter.interactiveKeyboardDrag || presenter.modals.active ||
                 presenter.hasKeyboardEditor {
                 #if os(tvOS)
                 // tvOS has no keyboard layout guide.
                 top = .infinity
                 #else
-                let guide = container.keyboardLayoutGuide.layoutFrame
+                let guide = keyboardLayoutGuide.layoutFrame
                 top = guide.height > safe.bottom + 1 ? guide.minY : .infinity
                 #endif
             } else if let edge = presenter.keyboardTop, let window {
-                top = container.convert(CGPoint(x: 0, y: edge), from: window).y
+                top = convert(CGPoint(x: 0, y: edge), from: window).y
             } else { top = .infinity }
             presenter.keyboardInset = min(max(0, frame.maxY - max(top, frame.minY)), frame.height)
             if top < frame.maxY {
@@ -295,8 +296,8 @@ public final class ExactView: UIView {
         // Display changes can leave logical bounds unchanged. Update resources
         // independently of the resize commit, from this view's local traits.
         // The raster budget follows this view's own bounds — the panel it
-        // covers — never the frame a keyboard or a sheet clips the viewport
-        // to: a keyboard rising is not a smaller display, and a shrink trims
+        // covers — never the frame a keyboard clips the viewport to: a
+        // keyboard rising is not a smaller display, and a shrink trims
         // the cold cache and halves queued decodes in place.
         let scale = max(1, traitCollection.displayScale)
         session.rasters.fit(size: bounds.size, scale: scale)
@@ -366,7 +367,7 @@ public final class ExactView: UIView {
             if session.booted { fit() }
             return
         }
-        // Before the resize, so a sheet's viewport never stands in for it.
+        // Before the resize, so the layout it asks for reads the window's size
         if screen != lastScreen {
             lastScreen = screen
             session.screen(screen)
@@ -388,7 +389,7 @@ public final class ExactView: UIView {
             presenter.navigation.fitOwner()
             // The routes the document holds end where it does (`OwnerBlocks.block`)
             presenter.owners.publish()
-            if presenter.keyboardInset > 0 { presenter.reveal(presenter.editing) }
+            if presenter.keyboardInset > 0 { presenter.revealEditorAsTheKeysMove() }
         }
         if fold.fold != lastFold {
             lastFold = fold.fold

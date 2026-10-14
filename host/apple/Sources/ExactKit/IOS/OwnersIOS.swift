@@ -17,17 +17,86 @@ extension Presenter {
     /// viewport for the document; for a presentation's content, its
     /// presentation's view within the window.
     func reach(of view: UIView) -> CGRect {
-        let port = CGRect(origin: .zero, size: viewport.bounds.size)
-        guard !view.isDescendant(of: viewport), let window = viewport.window,
-              let mount = modals.mountRoots.last(where: { view.isDescendant(of: $0) }) else { return port }
+        let mount = port(of: view)
+        guard mount !== viewport, let window = viewport.window else { return CGRect(origin: .zero, size: viewport.bounds.size) }
         let shown = mount.convert(mount.bounds, to: nil).intersection(window.bounds)
         return viewportPoints(viewport.convert(shown, from: nil))
+    }
+
+    /// A native module's own text input (a composer's UITextView) focused
+    /// where this session is mounted: the keyboard is this session's
+    /// business as for its own fields, so the page resizes above it.
+    var hasNativeKeyboardEditor: Bool {
+        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
+        return mounts(responder)
     }
 
     /// Ends editing wherever the session is mounted; whether any editor resigned.
     @discardableResult
     package func endEditing() -> Bool {
         modals.mountRoots.reduce(viewport.endEditing(true)) { $1.endEditing(true) || $0 }
+    }
+
+    /// What a touch reaches after `view`, as UIKit gives a touch to the
+    /// views it falls in: the superview, but past a presented route, out of
+    /// its sheet's mount, its logical parent (`MountRelay`, the press's
+    /// `pressResponder`). The walks that say what a touch would reach
+    /// (an agent's tap, VoiceOver's activation, a text's menu source) take
+    /// it, so they reach what a finger does.
+    func touchParent(of view: UIView) -> UIView? {
+        if let node = view as? NodeView, navigation.controllers[node.id]?.node === node, modals.mounts(node) {
+            return eventParent(of: node)
+        }
+        return view.superview
+    }
+
+    /// The view a press on `target`, reached from `start` (`touchParent`),
+    /// must land in: the target, or, when the walk left a sheet's mount for a
+    /// logical ancestor in another mount, whose own box is not under the
+    /// finger (LLP 1123 D2), the content UIKit hit-tested the touch to,
+    /// `start`, as a node judges its own press.
+    func pressBox(of target: UIView, from start: UIView) -> UIView {
+        var at: UIView? = start, crossed = false
+        while let cur = at, cur !== target {
+            let up = touchParent(of: cur)
+            crossed = crossed || up !== cur.superview
+            at = up
+        }
+        return at != nil && crossed ? start : target
+    }
+
+    /// The port `view` is mounted in: its presentation's mount, or the
+    /// viewport.
+    func port(of view: UIView) -> UIView { modals.mountRoots.last { view.isDescendant(of: $0) } ?? viewport }
+
+    /// Reveals the field being edited as the keys move, unless it is in a
+    /// presentation, whose editor waits for the keys to settle
+    /// (`keyboardSettled`).
+    func revealEditorAsTheKeysMove() {
+        if editor.map({ !modals.mounts($0) }) ?? true { reveal(editor) }
+    }
+
+    #if !os(tvOS)
+    /// The keys stopped moving: an editor in a presentation is revealed in
+    /// its route once the route's blocks are told and laid out
+    /// (`OwnerBlocks.revealOnceTold`), behind a slice in flight as they are.
+    /// UIKit lays a medium sheet out under the keys before it grows the
+    /// sheet for them, the route a point tall for a frame, and a reveal into
+    /// that left the route scrolled, taking the next detent drag.
+    @objc func keyboardSettled(_ n: Notification) {
+        guard keyboardTop != nil else { return }
+        owners.revealOnceTold()
+    }
+    #endif
+
+    /// The editor being edited.
+    private var editor: NodeView? { editing ?? views.values.first { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true } }
+
+    /// Reveals the editor of a presentation's route while the keys are up.
+    func revealSheetEditor() {
+        guard keyboardTop != nil, let editor,
+              modals.mounts(editor) else { return }
+        if ExactEnv.agentFreezes { reveal(editor) } else { UIView.animate(withDuration: 0.25) { self.reveal(editor) } }
     }
 }
 #endif
@@ -46,7 +115,7 @@ final class OwnerBlocks {
     /// What the runtime was last told, by route: its block, and its
     /// placement unless it is presented.
     private(set) var told: [UInt32: (block: HostBlock, placement: BlockPlacement?)] = [:]
-    private var resetting = false
+    private var resetting = false, revealOwed = false
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     /// Every route a navigation holds, the primary stacks' first and each
@@ -81,7 +150,26 @@ final class OwnerBlocks {
     /// the keys (`NavigationHost.ownerFrame`). The document's end is the
     /// routes' owner's, in its own untransformed space.
     private func block(in view: UIView) -> CGRect {
-        guard let document = presenter.navigation.container, view.isDescendant(of: document) else { return view.bounds }
+        guard let document = presenter.navigation.container, view.isDescendant(of: document) else {
+            // A route of the top presentation, the one that holds the focused
+            // editor, ends at the docked keyboard: the top of its sheet's
+            // keyboard layout guide, which UIKit lays out with the sheet as
+            // it grows it for the keys and as they leave, follows no
+            // undocked keyboard, and is empty without keys (it leaves out
+            // the bottom safe area, `ModalController.loadView`). The route's
+            // own scroller then reveals the field, and the sheet's bar stays
+            // (LLP 1123 C26).
+            var block = view.bounds
+            // tvOS has no keyboard layout guide.
+            #if !os(tvOS)
+            if let sheet = presenter.modals.coordinateView, view.isDescendant(of: sheet),
+               case let keys = sheet.keyboardLayoutGuide.layoutFrame, keys.height > 0 {
+                let end = view.convert(CGPoint(x: 0, y: keys.minY), from: sheet).y
+                block.size.height = max(0, min(block.height, end - block.minY))
+            }
+            #endif
+            return block
+        }
         let end = view.convert(CGPoint(x: 0, y: document.bounds.height), from: document).y
         var block = view.bounds
         block.size.height = max(0, min(block.height, end - block.minY))
@@ -149,8 +237,19 @@ final class OwnerBlocks {
         // A block taken back forgets its placement with it
         blocks += told.keys.filter { now[$0] == nil && presenter.views[$0] != nil }.map { ($0, nil) }
         told = now
-        guard !blocks.isEmpty || !placements.isEmpty else { return }
-        session.apply(session.runtime.blocks(blocks, placements: placements))
+        if !blocks.isEmpty || !placements.isEmpty { session.apply(session.runtime.blocks(blocks, placements: placements)) }
+        // A sheet's editor whose keys settled shows in the blocks just told
+        if revealOwed {
+            revealOwed = false
+            presenter.revealSheetEditor()
+        }
+    }
+
+    /// Reveals a sheet's editor once the routes' current blocks are told,
+    /// in the order they are (`keyboardSettled`).
+    func revealOnceTold() {
+        revealOwed = true
+        publish()
     }
 
     /// Where an ordinary route's block is shown, in the local coordinates
@@ -175,6 +274,7 @@ final class OwnerBlocks {
         teardown()
         resetting = false
         told = [:]
+        revealOwed = false
     }
 }
 

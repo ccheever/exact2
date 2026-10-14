@@ -200,17 +200,6 @@ enum NavigationRules {
         !modalActive && changing && initiallyInteractive
     }
 
-    /// A presentation's background view, back in the home it left: its
-    /// frame then, grown or shrunk on each flexible axis by what its home
-    /// did meanwhile, as autoresizing would have done had it stayed.
-    static func restoredFrame(_ frame: CGRect, homeThen: CGSize, homeNow: CGSize,
-                              flexibleWidth: Bool, flexibleHeight: Bool) -> CGRect {
-        var out = frame
-        if flexibleWidth { out.size.width = max(0, out.width + homeNow.width - homeThen.width) }
-        if flexibleHeight { out.size.height = max(0, out.height + homeNow.height - homeThen.height) }
-        return out
-    }
-
     /// D3 (as it stands): why a `focus(id)` command cannot be delivered now,
     /// or `nil` when it can. The reason is journaled, never silent.
     static func focusRefusal(mounted: Bool, disabled: Bool, zeroSize: Bool, hiddenAncestor: Bool, inertAncestor: Bool) -> String? {

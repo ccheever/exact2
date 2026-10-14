@@ -180,14 +180,6 @@ package final class Presenter {
         views.values.contains { $0.field?.isFirstResponder == true || $0.textArea?.isFirstResponder == true }
             || hasNativeKeyboardEditor
     }
-    /// A native module's own text input (a composer's UITextView) focused
-    /// inside this viewport: the keyboard is this session's business as for
-    /// its own fields, so the page resizes above it.
-    var hasNativeKeyboardEditor: Bool {
-        guard let responder = FirstResponder.current as? UIView, responder is UIKeyInput else { return false }
-        return mounts(responder)
-    }
-
     /// A notification describes the keyboard's target, not its current
     /// presence: UIKit announces hiding even during a cancelled sideways pop.
     /// The guide observes the keyboard in its owning container's coordinates.
@@ -224,6 +216,7 @@ package final class Presenter {
         let c = NotificationCenter.default
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        c.addObserver(self, selector: #selector(keyboardSettled(_:)), name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
         #endif
     }
 
@@ -318,7 +311,7 @@ package final class Presenter {
                 self.setKeyboardInset(overlap)
             }
             if top == nil { self.pinnedRoom.release() }
-            self.reveal(self.editing ?? self.views.values.first { $0.field?.isFirstResponder == true })
+            self.revealEditorAsTheKeysMove()
         }
         // Under the agent (LLP 1012) the change applies at once, as the
         // agent's wheel scrolls at once: its world is settled between calls,
@@ -483,7 +476,7 @@ package final class Presenter {
     /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
     /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
-        if v.formDisabled || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
+        if v.formDisabled || v.inert || v.cssVisibilityHidden || v.bounds.width == 0 || v.bounds.height == 0 { return false }
         if let index = v.explicitTabIndex, index < 0 { return false }
         // A radio group is one stop (x2apps survey #2).
         return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder && (!v.isRadio || v.radioTabStop)
@@ -531,17 +524,12 @@ package final class Presenter {
             flushPendingFocus()
             return
         }
-        var hidden = false, inert = false
-        var ancestor: UIView? = target
-        while let view = ancestor {
-            if view.isHidden { hidden = true }
-            if (view as? NodeView)?.props["inert"] == "true" { inert = true }
-            ancestor = view.superview
-        }
+        // Inert behind a presentation, or under an authored `inert` (LLP 1123 D2)
+        let hidden = sequence(first: target as UIView, next: \.superview).contains { $0.isHidden }
         // The mounted window is a prerequisite, never another session's.
         if let reason = NavigationRules.focusRefusal(mounted: target.window != nil, disabled: target.formDisabled,
                                                      zeroSize: target.bounds.width == 0 || target.bounds.height == 0,
-                                                     hiddenAncestor: hidden, inertAncestor: inert) {
+                                                     hiddenAncestor: hidden, inertAncestor: target.inert) {
             session?.log("focus \"\(name)\" refused: \(reason)")
             return
         }
@@ -1156,7 +1144,7 @@ package final class Presenter {
         var ancestor: UIView? = view
         while let current = ancestor {
             if let node = current as? NodeView, node.props["retainFocus"] == "true" { return true }
-            ancestor = current.superview
+            ancestor = eventParent(of: current)
         }
         return carrying("contextTarget").contains { preview in
             guard preview.props["contextTarget"] != nil, let panel = contextPanel(preview) else { return false }
@@ -1176,6 +1164,9 @@ package final class Presenter {
     private struct ContextAnchor {
         let target: String
         let source: NodeView
+        /// Its source's box and scroller's box are in `port`'s coordinates: the
+        /// source's port when they were captured (LLP 1123 D2)
+        weak var port: UIView?
         let box: CGRect
         let viewportWidth: CGFloat
         let scroll: NodeView?
@@ -1213,10 +1204,10 @@ package final class Presenter {
     }
 
     private func contextAnchor(_ target: String, _ source: NodeView) -> ContextAnchor {
-        let scroll = contextContent(source)?.scroll
-        return ContextAnchor(target: target, source: source,
-            box: source.convert(source.bounds, to: viewport), viewportWidth: viewport.bounds.width,
-            scroll: scroll, scrollBox: scroll.map { $0.convert($0.bounds, to: viewport) })
+        let scroll = contextContent(source)?.scroll, port = port(of: source)
+        return ContextAnchor(target: target, source: source, port: port,
+            box: source.convert(source.bounds, to: port), viewportWidth: port.bounds.width,
+            scroll: scroll, scrollBox: scroll.map { $0.convert($0.bounds, to: port) })
     }
 
     /// Magnify the preview without reflowing its text, keeping the source's
@@ -1251,14 +1242,17 @@ package final class Presenter {
                   let panel = contextPanel(preview), let parent = panel.superview,
                   source.window != nil, preview.bounds.width > 0, preview.bounds.height > 0 else { continue }
             let liveSourceBox = source.convert(source.bounds, to: parent)
+            // The source is read where it was captured; the preview is kept
+            // inside its own port, the viewport or its presentation's mount
+            let vp = port(of: preview), insets = vp === viewport ? insets : vp.safeAreaInsets
             if contextAnchors[preview.id] == nil ||
-                contextAnchors[preview.id]?.viewportWidth != viewport.bounds.width {
+                contextAnchors[preview.id]?.viewportWidth != port(of: source).bounds.width {
                 contextAnchors[preview.id] = contextAnchor(target, source)
             }
             let anchor = contextAnchors[preview.id]!
-            let sourceBox = viewport.convert(anchor.box, to: parent)
+            let sourceBox = (anchor.port ?? viewport).convert(anchor.box, to: parent)
             let content = preview.convert(preview.bounds, to: parent)
-            let port = viewport.convert(viewport.bounds, to: parent)
+            let port = vp.convert(vp.bounds, to: parent)
             // Public UIKit target-preview fixture, iPhone 17 / iOS 26.5.
             let scale = preview.props["contextMagnify"] == "false" ? 1 : min(1.15, 1 + 26 / max(content.width, content.height))
             let extra = content.height * (scale - 1)
@@ -1296,7 +1290,8 @@ package final class Presenter {
                 if let node = containing as? NodeView,
                    node.style["position_type"]?.string != nil,
                    node.style["position_type"]?.string != "static" { break }
-                guard let ancestor = containing.superview else { break }
+                // A route's root, whose container is its controller's view, is as far as a presented one goes
+                guard let ancestor = containing.superview, ancestor is NodeView || ancestor === root else { break }
                 containing = ancestor
             }
             let region = containing.convert(containing.bounds, to: parent)
@@ -1330,7 +1325,7 @@ package final class Presenter {
                 var scrollDelta: CGFloat = 0
                 if context.scroll === anchor.scroll, let box = anchor.scrollBox,
                    !panel.isDescendant(of: context.scroll) {
-                    scrollDelta = viewport.convert(box, to: parent).minY -
+                    scrollDelta = (anchor.port ?? viewport).convert(box, to: parent).minY -
                         context.scroll.convert(context.scroll.bounds, to: parent).minY
                     project(context.scroll, CGAffineTransform(translationX: 0, y: scrollDelta))
                 }

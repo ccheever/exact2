@@ -7,7 +7,9 @@ import XCTest
 /// controller's view, its host block (LLP 1115.002 D8.2), and the runner is
 /// told where each route a window shows is: a presented one as a top-layer
 /// box, as a dialog is, and any other by its placement in its parent, so
-/// that it keeps its place among its siblings.
+/// that it keeps its place among its siblings. A sheet mounts only its own
+/// navigation; the document, the session's one viewport (D1), stays in the
+/// session's view at its own size.
 final class ContentOwnersIOSTests: XCTestCase {
     /// A touch resting on `target` at `point`, as UIKit hands a view one.
     private final class SheetTouch: UITouch {
@@ -206,6 +208,394 @@ final class ContentOwnersIOSTests: XCTestCase {
         let flat = try read()
         XCTAssertTrue(near(flat[0], shown), flat[0])
         XCTAssertEqual(Array(flat[1...]), Array(before[1...]), "with no inverse needed")
+    }
+
+    /// A wide document under a narrow sheet, as on the open iPhone Duo (951
+    /// points wide, a 653-point page sheet): the screen behind keeps its
+    /// size and the session's viewport, the sheet's route and its content
+    /// take the sheet's width, the background is inert, and a finger reaches
+    /// the sheet's content where it is shown.
+    func testAWideDocumentKeepsItsSizeUnderANarrowSheet() throws {
+        let session = try fixture("owner-wide-document", CGSize(width: 951, height: 669))
+        let p = session.presenter
+        let home = try node(session, "route-home")
+        let document = p.viewport.frame
+        let before = try XCTUnwrap(laidOut(session, home.id))
+        XCTAssertEqual(before.width, 951, "the document is the session's view")
+
+        p.press(try node(session, "sheet").id)
+        let sheet = try node(session, "route-sheet")
+        let controller = try mountSheet(at: CGRect(x: 149, y: 16, width: 653, height: 653))
+        let sheetView = try XCTUnwrap(p.navigation.controllers[sheet.id]?.view)
+        XCTAssertEqual(sheetView.bounds.width, 653, "the sheet's route controller fills the sheet")
+        until("the sheet's route takes the sheet's size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+        XCTAssertEqual(laidOut(session, try node(session, "sheet-body").id)?.width, 653, "its content takes the sheet's width")
+        XCTAssertTrue(sheet.isDescendant(of: controller.view), "the sheet mounts its own route")
+        XCTAssertTrue(p.viewport.isDescendant(of: try XCTUnwrap(session.view)), "the document stays in the session's view")
+        XCTAssertFalse(p.viewport.isDescendant(of: controller.view))
+        XCTAssertEqual(p.viewport.frame, document, "the document keeps its viewport")
+        XCTAssertEqual(laidOut(session, home.id), before, "and the screen behind its size")
+        XCTAssertEqual(shown(session, sheet), seen(session, sheetView), "the sheet's route is reported where it is shown")
+        XCTAssertEqual(shown(session, sheet)?.minX, 149)
+
+        XCTAssertTrue(try node(session, "detail").inert, "the screen behind is inert")
+        let ask = try node(session, "sheet-ask")
+        XCTAssertFalse(ask.inert)
+        let reach = p.reach(of: ask)
+        XCTAssertEqual(reach, seen(session, controller.view), "a finger reaches the sheet's content in the sheet")
+        let middle = ask.convert(CGPoint(x: ask.bounds.midX, y: ask.bounds.midY), to: nil)
+        XCTAssertTrue(window?.hitTest(middle, with: nil)?.isDescendant(of: ask) == true, "and a touch at its middle lands on it")
+    }
+
+    /// Reports owed while a collection's slice is in flight (`whenIdle`)
+    /// are sampled when they are told, so a later size told first is not
+    /// overwritten by an earlier one waiting behind the slice: the route
+    /// ends laid out at its controller's size.
+    func testOwedReportsAreSampledWhenTheyAreTold() throws {
+        let session = try fixture("owner-owed", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let sheet = try node(session, "route-sheet")
+        let controller = try mountSheet()
+        let sheetView = try XCTUnwrap(p.navigation.controllers[sheet.id]?.view)
+        let resize = { (height: CGFloat) in
+            controller.view.frame = CGRect(x: 0, y: 874 - height, width: 402, height: height)
+            controller.view.layoutIfNeeded()
+            sheetView.layoutIfNeeded()
+        }
+        resize(814)
+        until("the sheet's route takes its size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+        // A slice in flight: what the presenter tells the runtime waits for it
+        p.collections.onFill?(sheet.id, Data())
+        XCTAssertTrue(session.fillInFlight)
+        // First in line behind the slice, a size told at once when it runs
+        session.whenIdle { resize(300) }
+        // Then a size owed behind it
+        resize(500)
+        until("the slice lands") { !session.fillInFlight }
+        XCTAssertEqual(sheetView.bounds.height, 300, accuracy: 0.5, "the size set last")
+        until("the route is laid out at its controller's size") {
+            self.laidOut(session, sheet.id) == sheetView.bounds.size && p.owners.told[sheet.id]?.block == .size(sheetView.bounds.size)
+        }
+    }
+
+    /// Focus moving in a mounted sheet bubbles to the document's ancestors
+    /// that observe it, through the route's logical parent, as keys and the
+    /// clipboard do (`Presenter.eventParent`): entering, moving, blurring,
+    /// and a focused field's removal with its sheet.
+    func testFocusInASheetBubblesToTheDocument() throws {
+        let session = try fixture("owner-focus", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let root = try XCTUnwrap(p.navigation.container)
+        root.handlers.formUnion(["focusin", "focusout"])
+        var heard: [String] = []
+        p.onFocusEvent = { at, kind, target, related in
+            if at == root.id { heard.append("\(kind):\(target):\(related ?? "-")") }
+        }
+        let a = try XCTUnwrap(try node(session, "sheet-field-a").field)
+        let b = try XCTUnwrap(try node(session, "sheet-field-b").field)
+        XCTAssertTrue(a.becomeFirstResponder())
+        XCTAssertTrue(b.becomeFirstResponder())
+        _ = b.resignFirstResponder()
+        until("the root hears entry, the move and the blur") { heard.count >= 4 }
+        XCTAssertEqual(heard, ["focusin:sheet-a:-", "focusout:sheet-a:sheet-b", "focusin:sheet-b:sheet-a", "focusout:sheet-b:-"])
+        heard.removeAll()
+        XCTAssertTrue(a.becomeFirstResponder())
+        p.press(try node(session, "close-sheet").id)
+        until("the root hears the field leave with its sheet") { heard.last?.hasPrefix("focusout:sheet-a") == true }
+    }
+
+    /// Under `viewport-fit="cover"` the document's insets are its own, not a
+    /// sheet's: a sheet's route is covered for the sheet's whole safe area
+    /// (its inline bar, the home indicator of an edge-attached sheet), not
+    /// for what is left of it after the document's insets, which would leave
+    /// the route under its bar. A route in the document is still covered
+    /// only past the insets the page pads with itself.
+    func testASheetsRouteIsCoveredForItsOwnSafeArea() {
+        let cover = UIEdgeInsets(top: 62, left: 0, bottom: 34, right: 0)
+        let edges = { (safe: UIEdgeInsets, presented: Bool, whole: Bool, reached: CGFloat) in
+            NavigationHost.routeEdges(safe: safe, document: cover, presented: presented, whole: whole,
+                                      collapses: false, scrollsToBottom: false, reached: reached)
+        }
+        XCTAssertEqual(edges(UIEdgeInsets(top: 44, left: 0, bottom: 0, right: 0), true, true, 0),
+                       .init(top: 44, right: 0, bottom: 0, left: 0), "a floating sheet's inline bar")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 56, left: 0, bottom: 34, right: 0), true, true, 34),
+                       .init(top: 56, right: 0, bottom: 34, left: 0), "an edge-attached sheet's bar and home indicator")
+        XCTAssertEqual(edges(UIEdgeInsets(top: 106, left: 0, bottom: 34, right: 0), false, false, 34),
+                       .init(top: 44, right: 0, bottom: 0, left: 0), "a route in the document: its bar past the status bar the page pads for")
+    }
+
+    /// A sheet's route ends only at a docked keyboard (LLP 1123 C26): the
+    /// sheet's keyboard layout guide counts none without the keys, so a
+    /// focused field with no keyboard up (a hardware keyboard, as in this
+    /// test window) leaves the route its sheet's whole height. The guide
+    /// resting on the bottom safe area is not keys. The keys themselves are
+    /// the simulator's, checked live.
+    func testASheetsRouteEndsOnlyAtTheKeys() throws {
+        let session = try fixture("owner-keys", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let sheet = try node(session, "route-sheet")
+        let controller = try mountSheet()
+        let sheetView = try XCTUnwrap(p.navigation.controllers[sheet.id]?.view)
+        until("the sheet's route takes the sheet's size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+        XCTAssertTrue(try XCTUnwrap(try node(session, "sheet-field-a").field).becomeFirstResponder())
+        controller.view.setNeedsLayout()
+        controller.view.layoutIfNeeded()
+        p.owners.publish()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertEqual(laidOut(session, sheet.id), sheetView.bounds.size, "no keys, no end")
+    }
+
+    /// A sheet's editor is revealed once the keys have settled and the
+    /// sheet's current blocks are told and laid out: a reveal waits behind a
+    /// slice in flight, as the blocks do, and so scrolls in the geometry the
+    /// field is shown in, never in one about to change.
+    func testASheetsEditorIsRevealedAfterItsBlocksLand() throws {
+        let session = try fixture("owner-reveal", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let scroller = try XCTUnwrap(try node(session, "sheet-scroll").scrollView)
+        let field = try node(session, "sheet-field-c")
+        until("the scroller is laid out") { scroller.bounds.height == 60 }
+        XCTAssertEqual(scroller.contentOffset.y, 0)
+        XCTAssertTrue(try XCTUnwrap(field.field).becomeFirstResponder())
+        p.collections.onFill?(try node(session, "route-sheet").id, Data())
+        XCTAssertTrue(session.fillInFlight)
+        p.applyKeyboard(top: 600, duration: 0, curve: 0)
+        NotificationCenter.default.post(name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
+        if session.fillInFlight { XCTAssertEqual(scroller.contentOffset.y, 0, "the reveal waits for the slice") }
+        until("the slice lands and the field is revealed") { !session.fillInFlight && scroller.contentOffset.y > 0 }
+        let shown = field.convert(field.bounds, to: scroller)
+        XCTAssertTrue(scroller.bounds.contains(shown), "the field is in its scroller's view: \(shown) in \(scroller.bounds)")
+    }
+
+    /// A mounted sheet is out of its route's authored ancestry in UIKit, so
+    /// what the ancestry hands down is handed to the sheet's mount: an
+    /// authored `aria-hidden` above the route hides the sheet from
+    /// assistive technology (WAI-ARIA tree exclusion), an authored `inert`
+    /// makes it inert and ends the editing in it, and a `color-scheme` sets
+    /// its appearance; each is taken back when the ancestor drops it.
+    func testASheetInheritsWhatItsLogicalAncestorsHandDown() throws {
+        let session = try fixture("owner-inherit", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let root = try XCTUnwrap(p.navigation.container)
+        let field = try node(session, "sheet-field-a")
+        let above = { sequence(first: field as UIView, next: \.superview).dropFirst() }
+        let props = { (set: [String: String], clear: [String]) in
+            p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": set, "clear": clear]]))
+        }
+        XCTAssertFalse(above().contains { $0.accessibilityElementsHidden })
+        props(["accessibilityElementsHidden": "true"], [])
+        XCTAssertTrue(above().contains { $0.accessibilityElementsHidden }, "aria-hidden above the route hides the sheet")
+        props([:], ["accessibilityElementsHidden"])
+        XCTAssertFalse(above().contains { $0.accessibilityElementsHidden })
+        // Focused first, then made inert by a batch no touch caused, as a
+        // timer's would be: the editor resigns and focus leaves it
+        root.handlers.insert("focusout")
+        var heard: [String] = []
+        p.onFocusEvent = { at, kind, target, _ in
+            if at == root.id { heard.append("\(kind):\(target)") }
+        }
+        let editor = try XCTUnwrap(field.field)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        DispatchQueue.main.async { props(["inert": "true"], []) }
+        until("the inert ancestor ends the sheet's editing") { !editor.isFirstResponder }
+        until("focus leaves the field") { heard == ["focusout:sheet-a"] }
+        XCTAssertTrue(field.inert, "inert above the route reaches the sheet's nodes")
+        XCTAssertTrue(above().contains { !$0.isUserInteractionEnabled }, "and takes the sheet's touches")
+        props([:], ["inert"])
+        XCTAssertFalse(field.inert)
+        XCTAssertFalse(above().contains { !$0.isUserInteractionEnabled })
+        p.apply(wireBatch([["op": "style", "id": Int(root.id), "style": ["color_scheme": "dark"]]]))
+        XCTAssertEqual(field.traitCollection.userInterfaceStyle, .dark, "the root's color-scheme reaches the sheet")
+        p.apply(wireBatch([["op": "style", "id": Int(root.id), "style": ["color_scheme": "light"]]]))
+        XCTAssertEqual(field.traitCollection.userInterfaceStyle, .light)
+    }
+
+    /// A node that leaves with an exit animation takes its subtree with it,
+    /// a presented route's content included, which the route's sheet mounts
+    /// outside the node's view, a route pushed in the sheet, which sits
+    /// beside the sheet's first route, and a card flying in the sheet, which
+    /// its flight lifts beside its route: the sheet's editor resigns, the
+    /// flight lands and their nodes are released with the rest, as the exit
+    /// starts and as it ends.
+    func testALeavingAncestorTakesItsPresentedRouteWithIt() throws {
+        let session = try fixture("owner-exit", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let route = try node(session, "route-sheet"), field = try node(session, "sheet-field-a")
+        p.press(try node(session, "sheet-detail").id)
+        let detail = try node(session, "route-detail")
+        until("Detail is pushed in the sheet") { p.navigation.controllers[detail.id] != nil }
+        XCTAssertFalse(detail.isDescendant(of: route), "beside the sheet's first route")
+        let pushed = sequence(first: [detail as UIView]) { level in
+            let next = level.flatMap(\.subviews)
+            return next.isEmpty ? nil : next
+        }.joined().compactMap { $0 as? NodeView }.filter { p.views[$0.id] === $0 }
+        XCTAssertGreaterThan(pushed.count, 1)
+        // A shared-element flight in the sheet's route, as `fly` makes one
+        // (FlightsIOSTests): its card and the card's child fly in a layer
+        // beside the route
+        let kids = route.container.subviews.compactMap { ($0 as? NodeView).map { Int($0.id) } }
+        p.apply(wireBatch([
+            ["op": "create", "id": 9001, "kind": "view", "props": ["testId": "leaver"]], ["op": "create", "id": 9002, "kind": "view", "props": [:]],
+            ["op": "children", "id": Int(route.id), "ids": kids + [9001, 9002]],
+            ["op": "frame", "id": 9001, "x": 0.0, "y": 100.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 9002, "x": 0.0, "y": 0.0, "w": 300.0, "h": 600.0]]))
+        p.apply(wireBatch([
+            ["op": "flight", "id": 9003, "from": 9001], ["op": "destroy", "id": 9001],
+            ["op": "create", "id": 9003, "kind": "view", "props": ["testId": "card"]],
+            ["op": "create", "id": 9004, "kind": "view", "props": ["testId": "card-child"]],
+            ["op": "children", "id": 9002, "ids": [9003]], ["op": "children", "id": 9003, "ids": [9004]],
+            ["op": "frame", "id": 9003, "x": 20.0, "y": 300.0, "w": 200.0, "h": 150.0],
+            ["op": "frame", "id": 9004, "x": 0.0, "y": 0.0, "w": 100.0, "h": 50.0],
+            ["op": "present", "id": 9003, "property": "flight", "x": 0.5, "y": 0.0]]))
+        let card = try XCTUnwrap(p.views[9003]), flying = try XCTUnwrap(p.views[9004])
+        XCTAssertNotNil(p.flights[9003], "the card flies")
+        XCTAssertFalse(card.isDescendant(of: route), "beside its route")
+        let editor = try XCTUnwrap(field.field)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        let parent = try XCTUnwrap(p.eventParent(of: route) as? NodeView)
+        p.beginExit(parent.id)
+        XCTAssertNil(p.flights[9003], "its flight lands")
+        XCTAssertFalse(editor.isFirstResponder, "its editor resigns")
+        XCTAssertNil(p.views[route.id], "the route leaves with it")
+        XCTAssertNil(p.views[field.id])
+        XCTAssertEqual(pushed.filter { p.views[$0.id] != nil }.map(\.id), [], "and the route pushed in the sheet")
+        XCTAssertEqual([card, flying].filter { p.views[$0.id] != nil }.map(\.id), [], "and the card that flew")
+        XCTAssertTrue(p.endExit(parent.id))
+        XCTAssertEqual((pushed + [route, field, card, flying]).filter { p.views[$0.id] != nil }.map(\.id), [], "none returns as the exit ends")
+    }
+
+    /// A presented route's logical ancestors hear its touches through its
+    /// sheet's mount (`MountRelay`), as a DOM event bubbles to them: the root
+    /// is the listener for a touch on the sheet's content while nothing in
+    /// the sheet listens, and none of the mount's once a nearer node in the
+    /// sheet does, whose own recognizer takes the touch.
+    func testASheetsTouchesReachItsLogicalAncestors() throws {
+        let session = try fixture("owner-relay", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let relay = try XCTUnwrap(controller.view.subviews.compactMap { ($0 as? PresentationMount)?.relay }.first, "the mount carries a relay")
+        let root = try XCTUnwrap(p.navigation.container)
+        let body = try node(session, "sheet-body")
+        let touched = try node(session, "sheet-menu")
+        root.handlers.formUnion(["pointerdown", "pointerup", "contextmenu", "dblclick"])
+        XCTAssertTrue(relay.listener(touched) { $0.wantsPointer } === root, "the root observes the sheet's touches")
+        XCTAssertTrue(relay.listener(touched) { $0.handlers.contains("contextmenu") } === root)
+        XCTAssertTrue(relay.listener(touched) { $0.handlers.contains("dblclick") } === root)
+        body.handlers.formUnion(["pointerdown", "contextmenu"])
+        XCTAssertNil(relay.listener(touched) { $0.wantsPointer }, "a nearer listener in the sheet takes the touch")
+        XCTAssertNil(relay.listener(touched) { $0.handlers.contains("contextmenu") })
+        XCTAssertTrue(relay.listener(touched) { $0.handlers.contains("dblclick") } === root)
+    }
+
+    /// What a presented route's content asks of its ancestors, it asks of
+    /// its logical ones (`eventParent`), the sheet's mount being out of the
+    /// document: the press it bubbles to (an agent's or VoiceOver's
+    /// activation, `activationTarget`, and a touch's release), the menu its
+    /// long press opens (`contextMenuSource`), and the status bar a forced
+    /// `color-scheme` above it asks for. Whether the press lands is decided on
+    /// the sheet's content the finger reached, as UIKit hit-tested it,
+    /// wherever the root's or the route's own box is.
+    func testASheetsContentReadsItsLogicalAncestors() throws {
+        let session = try fixture("owner-logical", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let controller = try mountSheet()
+        let root = try XCTUnwrap(p.navigation.container)
+        let body = try node(session, "sheet-body")
+        root.handlers.insert("press")
+        let inside = body.convert(CGPoint(x: body.bounds.midX, y: 4), to: nil)
+        XCTAssertTrue(body.activationTarget(at: inside) === root, "the root takes a press bubbling from the sheet")
+        root.transform = CGAffineTransform(translationX: 1000, y: 0)
+        XCTAssertTrue(body.activationTarget(at: inside) === root, "with the root translated off the sheet")
+        var pressed: [UInt32] = []
+        let deliver = p.onPress
+        p.onPress = { pressed.append($0); deliver?($0) }
+        let touch = SheetTouch(body, at: CGPoint(x: body.bounds.midX, y: 4))
+        body.touchesBegan([touch], with: nil)
+        body.touchesEnded([touch], with: nil)
+        XCTAssertEqual(pressed, [root.id], "and a touch's release presses it")
+        root.transform = .identity
+        // Nor is the route's own box: on a child overflowing a narrow route,
+        // where UIKit still delivers the touch, the press lands too
+        let route = try node(session, "route-sheet")
+        route.frame.size.width = 100
+        let overflow = CGPoint(x: body.bounds.maxX - 20, y: 4)
+        XCTAssertFalse(route.bounds.contains(body.convert(overflow, to: route)), "past the route's edge")
+        XCTAssertTrue(body.activationTarget(at: body.convert(overflow, to: nil)) === root, "an activation on the overflowing child")
+        let past = SheetTouch(body, at: overflow)
+        body.touchesBegan([past], with: nil)
+        body.touchesEnded([past], with: nil)
+        XCTAssertEqual(pressed, [root.id, root.id], "and a touch's release there")
+        p.onPress = deliver
+        p.apply(wireBatch([["op": "props", "id": Int(root.id), "set": ["contextPopover": "a-menu"]]]))
+        XCTAssertTrue(body.contextMenuSource === root, "the root's menu is the sheet content's")
+        root.applyStyle(["color_scheme": "dark"])
+        XCTAssertEqual(Presenter.schemeStatusBar(body), .lightContent, "the root's dark scheme asks for a light bar")
+    }
+
+    /// A route resized while main serves a callback the runtime waits on (a
+    /// synchronous `native.call`), when no runtime call can run: its report
+    /// waits for the callback to return, and the runner lays the route out
+    /// at its new size, instead of the size being recorded as told and lost.
+    func testAReportFromAServedCallbackReachesTheRunner() throws {
+        let session = try fixture("owner-served", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let sheet = try node(session, "route-sheet")
+        let controller = try mountSheet()
+        let sheetView = try XCTUnwrap(p.navigation.controllers[sheet.id]?.view)
+        until("the sheet's route takes its size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+        Owner.shared.sync {
+            Owner.shared.callMain {
+                controller.view.frame = CGRect(x: 0, y: 374, width: 402, height: 500)
+                controller.view.layoutIfNeeded()
+                sheetView.layoutIfNeeded()
+            }
+        }
+        XCTAssertEqual(sheetView.bounds.height, 500)
+        until("the runner lays the route out at its new size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+    }
+
+    /// A runtime replaced while a report waits behind a slice in flight
+    /// (the plan booted again, as a dev reload does): the old runtime's
+    /// slice lands and its waiters are dropped, but what the new runtime's
+    /// routes report is not, and they keep reporting as they change.
+    func testAReloadDuringASliceLeavesTheRoutesReporting() throws {
+        let session = try fixture("owner-reload", CGSize(width: 402, height: 874))
+        let p = session.presenter
+        p.press(try node(session, "sheet").id)
+        let sheet = try node(session, "route-sheet")
+        let controller = try mountSheet()
+        let sheetView = try XCTUnwrap(p.navigation.controllers[sheet.id]?.view)
+        until("the sheet's route takes its size") { self.laidOut(session, sheet.id) == sheetView.bounds.size }
+        // A slice in flight, and a report waiting behind it
+        p.collections.onFill?(sheet.id, Data())
+        XCTAssertTrue(session.fillInFlight)
+        controller.view.frame = CGRect(x: 0, y: 374, width: 402, height: 500)
+        controller.view.layoutIfNeeded()
+        sheetView.layoutIfNeeded()
+        let before = try node(session, "route-home")
+        let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
+        until("the plan booted again") { (try? self.node(session, "route-home")).map { $0 !== before } == true }
+        until("the old slice is gone") { !session.fillInFlight }
+        let home = try node(session, "route-home")
+        until("the new route has its block") { p.owners.told[home.id] != nil }
+        let homeView = try XCTUnwrap(p.navigation.controllers[home.id]?.view)
+        homeView.frame.size.width = 380
+        homeView.layoutIfNeeded()
+        until("and follows its controller") { p.owners.told[home.id]?.block == .size(homeView.bounds.size) }
     }
 
     /// The root no longer projecting its routes (its `navigationBack` gone)

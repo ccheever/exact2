@@ -1061,6 +1061,23 @@ extension NavigationHost {
             || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
     }
 
+    /// What covers a route of its controller's safe area (`safe`): the
+    /// edges past the document's insets (`env()`, which the page authored
+    /// against) for a route in the document, and every edge of its own for a
+    /// presented one, whose sheet the document's insets do not clear (LLP
+    /// 1123 D2). The top is a collapsing title's scroller's when it has one,
+    /// and the bottom a scroller's at the bottom edge (`reachBottom`); the
+    /// sides and the bottom only while the containers take the whole view
+    /// (`whole`), and the bottom only as far as the route reaches it.
+    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool,
+                           collapses: Bool, scrollsToBottom: Bool, reached: CGFloat) -> HostCover.Edges {
+        let env = presented ? .zero : document
+        return .init(top: collapses ? 0 : max(0, safe.top - env.top),
+                     right: whole ? max(0, safe.right - env.right) : 0,
+                     bottom: whole && !scrollsToBottom ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
+                     left: whole ? max(0, safe.left - env.left) : 0)
+    }
+
     /// What Exact's containers cover of each route — its controller's safe
     /// area past the insets the kernel already has as `env()`: a shown bar's
     /// top, and every edge while the containers take the whole view for a
@@ -1069,11 +1086,16 @@ extension NavigationHost {
     func reportCovers() {
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
-        let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A presented route's controller takes its sheet's whole view, and
+            // the document's insets (`env()`) are not the sheet's: its route is
+            // covered for its own safe area whatever the document's fit (LLP
+            // 1123 D2; its own clearance and credit are stage 2's)
+            let presented = presentedNavigations.contains { $0 === nav }
+            let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
             let shows = barShows(nav)
             guard shows || whole else { continue }
             let edges: HostCover.Edges
@@ -1114,15 +1136,12 @@ extension NavigationHost {
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
             if settled, c.viewIfLoaded?.window != nil {
-                let safe = c.view.safeAreaInsets, env = presenter.insets
-                let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
-                // A scroller at the bottom edge goes under it (`reachBottom`).
+                let safe = c.view.safeAreaInsets
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                let bottom = whole && c.edgeScroll == nil ? max(0, min(safe.bottom, reached) - env.bottom) : 0
-                edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
-                              bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole,
+                                        collapses: c.collapseScroll != nil, scrollsToBottom: c.edgeScroll != nil, reached: reached)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }

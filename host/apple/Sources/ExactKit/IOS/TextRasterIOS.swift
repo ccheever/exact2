@@ -387,6 +387,8 @@ extension Presenter {
         guard !applying else { return true }
         let port = viewport.bounds
         let culls = viewport.clipsToBounds
+        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
+        let presented = !modals.mountRoots.isEmpty
         var clips: TextClips?
         defer { textClips = nil }
         var owed = false
@@ -396,7 +398,7 @@ extension Presenter {
             owed = true
             let c = clips ?? TextClips(viewport, soon: 0, reach: 0)
             clips = c; textClips = c
-            if culls && !c.frame(node).intersects(port) { continue }
+            if culls && !(presented && !node.isDescendant(of: viewport)) && !c.frame(node).intersects(port) { continue }
             let visible = textScrollportRect(node)
             guard !visible.isEmpty, node.textRaster == nil || !node.textRasterFrame.contains(visible) else { continue }
             textRasters.ensure(node, urgent: true)
@@ -442,10 +444,12 @@ extension Presenter {
         // The viewport clips its content: a paragraph farther than the reach
         // from it has no band, so its distance alone rules it out.
         let culls = viewport.clipsToBounds
+        // The viewport clips the document's text, not a presentation's (LLP 1123 D2)
+        let presented = !modals.mountRoots.isEmpty
         var ranked: [(distance: CGFloat, node: NodeView)] = []
         for node in textViews.values where !node.textRasterSettled && !node.bounds.isEmpty && node.canRasterText {
             let r = clips.frame(node)
-            let distance = max(0, port.minY - r.maxY, r.minY - port.maxY)
+            let distance = presented && !node.isDescendant(of: viewport) ? 0 : max(0, port.minY - r.maxY, r.minY - port.maxY)
             guard !(culls && distance > reach), !passed(r), !textBand(node, reach: reach).isEmpty else { continue }
             ranked.append((distance, node))
         }

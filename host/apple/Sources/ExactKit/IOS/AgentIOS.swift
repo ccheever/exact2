@@ -163,7 +163,8 @@ extension Agent {
                   let property = path.split(separator: ".").first else { return false }
             return ["bounds", "position", "transform", "sublayerTransform", "anchorPoint", "zPosition"].contains(String(property))
         }
-        var pending: [UIView] = [presenter.viewport]
+        // The document and every presentation's mount (LLP 1123 D2)
+        var pending: [UIView] = [presenter.viewport] + presenter.modals.mountRoots
         while let view = pending.popLast() {
             guard !view.isHidden, view.alpha > 0 else { continue }
             if view.layer.animationKeys()?.contains(where: { key in
@@ -397,7 +398,10 @@ extension Agent {
             }
             above = s.superview
         }
-        var scroll: [[String: Any]] = [["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]]
+        // The viewport's scrolling, or none: a presentation's mount does not scroll (LLP 1123 D2)
+        let inViewport = presenter.port(of: host) === vp
+        var scroll: [[String: Any]] = [inViewport ? ["viewport": true, "sx": Agent.r2(vp.contentOffset.x), "sy": Agent.r2(vp.contentOffset.y)]
+                                                  : ["presentation": true, "sx": 0.0, "sy": 0.0]]
         scroll.append(contentsOf: chain.reversed())
         var clip: [[String: Any]] = []
         for (n, kind) in clippers.reversed() {
@@ -636,11 +640,12 @@ extension Agent {
                         let handled = target.handlers.contains(event)
                         if handled { presenter.contextmenu(target.id) }
                         // A node with only a popover that cannot open it is not the target.
-                        if !presenter.menus.agentContext(target) && !handled { next = node.superview; continue }
+                        if !presenter.menus.agentContext(target) && !handled { next = presenter.touchParent(of: node); continue }
                     } else { presenter.dblclick(target.id) }
                     return ["tapped": Int(target.id), "event": event, "injected": true, "at": at].merging(selection.map { ["selection": $0] } ?? [:]) { a, _ in a }
                 }
-                next = node.superview
+                // What a finger reaches, out of a sheet's mount too
+                next = presenter.touchParent(of: node)
             }
             if let selection { return ["tapped": Int((hit as? NodeView)?.id ?? v.id), "event": event, "delivery": "recognized", "selection": selection, "at": at] }
             return ["error": "no \(event) handler at view \(v.id)"]
@@ -773,9 +778,12 @@ extension Agent {
         while let cur = up {
             if let n = cur as? NodeView {
                 if n.disabled { return .blocked(n) }
-                if n.takesPress { return n.bounds.contains(n.local(p)) ? .node(n) : .nothing }
+                if n.takesPress {
+                    let box = presenter.pressBox(of: n, from: node)
+                    return box.bounds.contains(box === n ? n.local(p) : box.convert(p, from: nil)) ? .node(n) : .nothing
+                }
             }
-            up = cur.superview
+            up = presenter.touchParent(of: cur)
         }
         return .nothing
     }
@@ -894,6 +902,8 @@ extension Agent {
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        // An inert view takes no input, as a person cannot reach it (HTML inert; a modal presentation's background)
+        guard !v.inert else { return ["error": "view \(v.id) is inert"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if session.canvases.wantsInput(v.id) {
             if let routed = canvasRouted(v, req) { return routed }

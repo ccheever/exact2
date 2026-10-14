@@ -192,7 +192,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         var ancestor: UIView? = owner
         while let view = ancestor {
             if view.isHidden || view.alpha <= 0.01 || (view as? NodeView)?.props["inert"] == "true" { return false }
-            ancestor = view.superview
+            ancestor = presenter.eventParent(of: view)
         }
         return owner.window != nil
     }

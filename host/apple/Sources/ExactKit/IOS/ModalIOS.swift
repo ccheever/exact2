@@ -1,5 +1,6 @@
 // @ref LLP 1008 §9 — UIKit owns modal presentation and its keyboard guide.
-// The session's viewport moves into that container; layout remains the kernel's.
+// @ref LLP 1123 D2 — a presentation mounts only its own navigation: the
+// session's viewport and the document stay in the session's view.
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -11,9 +12,11 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     var retiringRoot: NodeView?
     var retiringNavigation: UIViewController?
     /// The keyboard probe and a freeze's pixels: what this controller adds
-    /// to its view beside the viewport (LLP 1080.001 D3).
+    /// to its view beside the mount (LLP 1080.001 D3).
     private(set) var probe: UIView?
     private(set) var pixels: UIView?
+    /// What the presentation's navigation is mounted in.
+    let mount = PresentationMount()
     init(host: ModalHost, route: NodeView, fullscreen: Bool, detent: String?) {
         self.host = host
         routeID = route.id
@@ -107,6 +110,8 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     @objc private func tappedBackdrop() { host?.dismissByBackdrop(routeID) }
     override func loadView() {
         view = UIView()
+        mount.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(mount)
         #if os(tvOS)
         // tvOS has neither grouped backgrounds nor a keyboard layout guide.
         view.backgroundColor = .white
@@ -119,6 +124,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         probe.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(probe)
         self.probe = probe
+        // The guide is the keys alone: a route ends at them, not at the home
+        // indicator (`OwnerBlocks.block`)
+        view.keyboardLayoutGuide.usesBottomSafeArea = false
         NSLayoutConstraint.activate([
             probe.topAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             probe.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -129,7 +137,9 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        host?.fit()
+        // The keyboard probe lays the sheet out as its keyboard layout guide
+        // moves, where its routes end (`OwnerBlocks.block`)
+        host?.presenter.owners.publish()
     }
     func freeze() {
         guard isViewLoaded, let pixels = view.snapshotView(afterScreenUpdates: false) else { return }
@@ -140,20 +150,15 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     }
 }
 
-// Each boundary owns its presenting geometry and native controller. The
-// viewport belongs to the top boundary; covered owners remain mounted.
+// Each boundary owns its native controller and the navigation it mounts;
+// covered owners remain mounted, inert.
 private final class Presentation {
     let controller: ModalController
     let route: NodeView
     let kind: String
     let navigation: UIViewController
-    weak var home: UIView?
-    weak var owner: UIViewController?
     let background: UIViewController
     let backgroundNode: NodeView?
-    weak var backgroundHome: UIView?
-    let backgroundHomeFrame: CGRect
-    let backgroundHomeSize: CGSize
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
@@ -166,20 +171,15 @@ private final class Presentation {
     var alreadyDismissed = false
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
-         background: UIViewController, node: NodeView?, home: UIView, owner: UIViewController) {
+         background: UIViewController, node: NodeView?) {
         self.route = route
         kind = route.props["navigationPresentation"] ?? "modal"
         controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
         self.navigation = navigation
         self.background = background
         backgroundNode = node
-        backgroundHome = background.view.superview
-        backgroundHomeFrame = background.view.frame
-        backgroundHomeSize = background.view.superview?.bounds.size ?? .zero
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
-        self.home = home
-        self.owner = owner
     }
 }
 
@@ -232,7 +232,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         var seen = Set<ObjectIdentifier>()
         return (layers.map { ($0, false) } + retiring.map { ($0, true) }).compactMap { layer, retiring in
             guard let view = layer.controller.viewIfLoaded, seen.insert(ObjectIdentifier(view)).inserted else { return nil }
-            let owned = [layer.controller.probe, layer.controller.pixels, layer.background.viewIfLoaded].compactMap { $0 }
+            let owned = [layer.controller.probe, layer.controller.pixels, layer.controller.mount].compactMap { $0 }
             return (view, "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", owned)
         }
     }
@@ -246,6 +246,13 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var closedby: String? { layers.last?.route.props["closedby"] }
     var presentation: String? { layers.last?.kind }
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
+    /// Whether the top presentation, modal as every one is (LLP 1123 D2),
+    /// makes `view` inert: it is neither in it nor in a `dialog`'s sheet,
+    /// which UIKit presents over it (HTML modal dialogs).
+    func inertBehind(_ view: UIView) -> Bool {
+        guard let top = coordinateView else { return false }
+        return !view.isDescendant(of: top) && !presenter.menus.sheets.shows(view)
+    }
     var owner: UIViewController? { layers.last?.controller }
     /// The presentations' controller views, live and retiring, bottom to
     /// top: where the session mounts beside its viewport (LLP 1123 D2).
@@ -257,6 +264,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var topNavigation: UINavigationController? { layers.last?.navigation as? UINavigationController }
     func mounts(_ view: UIView) -> Bool { mountRoots.contains { view.isDescendant(of: $0) } }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
+    /// Each presentation's mount and the route it holds.
+    var mounted: [(mount: PresentationMount, route: NodeView)] { layers.map { ($0.controller.mount, $0.route) } }
     #if os(iOS)
     /// The topmost presented route the status bar sits over (LLP 1105 D2): a
     /// full-screen one always; a sheet only at its large detent on a
@@ -368,18 +377,6 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
-        layer.backgroundHome?.addSubview(background.view)
-        // Its home kept resizing while it was away (framed to the sheet, then
-        // the keyboard coming back), and autoresizing would have carried it
-        // along. Put back at its old size, the home's next shrink took the
-        // difference out of it a second time: a navigation controller, which
-        // clips, cut its route off far above the keyboard until the
-        // dismissal ended.
-        let mask = background.view.autoresizingMask
-        background.view.frame = NavigationRules.restoredFrame(
-            layer.backgroundHomeFrame, homeThen: layer.backgroundHomeSize,
-            homeNow: layer.backgroundHome?.bounds.size ?? layer.backgroundHomeSize,
-            flexibleWidth: mask.contains(.flexibleWidth), flexibleHeight: mask.contains(.flexibleHeight))
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
         // Frames precede content extents, as in a normal batch. A retired
@@ -402,6 +399,44 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         for layer in layers {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
             layer.controller.updateDetent(layer.route.props["navigationDetent"])
+        }
+    }
+
+    /// What each presentation's route inherits from its logical ancestors,
+    /// which UIKit's hierarchy no longer carries to it, mounted in its sheet
+    /// (LLP 1123 D2): an authored `aria-hidden` and `inert` above it (WAI-ARIA
+    /// tree exclusion, HTML inert subtrees), set on the view the navigation
+    /// is mounted in, apart from the hiding a presentation over it gives its
+    /// navigation; and a `color-scheme`, the presented controller's
+    /// appearance, which UIKit carries to its sheet and everything in it.
+    /// After every batch, a transition running or not.
+    func inheritFromAncestors() {
+        for layer in layers where layer.controller.isViewLoaded { inherit(layer) }
+    }
+
+    private func inherit(_ layer: Presentation) {
+        var hidden = false, inert = false, scheme = UIUserInterfaceStyle.unspecified
+        var at = presenter.eventParent(of: layer.route)
+        while let view = at {
+            if let node = view as? NodeView {
+                hidden = hidden || node.props["accessibilityElementsHidden"] == "true"
+                inert = inert || node.props["inert"] == "true"
+                if scheme == .unspecified { scheme = node.overrideUserInterfaceStyle }
+            }
+            at = presenter.eventParent(of: view)
+        }
+        let mount = layer.controller.mount
+        if mount.accessibilityElementsHidden != (hidden || inert) { mount.accessibilityElementsHidden = hidden || inert }
+        if mount.isUserInteractionEnabled == inert {
+            mount.isUserInteractionEnabled = !inert
+            // An inert subtree holds no focus (HTML's inert), as `endEditing`
+            // on an authored inert node ends what is under it
+            if inert { mount.endEditing(true) }
+        }
+        // The trait update is taken now, as `applyColorScheme` takes it
+        if layer.controller.overrideUserInterfaceStyle != scheme {
+            layer.controller.overrideUserInterfaceStyle = scheme
+            layer.controller.updateTraitsIfNeeded()
         }
     }
 
@@ -449,14 +484,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func present(_ route: NodeView, navigation: UIViewController, from background: UIViewController,
                  node: NodeView?, preceding: NodeView?, owner: UIViewController) {
-        guard let home = presenter.viewport.superview else { return }
         let layer = Presentation(host: self, route: route, navigation: navigation,
-                                 background: background, node: node, home: home, owner: owner)
-        let frame = background.view.convert(background.view.bounds, to: home)
+                                 background: background, node: node)
+        // The presenting screen stays where it is, inert (HTML modal dialogs)
         background.view.isUserInteractionEnabled = false
         background.view.accessibilityElementsHidden = true
-        home.addSubview(background.view)
-        background.view.frame = frame
         let controller = layer.controller
         if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
             let options = UIViewController.Transition.ZoomOptions()
@@ -509,7 +541,16 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         layers.append(layer)
         controller.isModalInPresentation = refusesDismissal(of: route)
         controller.loadViewIfNeeded()
-        presenter.navigation.move(to: controller) { controller.view.addSubview(presenter.viewport) }
+        controller.addChild(navigation)
+        presenter.collections.watchContacts(in: controller.mount)
+        controller.mount.addSubview(navigation.view)
+        #if os(iOS)
+        if controller.mount.relay == nil { controller.mount.relay = MountRelay(presenter, mount: controller.mount) }
+        #endif
+        navigation.view.setPaintForeground(aboveAuthored: false)
+        navigation.view.frame = controller.mount.bounds
+        navigation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        navigation.didMove(toParent: controller)
         controller.presentationController?.delegate = self
         let guarded = zoomGuard === controller
         zoomGuard = nil
@@ -557,13 +598,6 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         closing = true
         if !layer.alreadyDismissed { presenter.cancelPendingFocus() }
         let controller = layer.controller
-        if let owner = layer.owner, let home = layer.home {
-            if controller.retiringNavigation != nil {
-                home.addSubview(presenter.viewport)
-            } else {
-                presenter.navigation.move(to: owner) { home.addSubview(presenter.viewport) }
-            }
-        }
         presenter.navigation.retireNavigation(layer.navigation, preserving: controller.retiringNavigation != nil)
         layers.removeLast()
         releaseBackground(layer)
@@ -640,8 +674,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     func unmounted() { reset() }
 
     func reset() {
-        // Restore the viewport immediately, then dismiss native owners from
-        // the top down. New projection waits until all retired owners finish.
+        // Dismiss native owners from the top down, each keeping what it shows
+        // for its dismissal. New projection waits until all retired owners finish.
         for layer in layers.reversed() {
             layer.controller.freeze()
             layer.controller.retiringRoot = layer.route
