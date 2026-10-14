@@ -186,6 +186,7 @@ impl Lowerer<'_> {
                     kind: None,
                     value: at(s.expr.clone()),
                     whens: Vec::new(),
+                    meta: Vec::new(),
                 });
             }
             match tamber::check_design(checked, &vocab()) {
@@ -351,6 +352,7 @@ impl Lowerer<'_> {
                 kind: None,
                 value: at(value),
                 whens: Vec::new(),
+                meta: Vec::new(),
             });
         }
         let design = tamber::Design {
@@ -665,6 +667,28 @@ pub(crate) fn theme_decl(file: &File) -> Option<contract_syntax::ThemeDecl> {
         entries,
         span: Span::default(),
     })
+}
+
+/// The design's tokens marked `scheme=fixed` (LLP 1121 D3): one colour in
+/// every scheme by design, which the one-scheme warning leaves alone. An
+/// inline `theme` marks none.
+pub(crate) fn fixed_tokens(file: &File) -> Vec<String> {
+    if file.theme.is_some() {
+        return Vec::new();
+    }
+    let Some(design) = file
+        .design
+        .as_ref()
+        .and_then(|s| tamber::parse(&s.text).ok())
+    else {
+        return Vec::new();
+    };
+    design
+        .tokens
+        .into_iter()
+        .filter(|t| t.meta.iter().any(|(k, v)| k == "scheme" && v == "fixed"))
+        .map(|t| t.name.value)
+        .collect()
 }
 
 /// `tamber-unknown-token` and `tamber-kind` (LLP 1121 D3) for a row's

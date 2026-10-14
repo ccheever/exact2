@@ -49,7 +49,11 @@ What to know:
   text inside takes the pin's value. `axis:value` is refused. A pin picks the
   app's mode, not the scheme: a preview that is always dark says
   `color-scheme="dark"` too.
-- **Drive it** with `prefer mode dark-style=dim`; `layout <id>` shows the token
-  beside each row's value.
+- **Drive it** with `prefer mode dark-style=dim`, after `clock data`: an app
+  that restores a kept mode at launch overrides an earlier one. `layout <id>`
+  shows the token beside each row's value.
+- **One colour on purpose** (white ink on the brand fill): `ink.on-brand =
+  #ffffff  scheme=fixed`; an unmarked one-colour token is warned once, at its
+  line here.
 - **One way to write a colour:** a role if the platform has one, a token if it
   is the brand.

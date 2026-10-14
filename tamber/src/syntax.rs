@@ -89,6 +89,8 @@ pub struct Token {
     pub value: At<String>,
     /// Its `when` lines, in order.
     pub whens: Vec<When>,
+    /// Metadata after the value (`scheme=fixed`, `label=…`), in order.
+    pub meta: Vec<(String, String)>,
 }
 
 /// `when dark-style=dim: light-dark(#fff, #161e27)`.
@@ -468,7 +470,28 @@ fn token(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Token> {
         ));
         return None;
     }
-    let value = value_at(l, lhs.len() + 1);
+    let mut value = value_at(l, lhs.len() + 1);
+    // Metadata words (`scheme=fixed`) end the line, after the value.
+    let words = lex::words(&value.value);
+    let end = (0..words.len())
+        .rev()
+        .take_while(|&i| meta_word(words[i].1).is_some())
+        .last()
+        .unwrap_or(words.len());
+    let mut meta = Vec::new();
+    for (_, w) in &words[end..] {
+        let (k, v) = meta_word(w).expect("a metadata word");
+        match lex::unquote(v) {
+            Ok(v) => meta.push((k.to_string(), v)),
+            Err(why) => {
+                errors.push(syntax(l, format!("`{k}=`: {why}")));
+                return None;
+            }
+        }
+    }
+    if let Some(&(at, _)) = words.get(end) {
+        value.value = value.value[..at].trim_end().to_string();
+    }
     if value.value.is_empty() {
         errors.push(syntax(l, format!("`{name}` has no value")));
         return None;
@@ -482,6 +505,7 @@ fn token(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Token> {
         kind,
         value,
         whens: Vec::new(),
+        meta,
     })
 }
 

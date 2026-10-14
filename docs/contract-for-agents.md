@@ -2804,10 +2804,16 @@ token as they name a role, and an expression over tokens
 `setMode("dark-style", "dim")` sets the window's mode; `-exact-mode="dark-style=black"`
 on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
 `axis:value` is refused), and inherited text inside takes the pin's value. The
-agent's `prefer mode dark-style=dim` sets it from a drive, `layout <id>` shows
+agent's `prefer mode dark-style=dim` sets it from a drive (the app's own
+`setMode` still wins after it: an app that restores a kept mode at launch
+overrides an earlier `prefer`, so prefer after `clock data`), `layout <id>` shows
 the token beside each row's value, and `bun exact.mjs tamber check | eval --mode
 … | ir` checks the design, prints its tokens in a mode, or writes its IR. The
-rule: a role if the platform has one, a token if it is the brand. Recipe:
+rule: a role if the platform has one, a token if it is the brand. A token one
+colour in every scheme by design (white ink on a brand fill, a black ground
+under media) says so with `scheme=fixed` after its value (`white_100 = #ffffff
+scheme=fixed`), and `lower-colour-one-scheme` leaves it alone; an unmarked one
+is reported once, at its line in the design. Recipe:
 [a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
