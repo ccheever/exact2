@@ -1,7 +1,7 @@
 ---
 name: 20261014-browser-panel-parity
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: complete
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -365,6 +365,13 @@ this preparation. If that safe runtime is unavailable, retain the reference bloc
 
 ## Progress
 
+| Row | Implementation | Unit/AppKit tests | Native AFTER drive (2026-10-14) |
+| --- | --- | --- | --- |
+| G4-18 | Done: a selected Browser tab becomes its thread's active session | Added, fail on base | PASS |
+| G4-19 | Done: hover opens beside the row; siblings and the Zoom row close it | Added, fail on base | PASS (one harness check misread; screenshots decide) |
+| G4-16, viewport half | Done: whole-point page size from the requested CSS size | Added, fail on base | PASS |
+| G5-A3 | No product change; omitted Safari counts asserted | Regression assertion (passes on base by design) | Not driven (optional step 6) |
+
 Prepared by `repair_composer` on 2026-10-14 as a read-only handoff for the coordinator.
 Local and remote feature heads both read `a218ee78fec42b1a4590b199297f30667876de67` during
 inspection. GitHub readbacks establish #352/#354/#445/#549 merged; ancestry checks
@@ -386,12 +393,86 @@ Safari data, app process or global input was changed.
 | Prior recording/download review | Merged #445, `443380976` | Read task and PR receipt, including parallel recording requests and agent-versus-user panel revision repairs | Preserved regression constraints; recording was not rerun |
 | This preparation | `a218ee78f`, framework `178ae7237`, reference `1e2ecbd975` | Read source and public API records; traced all four rows and existing tests; read remote PR/issue states; verified ancestry and fixture policy | No builds, tests, native launches, live reproduction or private-data reads; no implementation pass claimed |
 
+### Implementation and verification, 2026-10-14
+
+Environment: macOS 26.6.2 (25G83), arm64; Bun 1.4.2; rustc 1.97.0. Base `0560e9600`. The drive ran the
+uncommitted diff that this commit holds (staged `examples/t3-code` diff without `.exact`, SHA-256 prefix
+`c89bacb8aa5e1412`); bundle executable SHA-256 prefix `357a6ceb744a97ce`.
+
+Changes (application only):
+
+- G4-18: `browser-surface.ts` `selectBrowserTab` calls `store.setActiveTab` for a Browser surface's own
+  thread. `r4-surfaces-panel.ts` calls it on `activate` (reference `activateRightPanelSurface`) and after a
+  close selects the next surface (`syncActivePreviewSurface`). Root cause: the panel selection changed
+  `PanelState.active` only, so ⇧⌘J reopened the newest session. Float-on-hide is unchanged.
+- G4-19: `browser-surface.contract`: Appearance's hover runs `showPopover("browser-appearance-menu",
+  source="browser-more-appearance")`; `BsMenuItem` hover and the Zoom row (`zoomRowHover`) run
+  `hidePopover` on the submenu only. The submenu uses `position-area="right span-bottom"`,
+  `position-try-fallbacks="flip-inline"` and `margin-top="-0.3125rem"` (MenuSubPopup's -5 px align offset);
+  the negative left margin is gone. `adopt-main-fixes-r12.test.ts` accepts this one authored flip (an
+  authored fallback row still selects the painted layer, LLP 1115.002 D7.3).
+- G4-16: measured on this Mac, WebKit truncates a web view's frame to whole points, then floors
+  points / page zoom (487.5 pt at 125% is 389 px; 488 is 390). `T3BrowserViewport.points` gives
+  `ceil(css × zoom)` whole points. `browser-stage.contract` passes the requested size as `page-size`;
+  `T3BrowserView.Host` sizes the bounds and the page frame from it at the page's zoom (the page frame is
+  set directly, because AppKit reads bounds back as 487.99999). The initial `browserSync` size and the
+  parked `hold` use the same rule. Fill is unchanged.
+- G5-A3: an explicit assertion in `browser-import-sources.test.ts` that discovered Safari profiles carry
+  no `cookieCount` and an empty Configure subtitle.
+
+Tests and checks:
+
+- New or changed tests: `browser-navigation.test.ts` (two-tab ⇧⌘J, close sync, authored route, other
+  surface), `menu-keys.test.ts` (3 G4-19 tests, row inventory), `browser-viewport.test.ts` (stage
+  `pageSize`), `macos/tests/browser/navigation.swift` (exact sizes at 100/110/125/150% and fit scales
+  0.37, 0.413, 0.5 through first load, resize, zoom, park/hold and remount; 125% first layout now exactly
+  390 × 844). Against base sources the G4-18, G4-19 and G4-16 tests fail (checked by swapping the base
+  files in); the route and G5-A3 assertions pass on base by design.
+- Focused Bun files: all pass. Full app Bun suite (335 tracked files): 5,175 pass, 1 skip, 0 fail.
+- Strict tsc: clean. Contract build: OK. `cargo test -p t3-code-macos --lib`: 44 passed.
+- AppKit `browser`: 30 passed; `browser-automation`: 36 passed.
+- caps: within budget; `cargo fmt --check`: clean; `cargo check --workspace --all-targets
+  --keep-going`: exit 0 (existing colour warnings only).
+
+Native AFTER drive (agent mode, `scripts/agent.mjs` session API, 1280×840, isolated T3 home, provider and
+XDG directories, browser-import fixture home, server port 16871, probe 16872; no provider message, no
+Safari, no global input). Lane: `target/browser-panel/` (ignored); script `drive.mjs`, adapted from the
+integration's `native-smoke.mjs`. Attempt 1 launched the unbundled binary (the harness did not set
+`EXACT_MAC_BIN`) and stopped before step 3. Attempt 2 stopped at step 3 on a wrong tab target
+(`panel-tab-…`, which has no press). Attempt 3 (`after-03`, the one retry) ran the whole recipe:
+
+| Row | Result | Evidence (`target/browser-panel/after-03/evidence/`) |
+| --- | --- | --- |
+| G4-18 | PASS: first chord hides the panel and floats tab_1; second shows tab_1, same runtime id, tabs unchanged, no `t3.browser: open/close`, mini-player hidden | `10-…`, `11-after-first-chord`, `12-after-second-chord` |
+| G4-19 placement | PASS: submenu x 845–1005, top 167.5 (row 172.5), flipped left of the menu (x 1000–1280); Zoom − at x 1135 uncovered. At 840×620 the same, left flip | `20-appearance-hover`, `27-min-window-appearance` |
+| G4-19 behavior | PASS: pointer into Dark keeps it open; Dark applies and both menus stay; pointer on Zoom closes only the submenu; Zoom − 100% → 90%; one Escape closes the submenu, a second the menu. The script's node-presence check reported FAIL for the Zoom step: the tree keeps closed popover nodes. The layout frame (in-flow 1005, 195.5) and the screenshot show it closed | `21`–`26` |
+| G4-16 | PASS: 390 × 844 at 125% gives page 390 × 844 (dpr 2.5); 1013 × 777 at 125% in a 519 × 398.09 box gives 1013 × 777; after ⇧⌘J twice and a reload the first layout is 1013 × 777 | `30-…`, `31-…`, `32-…`, `probe.log` |
+| G5-A3 | Not driven: the profiles fixture's Safari home has no named profiles and stops at Full Disk Access | unit assertion only |
+
+Cleanup: every recorded PID (`pids.txt` of each attempt) is gone; ports 16871 and 16872 are free.
+
+Independent review (fresh agent): no blocking defects. Non-blocking notes, not changed: a press on
+Appearance after hover toggles it closed (Base UI 1.5.0 only opens, `MenuSubmenuTrigger.js:135`;
+pre-existing); no safe polygon, so diagonal travel through the Zoom row closes the submenu; a fixed
+viewport at scale 1 draws 488 pt bounds into a 487.5 pt box (about 0.1% scale); below 100% zoom some
+sizes cannot be exact in whole points (documented in `T3BrowserViewport.points`).
+
+Host gaps: none needed a framework change. Unverified: physical pointer hover (agent pointer only),
+real ⇧⌘J from the keyboard, G5-A3 in the native Configure step, zooms below 100%.
+
 The source traces are reproducible through the named paths and symbols. The ignored
 draft itself is local-only and uncommitted; the coordinator must publish an authorized
 task record before relying on it for another machine. There have been zero browser-task
 implementation or repair rounds in this preparation.
 
 ## Next action
+
+Implementation is complete and driven natively on 2026-10-14 (see above); verification stays
+`unverified` because G5-A3 had no native step and physical input was not used. Next: the
+integration owner reviews the local commit, decides on the two Base UI notes (press-to-open and
+safe polygon), and publishes. Follow-up 6, `css-workaround-retirements`, waits for this merge.
+
+### Preparation note (historical)
 
 Prepared on 2026-10-14 from feature head `07f9de1e3` in the isolated checkout
 `t3-code-browser-panel-parity` (branch `feat(example)/t3-code-browser-panel-parity`).

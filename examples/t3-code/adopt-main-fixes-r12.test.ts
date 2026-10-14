@@ -16,12 +16,13 @@ describe('AD-1: the Mac\'s own presentations main gives what the clone writes st
     for (const { line } of lists) expect(line).toMatch(/^\s*list appearance="none" /);
   });
 
-  test('every popover keeps the painted layer (LLP 1115.002 D7.3): an authored fallback row, `none`, so no NSPopover and no flip', async () => {
+  test('every popover keeps the painted layer (LLP 1115.002 D7.3): an authored fallback row, `none` (no flip) unless the reference flips', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
     expect(popovers.length).toBeGreaterThanOrEqual(62);
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
-      expect(line).toContain('position-try-fallbacks="none"');
+      // browser-panel-parity G4-19: the Browser Appearance submenu is Base UI's MenuSubPopup, which flips to the start side.
+      expect(line).toContain(line.includes('id="browser-appearance-menu"') ? 'position-try-fallbacks="flip-inline"' : 'position-try-fallbacks="none"');
     }
   });
 });

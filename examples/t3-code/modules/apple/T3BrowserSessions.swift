@@ -132,10 +132,10 @@ final class T3BrowserSessions {
         for entry in live {
             guard let id = entry["id"] as? String, !id.isEmpty else { continue }
             keep.insert(id)
-            // A tab at a fixed viewport: its CSS size at its zoom, in points (as the stage and T3BrowserViewport size it).
+            // A tab at a fixed viewport: its CSS size at its zoom, in the points the stage and T3BrowserViewport size it.
             let width = (entry["width"] as? NSNumber)?.doubleValue ?? 0, height = (entry["height"] as? NSNumber)?.doubleValue ?? 0
             let zoom = (entry["zoom"] as? NSNumber).map { T3BrowserSession.normalizedZoom($0.doubleValue) } ?? 1
-            let size = width > 0 && height > 0 ? NSSize(width: width * zoom, height: height * zoom) : nil
+            let size = width > 0 && height > 0 ? T3BrowserViewport.points(width: width, height: height, zoom: zoom) : nil
             ensure(id: id, url: entry["url"] as? String ?? "", profile: entry["profile"] as? String ?? "default", environment: entry["environment"] as? String ?? "",
                    size: size, zoom: size == nil ? nil : zoom)
         }

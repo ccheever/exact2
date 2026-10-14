@@ -79,12 +79,58 @@ final class BrowserNavigationTests: XCTestCase {
         let plain = sessions.sessions["tab-first"]!, zoomed = sessions.sessions["tab-first-zoom"]!
         spin(until: { plain.report["kind"] as? String == "Success" && zoomed.report["kind"] as? String == "Success" })
         XCTAssertEqual(evaluate(plain.web, "window.first"), "390x844", "the first layout is the viewport")
-        // At 125% the page is 487.5 × 1,055 points; WebKit lays the half point out as 389 CSS px, as the stage's box does
-        // (T3BrowserViewport.matches allows the pixel). The first layout is the size the page keeps.
-        XCTAssertEqual(evaluate(zoomed.web, "window.first"), viewport(zoomed.web), "at 125% too")
-        XCTAssertTrue(["389x844", "390x844"].contains(evaluate(zoomed.web, "window.first")))
+        // At 125% the viewport is 487.5 × 1,055 points; WebKit drops the half point (487 is 389 CSS px), so the page is
+        // made at 488 × 1,055 (T3BrowserViewport.points), and its first layout is exactly the fields (G4-16).
+        XCTAssertEqual(evaluate(zoomed.web, "window.first"), "390x844", "at 125% too")
+        XCTAssertEqual(viewport(zoomed.web), "390x844")
         XCTAssertEqual(zoomed.zoomFactor, 1.25)
-        XCTAssertEqual(zoomed.web.frame.size, NSSize(width: 487.5, height: 1055))
+        XCTAssertEqual(zoomed.web.frame.size, NSSize(width: 488, height: 1055))
+    }
+
+    /// browser-panel-parity G4-16: a fixed viewport's page reports `innerWidth × innerHeight` equal to the size fields,
+    /// not a pixel under, at 100%, 125%, 150% and 110%, drawn into a box at a non-integral fit scale; through a resize,
+    /// a zoom change, the panel hiding (the page parked and held) and a remount. Fill keeps the box's own size.
+    func testAFixedViewportMeasuresItsFieldsExactlyAtEveryZoomAndFitScale() {
+        let id = "tab-exact", setting: (Int, Int) -> [String: Any] = { ["_tag": "freeform", "width": $0, "height": $1] }
+        sessions.sync([["id": id, "url": "\(fixture.base)/size", "profile": "default", "environment": "env-1", "width": 390, "height": 844, "zoom": 1.25]])
+        let session = sessions.sessions[id]!
+        spin(until: { session.report["kind"] as? String == "Success" })
+        XCTAssertEqual(viewport(session.web), "390x844", "made at the viewport, before any stage holds it")
+        let events = ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1)
+        /// The stage's box for a viewport at a zoom and fit scale (BrowserStage `vw`, `vh`: fractional points).
+        func mount(_ width: Int, _ height: Int, _ zoom: Double, _ scale: Double) -> T3BrowserView {
+            let view = T3BrowserView(props: ["tab": id, "url": "\(fixture.base)/size", "profile": "default", "environment": "env-1", "fit-scale": "\(scale)", "page-size": "\(width)x\(height)"],
+                                     events: events, sessions: sessions)
+            window.contentView!.addSubview(view.host)
+            view.host.frame = NSRect(x: 0, y: 0, width: Double(width) * zoom * scale, height: Double(height) * zoom * scale)
+            return view
+        }
+        func update(_ view: T3BrowserView, _ width: Int, _ height: Int, _ zoom: Double, _ scale: Double) {
+            try? view.setProps(["tab": id, "url": "\(fixture.base)/size", "profile": "default", "environment": "env-1", "fit-scale": "\(scale)", "page-size": "\(width)x\(height)"])
+            view.host.frame = NSRect(x: 0, y: 0, width: Double(width) * zoom * scale, height: Double(height) * zoom * scale)
+        }
+        var view = mount(390, 844, 1.25, 0.37) // 180.375 × 390.2125 points on screen
+        XCTAssertEqual(viewport(session.web, settlingAt: "390x844"), "390x844", "borrowed at a fractional fit scale")
+        XCTAssertEqual(session.web.frame.size, NSSize(width: 488, height: 1055))
+        update(view, 391, 677, 1.25, 0.413)
+        XCTAssertEqual(viewport(session.web, settlingAt: "391x677"), "391x677", "a resize")
+        for zoom in [1.5, 1.0, 1.1, 1.25] {
+            _ = sessions.performNavigation(["op": "browserSet", "tab": id, "zoom": zoom])
+            update(view, 391, 677, zoom, 0.413)
+            XCTAssertEqual(viewport(session.web, settlingAt: "391x677"), "391x677", "at \(zoom)")
+        }
+        // The panel hides: the page is given back, keeps its size, and a parked hold sizes it the same way.
+        view.destroy()
+        XCTAssertNil(session.web.superview)
+        T3BrowserViewport.hold(setting(393, 851), session)
+        XCTAssertEqual(viewport(session.web, settlingAt: "393x851"), "393x851", "held while no stage shows it")
+        view = mount(393, 851, 1.25, 0.5)
+        XCTAssertEqual(viewport(session.web, settlingAt: "393x851"), "393x851", "remounted")
+        // Fill: the box's own size, over no scale.
+        try? view.setProps(["tab": id, "url": "\(fixture.base)/size", "profile": "default", "environment": "env-1", "fit-scale": "1", "page-size": ""])
+        view.host.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        XCTAssertEqual(viewport(session.web, settlingAt: "480x320"), "480x320", "fill at 125%: the box over the zoom")
+        view.destroy()
     }
 
     /// A page a stage shows is made, or borrowed, at the box's laid-out size: the box applies its fit scale only once
