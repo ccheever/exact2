@@ -205,9 +205,11 @@ final class ComposerChipPressTests: XCTestCase {
 
     func testTheChipIsAnAccessibilityButtonThatOpensItsDetails() {
         let fixture = ChipPreviewFixture()
+        // composer-chips-accessibility: every chip is an element in text order, named as the reference's node view; the
+        // skill chip is ContextChipPopover's trigger, which Chromium serves as a pop-up button.
         let elements = fixture.preview.styler.press.accessibilityElements
-        XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Skill Frontend Design. Show details"])
-        XCTAssertEqual(elements.first?.accessibilityRole(), .button)
+        XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Skill Frontend Design. Show details", "Preview apps/web/src/terminal/ghostty/surface.test.ts"])
+        XCTAssertEqual(elements.first?.accessibilityRole(), .popUpButton)
         // realinput-1010c-fixes RC-4: an enabled button, as the reference's PopoverTrigger (the default is disabled).
         XCTAssertEqual(elements.first?.isAccessibilityEnabled(), true)
         let children = fixture.view.accessibilityChildren() as? [NSAccessibilityElement] ?? []
@@ -218,7 +220,8 @@ final class ComposerChipPressTests: XCTestCase {
         XCTAssertTrue(elements.first?.accessibilityParent() as AnyObject === fixture.view)
         XCTAssertTrue(elements.first!.accessibilityPerformPress())
         XCTAssertTrue(fixture.preview.styler.press.isOpen)
-        // The mention chips are not this popover's triggers.
-        XCTAssertEqual(fixture.preview.styler.chips.filter { $0.kind == "skill" }.count, elements.count)
+        // The mention chip is the reference's "Preview <path>" button, no popover trigger (its press is not built here).
+        XCTAssertEqual(elements.filter { $0 is T3ComposerChipPopupElement }.count, fixture.preview.styler.chips.filter { $0.kind == "skill" }.count)
+        XCTAssertEqual(elements.last?.accessibilityRole(), .button)
     }
 }

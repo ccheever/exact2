@@ -20,3 +20,6 @@ exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
 
 #[cfg(test)]
 mod title_snooze_tests;
+
+#[cfg(test)]
+mod composer_accessibility_tests;
