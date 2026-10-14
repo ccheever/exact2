@@ -2,7 +2,7 @@
 
 Date: 2026-10-05. Reference: T3 Code `f870c419fc` (HEAD `1e2ecbd975`). exact2 base `c1522fdac`; checked against main `d2cb661eb`.
 
-The newest clone source is in the mc-orch worktree (`~/Documents/work/0.projects/exact2-worktrees/mc-orch-e88043b25805/examples/t3-code/`, untracked, round 11 + an unfinished round 12). This directory holds an older copy (Oct 3) until the move. The full plan with item IDs is `~/.claude/plans/humble-humming-kay.md`. The framework-level list is in `EXACT2-GAPS.md`.
+Current source is tracked here on `feat(example)/t3-code`. The [continuation report](.exact/implementation/20261005-t3code-macos-parity/reviews/20261014-first-wave-resume.md) records the eleven first-wave repair PRs and their remaining verification limits. [Main adoption round 14](.exact/implementation/20261005-t3code-macos-parity/tasks/20261014-adopt-main-fixes-r14.md) takes main `178ae7237`; its local repository checks pass and native integration is in progress. The remote first-wave and adoption merges are pending. The dated sections below preserve earlier observations; the portable [plan](.exact/implementation/20261005-t3code-macos-parity/plan.md) and `EXACT2-GAPS.md` hold task and framework details.
 
 ## 1. Done (round 11, verified by tests and agent drives against the web oracle)
 

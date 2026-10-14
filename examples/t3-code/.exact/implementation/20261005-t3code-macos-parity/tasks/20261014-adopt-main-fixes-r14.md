@@ -133,10 +133,11 @@ scrolling, real IME, pointer cursors or VoiceOver speech.
 | Root all-target build | Pass, 54.06 seconds |
 | Clippy, formatting, caps and boot | Pass |
 | Quick semantics differential check | Pass |
-| Root tests | One source-sweep refusal found; affected check awaits the transform repair rerun |
-| Workspace | Initial capture invalidated by the transform edit; retry after source freeze |
-| App Rust | Running |
-| Final Contract plan and native bundle/smoke | Pending |
+| Root tests | 4,408 passed, 47 ignored; the sole failed source sweep passed after repair (94 roots, 195 imports, zero failures) |
+| Workspace | Fresh `--workspace --all-targets --keep-going` check passed in 198.67 seconds |
+| App Rust | 27 passed |
+| Final Contract plan | Pass: 28,103,415 bytes, 15.6% below the original feature baseline |
+| Native bundle/smoke | Building; drive pending |
 | Remote first-wave and adoption merges | Pending |
 
 ## Attempts and evidence
@@ -148,7 +149,8 @@ the rerun passes. No application behavior repair was needed for migration.
 
 The root test run's one failure was the newly refused box transform. The concurrent
 workspace check correctly rejected its capture when those app sources changed. Both
-results are retained; the repaired source must pass a fresh compile and workspace run.
+results are retained. The repaired source passed the affected source sweep, a fresh
+Contract compile, all 27 app Rust tests, the full Bun suite and a fresh workspace check.
 
 Local development output is under `target/fix-wave`: `app-tests-adoption-red.log`,
 `app-tests-adoption.log`, `types-adoption.log`, and `<check>-adoption.log` with
