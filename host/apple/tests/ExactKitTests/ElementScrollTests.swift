@@ -59,7 +59,11 @@ final class ElementScrollTests: XCTestCase {
         p.onScrollend = { _ in ended += 1 }
         p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
         #if os(macOS)
-        XCTAssertLessThan(offset(), 368, "a smooth element jump must not land synchronously")
+        if ExactEnv.agentFreezes {
+            XCTAssertEqual(offset(), 368, accuracy: 0.5, "the frozen agent lands authored motion immediately")
+        } else {
+            XCTAssertLessThan(offset(), 368, "a smooth element jump must not land synchronously")
+        }
         #else
         XCTAssertEqual(offset(), 368, accuracy: 0.5, "UIKit falls back to an instant element jump (LLP 1070.000 §14)")
         #endif
@@ -71,7 +75,9 @@ final class ElementScrollTests: XCTestCase {
             _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         #if os(macOS)
-        XCTAssertTrue(intermediate, "the real-time scroll has intermediate frames")
+        if !ExactEnv.agentFreezes {
+            XCTAssertTrue(intermediate, "the real-time scroll has intermediate frames")
+        }
         #endif
         XCTAssertEqual(offset(), 368, accuracy: 0.5)
         XCTAssertEqual(ended, 1)
@@ -84,4 +90,88 @@ final class ElementScrollTests: XCTestCase {
         p.scrollElementIntoView(["target", "start", "nearest", "smooth"])
         XCTAssertEqual(offset(), 368, accuracy: 0.5, "reduced motion lands immediately")
     }
+
+    #if os(macOS)
+    func testUnsaidAndAutoRevealUseAppKitAnimation() throws {
+        _ = NSApplication.shared
+        let target = NSPoint(x: 0, y: 368)
+
+        let reference = NSScrollView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
+        reference.documentView = FlippedReferenceView(frame: NSRect(x: 0, y: 0, width: 200, height: 1000))
+        let referenceWindow = NSWindow(contentRect: reference.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        referenceWindow.contentView = reference
+        referenceWindow.orderFront(nil)
+        defer { withExtendedLifetime(referenceWindow) {} }
+        let appKit = observeAnimation(offset: { reference.contentView.bounds.minY }, target: target.y) { completed in
+            NSAnimationContext.runAnimationGroup({ _ in
+                reference.contentView.animator().setBoundsOrigin(target)
+            }, completionHandler: completed)
+        }
+        XCTAssertLessThan(appKit.first, target.y, "a hand-built NSScrollView does not land synchronously")
+        XCTAssertTrue(appKit.intermediate, "the hand-built NSScrollView has intermediate frames")
+        XCTAssertEqual(appKit.last, target.y, accuracy: 0.5)
+
+        for arguments: [Any] in [
+            ["target", "start", "nearest"],
+            ["target", "start", "nearest", "auto"],
+        ] {
+            let exact = try exactAnimation(arguments)
+            if ExactEnv.agentFreezes {
+                XCTAssertEqual(exact.first, target.y, accuracy: 0.5, "the frozen agent lands platform motion immediately")
+            } else {
+                XCTAssertLessThan(exact.first, target.y, "an ordinary element reveal must not land synchronously")
+                XCTAssertTrue(exact.intermediate, "an ordinary element reveal has AppKit's intermediate frames")
+            }
+            XCTAssertEqual(exact.last, target.y, accuracy: 0.5)
+        }
+    }
+
+    private func exactAnimation(_ arguments: [Any]) throws -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
+        let p = Presenter()
+        p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["scrollend"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 2, "kind": "view", "props": ["id": "target"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 368.0, "w": 100.0, "h": 50.0],
+        ]))
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = p.viewport
+        window.orderFront(nil)
+        defer { withExtendedLifetime(window) {} }
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        scroll.documentView?.setFrameSize(CGSize(width: 200, height: 1000))
+        let prior = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = prior }
+        return observeAnimation(offset: { scroll.contentView.bounds.minY }, target: 368) { completed in
+            p.onScrollend = { _ in completed() }
+            p.scrollElementIntoView(arguments)
+        }
+    }
+
+    private func observeAnimation(offset: () -> CGFloat, target: CGFloat,
+                                  start: (@escaping () -> Void) -> Void) -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
+        var completed = false
+        start { completed = true }
+        let first = offset()
+        var intermediate = false
+        let limit = Date().addingTimeInterval(10)
+        while !completed && Date() < limit {
+            let position = offset()
+            if position > 1 && position < target - 1 { intermediate = true }
+            _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+        }
+        XCTAssertTrue(completed, "the scroll completes")
+        return (first, intermediate, offset())
+    }
+    #endif
 }
+
+#if os(macOS)
+private final class FlippedReferenceView: NSView {
+    override var isFlipped: Bool { true }
+}
+#endif
