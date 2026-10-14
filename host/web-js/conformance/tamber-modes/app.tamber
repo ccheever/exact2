@@ -18,3 +18,4 @@ theme
     when dark-style=dim: light-dark(#cfd9de, #38444d)
   accent.text = AccentColor
     when ink=plain: light-dark(#0f1419, #8b98a5)
+  CanvasText = light-dark(#5a1f2b, #f6e7d8)
