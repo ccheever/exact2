@@ -121,18 +121,7 @@ impl<D: DataSource> Runner<D> {
         &mut self,
         pins: &[(&str, &str)],
     ) -> Result<Option<CommitReceipt>, RunnerError> {
-        let tuple = self
-            .window_with(pins)
-            .ok_or_else(|| RunnerError::InvalidValue {
-                event: "setMode",
-                reason: format!(
-                    "{} names an axis or value the app's design lacks, or an axis twice",
-                    pins.iter()
-                        .map(|(a, v)| format!("`{a}:{v}`"))
-                        .collect::<Vec<_>>()
-                        .join(" ")
-                ),
-            })?;
+        let tuple = self.checked_modes(pins)?;
         let previous = self.ids.theme.window;
         if !self.set_window(tuple) {
             return Ok(None);
@@ -145,6 +134,31 @@ impl<D: DataSource> Runner<D> {
             self.ids.theme.moved = true;
         }
         result.map(Some)
+    }
+
+    /// Whether [`Runner::set_modes`] would take `pins`, changing nothing: a
+    /// host's `prefer` asks before it sets any of its facts.
+    pub fn check_modes(&self, pins: &[(&str, &str)]) -> Result<(), RunnerError> {
+        self.checked_modes(pins).map(|_| ())
+    }
+
+    /// The window's tuple `pins` make; refused on a poisoned runner, or for
+    /// an axis or value the design lacks, or an axis twice.
+    fn checked_modes(&self, pins: &[(&str, &str)]) -> Result<u32, RunnerError> {
+        if self.poisoned {
+            return Err(RunnerError::Poisoned);
+        }
+        self.window_with(pins)
+            .ok_or_else(|| RunnerError::InvalidValue {
+                event: "setMode",
+                reason: format!(
+                    "{} names an axis or value the app's design lacks, or an axis twice",
+                    pins.iter()
+                        .map(|(a, v)| format!("`{a}:{v}`"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                ),
+            })
     }
 
     /// [`Runner::set_modes`] for one axis.

@@ -531,6 +531,16 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}",
         );
     }
+    // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
+    // set after every other one in one commit; the scheme stays the system's.
+    let pins: Vec<(&str, &str)> = mode
+        .into_iter()
+        .flatten()
+        .map(|(axis, value)| (axis.as_str(), value.as_str().unwrap_or_default()))
+        .collect();
+    if let Err(e) = p.host().runner().check_modes(&pins) {
+        return error(&format!("prefer mode: {e:?}"));
+    }
     if let Some(fold) = fold {
         if let Some(e) = prefer_fold(p, fold) {
             return e;
@@ -599,19 +609,6 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
     }
     preferences.dark = dark;
-    // @ref LLP 1121 D13 — the mode group, once every other fact is known:
-    // the app's `setMode` for all its pins in one commit, each checked
-    // before any is set; the scheme stays the system's.
-    let pins: Vec<(&str, &str)> = mode
-        .into_iter()
-        .flatten()
-        .map(|(axis, value)| (axis.as_str(), value.as_str().unwrap_or_default()))
-        .collect();
-    if !pins.is_empty() {
-        if let Some(e) = p.set_modes(&pins) {
-            return error(&format!("prefer mode: {e}"));
-        }
-    }
     if let Some(e) = p.set_preferences(preferences) {
         return error(&e);
     }
@@ -631,6 +628,11 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     if media.contains_key("prefers-color-scheme") {
         p.set_system_scheme(dark);
+    }
+    if !pins.is_empty() {
+        if let Some(e) = p.set_modes(&pins) {
+            return error(&format!("prefer mode: {e}"));
+        }
     }
     let (preferences, page) = (
         p.host().runner().viewport().preferences,

@@ -60,6 +60,15 @@ impl<D: DataSource> Host<D> {
         format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
     }
 
+    /// Whether [`Host::set_modes`] would take `pins`, changing nothing: the
+    /// window's modes, or the refusal.
+    pub fn check_modes(&mut self, pins: &[(&str, &str)]) -> String {
+        match self.runner.check_modes(pins) {
+            Ok(()) => format!("{{\"modes\":{}}}", self.runner.modes_json()),
+            Err(e) => exact_runner::agent::error(&format!("mode: {e:?}")),
+        }
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {

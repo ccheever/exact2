@@ -23,4 +23,13 @@ impl<D: DataSource> Host<D> {
         // An object, as every batch is: the modes go first.
         format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
     }
+
+    /// Whether [`Host::set_modes`] would take `pins`, changing nothing: the
+    /// window's modes, or the refusal.
+    pub fn check_modes(&mut self, pins: &[(&str, &str)]) -> String {
+        match self.runner.check_modes(pins) {
+            Ok(()) => format!("{{\"modes\":{}}}", self.runner.modes_json()),
+            Err(e) => exact_runner::agent::error(&format!("mode: {e:?}")),
+        }
+    }
 }

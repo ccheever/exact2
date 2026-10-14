@@ -427,6 +427,15 @@ public final class Agent {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
         let mode = req["mode"] as? [String: String]
         guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
+        // set after every other one in one commit; the scheme stays the system's.
+        var modes: [String: String]?
+        if let mode {
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == ":" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `:`"] }
+            let checked = session.runtime.setModes(mode, check: true)
+            if let error = checked.error { return ["error": "prefer mode: \(error)"] }
+            modes = checked.modes
+        }
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
@@ -468,16 +477,6 @@ public final class Agent {
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
-        // @ref LLP 1121 D13 — the mode group, once every other fact is known:
-        // the app's `setMode` for all its pins in one commit, each checked
-        // before any is set; the scheme stays the system's.
-        var modes: [String: String]?
-        if let mode, !mode.isEmpty {
-            let batch = session.runtime.setModes(mode)
-            session.apply(batch)
-            if let error = batch.error { return ["error": "prefer mode: \(error)"] }
-            modes = batch.modes
-        }
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         session.displayModeOverride = displayMode
@@ -490,6 +489,12 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        if let mode, !mode.isEmpty {
+            let batch = session.runtime.setModes(mode)
+            session.apply(batch)
+            if let error = batch.error { return ["error": "prefer mode: \(error)"] }
+            modes = batch.modes
+        }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
