@@ -167,6 +167,8 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             .written
             .has(StyleId::BorderStyleTop));
         p.hover(id(&p, "tab-b")).unwrap();
+        // Hide only the software cursor; keep the real hover and its paint state.
+        p.set_pointer(None);
         assert_eq!(
             text_pixels(&mut p, "tab-b"),
             text_pixels(&mut p, "ref-hover")
@@ -177,6 +179,7 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             "no tab hover wash"
         );
         p.hover(id(&p, "tab-a")).unwrap();
+        p.set_pointer(None);
         assert_eq!(text_pixels(&mut p, "tab-a"), text_pixels(&mut p, "ref-a"));
         let (x, y, w, h) = p.rect_of(id(&p, "disabled")).unwrap();
         p.pointer_down(x + w / 2.0, y + h / 2.0, 0.0).unwrap();
@@ -187,6 +190,7 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
         );
         p.tap(id(&p, "tab-b")).unwrap();
         p.hover(id(&p, "tabs")).unwrap();
+        p.set_pointer(None);
         assert_eq!(
             p.host().kernel().bar_text(id(&p, "taps")).as_deref(),
             Some("Taps 1")
