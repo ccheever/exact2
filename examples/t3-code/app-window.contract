@@ -59,7 +59,7 @@ component T3Window
     citeDismissals: number
     themeInspecting: bool
     setThemeInspecting: action
-    themeUsage: list<ThemeRoleUsage>
+    themeUsage: ThemeRoleUsage[]
     themeRevealRequest: action
     data: Snapshot
     viewport: Viewport
@@ -149,7 +149,7 @@ component T3Window
     prAct: action
     prCopy: action
     usage: UsageView
-    usageShortcuts: list<UsageKey>
+    usageShortcuts: UsageKey[]
     usageMetricSet: action
     usageWindowSet: action
     usageBreakdownSet: action
@@ -261,7 +261,7 @@ component T3Window
     welcomeTogglePair: action
     welcomeSetup: action
     welcomeFinish: action
-    shortcuts: list<KeyDispatch>
+    shortcuts: KeyDispatch[]
     newThread: action
     deviceSetting: action
     selectProvider: action
@@ -483,7 +483,7 @@ component T3Window
     citeDraftSeq = chip.seq
   // Save, Enter, and Command/Ctrl+Enter (`send`: then Send, submitCitationAndSend); the editor takes the focus after the chip.
   action citeSave(send: bool)
-    if length(citeText) <= 8000
+    if citeText.length <= 8000
       chipClosed = chip.seq
       editorOp(send ? "chip-cite-send" : "chip-cite-save", `${chip.seq}`, citeText)
   // Cancel and Escape: closes, and after Cite takes the chip away again (`removeOnCancel`).
@@ -496,9 +496,9 @@ component T3Window
   // then gives the prompt the focus after the chip (PopoverPopup's `finalFocus`, in the native editor).
   derive citeShown = chipShown and chip.kind == "citation"
   action citeSettle
-    if citeShown and (citeDraftSeq != chip.seq or trim(citeDraft) == trim(chip.comment))
+    if citeShown and (citeDraftSeq != chip.seq or citeDraft.trim() == chip.comment.trim())
       chipClose(false)
-    else if citeShown and length(citeDraft) <= 8000
+    else if citeShown and citeDraft.length <= 8000
       chipClosed = chip.seq
       editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)
   // A press in a text field reaches no node's pointerdown on macOS (the field editor takes it), so the
@@ -548,7 +548,7 @@ component T3Window
   action search(value: string)
     command("search", "", value, 0)
   // The root rewrite: the composer's resting state and left edge, which only the view reads (moved from app.contract).
-  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
+  derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not composerText.includes("\n") and data.approvals.length == 0 and data.questions.length == 0 and not data.settled
   derive resting = data.composerResting and canRest
   derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   // The root rewrite: whether Add provider has tried to go past an invalid id (AddProviderDialog shows its error),
@@ -679,7 +679,7 @@ component T3Window
       focus("header-rename")
     titleMenuPickRoot(op, target, value, askTitle, askBody, destructive)
   action panelUi(what: string, id: string)
-    let closingTerminal = what == "tab-close" and length(filter(shell.panel.tabs, (tab) => tab.id == id and tab.closeTitle != "")) > 0
+    let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     titleMenuOpen = false
     if what == "toggle" or what == "close" or what == "tab-close"
       rightMaximized = closingTerminal ? rightMaximized : what == "tab-close" and shell.panel.count > 1 and rightMaximized
@@ -736,10 +736,10 @@ component T3Window
       dragDx = dragDx + dx
       dragDy = dragDy + dy
   action sidebarDragEnd(id: string, vx: number, vy: number) // r11-upstream: a row-action sweep's release (`sweep|…`, sidebar.contract ThreadSection) is a drop too; sidebarRun sends `sidebar:drop` while no command is pending
-    if dragId == id or startsWith(id, "sweep|")
+    if dragId == id or id.startsWith("sweep|")
       if dragTarget == "context"
         sidebarRun("drop", id, `context|${dragCY}|${dragTopY}|${dragDividerY}|${dragCX >= frame("composer").x - 16 and dragCX <= frame("composer").x + frame("composer").width + 16 and dragCY >= frame("composer").y - 24 and dragCY <= frame("composer").y + frame("composer").height + 64}`)
-      else if dragTarget != "" or startsWith(id, "sweep|")
+      else if dragTarget != "" or id.startsWith("sweep|")
         sidebarRun("drop", id, `${dragTarget}|${dragCY}|${dragTopY}|${dragDividerY}|false`)
       dragId = ""
       dragSection = ""
@@ -753,8 +753,8 @@ component T3Window
       ChipPopoverEscape(held=(chipShown and not (sshPrompt.open or paletteOpen or modelsOpen or optionsOpen != "" or projectsOpen or confirmOp != "")), dismiss=chipEscape)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"
         row width="100%" height="100%" min-width=0 inert=(modal or shell.panel.deviceSetup)
-          when data.sidebarOpen
-            when data.legacy.enabled
+          if data.sidebarOpen
+            if data.legacy.enabled
               LegacySidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, viewportWidth=viewport.width, busy=commandPending, keySidebar=settings.keySidebar, page=utilityPage, pullRequests=home.pullRequests, toggle=toggleSidebar, addProject=paletteShow("command", "add-project"), openPalette=paletteShow("command", ""), open=openThread, local=sidebarLocal, run=sidebarRun, openSettings=openSettings, navigate=openPage, openProviders=openProviderSettings, hoverCard=sidebarHover, hoverId=sidebarHoverId)
             else
               Sidebar(data=data, shell=shell, reduced=viewport.prefersReducedMotion, now=(wallTime.epochAtZero + max(liveNow, elapsed)), width=sidebarWidth, busy=commandPending, keySidebar=settings.keySidebar, keyNewThread=settings.keyNewThread, toggle=toggleSidebar, search=search, openProjects=openProjects, addProject=paletteShow("command", "add-project"), newThread=sidebarNewThread, select=selectThread, openSettings=openSettings, openConnection=openConnection, reconnect=command("reconnect", "", "", 0), resize=resizeSidebar, finishResize=finishResize, command=command, page=utilityPage, pullRequests=home.pullRequests, navigate=openPage, local=sidebarLocal, run=sidebarRun, open=openThread, resetWidth=resetSidebarWidth, hoverCard=sidebarHover, pressDown=sidebarPressDown, hoverId=sidebarHoverId, hoverSeq=sidebarHoverSeq, openProviders=openProviderSettings, scrolled=sidebarScrolled, drag=sidebarDrag, dragEnd=sidebarDragEnd, dragId=dragId, dragTarget=dragTarget, dragVerb=dragVerb, dragOffset=dragOffset, scrollY=sidebarScrollY)
@@ -764,12 +764,12 @@ component T3Window
           RightPanels(data=data, narrowDiff=narrowDiff, rightMaximized=rightMaximized, viewport=viewport, scheme=scheme, sidebarWidth=sidebarWidth, diffWidth=diffWidth, shell=shell, command=command, panelUi=panelUi, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
         PagesCover(pageCover=pageCover, outside=outsidePresses, data=data, sidebarWidth=sidebarWidth, modal=modal, utilityPage=utilityPage, viewport=viewport, scheme=scheme, usage=usage, usageShortcuts=usageShortcuts, settings=settings, toggleSidebar=toggleSidebar, usageMetricSet=usageMetricSet, usageWindowSet=usageWindowSet, usageBreakdownSet=usageBreakdownSet, usageRefreshNow=usageRefreshNow, pageBack=pageBack, prList=prList, prTyped=prTyped, prQuery=prQuery, prSelected=prSelected, prPanelOpen=prPanelOpen, prTogglePanel=prTogglePanel, prType=prType, prControl=prControl, prSelect=prSelect, prReload=prReload, paletteShow=paletteShow, prDetail=prDetail, prMarkdown=prMarkdown, prTab=prTab, prSetTab=prSetTab, prClose=prClose, prAct=prAct, prCopy=prCopy, chatLocal=chatLocal, home=home, commandPending=commandPending, command=command, openConnectionsPage=openConnectionsPage, pagesOp=welcomeImport)
         RightSheets(data=data, narrowDiff=narrowDiff, modal=modal, panelUi=panelUi, viewport=viewport, scheme=scheme, diffWidth=diffWidth, shell=shell, command=command, resizeDiff=resizeDiff, finishDiffResize=finishDiffResize, rightPanel=(rightPanel or shell.panel.open), detailsOpen=detailsOpen, detailsAct=detailsAct, chatLocal=chatLocal, paletteShow=paletteShow, prDetail=prDetail, prDocuments=prMarkdown.documents, filesDocuments=filesMarkdown.documents, prTab=prTab, prSetTab=prSetTab, prReload=prReload, prAct=prAct, prCopy=prCopy, confirm=titleMenuPick, closePending=(confirmOp != ""))
-        when optionsOpen != ""
+        if optionsOpen != ""
           ComposerMenus(data=data, session=popoverSession, which=optionsOpen, left=composerLeft, viewport=viewport, resting=resting, close=closeOptions, chooseTrait=menuPick("model-option"), chooseRuntime=menuPick("runtime", ""), command=menuCommand, branches=branches, branchQuery=branchQuery, searchBranches=searchBranches, local=chatLocal)
         ProjectPicker(projectsOpen=projectsOpen, viewport=viewport, paletteShow=paletteShow, data=data, closeModal=closeModal, manageProject=manageProject, commandPending=commandPending, selectProject=selectProject)
         // settings-escape-and-nav: Settings' view and its view-only state are there only while Settings is open, as the
         // reference's settings route: leaving it forgets an open search, an "Add custom model" field, the legacy rows.
-        when settingsOpen
+        if settingsOpen
           SettingsWindow(settingsOpen=settingsOpen, themeInspecting=(themeInspecting and settingsCore.editor.open), settingsCore=settingsCore, connecting=connecting, settingsThemeDialog=settingsThemeDialog, data=data, settingsNavigation=settingsNavigation, settingsRoute=settingsRoute, settingsQuery=settingsQuery, sidebarWidth=sidebarWidth, viewport=viewport, scheme=scheme, settingsMenu=settingsMenu, modelsOpen=modelsOpen, providerVisit=providerVisit, paletteOpen=paletteOpen, chipOpen=chipShown, coreClearSearch=coreClearSearch, closeModal=closeModal, toggleSidebar=toggleSidebar, commandPending=commandPending, settingsScrollTop=settingsScrollTop, coreMenuClose=coreMenuClose, coreMenu=coreMenu, coreChange=coreChange, coreScope=coreScope, coreThemeDialog=coreThemeDialog, sourceControl=sourceControl, modalError=modalError, rest=rest, restInput=restInput, restLocal=restLocal, importWizardFocusMoved=importWizardFocusMoved, integrations=integrations, snapshotSettings=snapshotSettings, snapshotSetupOpen=snapshotSetupOpen, toggleSnapshots=toggleSnapshots, showSnapshotSetup=showSnapshotSetup, changeSnapshot=settingsCommand("setting-snapshot"), previewSnapshotSound=previewSnapshotSound, recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), bindings=bindings, keybindingQuery=keybindingQuery, keybindingOpen=keybindingOpen, keybindingPrevious=keybindingPrevious, keybindingCommand=keybindingCommand, keybindingKey=keybindingKey, keybindingWhen=keybindingWhen, keybindingRecording=keybindingRecording, editKeybindingQuery=editKeybindingQuery, newKeybinding=newKeybinding, cancelKeybinding=cancelKeybinding, chooseKeybindingCommand=chooseKeybindingCommand, editKeybinding=editKeybinding, editKeybindingKey=editKeybindingKey, editKeybindingWhen=editKeybindingWhen, recordKeybinding=recordKeybinding, captureKeybinding=captureKeybinding, scheduled=scheduled, restEditor=restEditor, restOpen=restOpen, storageSettings=storageSettings, archives=archives, restMenu=restMenu, restRaw=restRaw, restMenuOpen=restMenuOpen, restClose=restClose, licenses=licenses, licenseQuery=licenseQuery, editLicenseQuery=editLicenseQuery, toggleLicense=toggleLicense, retryLicenses=retryLicenses, diagnostics=diagnostics, selectDiagnosticPeriod=selectDiagnosticPeriod, refreshSettings=refreshSettings, copyDiagnostic=copyDiagnostic, connectionsPage=connectionsPage, pendingModal=pendingModal, openConnection=openConnection, connectionOp=connectionOp, connectionAskRemove=connectionAskRemove, connectionMenu=connectionMenu, connectionToggleMenu=connectionToggleMenu, openRoute=openRoute, providerPage=providerPage, providerDialog=providerDialog, providerUi=providerUi, providerOp=providerOp, providerAccent=providerAccent, setupBusy=providerAuthPending, projectsSettings=projectsSettings, settingsThemeSubject=settingsThemeSubject, coreThemeChange=coreThemeChange, editSettingsQueryRoot=editSettingsQuery, coreSearchKeyRoot=coreSearchKey, coreNavigateRoot=coreNavigate, corePickRoot=corePick, settingsCommand=settingsCommand, resizeSidebar=resizeSidebar, finishResize=finishResize, resetSidebarWidth=resetSidebarWidth)
         ThemeEditorHost(inspecting=themeInspecting, inspectSet=setThemeInspecting, reveal=themeRevealRequest, usage=themeUsage, kind=settingsThemeDialog, core=settingsCore, viewport=viewport, busy=commandPending, error=modalError, close=coreThemeDialog("", ""), commit=coreChange, live=coreThemeLive, save=coreThemeChange("theme-editor-save", ""), outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)
         WelcomeLayer(welcome=welcome, viewport=viewport, scheme=scheme, welcomeStep=welcomeStep, commandPending=commandPending, modalError=modalError, welcomeLink=welcomeLink, welcomePairOpen=welcomePairOpen, welcomeGo=welcomeGo, welcomeImport=welcomeImport, welcomeEditLink=welcomeEditLink, welcomePair=welcomePair, welcomeTogglePair=welcomeTogglePair, prCopy=prCopy, welcomeSetup=welcomeSetup, providerUi=providerUi, welcomeFinish=welcomeFinish, providerOp=providerOp, setupBusy=providerAuthPending)
@@ -779,25 +779,25 @@ component T3Window
         SettingsModals(snapshotSetupOpen=snapshotSetupOpen, snapshotSettings=snapshotSettings, commandPending=commandPending, modalError=modalError, snapshotSetupWasEnabled=snapshotSetupWasEnabled, snapshotSetupFrom=snapshotSetupFrom, showSnapshotSetup=showSnapshotSetup, toggleSnapshots=toggleSnapshots, changeSnapshot=settingsCommand("setting-snapshot"), recordSnapshotShortcut=settingsCommand("snapshot-shortcut-record", ""), saveSnapshotShortcut=settingsCommand("snapshot-shortcut-save", ""), connecting=connecting, origin=origin, credential=credential, pairFields=pairFields, data=data, viewport=viewport, scheme=scheme, sbSshHosts=sbSshHosts, sbSshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, connectionOp=connectionOp, sbSet=sbSet, closeConnection=closeConnection, providerDialog=providerDialog, providerWizard=providerWizard, acpAgents=acpAgents, wizardStep=wizardStep, wizardAttempted=wizardAttempted, wizardLabelSet=wizardLabelSet, wizardLabel=wizardLabel, wizardIdSet=wizardIdSet, wizardId=wizardId, acpQuery=acpQuery, wizardManual=wizardManual, providerUi=providerUi, providerAdd=providerAdd, providerOp=providerOp, providerPage=providerPage, providerTarget=providerTarget, setupBusy=providerAuthPending, connectionRemove=connectionRemove, connectionsPage=connectionsPage, connectionAskRemove=connectionAskRemove, routeTarget=routeTarget, routeLabel=routeLabel, localCommand=settingsCommand)
         WindowOverlays(modelsOpen=modelsOpen, data=data, popoverSession=popoverSession, catalog=catalog, viewport=viewport, scheme=scheme, modelQuery=modelQuery, modelTarget=modelTarget, composerLeft=composerLeft, resting=resting, commandPending=commandPending, closeModels=closeModels, selectModel=selectModel, searchModels=searchModels, selectProvider=selectProvider, openProviderSettings=openProviderSettings, command=command, paletteOpen=paletteOpen, palette=palette, paletteQuery=paletteQuery, paletteHighlight=paletteHighlight, paletteScroll=paletteScroll, paletteBusy=paletteBusy, paletteEdit=paletteEdit, paletteKey=paletteKey, paletteRun=paletteRun, paletteHover=paletteHover, paletteClose=paletteClose, paletteFlag=paletteFlag, details=details, detailsSheet=detailsSheet, detailsDensity=canvas.density, detailsEditors=detailsEditors, detailsAct=detailsAct, titleMenuOpen=titleMenuOpen, shell=shell, titleMenuX=titleMenuX, titleMenuY=titleMenuY, titleMenuSerial=titleMenuSerial, titleMenuPick=titleMenuPick, titleUi=titleUi, answerRevert=answerRevert, attachmentUrls=attachmentUrls, chatLocal=chatLocal, confirmOp=confirmOp, confirmTitle=confirmTitle, confirmBody=confirmBody, confirmDestructive=confirmDestructive, confirmUi=confirmUi, toastHover=toastHover, toastHovering=toastHovering, toastAct=toastAct, prDetail=prDetail, prAct=prAct)
         // A skill chip's details (composer-chip-popover.contract), above every page, the Settings prompt sample's chip included.
-        when chipShown and chip.kind != "citation"
+        if chipShown and chip.kind != "citation"
           ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))
         // cite-selection-anchor: Cite at the selection in an answer (diff-cite.contract), above the timeline's rows.
-        when citeShows
+        if citeShows
           CiteAction(offer=citeOffer, viewportWidth=viewport.width, viewportHeight=viewport.height, press=citePress, dismiss=citeWithdraw(citeOffer.source))
         // diff-cite-popover DC-1: a citation chip's comment, under the cited text after Cite or above the chip's button.
-        when citeShown
+        if citeShown
           CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)
         // fix-hover-cards: the window's hover layer (hover-layer.contract), above every page and panel, below the SSH prompt.
         // The Usage page draws its own segment card in its scroll content (pages-usage.contract).
-        when hoverShown and hoverTip.kind != "usage"
+        if hoverShown and hoverTip.kind != "usage"
           HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)
-            when hoverTip.kind == "freshness"
+            if hoverTip.kind == "freshness"
               PaFreshnessCard(actions=prDetail.actions, scheme=scheme, act=prAct, keep=hoverTipAt(hoverTip, "card"), testId=hoverTip.testId)
-            else when hoverTip.kind == "pr-preview"
+            else if hoverTip.kind == "pr-preview"
               PrLinkPreviewCard(preview=prDetail.preview, href=hoverTip.text)
-            else when hoverTip.kind == "scopes"
+            else if hoverTip.kind == "scopes"
               HoverScopes(tip=hoverTip)
-            else when hoverTip.kind == "code"
+            else if hoverTip.kind == "code"
               HoverCode(tip=hoverTip)
             else
               HoverText(tip=hoverTip)

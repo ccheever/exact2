@@ -137,9 +137,9 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
   });
   test('the settled image is the button; the video, the loading slot and a failure keep MediaActions', () => {
     const body = component('media-markdown.contract', 'MarkdownMediaBody');
-    expect(body).toContain('MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)');
-    expect(body).toContain('when kind == "video" or (brokenUrl != "" and brokenUrl == url)\n      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))');
-    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${indexOf(map(galleryIds, (id) => `media-${owner}-${id}`), nodeId)}`), nodeId=nodeId)');
+    expect(body).toContain('MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)');
+    expect(body).toContain('if kind == "video" or (brokenUrl != "" and brokenUrl == url)\n      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))');
+    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)');
     const markdown = source('markdown.contract');
     expect(markdown).toContain('standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
     expect(markdown).toContain('standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
@@ -148,7 +148,7 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     // MSU-1: its tooltip is the hover layer's "code" tip at the button's frame, after Base UI's 600 ms (hover-layer.contract).
     expect(button).toContain('hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId),');
     expect(source('hover-layer.contract')).toContain('kind == "tooltip" or kind == "code" ? 600 : 0');
-    expect(source('app-window.contract')).toContain('else when hoverTip.kind == "code"\n              HoverCode(tip=hoverTip)');
+    expect(source('app-window.contract')).toContain('else if hoverTip.kind == "code"\n              HoverCode(tip=hoverTip)');
     expect(component('hover-layer.contract', 'HoverCode')).toContain('font-family="ui-monospace" font-size="0.6875rem"');
     expect(component('timeline-attachments.contract', 'ImagePreviewDialog')).toMatch(/action closePreview\n\s+local\("image-close", "", ""\)\n\s+if returnFocus != ""\n\s+focus\(returnFocus\)/);
     for (const part of ['button id=nodeId press=press', 'contextmenu=pointerMenu', 'key=menuKey', 'tabindex=0', 'aria-label=label', 'cursor="zoom-in"', 'hatch="t3-media" data-media-kind="actions"'])

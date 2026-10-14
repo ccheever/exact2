@@ -131,7 +131,7 @@ describe('DC-1: the citation chip\'s comment popover', () => {
   test('the window settles the draft as Base UI\'s onOpenChange with resolveAssistantCitationCommentDismissal does', async () => {
     const window = await source('app-window.contract');
     // Untouched (the reference's null draft) or unchanged: close; changed: commit; too long: keep open.
-    expect(window).toContain('  action citeSettle\n    if citeShown and (citeDraftSeq != chip.seq or trim(citeDraft) == trim(chip.comment))\n      chipClose(false)\n    else if citeShown and length(citeDraft) <= 8000\n      chipClosed = chip.seq\n      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)');
+    expect(window).toContain('  action citeSettle\n    if citeShown and (citeDraftSeq != chip.seq or citeDraft.trim() == chip.comment.trim())\n      chipClose(false)\n    else if citeShown and citeDraft.length <= 8000\n      chipClosed = chip.seq\n      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)');
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: null, savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: ' a ', savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'b', savedComment: 'a' })).toEqual({ kind: 'commit', comment: 'b' });
@@ -182,12 +182,11 @@ describe('DC-1: the citation chip\'s comment popover', () => {
 
   test('the cited text is marked in its answer while the comment is open, as the reference\'s highlight', async () => {
     const md = await source('markdown.contract');
-    expect(md).toContain('derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (indexOf(source, `${citeMessage}"]`) >= 0 or source == citeMessage)');
-    expect(md).toContain('text slice(value, a, b) background-color="light-dark(#1b4ed873, #346bf173)"');
+    expect(md).toContain('derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (source.indexOf(`${citeMessage}"]`) >= 0 or source == citeMessage)');
+    expect(md).toContain('text value.slice(a, b) background-color="light-dark(#1b4ed873, #346bf173)"');
     const window = await source('app-window.contract');
     expect(window).toContain('citeMessage = (citeShown ? chip.message : "")\n    citeQuote = (citeShown ? chip.quote : "")\n    citeAt = (citeShown ? chip.at : -1)');
-    const runAt = await contractFn('markdown.contract', 'runAt', ['runs', 'id'], { map: (xs: unknown[], f: (x: never) => unknown) => xs.map(f as never), join: (xs: string[], j: string) => xs.join(j),
-      length: (x: { length: number }) => x.length, indexOf: (xs: unknown[], x: unknown) => xs.indexOf(x), max: Math.max });
+    const runAt = await contractFn('markdown.contract', 'runAt', ['runs', 'id'], { max: Math.max });
     const marks = await contractFn('markdown.contract', 'citeMarks', ['ms', 'me', 'at', 'size']);
     const runs = [{ id: 'a', text: 'Cite ' }, { id: 'b', text: 'check: ' }, { id: 'c', text: 'parsePatch' }];
     expect([runAt(runs, 'a'), runAt(runs, 'b'), runAt(runs, 'c')]).toEqual([0, 5, 12]);
@@ -208,8 +207,7 @@ describe('DC-2: the rest of Cite', () => {
   // readAssistantText over the reference's DOM (CDP, the same answer): react-markdown's line breaks between blocks; TS has a file icon, so no language line.
   const reference = 'Cite check: the parser keeps parsePatch pure, so a quote across inline code reads as written. Select across this paragraph and press Cite to quote it into the composer.\n\n\nexport function parsePatch(text: string) {\n  return text.split(\'\\n\');\n}\n\n\n\nA closing paragraph after the code block, long enough to wrap onto a second line in the timeline lane so a selection can end on its last line.';
   const normal = (text: string) => text.replace(/\s+/g, ' ');
-  const std = { map: (xs: unknown[], f: (x: never) => unknown) => xs.map(f as never), join: (xs: string[], j: string) => xs.join(j), length: (x: { length: number }) => x.length,
-    indexOf: (xs: unknown[] | string, x: never) => xs.indexOf(x), max: Math.max };
+  const std = { max: Math.max };
   const fns = async (icon: string) => {
     const label = await contractFn('markdown.contract', 'citeCodeLabel', ['b', 'code'], std);
     const blockText = await contractFn('markdown.contract', 'citeBlockText', ['b', 'code'], { ...std, citeCodeLabel: label });

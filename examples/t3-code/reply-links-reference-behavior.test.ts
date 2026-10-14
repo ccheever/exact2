@@ -16,7 +16,7 @@ describe('a fragment link leaves the thread (RL-4)', () => {
   test('the window sends a fragment open on its own mutation and shows the draft as a new thread\'s, the composer focused', async () => {
     const app = await source('app.contract');
     // Every other link open stays on localChanged (it shows nothing new); a fragment's reply names `sidebar:new-thread`.
-    expect(app).toContain('    else if op == "link-open" and startsWith(value, "#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0)');
+    expect(app).toContain('    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0)');
     expect(app).toMatch(/mutation fragmentChanged as shape Change refreshes data then fragmentOpened\n {2}action fragmentOpened\n {4}match fragmentChanged\n {6}case some\(result\)\n {8}if result\.message == "sidebar:new-thread"\n {10}draftOwner = "__unset__"\n {10}jumpRequest = jumpRequest \+ 1\n {10}utilityPage = ""\n {10}focus\("composer"\)\n/);
     // The same as commandCompleted's handling of a new thread (the sidebar's New thread, a hand-off).
     expect(app).toMatch(/if result\.message == "sidebar:new-thread" or result\.message == "pr-handoff-next"\n {10}draftOwner = "__unset__"\n {10}jumpRequest = jumpRequest \+ 1\n {10}utilityPage = ""\n {10}focus\("composer"\)\n/);

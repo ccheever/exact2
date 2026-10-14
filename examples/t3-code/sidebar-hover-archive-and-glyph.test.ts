@@ -35,7 +35,7 @@ const frames: Record<string, { y: number; height: number }> = {
   'row-draft:p1': { y: 20, height: 78 }, 'row-draft:p1#discard': { y: 20, height: 0 }, 'row-sidebar-settings': { y: 800, height: 28 },
 };
 async function hoverRig() {
-  const tipRow = await contractFn('sidebar.contract', 'sidebarTipRow', ['id'], { indexOf: (text: string, part: string) => text.indexOf(part) });
+  const tipRow = await contractFn('sidebar.contract', 'sidebarTipRow', ['id']);
   const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '', outsideDown: false, outsidePresses: 0, citeFor: '' };
   const root: Env = { sidebarHoverId: '' };
   const rootScope = { data: { sidebar: { searching: false } } };
@@ -99,7 +99,7 @@ describe('SW-2: a control\'s tooltip ending inside its row gives the row its hov
     const r = await hoverRig();
     r.hover('sidebar-settings', true); r.hover('sidebar-settings', false);
     expect(r.shown).toMatchObject({ id: '', held: '' });
-    expect(await contractFn('sidebar.contract', 'sidebarTipRow', ['id'], { indexOf: (t: string, p: string) => t.indexOf(p) }).then(f => [f('a~active#settle'), f('a~active'), f('')])).toEqual(['a~active', '', '']);
+    expect(await contractFn('sidebar.contract', 'sidebarTipRow', ['id']).then(f => [f('a~active#settle'), f('a~active'), f('')])).toEqual(['a~active', '', '']);
   });
 });
 

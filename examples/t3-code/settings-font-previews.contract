@@ -28,12 +28,12 @@ component FontCodePreview
           DiffGlyph(name=preview.status, size=16, color=(preview.status == "deleted" ? diffInk(preview.scheme, "del") : preview.status == "added" ? diffInk(preview.scheme, "add") : "#009fff"))
           text preview.path font-size=size line-height="20px" color="light-dark(#0a0a0a, #fafafa)" white-space="nowrap" min-width=0 line-clamp=1
         row gap=(7.83 * size / 13) align-items="center" flex-shrink=0 font-family=family
-          when preview.deletions > 0
+          if preview.deletions > 0
             text `-${preview.deletions}` font-size=size line-height="20px" color=diffInk(preview.scheme, "del")
-          when preview.additions > 0
+          if preview.additions > 0
             text `+${preview.additions}` font-size=size line-height="20px" color=diffInk(preview.scheme, "add")
       column width="100%" padding-bottom="8px" box-sizing="border-box" font-family=family
-        each line in preview.lines key=line.id
+        for line in preview.lines key=line.id
           FontDiffRow(line=line, scheme=preview.scheme, size=size)
 component FontDiffRow
   props
@@ -44,9 +44,9 @@ component FontDiffRow
     row width="100%" align-items="stretch" background-color=(line.tone == "deletion" ? diffInk(scheme, "del-row") : line.tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(#fcfcfc, #0a0a0a)") testId=`code-font-preview-${line.tone}-${line.number}`
       box width=(4 * 7.83 * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" background-color=(line.tone == "deletion" ? diffInk(scheme, "del-gutter") : line.tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
         // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars).
-        when line.tone == "addition"
+        if line.tone == "addition"
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "add")
-        when line.tone == "deletion"
+        if line.tone == "deletion"
           box position="absolute" left=0 top=0 bottom=0 width="0.25rem" overflow="hidden" background-color=diffInk(scheme, "del-bar")
             svg width="0.25rem" height="20px" aria-hidden=true
               defs
@@ -55,5 +55,5 @@ component FontDiffRow
               rect x=0 y=0 width=4 height=20 fill="url(#font-preview-deletion-stripes)"
         text line.number width="100%" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" text-align="right" font-variant-numeric="tabular-nums" color=(line.tone == "deletion" ? diffInk(scheme, "del") : line.tone == "addition" ? diffInk(scheme, "add") : "light-dark(#565656, #9d9d9d)")
       text flex=1 min-width=0 padding-left=(7.83 * size / 13) padding-right=(7.83 * size / 13) box-sizing="border-box" font-size=size letter-spacing=(-0.21 * size / 13) line-height="20px" white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
-        each segment in line.segments key=segment.id
+        for segment in line.segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax) background-color=(segment.mark ? diffInk(scheme, line.tone == "deletion" ? "del-mark" : "add-mark") : "#00000000")

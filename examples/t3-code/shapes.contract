@@ -71,7 +71,7 @@ shape Activity
   // r11-upstream (737993303d): the failed run a workspace preparation Retry prepares again.
   retryRunId: string
   // timeline-work-rows TH-5: the inspector's results, and a file change's path, +/- counts and Open diff.
-  results: list<InspectorResult>
+  results: InspectorResult[]
   changePath: string
   stats: bool
   additions: number
@@ -93,14 +93,14 @@ shape Message
   checkpointOrdinal: number
   additions: number
   deletions: number
-  files: list<CheckpointFile>
+  files: CheckpointFile[]
   runId: string
   sourceThreadId: string
   canFork: bool
   completed: bool
   createdAt: string
   timestamp: string
-  activities: list<Activity>
+  activities: Activity[]
   first: bool
   attached: bool
   // r8-pointer D9: the row hover this row shares (an attached changed-files card takes its answer's).
@@ -129,16 +129,16 @@ shape Message
   copyFailed: bool
   meta: bool
   collapsible: bool
-  code: list<CodeHighlight>
-  diagrams: list<MermaidDiagram>
-  setup: list<WorktreeSetupView>
+  code: CodeHighlight[]
+  diagrams: MermaidDiagram[]
+  setup: WorktreeSetupView[]
   timeTip: string
   actionsTimeTip: string
   codeCopied: string
   codeCopyNonce: number
   fileCount: number
-  images: list<MessageImage>
-  attachFiles: list<MessageFile>
+  images: MessageImage[]
+  attachFiles: MessageFile[]
   // r4-timeline: code font/size, word wrap and the message's chips (r4-timeline-chips.ts).
   md: MarkdownEnv
 shape Provider
@@ -172,8 +172,8 @@ shape Approval
   live: bool
   responding: bool
   responseReason: string
-  options: list<ApprovalOption>
-  more: list<ApprovalOption>
+  options: ApprovalOption[]
+  more: ApprovalOption[]
 shape QuestionOption
   id: string
   label: string
@@ -199,7 +199,7 @@ shape Question
   canAdvance: bool
   complete: bool
   action: string
-  options: list<QuestionOption>
+  options: QuestionOption[]
 shape DiffSegment
   id: string
   text: string
@@ -241,13 +241,13 @@ shape DiffItem
   markdown: bool
   tone: string
   number: string
-  segments: list<DiffSegment>
+  segments: DiffSegment[]
   leftTone: string
   leftNumber: string
-  leftSegments: list<DiffSegment>
+  leftSegments: DiffSegment[]
   rightTone: string
   rightNumber: string
-  rightSegments: list<DiffSegment>
+  rightSegments: DiffSegment[]
   label: string
   gutter: number
   // diff-review: a line's side and number for selection and comments (split: left/right), file marks, gap expansion, comment entries.
@@ -279,14 +279,14 @@ shape FontDiffLine
   id: string
   tone: string
   number: string
-  segments: list<DiffSegment>
+  segments: DiffSegment[]
 shape FontDiffPreview
   path: string
   status: string
   additions: number
   deletions: number
   scheme: string
-  lines: list<FontDiffLine>
+  lines: FontDiffLine[]
 // diff-review: one row of the Diff panel's file tree (diff-tree.ts).
 shape DiffTreeRow
   id: string
@@ -323,14 +323,14 @@ shape Snapshot
   serverUpdate: ServerUpdateView
   timelineReadsNeeded: bool
   highlightPending: bool // shiki-residuals: a code text waits for its Shiki tokens
-  markdownSkills: list<MarkdownSkill>
+  markdownSkills: MarkdownSkill[]
   composer: ComposerView
   // r6-polish: the AlertStack wrapper's clip to its banners (r6-polish-measure.ts alertClip).
   alertClip: string
-  snapshotDrafts: list<SnapshotDraft>
+  snapshotDrafts: SnapshotDraft[]
   snapshotOwner: string
   // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
-  chatgptPlan: list<ChatGptPlanNotice>
+  chatgptPlan: ChatGptPlanNotice[]
   revision: number
   // Resource telemetry samples drained (client.ts drain): Diagnostics' live Resource monitor redraws on it alone.
   telemetry: number
@@ -364,7 +364,7 @@ shape Snapshot
   projectName: string
   threadId: string
   threadTitle: string
-  threadHeading: list<CommandChoice>
+  threadHeading: CommandChoice[]
   draft: string
   running: bool
   // timeline-work-rows TH-6: a live subagent's elapsed time ticks on the timeline clock (AgentElapsed).
@@ -382,15 +382,15 @@ shape Snapshot
   transcriptTail: number
   scrollLift: number
   // r4-composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
-  composerVideos: list<ComposerVideo>
-  composerVideoPreview: list<ComposerVideoPreview>
-  tableMenu: list<TableMenuView> // lane r8-keys
+  composerVideos: ComposerVideo[]
+  composerVideoPreview: ComposerVideoPreview[]
+  tableMenu: TableMenuView[] // lane r8-keys
   providerDriver: string
   providerBadge: string
   providerBadgeColor: string
   optionLabel: string
   optionId: string
-  modelOptions: list<ModelOption>
+  modelOptions: ModelOption[]
   settled: bool
   projectMark: string
   projectInk: string
@@ -407,7 +407,7 @@ shape Snapshot
   diffScopeLabel: string
   diffMenu: string
   diffScope: string
-  diffTurns: list<DiffTurn>
+  diffTurns: DiffTurn[]
   diffLatestSelected: bool
   diffCanRefresh: bool
   diffLayout: string
@@ -425,29 +425,29 @@ shape Snapshot
   diffCompare: bool
   diffHead: string
   diffBase: string
-  diffBaseRefs: list<DiffBaseRef>
+  diffBaseRefs: DiffBaseRef[]
   diffBaseAutomatic: bool
   diffBaseEmpty: bool
   diffAllCollapsed: bool
-  diffFiles: list<DiffFile>
-  diffItems: list<DiffItem>
-  diffTreeRows: list<DiffTreeRow>
+  diffFiles: DiffFile[]
+  diffItems: DiffItem[]
+  diffTreeRows: DiffTreeRow[]
   diffTreeLabel: string
   diffTreeFolders: bool
   diffTreeAllOpen: bool
   diffCommentOpen: bool
   diffLoadingLabel: string
-  projects: list<Project>
+  projects: Project[]
   searchFirstId: string
-  snoozePresets: list<SnoozePreset>
-  threads: list<Thread>
+  snoozePresets: SnoozePreset[]
+  threads: Thread[]
   sidebar: SidebarView
   // legacy-sidebar: General › Sidebar (legacy)'s per-project thread trees (legacy-sidebar-view.ts).
   legacy: LegacySidebarView
-  messages: list<Message>
+  messages: Message[]
   historyError: string
   revertPending: string
-  minimap: list<MinimapItem>
+  minimap: MinimapItem[]
   minimapCurrent: number
   imagePreviewId: string
   imagePreviewName: string
@@ -462,16 +462,16 @@ shape Snapshot
   imagePreviewReturn: string
   // X18: the thread's last code copy (Copy code, Copy table); the root clears its check after 1.2 s.
   codeCopyNonce: number
-  diagramPreview: list<MermaidDiagram>
+  diagramPreview: MermaidDiagram[]
   planSaveOpen: bool
   planSavePath: string
   planSaveRoot: string
   planSaving: bool
   planSaveRow: string
-  providers: list<Provider>
-  models: list<Model>
-  approvals: list<Approval>
-  questions: list<Question>
+  providers: Provider[]
+  models: Model[]
+  approvals: Approval[]
+  questions: Question[]
   requestMode: string
   requestKey: string
   clientError: string
@@ -553,16 +553,16 @@ shape SettingsDestination
 shape SettingsNavigation
   firstTarget: string
   firstRoute: string
-  items: list<SettingsDestination>
+  items: SettingsDestination[]
 
 shape ProjectGroup
   groupId: string
   name: string
   count: number
-  members: list<Project>
+  members: Project[]
 shape ProjectGroups
   mode: string
-  groups: list<ProjectGroup>
+  groups: ProjectGroup[]
 
 shape ManagedProvider
   id: string
@@ -570,8 +570,8 @@ shape ManagedProvider
   driver: string
   enabled: bool
 shape ProviderManagement
-  providers: list<ManagedProvider>
-  drivers: list<ManagedDriver>
+  providers: ManagedProvider[]
+  drivers: ManagedDriver[]
 shape ManagedDriver
   id: string
   name: string
@@ -586,11 +586,11 @@ shape ArchivedThread
 shape ArchivedGroup
   id: string
   title: string
-  threads: list<ArchivedThread>
+  threads: ArchivedThread[]
 shape ArchivedSettings
   available: bool
   error: string
-  groups: list<ArchivedGroup>
+  groups: ArchivedGroup[]
 shape LicenseEntry
   id: string
   name: string
@@ -605,7 +605,7 @@ shape LicenseSettings
   error: string
   total: number
   matched: number
-  entries: list<LicenseEntry>
+  entries: LicenseEntry[]
 shape DiagnosticRow
   id: string
   label: string
@@ -617,11 +617,11 @@ shape DiagnosticSection
   title: string
   error: string
   readAt: string
-  rows: list<DiagnosticRow>
+  rows: DiagnosticRow[]
 shape DiagnosticsSettings
   available: bool
   error: string
-  sections: list<DiagnosticSection>
+  sections: DiagnosticSection[]
 
 shape StorageRule
   key: string
@@ -636,7 +636,7 @@ shape StorageSettings
   error: string
   mode: string
   scope: string
-  rules: list<StorageRule>
+  rules: StorageRule[]
 
 shape ScopedChoice
   id: string
@@ -653,13 +653,13 @@ shape ScopedControl
   inheritKey: string
   inheritLabel: string
   disabled: bool
-  choices: list<ScopedChoice>
+  choices: ScopedChoice[]
 shape ScopedControls
   available: bool
   error: string
   project: bool
   scope: string
-  rows: list<ScopedControl>
+  rows: ScopedControl[]
 
 shape ScheduledDraft
   id: string
@@ -708,9 +708,9 @@ shape ScheduledSettings
   error: string
   scope: string
   draft: ScheduledDraft
-  tasks: list<ScheduledRow>
-  projects: list<ScheduledProject>
-  models: list<ScheduledModel>
+  tasks: ScheduledRow[]
+  projects: ScheduledProject[]
+  models: ScheduledModel[]
 
 shape KeybindingRow
   custom: bool
@@ -723,8 +723,8 @@ shape KeybindingSettings
   writable: bool
   error: string
   path: string
-  rows: list<KeybindingRow>
-  commands: list<CommandChoice>
+  rows: KeybindingRow[]
+  commands: CommandChoice[]
 
 shape CommandChoice
   id: string
@@ -754,7 +754,7 @@ shape SnapshotSettings
   setupLabel: string
   shortcutStatus: string
   shortcutAria: string
-  keys: list<SnapshotKey>
+  keys: SnapshotKey[]
   changed: bool
   canSave: bool
   soundSelection: string

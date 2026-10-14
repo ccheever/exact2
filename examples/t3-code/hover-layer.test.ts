@@ -40,10 +40,10 @@ describe('#248: "N scopes" and the other Authorized clients tooltips are drawn b
   test('NetScopes draws no card itself: hover and focus hand the count frame to the layer as a hover card, side top, align start', async () => {
     const body = await component('connections-network.contract', 'NetScopes');
     expect(body).not.toContain('"Granted scopes" font-size');
-    expect(body).not.toContain('when open');
+    expect(body).not.toContain('if open');
     const call = tipCall(body);
     expect(call).toEqual({ key: 'tipId', kind: 'scopes', side: 'top', align: 'start', frame: 'tipId', testId: '`${tipId}-popup`', inside: 'over' });
-    expect(body).toContain('map(scopes, (scope) => scope.text)');
+    expect(body).toContain('scopes.map((scope) => scope.text)');
     expect(body).toMatch(/button id=tipId focus=show\(true\) blur=show\(false\)/);
   });
 
@@ -65,7 +65,7 @@ describe('#248: "N scopes" and the other Authorized clients tooltips are drawn b
 describe('#262: the base branch hover card is drawn by the window layer and takes the pointer', () => {
   test('PaFreshnessMark draws no hover card beside the mark; its hover hands the mark frame to the layer, side bottom, align start', async () => {
     const body = await component('pages-pr-actions.contract', 'PaFreshnessMark');
-    expect(body).not.toContain('when over');
+    expect(body).not.toContain('if over');
     expect(body).not.toContain('testId="pr-freshness-hover"');
     expect(tipCall(body)).toEqual({ key: '`pr-freshness-${prKey}`', kind: 'freshness', side: 'bottom', align: 'start', frame: '"pr-freshness-mark"', testId: '"pr-freshness-hover"', inside: 'value' });
     expect(body).toContain('button id="pr-freshness-mark" popovertarget="pr-freshness"');
@@ -87,7 +87,7 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
   test('PoolSegment draws no popover; the page draws the shown (or last shown) one where its card lies inside every box around it', async () => {
     expect(await component('usage-pooled.contract', 'PoolSegment')).not.toContain('SegmentPopup(');
     const popups = await component('usage-pooled.contract', 'UsagePopups');
-    expect(popups).toContain('each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id');
+    expect(popups).toContain('for seg in window.segments.filter((one) => one.id == (shown != "" ? shown : last)) key=seg.id');
     const popup = await component('usage-pooled.contract', 'SegmentPopup');
     // Its placement box spans from the content top to the segment (side top) or from the segment down (side bottom).
     expect(popup).toContain('top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y)');
@@ -153,7 +153,7 @@ describe('the layer and its timing', () => {
     expect(overlays).toBeGreaterThan(0);
     expect(layer).toBeGreaterThan(overlays);
     expect(ssh).toBeGreaterThan(layer);
-    expect(lines[layer - 1]).toBe('        when hoverShown and hoverTip.kind != "usage"');
+    expect(lines[layer - 1]).toBe('        if hoverShown and hoverTip.kind != "usage"');
   });
 
   test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on each of the four sides', async () => {
@@ -202,7 +202,7 @@ describe('settings-rows-and-labels S1-16, S2-7: one "Background policy details" 
     expect(providers).toContain('PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status="", policy="This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings.", wide=');
     expect(providers).not.toContain('policyOpen');
     const row = await component('providers-kit.contract', 'PvRow');
-    expect(row.match(/role="heading" aria-level=3\n              when policy != ""\n                PolicyTip\(tip=policy, tipId="provider-health-policy"\)/g)).toHaveLength(2);
+    expect(row.match(/role="heading" aria-level=3\n              if policy != ""\n                PolicyTip\(tip=policy, tipId="provider-health-policy"\)/g)).toHaveLength(2);
     const git = await source('settings-source-control.contract');
     expect(git).toContain('text "Git fetch interval" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"\n              PolicyTip(tip="This interval is configured for Git only. The shared Background activity policy still decides whether Git refreshes may run when the timer fires. Custom intervals appear as Advanced in General settings.", tipId="git-fetch-policy")');
     expect(git).not.toContain('text "Automatic Git fetch interval"');

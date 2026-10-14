@@ -88,7 +88,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   });
   test('a press outside the popover closes it; View instructions closes it with the file', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('when chipShown and chip.kind != "citation"\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
+    expect(window).toContain('if chipShown and chip.kind != "citation"\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
   });

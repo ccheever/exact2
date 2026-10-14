@@ -221,14 +221,14 @@ describe('PLS-1: the Pull Requests list keeps its rows when the app becomes acti
 // ── SCHEME-REMOUNT: one subtree for both schemes ────────────────────────────
 
 describe('SCHEME-REMOUNT: no surface is mounted once per scheme', () => {
-  test('no `when` chooses a subtree by the scheme, and no component is handed a literal scheme', async () => {
+  test('no view `if` chooses a subtree by the scheme, and no component is handed a literal scheme', async () => {
     const splits: string[] = [];
     for (const file of contracts) {
       (await source(file)).split('\n').forEach((line, index) => {
         const trimmed = line.trim();
         if (trimmed.startsWith('//')) return;
-        const when = /^(?:else )?when (.*)$/.exec(trimmed)?.[1];
-        if (when !== undefined && /\bscheme\b|\bdark\b|prefersColorScheme/.test(when)) splits.push(`${file}:${index + 1} ${trimmed}`);
+        const branch = /^(?:else )?if (.*)$/.exec(trimmed)?.[1];
+        if (branch !== undefined && /\bscheme\b|\bdark\b|prefersColorScheme/.test(branch)) splits.push(`${file}:${index + 1} ${trimmed}`);
         // (A literal `dark=true` stays where a surface is dark in both schemes: a video's failure over its black stage.)
         if (/\bscheme="(dark|light)"/.test(trimmed)) splits.push(`${file}:${index + 1} literal scheme`);
       });
@@ -268,7 +268,7 @@ describe('PR-PICKER: "Link to thread" opens its own picker dialog (PullRequestTh
 
   test('CommandPalette draws the picker panel as PaletteThreadPicker: max-w-md, centred, no close button, an sr-only title', async () => {
     const palette = await component('palette.contract', 'CommandPalette');
-    expect(palette.map(line => line.trim())).toContain('else when view.panel == "picker"');
+    expect(palette.map(line => line.trim())).toContain('else if view.panel == "picker"');
     const picker = await component('palette.contract', 'PaletteThreadPicker');
     const text = picker.join('\n');
     expect(text).toContain('derive width = min(448, viewport.width - 32)');
@@ -322,10 +322,10 @@ describe('R10-SELECT: the checkout dialog\'s field focuses and selects its refer
 
   test('the checkout dialog and the device tab rename use it; the module hook is gone', async () => {
     const checkout = (await component('r9-connect.contract', 'R9CheckoutDialog')).map(line => line.trim());
-    expect(checkout).toContain('FieldOpenSelect(target="pr-checkout-input", length=length(checkout.reference))');
+    expect(checkout).toContain('FieldOpenSelect(target="pr-checkout-input", length=checkout.reference.length)');
     expect(checkout.some(line => line.startsWith('DialogOpenFocus('))).toBe(false);
     const rename = (await component('r4-surfaces.contract', 'R4TabNameField')).map(line => line.trim());
-    expect(rename).toContain('FieldOpenSelect(target=`tab-name-${tab.id}`, length=length(tab.renameValue))');
+    expect(rename).toContain('FieldOpenSelect(target=`tab-name-${tab.id}`, length=tab.renameValue.length)');
     // The rename editor's Escape and chords still reach RightPanelTabsInput, by its anchor.
     expect(rename.find(line => line.startsWith('input '))).toContain('hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}`');
     expect(await source('modules/apple/RightPanelTabsInput.swift')).toContain('"tab-editor:"');

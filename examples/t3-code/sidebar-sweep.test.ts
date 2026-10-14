@@ -28,9 +28,6 @@ function section() {
   const hover = { hoverId: '|a|', hoverSeq: 0, hoverCard: (id: string, over: boolean) => { unhovered.push([id, over]); } };
   const scope = {
     min: Math.min, max: Math.max,
-    join: (list: string[], sep: string) => list.join(sep),
-    map: <T, U>(list: T[], f: (t: T) => U) => list.map(f),
-    filter: <T>(list: T[], f: (t: T) => boolean) => list.filter(f),
     frame: (id: string) => { const f = frames[id]; if (!f) throw new Error(`no frame ${id}`); return f; },
     rows, data, scrollY: 0, ...hover,
   };

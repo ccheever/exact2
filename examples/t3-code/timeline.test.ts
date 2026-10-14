@@ -231,7 +231,7 @@ describe('timeline Tab order', () => {
     expect(stamp).not.toMatch(/\bfocus=|\bblur=/);
     const work = await source('timeline-work.contract');
     const output = work.split('component ToolOutput\n')[1]!.split('\ncomponent ')[0]!;
-    expect(output).toMatch(/when outputState == ""\n\s+scroll focus=focusOutput\(true\)/);
+    expect(output).toMatch(/if outputState == ""\n\s+scroll focus=focusOutput\(true\)/);
     expect(output.split('    else\n')[1]).not.toContain('scroll ');
   });
 });

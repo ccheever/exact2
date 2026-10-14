@@ -43,100 +43,100 @@ component CcIcon
     weight: number
   view
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=weight stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
-      when name == "chevron-down"
+      if name == "chevron-down"
         path d="m6 9 6 6 6-6"
-      when name == "chevron-right"
+      if name == "chevron-right"
         path d="m9 18 6-6-6-6"
-      when name == "lock" or name == "lock-open"
+      if name == "lock" or name == "lock-open"
         rect x=3 y=11 width=18 height=11 rx=2 ry=2
         path d=(name == "lock" ? "M7 11V7a5 5 0 0 1 10 0v4" : "M7 11V7a5 5 0 0 1 9.9-1")
-      when name == "pen-line"
+      if name == "pen-line"
         path d="M13 21h8M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"
-      when name == "sparkles"
+      if name == "sparkles"
         path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594zM20 2v4M22 4h-4"
         circle cx=4 cy=20 r=2
-      when name == "bot"
+      if name == "bot"
         path d="M12 8V4H8M2 14h2M20 14h2M15 13v2M9 13v2"
         rect x=4 y=8 width=16 height=12 rx=2
-      when name == "pencil-ruler"
+      if name == "pencil-ruler"
         path d="M13 7 8.7 2.7a2.41 2.41 0 0 0-3.4 0L2.7 5.3a2.41 2.41 0 0 0 0 3.4L7 13M8 6l2-2M18 16l2-2M17 11l4.3 4.3c.94.94.94 2.46 0 3.4l-2.6 2.6c-.94.94-2.46.94-3.4 0L11 17M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"
-      when name == "download"
+      if name == "download"
         path d="M12 15V3M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5"
-      when name == "wifi-off"
+      if name == "wifi-off"
         path d="M12 20h.01M8.5 16.429a5 5 0 0 1 7 0M5 12.859a10 10 0 0 1 5.17-2.69M19 12.859a10 10 0 0 0-2.007-1.523M2 8.82a15 15 0 0 1 4.177-2.643M22 8.82a15 15 0 0 0-11.288-3.764M2 2l20 20"
-      when name == "search"
+      if name == "search"
         path d="m21 21-4.34-4.34"
         circle cx=11 cy=11 r=8
-      when name == "star" or name == "star-filled"
+      if name == "star" or name == "star-filled"
         path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" fill=(name == "star-filled" ? "currentColor" : "none")
-      when name == "brain"
+      if name == "brain"
         path d="M12 18V5M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5M17.997 5.125a4 4 0 0 1 2.526 5.77M18 18a4 4 0 0 0 2-7.464M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517M6 18a4 4 0 0 1-2-7.464M6.003 5.125a4 4 0 0 0-2.526 5.77"
-      when name == "zap"
+      if name == "zap"
         path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" fill="currentColor"
-      when name == "ultrafast"
+      if name == "ultrafast"
         path d="m17 2-10 12h7l-1 8 10-12h-7l1-8Z" fill="currentColor" stroke="none" opacity=0.4
         path d="m11 2-10 12h7l-1 8 10-12h-7l1-8Z" fill="currentColor" stroke="none"
-      when name == "list-plus"
+      if name == "list-plus"
         path d="M16 5H3M11 12H3M16 19H3M18 9v6M21 12h-6"
-      when name == "corner-up-right"
+      if name == "corner-up-right"
         path d="m15 14 5-5-5-5M4 20v-7a4 4 0 0 1 4-4h12"
-      when name == "play"
+      if name == "play"
         path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" fill="currentColor"
-      when name == "check"
+      if name == "check"
         path d="M20 6 9 17l-5-5"
-      when name == "circle-alert"
+      if name == "circle-alert"
         circle cx=12 cy=12 r=10
         path d="M12 8v4M12 16h.01"
-      when name == "alarm"
+      if name == "alarm"
         circle cx=12 cy=13 r=8
         path d="M5 3 2 6M22 6l-3-3M6.38 18.7 4 21M17.64 18.67 20 21M9 13l2 2 4-4"
-      when name == "circle-check"
+      if name == "circle-check"
         circle cx=12 cy=12 r=10
         path d="m9 12 2 2 4-4"
-      when name == "list-todo"
+      if name == "list-todo"
         path d="M13 5h8M13 12h8M13 19h8M3 17l2 2 4-4"
         rect x=3 y=4 width=6 height=6 rx=1
-      when name == "circle-dot"
+      if name == "circle-dot"
         path d="M10.1 2.18a9.93 9.93 0 0 1 3.8 0M17.6 3.71a9.95 9.95 0 0 1 2.69 2.7M21.82 10.1a9.93 9.93 0 0 1 0 3.8M20.29 17.6a9.95 9.95 0 0 1-2.7 2.69M13.9 21.82a9.94 9.94 0 0 1-3.8 0M6.4 20.29a9.95 9.95 0 0 1-2.69-2.7M2.18 13.9a9.93 9.93 0 0 1 0-3.8M3.71 6.4a9.95 9.95 0 0 1 2.7-2.69"
         circle cx=12 cy=12 r=1
-      when name == "circle"
+      if name == "circle"
         circle cx=12 cy=12 r=10
-      when name == "x"
+      if name == "x"
         path d="M18 6 6 18M6 6l12 12"
-      when name == "chevron-up"
+      if name == "chevron-up"
         path d="m18 15-6-6-6 6"
-      when name == "loader"
+      if name == "loader"
         path d="M21 12a9 9 0 1 1-6.219-8.56"
-      when name == "minimize"
+      if name == "minimize"
         path d="m14 10 7-7M20 10h-6V4M3 21l7-7M4 14h6v6"
-      when name == "gauge"
+      if name == "gauge"
         path d="m12 14 4-4M3.34 19a10 10 0 1 1 17.32 0"
-      when name == "message-square"
+      if name == "message-square"
         path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"
-      when name == "folder"
+      if name == "folder"
         path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-      when name == "folder-git"
+      if name == "folder-git"
         path d="M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5M18 19c-2.8 0-5-2.2-5-5v8"
         circle cx=13 cy=12 r=2
         circle cx=20 cy=19 r=2
-      when name == "folder-git-1"
+      if name == "folder-git-1"
         circle cx=12 cy=13 r=2
         path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2ZM14 13h3M7 13h3"
-      when name == "history"
+      if name == "history"
         path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2"
-      when name == "git-branch"
+      if name == "git-branch"
         path d="M15 6a9 9 0 0 0-9 9V3"
         circle cx=18 cy=6 r=3
         circle cx=6 cy=18 r=3
-      when name == "list-ordered"
+      if name == "list-ordered"
         path d="M11 5h10M11 12h10M11 19h10M4 4h1v5M4 9h2M6.5 20H3.4c0-1 2.6-1.925 2.6-3.5a1.5 1.5 0 0 0-2.6-1.02"
-      when name == "pencil"
+      if name == "pencil"
         path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"
-      when name == "arrow-up-left"
+      if name == "arrow-up-left"
         path d="M7 17V7h10M17 17 7 7"
-      when name == "paperclip"
+      if name == "paperclip"
         path d="m16 6-8.414 8.586a2 2 0 0 0 2.829 2.829l8.414-8.586a4 4 0 1 0-5.657-5.657l-8.379 8.551a6 6 0 1 0 8.485 8.485l8.379-8.551"
-      when name == "grip"
+      if name == "grip"
         circle cx=9 cy=12 r=1
         circle cx=9 cy=5 r=1
         circle cx=9 cy=19 r=1
@@ -194,12 +194,12 @@ component ModelTrigger
     // model-picker-parity CO-11: named by its model names (allModelNames, or the label it shows), as ProviderModelPicker is.
     button press=press hover=hover class=Control aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel) aria-expanded=open aria-keyshortcuts=keyModels testId="model-picker" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=(xs ? "2.5rem" : "3rem") max-width=(xs ? "10.5rem" : "624.9375rem") flex-shrink=1 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 margin-left="-0.625rem" gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
       // Several models (a multi-model draft): up to three overlapping marks, then "+N".
-      when data.composer.fanout
+      if data.composer.fanout
         row flex-shrink=0 align-items="center" aria-hidden=true
-          each mark in data.composer.fanoutMarks key=mark.key
+          for mark in data.composer.fanoutMarks key=mark.key
             box display="flex" margin-right="-0.25rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color="light-dark(#ffffff, #161616)" background-color="light-dark(#ffffff, #161616)"
               ProviderInstanceMark(driver=mark.driver, size=16, color="light-dark(#71717a, #818181)", badge="", accent="#00000000")
-          when data.composer.fanoutMore > 0
+          if data.composer.fanoutMore > 0
             text `+${data.composer.fanoutMore}` font-size="0.5625rem" line-height="1rem" min-width="1rem" height="1rem" border-radius="0.5rem" text-align="center" border-width=2 border-style="solid" border-color="light-dark(#ffffff, #161616)" background-color="light-dark(#ffffff, #161616)" color="light-dark(#71717a, #818181)"
           box width="0.25rem"
       else
@@ -207,7 +207,7 @@ component ModelTrigger
         box display="flex" flex-shrink=0 filter=(data.composer.ultrathink ? "saturate(1.2)" : "none") testId=(data.composer.ultrathink ? "model-picker-ultrathink" : "model-picker-mark")
           ProviderInstanceMark(driver=data.providerDriver, size=(xs ? 14 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)"), badge=data.providerBadge, accent=data.providerBadgeColor)
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
-      when label
+      if label
         box position="relative" display="flex" flex-direction="row" min-width=0 flex-shrink=1
           text (data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"
           TipBubble(label=data.composer.modelTip, side="top", align="center", offset=(xs ? 20 : 24), inset=0, shown=over)
@@ -248,13 +248,13 @@ component TraitsTrigger
   view
     box position="relative" display="flex" flex-direction="row" align-items="center" min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) hatch="t3-anchor" data-anchor="traits"
       button press=press hover=hover class=Control aria-label=aria aria-expanded=open aria-keyshortcuts=keyEffort testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
-        when speed != ""
+        if speed != ""
           box display="flex" flex-shrink=0 opacity=0.8
             CcIcon(name=(speed == "ultrafast" ? "ultrafast" : "zap"), size=(xs ? 12 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#27272a, #f5f5f5)"), weight=2)
         else
-          when iconOnly
+          if iconOnly
             CcIcon(name="brain", size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
-        when not iconOnly and label != ""
+        if not iconOnly and label != ""
           text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1 min-width=0
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=(xs ? 0.5 : 1)
           CcIcon(name="chevron-down", size=(xs ? 12 : 14), color="light-dark(#71717a, #818181)", weight=2.25)
@@ -278,7 +278,7 @@ component RuntimeTrigger
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="runtime"
       button press=press hover=hover class=Control aria-label="Runtime mode" aria-expanded=open aria-keyshortcuts=keyMode testId="runtime-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=icon, size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
-        when not iconOnly
+        if not iconOnly
           text label font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(over ? "light-dark(#27272a, #f5f5f5)" : xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)") line-clamp=1
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=(xs ? 0.5 : 1)
           CcIcon(name="chevron-down", size=(xs ? 12 : 14), color="light-dark(#71717a, #818181)", weight=2.25)
@@ -299,7 +299,7 @@ component PlanToggle
     box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0
       button press=press hover=hover class=Control aria-label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode") aria-pressed=active testId="interaction-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(active ? (over ? "light-dark(#f4f4f5cc, #ffffff08)" : "light-dark(#f4f4f5, #ffffff0a)") : over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         CcIcon(name=(active ? "pencil-ruler" : "bot"), size=(xs ? 12 : active ? 16 : 18), color=(active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#71717a, #818181)"), weight=2)
-        when not iconOnly
+        if not iconOnly
           text (active ? "Plan" : "Build") font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") color=(active ? "light-dark(#18181b, #f5f5f5)" : over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)")
       TipBubble(label=(active ? "Plan mode — click to return to normal build mode" : "Default mode — click to enter plan mode"), side="top", align="center", offset=(xs ? 28 : 32), inset=0, shown=over)
 
@@ -336,17 +336,17 @@ component SendGlyph
     icon: string
     spinner: bool
   view
-    when spinner
+    if spinner
       box width="0.875rem" height="0.875rem" position="relative" display="flex" animation="ccSpin 1s linear infinite" aria-hidden=true
         CcIcon(name="loader", size=14, color="#ffffff", weight=2)
     else
-      when icon == "arrow"
+      if icon == "arrow"
         svg width="0.875rem" height="0.875rem" viewBox="0 0 14 14" fill="none" position="relative" aria-hidden=true
           path d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
       else
         // While a turn runs, steer (CornerUpRight) and queue (ListPlus) morph into each
         // other (MorphIcon, f2cc80a7a4; morphicons' morph, shell-morph.contract).
-        when icon == "list-plus" or icon == "corner-up-right"
+        if icon == "list-plus" or icon == "corner-up-right"
           MorphQueueSteer(on=(icon == "list-plus"), size=16, color="#ffffff", weight=2, still=false)
         else
           box position="relative" display="flex"
@@ -394,17 +394,17 @@ component PrimaryActions
   derive blocked = busy or not data.canSend
   view
     row gap="0.5rem" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="actions"
-      when data.composer.attach
+      if data.composer.attach
         AttachButton(disabled=(busy or not data.connected), press=command("cclocal:attach", "", "", 0))
       // ContextWindowMeter (Settings › Context window indicator): a usage ring
       // whose details open above it (a PopoverTrigger: `aria-haspopup="dialog"`).
-      when data.composer.contextShow
+      if data.composer.contextShow
         button press=openOptions("context") hover=hover("meter") hatch="t3-anchor" data-anchor="meter" testId="context-window-meter" aria-label=data.composer.contextAria aria-haspopup="dialog" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "meter" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
           svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" rotate=-90 aria-hidden=true
             circle cx=12 cy=12 r=9.75 fill="none" stroke="light-dark(#71717a3d, #8181813d)" stroke-width=3
             circle cx=12 cy=12 r=9.75 fill="none" stroke=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)") stroke-width=3 stroke-linecap="round" stroke-dasharray=61.26 stroke-dashoffset=data.composer.contextOffset
-      when data.composer.planReady and (hasText or not data.composer.canResume)
-        when hasText
+      if data.composer.planReady and (hasText or not data.composer.canResume)
+        if hasText
           button press=send hover=hover("refine") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-refine" height="2rem" padding-left="1rem" padding-right="1rem" border-radius="1rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 background-color=(over == "refine" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(blocked ? "none" : "0 1px 2px 0 #1b4ed83d")
             text (busy ? "Sending..." : "Refine") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
         else
@@ -414,13 +414,13 @@ component PrimaryActions
             button press=openOptions("implement") hover=hover("menu") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-implement-menu" aria-label="Implementation actions" height="2rem" padding-left="0.5rem" padding-right="0.5rem" border-top-right-radius="1rem" border-bottom-right-radius="1rem" border-top-left-radius=0 border-bottom-left-radius=0 border-left-width=1 border-top-width=0 border-right-width=0 border-bottom-width=0 border-style="solid" border-color="#ffffff33" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over == "menu" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") title=""
               CcIcon(name="chevron-down", size=14, color="#ffffff", weight=2)
       else
-        when data.canStop and not sendable and data.composer.queueEditing == ""
+        if data.canStop and not sendable and data.composer.queueEditing == ""
           RowTip(label="Interrupt", side="top", align="center", offset=36, shown=(over == "stop" and overThread == data.threadId), hover=hover("stop"))
             button press=stop disabled=busy testId="stop" aria-label="Stop generation" width="2rem" height="2rem" border-radius="1rem" background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" border-width=0 display="flex" align-items="center" justify-content="center" flex-shrink=0 title=""
               svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
                 rect x=2 y=2 width=8 height=8 rx=1.5
         else
-          when data.composer.canResume and not sendable
+          if data.composer.canResume and not sendable
             RowTip(label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread"), side="top", align="center", offset=36, shown=(over == "resume" and overThread == data.threadId), hover=hover("resume"))
               button press=command("cc:resume", "", "", 0) disabled=(blocked or data.composer.sendSpinner) opacity=(blocked ? 0.64 : 1) testId="resume-thread" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Resume thread") width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 box-shadow=(blocked ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
                 SendArt()
@@ -464,7 +464,7 @@ component ComposerFooter
   action sendHover(value: bool)
     sendOver = value
     sendThread = value ? data.threadId : sendThread
-  derive sendable = data.canSend and (text != "" or length(data.snapshotDrafts) > 0)
+  derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   derive locked = busy or not data.connected
   // The send tooltip shifts left to stay 5pt inside the window (Base UI collision padding):
   // the button's centre is 32pt in from the toolbar's right edge (resting: 4pt).
@@ -484,25 +484,25 @@ component ComposerFooter
       // r5-integrate: the model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
       // child's visible overflow (652a6c865), so the part outside the row takes its press.
       row flex=1 min-width=0 gap=(resting ? "0px" : "0.25rem") align-items="center" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"
-        when data.composer.noProvider != ""
+        if data.composer.noProvider != ""
           ProviderUnavailable(label=data.composer.noProvider, xs=resting, disabled=(data.composer.providerSetupId == ""), press=openProviders(data.composer.providerSetupId))
         else
-          when not clusterHidden
+          if not clusterHidden
             ModelTrigger(data=data, xs=resting, open=modelsOpen, label=(not resting or not narrow), keyModels=keyModels, disabled=locked, press=openModels)
-            when (data.composer.traitsLabel != "" or data.composer.traitsSpeed != "") and not traitsOut
+            if (data.composer.traitsLabel != "" or data.composer.traitsSpeed != "") and not traitsOut
               ToolbarSeparator(xs=resting)
               TraitsTrigger(label=data.composer.traitsLabel, aria=data.composer.traitsAria, speed=data.composer.traitsSpeed, iconOnly=traitsIcon, xs=resting, open=(optionsOpen == "effort"), disabled=locked, keyEffort=data.composer.keyEffort, press=openOptions("effort"))
-            when not modeOut
+            if not modeOut
               ToolbarSeparator(xs=resting)
               RuntimeTrigger(label=data.composer.runtimeLabel, tip=data.composer.runtimeDescription, icon=data.composer.runtimeIcon, iconOnly=runtimeIcon, xs=resting, open=(optionsOpen == "runtime"), disabled=locked, keyMode=data.composer.keyMode, press=openOptions("runtime"))
-              when data.composer.planVisible
+              if data.composer.planVisible
                 ToolbarSeparator(xs=resting)
                 PlanToggle(active=data.composer.planActive, xs=resting, iconOnly=runtimeIcon, disabled=locked, press=interaction(data.composer.planActive ? "default" : "plan"))
-            when modeOut or traitsOut
+            if modeOut or traitsOut
               OverflowTrigger(xs=resting, open=(optionsOpen == "more"), disabled=locked, keys=(traitsOut ? `${data.composer.keyMode} ${data.composer.keyEffort}` : data.composer.keyMode), press=openOptions("more"))
-      when not resting
+      if not resting
         PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
-    when resting
+    if resting
       box position="absolute" right="0.5rem" top="0.4375rem" width="2rem" height="2rem" display="flex" hover=sendHover
         button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff" title=""
           SendArt()
@@ -548,10 +548,10 @@ component ComposerMenus
   derive searchActive = (searchSession == session ? searchFocused : true)
   derive active = (focusSession == session ? focusIndex : -1)
   derive hovered = (hoverSession == session ? hoverIndex : -1)
-  derive count = (which == "more" ? (resting ? data.composer.restingMoreCount : data.composer.moreCount) : which == "effort" ? data.composer.traitsCount : which == "implement" ? 1 : which == "context" ? (data.composer.contextCompact ? 1 : 0) : which == "workspace" ? (branches.previous ? 3 : 2) : which == "branch" ? length(branches.refs) + (branches.creatable != "" ? 1 : 0) : data.composer.runtimeCount)
+  derive count = (which == "more" ? (resting ? data.composer.restingMoreCount : data.composer.moreCount) : which == "effort" ? data.composer.traitsCount : which == "implement" ? 1 : which == "context" ? (data.composer.contextCompact ? 1 : 0) : which == "workspace" ? (branches.previous ? 3 : 2) : which == "branch" ? branches.refs.length + (branches.creatable != "" ? 1 : 0) : data.composer.runtimeCount)
   // r5-composer: content-sized menus take their measured widths (r5-composer-menus.ts), within the window
   // (max-w calc(100vw - 2rem)); a previous worktree fixes the workspace menu at min(21rem, 100vw - 2rem).
-  derive width = (which == "more" ? min(resting ? data.composer.restingMoreMenuWidth : data.composer.moreMenuWidth, viewport.width - 32) : which == "effort" ? min(data.composer.effortMenuWidth, viewport.width - 32) : which == "implement" ? 200 : which == "context" ? 256 : which == "workspace" ? (branches.previous ? min(336, viewport.width - 32) : length(branches.envOptions) > 0 ? min(branches.envMenuWidth, viewport.width - 32) : (wideWorkspace ? 154 : 160)) : which == "branch" ? 320 : min(data.composer.runtimeMenuWidth, viewport.width - 32))
+  derive width = (which == "more" ? min(resting ? data.composer.restingMoreMenuWidth : data.composer.moreMenuWidth, viewport.width - 32) : which == "effort" ? min(data.composer.effortMenuWidth, viewport.width - 32) : which == "implement" ? 200 : which == "context" ? 256 : which == "workspace" ? (branches.previous ? min(336, viewport.width - 32) : branches.envOptions.length > 0 ? min(branches.envMenuWidth, viewport.width - 32) : (wideWorkspace ? 154 : 160)) : which == "branch" ? 320 : min(data.composer.runtimeMenuWidth, viewport.width - 32))
   derive strip = which == "workspace" or which == "branch"
   // r4-composer: a composer at least 768pt wide (its strip 44pt narrower) shows the workspace as the desktop
   // Select (BranchToolbarEnvModeSelector): a listbox 4pt below its trigger, as wide as its rows.
@@ -605,7 +605,7 @@ component ComposerMenus
       if name == "End"
         focus(`composer-menu-item-${count - 1}`)
   view
-    when not gone
+    if not gone
       // A button, so Escape binds as its command (a box with a shortcut is not one).
       button position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Close options" aria-keyshortcuts="Escape" testId="dismiss-composer-options" title=""
       column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 * rem / 16 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
@@ -613,18 +613,18 @@ component ComposerMenus
         // of its own ("Context Window, and 4 more items, dialog" under VoiceOver). As a `menu` the column was no element, so
         // AppKit ordered its items with the composer by position and VoiceOver read "Message" between the note and the bar.
         column id="composer-menu" key=move(-1) width="100%" padding=(which == "branch" ? "0px" : "0.25rem") gap=0 border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "context" ? "dialog" : which == "runtime" or which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "context" ? "" : which == "more" ? "More composer controls" : which == "effort" ? data.composer.traitsLabel : which == "implement" ? "Implementation actions" : which == "workspace" ? "Workspace" : which == "branch" ? "Refs" : "Runtime mode") testId="composer-options"
-          when which == "workspace"
+          if which == "workspace"
             // lane r4-git: MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.
-            when length(branches.envOptions) > 0
+            if branches.envOptions.length > 0
               text "Run on" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717a, #818181)"
-              each option in branches.envOptions key=option.id
+              for option in branches.envOptions key=option.id
                 button press=command("environment-run-on", "", option.id, 0) role="menuitemradio" aria-checked=option.selected testId=`run-on-${option.id}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
                   box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
                     CnMachineIcon(kind=option.machine, size=12, color="light-dark(#27272a, #f5f5f5)")
                   text option.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-              when not branches.gitless
+              if not branches.gitless
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-            when not branches.gitless
+            if not branches.gitless
               text "Workspace" font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom=(wideWorkspace ? "0.375rem" : "0.25rem") color="light-dark(#71717a, #818181)"
               button press=command("cclocal:env-mode", "", "local", 0) disabled=branches.forceWorktree opacity=(branches.forceWorktree ? 0.64 : 1) hover=hover(0) focus=mark(0, true) blur=mark(0, false) key=move(0) id="composer-menu-item-0" role=(wideWorkspace ? "option" : "menuitemradio") aria-checked=(branches.envMode == "local") aria-selected=(branches.envMode == "local") testId="workspace-local" class=Control justify-content="flex-start" width="100%" min-height=(wideWorkspace ? "1.8125rem" : "1.75rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" background-color=(active == 0 or hovered == 0 ? "light-dark(#f4f4f5, #ffffff0a)" : branches.envMode == "local" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
                 box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
@@ -634,15 +634,15 @@ component ComposerMenus
                 box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
                   CcIcon(name="folder-git", size=12, color="light-dark(#27272a, #f5f5f5)", weight=2)
                 text "New worktree" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-              when branches.previous
+              if branches.previous
                 button press=command("cclocal:env-mode", "", "previous", 0) hover=hover(2) focus=mark(2, true) blur=mark(2, false) key=move(2) id="composer-menu-item-2" role="menuitemradio" aria-checked=false testId="workspace-previous" class=Control justify-content="flex-start" align-items="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" border-radius="0.375rem" background-color=(active == 2 or hovered == 2 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
                   box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" margin-top="0.25rem"
                     CcIcon(name="history", size=12, color="light-dark(#27272a, #f5f5f5)", weight=2)
                   column min-width=0 flex=1 align-items="flex-start"
                     text "Previous worktree" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-                    when branches.previousBranch != ""
+                    if branches.previousBranch != ""
                       text branches.previousBranch font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" line-clamp=1 min-width=0 max-width="100%"
-          when which == "branch"
+          if which == "branch"
             // BranchPicker: ComboboxSearchInput (px-3 pt-2.5, underline that turns
             // primary on focus), the virtualized list (max-h-56, ps-1 pt-2 pb-1,
             // stable gutter) whose first item is auto-highlighted, then the status.
@@ -651,98 +651,98 @@ component ComposerMenus
                 row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchActive ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
                   box position="absolute" left=0 top="0.375rem" display="flex"
                     CcIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)", weight=2)
-                  when branchQuery == ""
+                  if branchQuery == ""
                     text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true
                   input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
               scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:strip-refs"
                 column width="100%" gap=0 padding-left="0.5rem" padding-right="0.625rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
                   // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
-                  each item in branches.checkout key=item.reference
+                  for item in branches.checkout key=item.reference
                     button press=command("chatlocal:git-pr-open", "", item.reference, 0) hover=hover(0) testId="branch-checkout-pr" role="option" aria-selected=false class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
                       row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"
                         R4Glyph(name=item.mark, size=14, color="light-dark(#71717b, #818181)")
                         column min-width=0 align-items="flex-start"
                           text item.title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 text-align="left"
                           text item.reference font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 text-align="left"
-                  each ref in branches.refs key=ref.name
+                  for ref in branches.refs key=ref.name
                     button press=command("cc:branch", "", ref.name, 0) contextmenu=command("cclocal:branch-menu", "", ref.name, 0) hover=hover(ref.index) testId=`branch-${ref.name}` role="option" aria-selected=ref.selected class=Control justify-content="space-between" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.5rem" border-radius="0.375rem" background-color=(hovered == ref.index or (hovered < 0 and ref.index == 0) ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
                       text ref.name font-size="0.875rem" line-height="1.25rem" color=(hovered == ref.index or (hovered < 0 and ref.index == 0) ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0 flex=1 text-align="left"
-                      when ref.badge != ""
+                      if ref.badge != ""
                         text ref.badge font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717a73, #81818173)" flex-shrink=0
-                  when branches.creatable != ""
-                    button press=command("cc:branch-create", "", branches.creatable, 0) hover=hover(length(branches.refs) + length(branches.checkout)) testId="branch-create" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(hovered == length(branches.refs) + length(branches.checkout) or (hovered < 0 and length(branches.refs) + length(branches.checkout) == 0) ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+                  if branches.creatable != ""
+                    button press=command("cc:branch-create", "", branches.creatable, 0) hover=hover(branches.refs.length + branches.checkout.length) testId="branch-create" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=(hovered == branches.refs.length + branches.checkout.length or (hovered < 0 and branches.refs.length + branches.checkout.length == 0) ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
                       text `Create new ref "${branches.creatable}"` font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-                  when length(branches.refs) == 0 and branches.creatable == "" and length(branches.checkout) == 0
+                  if branches.refs.length == 0 and branches.creatable == "" and branches.checkout.length == 0
                     text (branches.loading ? "Loading refs..." : "No refs found.") font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
               // BranchPicker's originControl while choosing a new worktree's base (lane r4-git).
-              when branches.originShown
+              if branches.originShown
                 button press=local("git-origin", "", "") role="switch" aria-checked=branches.originOn aria-label="Start worktree from origin" testId="branch-origin" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.75rem" border-width=0 border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="space-between"
                   row min-width=0 gap="0.375rem" align-items="center"
                     R4Glyph(name="refresh-cw", size=12, color="light-dark(#71717a, #818181)")
                     text "Start from origin" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
                   row width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content=(branches.originOn ? "flex-end" : "flex-start") background-color=(branches.originOn ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") aria-hidden=true
                     box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#ffffff, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
-              when branches.status != ""
+              if branches.status != ""
                 text branches.status font-size="0.75rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717a, #818181)" role="status"
-          when which == "context"
+          if which == "context"
             column width="100%" padding="0.5rem" gap="0.5rem" box-sizing="border-box" testId="context-window-details"
               row width="100%" gap="0.75rem" align-items="center" justify-content="space-between"
                 text "Context Window" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)"
                 text (data.composer.contextPercent != "" ? `${data.composer.contextPercent} · ${data.composer.contextUsed}/${data.composer.contextMax}` : data.composer.contextUsed) font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#52525b, #a1a1aa)"
-              when data.composer.contextMax != ""
+              if data.composer.contextMax != ""
                 // ContextWindowMeter's bar: a drawn `role="progressbar"` with ARIA's range values (LLP 1116 D8), on macOS one
                 // progress indicator element saying its value, minimum and maximum; the fill inside is presentational.
                 box width="100%" height="0.375rem" border-radius="0.1875rem" overflow="hidden" background-color="light-dark(#f4f4f599, #ffffff0f)" role="progressbar" aria-valuemin=0 aria-valuemax=100 aria-valuenow=data.composer.contextValueNow aria-label="Context window usage" testId="context-window-bar"
                   box height="0.375rem" border-radius="0.1875rem" width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}` background-color=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)")
-              when data.composer.contextTotal != ""
+              if data.composer.contextTotal != ""
                 row width="100%" justify-content="space-between"
                   text "Total processed" font-size="0.6875rem" line-height="1rem" color="light-dark(#52525b, #a1a1aa)"
                   text data.composer.contextTotal font-size="0.6875rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#52525b, #a1a1aa)"
-              when data.composer.contextCost != ""
+              if data.composer.contextCost != ""
                 row width="100%" justify-content="space-between"
                   text "Cost" font-size="0.6875rem" line-height="1rem" color="light-dark(#52525b, #a1a1aa)"
                   text data.composer.contextCost font-size="0.6875rem" font-weight=500 line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#52525b, #a1a1aa)"
-              when data.composer.contextNote != ""
+              if data.composer.contextNote != ""
                 text data.composer.contextNote font-size="0.6875rem" font-weight=500 line-height="1rem" margin-top="0.25rem" color="light-dark(#52525b, #a1a1aa)"
-              when data.composer.contextCompact
+              if data.composer.contextCompact
                 button press=command("cc:compact", "", "", 0) hover=hover(0) focus=mark(0, true) blur=mark(0, false) key=move(0) id="composer-menu-item-0" testId="compact-context" margin-top="0.25rem" width="100%" height="1.5rem" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color=(hovered == 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "light-dark(#ffffff, #ffffff08)") display="flex" flex-direction="row" align-items="center" justify-content="center"
                   CcIcon(name="minimize", size=14, color="light-dark(#27272a, #f5f5f5)", weight=2)
                   text "Compact context" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-          when which == "implement"
+          if which == "implement"
             button press=command("cc:implement-new", "", "", 0) hover=hover(0) focus=mark(0, true) blur=mark(0, false) key=move(0) id="composer-menu-item-0" role="menuitem" testId="implement-new-thread" class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap=0 border-radius="0.375rem" background-color=(active == 0 or hovered == 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               text "Implement in a new thread" font-size="0.875rem" line-height="1.25rem" font-weight=400 color=(active == 0 or hovered == 0 ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap"
-          when which == "more"
-            each item in moreRows key=item.key
-              when item.kind == "header"
+          if which == "more"
+            for item in moreRows key=item.key
+              if item.kind == "header"
                 text item.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717a, #818181)"
-              when item.kind == "divider"
+              if item.kind == "divider"
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
-              when item.kind == "note"
+              if item.kind == "note"
                 text item.label font-size="0.75rem" line-height="1rem" max-width="14rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #818181cc)"
-              when item.kind == "option"
+              if item.kind == "option"
                 button press=pickMore(item.descriptor, item.value) disabled=item.disabled opacity=(item.disabled ? 0.64 : 1) hover=hover(item.index) focus=mark(item.index, true) blur=mark(item.index, false) key=move(item.index) id=`composer-menu-item-${item.index}` role="menuitemradio" aria-checked=item.selected testId=`more-${item.descriptor}-${item.value}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap=0 border-radius="0.375rem" background-color=(active == item.index or hovered == item.index ? "light-dark(#f4f4f5, #ffffff0a)" : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
                   text item.label font-size="0.875rem" line-height="1.25rem" font-weight=400 color=(active == item.index or hovered == item.index ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
-          when which == "effort"
-            each item in data.composer.traits key=item.key
-              when item.kind == "header"
+          if which == "effort"
+            for item in data.composer.traits key=item.key
+              if item.kind == "header"
                 text item.label font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" color="light-dark(#71717a, #818181)"
-              when item.kind == "divider"
+              if item.kind == "divider"
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
               // composer-fidelity G9: "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
-              when item.kind == "note"
+              if item.kind == "note"
                 text item.label font-size="0.75rem" line-height="1rem" max-width="14rem" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" color="light-dark(#71717acc, #818181cc)" testId="effort-ultrathink-note"
-              when item.kind == "option"
+              if item.kind == "option"
                 button press=chooseTrait(item.descriptor, item.value) disabled=item.disabled opacity=(item.disabled ? 0.64 : 1) hover=hover(item.index) focus=mark(item.index, true) blur=mark(item.index, false) key=move(item.index) id=`composer-menu-item-${item.index}` role="menuitemradio" aria-checked=item.selected testId=`effort-${item.value}` class=Control justify-content="flex-start" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap=0 border-radius="0.375rem" background-color=(active == item.index or hovered == item.index ? "light-dark(#f4f4f5, #ffffff0a)" : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
                   column flex=1 min-width=0 align-items="flex-start"
                     row min-width=0 max-width="100%" align-items="center"
                       text item.label font-size="0.875rem" line-height="1.25rem" font-weight=400 color=(active == item.index or hovered == item.index ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
-                      when item.isDefault
+                      if item.isDefault
                         box width="0.25rem" flex-shrink=0
                         text "Default" font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.1875rem" padding-right="0.1875rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" border-radius="0.25rem" background-color="light-dark(#fcfcfc, #ffffff07)" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
-                    when item.description != ""
+                    if item.description != ""
                       text item.description font-size="0.75rem" line-height="1rem" max-width="14rem" color="light-dark(#71717acc, #818181cc)" text-align="left"
-          when which == "runtime"
-            each option in data.composer.runtimes key=option.mode
+          if which == "runtime"
+            for option in data.composer.runtimes key=option.mode
               button press=chooseRuntime(option.mode) hover=hover(option.index) focus=mark(option.index, true) blur=mark(option.index, false) key=move(option.index) id=`composer-menu-item-${option.index}` role="option" aria-selected=option.selected testId=`mode-${option.mode}` class=Control width="100%" min-height="2.875rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" justify-content="flex-start" align-items="flex-start" background-color=(option.selected ? "light-dark(#27272a14, #f5f5f514)" : active == option.index or hovered == option.index ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
                 column gap="0.125rem" min-width=0 flex=1 align-items="flex-start"
                   row gap="0.375rem" align-items="center"
@@ -779,18 +779,18 @@ component StripControl
   view
     // A 1pt transparent border inside px-1.75; glyphs take -0.5 inline margins ([&_svg]:-mx-0.5).
     button press=press contextmenu=context hover=hover disabled=disabled testId=testId aria-label=aria aria-expanded=open min-width=0 max-width="17.5rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=1 position="relative"
-      when machine != ""
+      if machine != ""
         // showEnvironmentIndicator: the machine and the workspace glyphs 2pt apart, without the -mx-0.5.
         row gap="0.125rem" flex-shrink=0 align-items="center"
           CnMachineIcon(kind=machine, size=12, color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)"))
-          when icon != ""
+          if icon != ""
             CcIcon(name=icon, size=12, color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)"), weight=2)
       else
         box hover=hoverIcon display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" opacity=(icon == "git-branch" ? 0.7 : 1) position="relative"
           CcIcon(name=icon, size=12, color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)"), weight=2)
-          when tip != "" and tipIcon
+          if tip != "" and tipIcon
             TipBubble(label=tip, side="top", align="center", offset=16, inset=0, shown=(iconOver and not open))
-      when tip != "" and not tipIcon
+      if tip != "" and not tipIcon
         TipBubble(label=tip, side="top", align="center", offset=28, inset=0, shown=(over and not open))
       text label font-size="0.75rem" line-height="1rem" color=(over or open ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717ab3, #818181b3)") line-clamp=1 min-width=0 max-width="15rem"
       box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem" opacity=0.5
@@ -809,10 +809,10 @@ component ComposerStrip
   view
     // ps-1 pe-2 inside the drawer's pseudo-element border: the drawn 1pt border eats a point of each.
     row margin-left="1.375rem" margin-right="1.375rem" padding-left="0.1875rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-bottom-left-radius="1rem" border-bottom-right-radius="1rem" border-style="solid" border-top-width=0 border-left-width=1 border-right-width=1 border-bottom-width=1 border-color="light-dark(#00000014, #ffffff12)" box-shadow="0 12px 28px -18px light-dark(#00000040, #00000000)" hatch="t3-frame" data-frame="strip" testId="composer-context-strip"
-      when strip.gitless
+      if strip.gitless
         // lane r12-threads: a non-Git project offers only where it runs (BranchToolbarEnvironmentSelector): the
         // "Run on" Select for a draft, the static machine row (h-6 px-1.75 gap-1, text-xs /70) for a started thread.
-        when strip.envLocked
+        if strip.envLocked
           row height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="100%" testId="run-on-locked" aria-label=strip.envMachineLabel
             CnMachineIcon(kind=strip.envMachine, size=12, color="light-dark(#71717ab3, #818181b3)")
             text strip.envMachineLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717ab3, #818181b3)" line-clamp=1
@@ -820,7 +820,7 @@ component ComposerStrip
           StripControl(icon="", label=strip.envMachineLabel, testId="workspace-mode", aria="Run on", open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), tip=strip.envMachineLabel, tipIcon=false, machine=strip.envMachine)
         box flex=1 min-width=0
       else
-        when strip.envLocked
+        if strip.envLocked
           row height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.25rem" align-items="center" min-width=0 max-width="48%" testId="workspace-locked"
             box display="flex" flex-shrink=0 margin-left="-0.125rem" margin-right="-0.125rem"
               CcIcon(name=strip.envIcon, size=12, color="light-dark(#71717ab3, #818181b3)", weight=2)
@@ -828,7 +828,7 @@ component ComposerStrip
         else
           StripControl(icon=strip.envIcon, label=(strip.envShow ? strip.envMachineLabel : strip.envLabel), testId="workspace-mode", aria=(wide ? "Workspace" : `Workspace: ${strip.envLabel}`), open=(open == "workspace"), disabled=busy, press=openOptions("workspace"), context=command("cclocal:noop", "", "", 0), tip=strip.envLabel, tipIcon=(not wide), machine=(strip.envShow ? strip.envMachine : ""))
         box flex=1 min-width=0
-        when strip.prShow
+        if strip.prShow
           StripPrBadge(text=strip.prText, icon=strip.prIcon, tone=strip.prState, label=strip.prLabel, list=strip.prList, url=strip.prUrl, target=strip.prTarget, tips=strip.prTips, disabled=busy, command=command)
         StripControl(icon="git-branch", label=strip.branchLabel, testId="branch-selector", aria=`Branch: ${strip.branchLabel}`, open=(open == "branch"), disabled=busy, press=openOptions("branch"), context=command("cclocal:branch-menu", "", strip.branch, 0), tip="", tipIcon=false, machine="")
 
@@ -850,42 +850,42 @@ component QueuedRow
     insertTop: bool
     insertBottom: bool
     dropValue: string
-    urls: list<AttachmentUrl>
+    urls: AttachmentUrl[]
   state over = ""
   action hover(name: string, value: bool)
     over = value ? name : (over == name ? "" : over)
   view
     row width="100%" min-height="1.25rem" gap="0.25rem" align-items="center" border-radius="0.25rem" position="relative" opacity=(dragging ? 0.5 : 1) background-color=(row.editing ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") role="listitem" testId=`queued-${row.runId}`
       // The insertion line while a grip drag is over this row (bg-primary/70, 2pt).
-      when insertTop
+      if insertTop
         box position="absolute" left=0 right=0 top=0 height=2 border-radius="0.125rem" background-color="light-dark(#1b4ed8b3, #346bf1b3)" testId="queued-drop-line"
-      when insertBottom
+      if insertBottom
         box position="absolute" left=0 right=0 bottom=0 height=2 border-radius="0.125rem" background-color="light-dark(#1b4ed8b3, #346bf1b3)" testId="queued-drop-line"
       // The grip reorders by dragging (released over a row's top or bottom half) or with ↑/↓ (queued-run.reorder).
-      when data.composer.queueReorder
+      if data.composer.queueReorder
         button key=keyed("queued-key", row.runId) pan=drag(row.runId, row.index) panrelease=drop("queued-drop", dropValue) touch-action="none" hover=hover("grip") disabled=busy testId=`queued-grip-${row.runId}` aria-label="Reorder queued message (drag, or press the arrow keys)" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "grip" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
           CcIcon(name="grip", size=14, color=(over == "grip" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
       else
         box width="1.5rem" height="1.5rem" flex-shrink=0
       // composer-fidelity G12a: a send still saving shows a clock; image attachments show as 16pt thumbnails (QueuedRunsControl).
-      when row.pending
+      if row.pending
         svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color="light-dark(#71717b99, #81818199)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-label="Saving queued message" role="img" testId="queued-saving"
           circle cx=12 cy=12 r=10
           path d="M12 6v6h4.5"
-      when length(row.thumbnails) > 0
+      if row.thumbnails.length > 0
         row gap="0.125rem" align-items="center" flex-shrink=0
-          each thumb in row.thumbnails key=thumb.id
+          for thumb in row.thumbnails key=thumb.id
             box width="1rem" height="1rem" overflow="hidden" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#ffffff, #0a0a0a)" box-sizing="border-box" testId=`queued-thumb-${thumb.id}`
-              when length(filter(urls, (entry) => entry.id == thumb.id)) > 0
-                each entry in filter(urls, (entry) => entry.id == thumb.id) key=entry.id
+              if urls.filter((entry) => entry.id == thumb.id).length > 0
+                for entry in urls.filter((entry) => entry.id == thumb.id) key=entry.id
                   image entry.url aria-label=thumb.name width="100%" height="100%" object-fit="cover"
               else
                 box width="100%" height="100%" background-color="light-dark(#f4f4f599, #ffffff0f)" aria-label=thumb.name
       text row.text font-size="0.75rem" line-height="1rem" color="light-dark(#27272acc, #f5f5f5cc)" flex=1 min-width=0 line-clamp=1 aria-label=(row.editing ? `Editing queued message: ${row.text}` : row.text)
-      when row.pending
+      if row.pending
         box width=0 height="1.5rem" flex-shrink=0
       else
-        when row.editing
+        if row.editing
           button press=command("cclocal:queued-cancel", "", "", 0) hover=hover("cancel") testId="queued-cancel-edit" aria-label="Cancel editing queued message" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color=(over == "cancel" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
             text "Cancel" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
         else
@@ -905,7 +905,7 @@ component QueuedControl
     command: action
     keyed: action
     drop: action
-    urls: list<AttachmentUrl>
+    urls: AttachmentUrl[]
   state collapsed = ""
   // A grip drag (QueuedRunsControl dragState): the lifted run, where it started and how far
   // the pointer moved. A finished drop bumps queueDropSeq, which settles the lifted row.
@@ -926,7 +926,7 @@ component QueuedControl
       dragFrom = index
       dragSeq = data.composer.queueDropSeq
     dragDy = (fresh ? 0 : dragDy) + dy
-  derive count = length(data.composer.queued)
+  derive count = data.composer.queued.length
   derive dragLive = dragRun != "" and dragSeq == data.composer.queueDropSeq
   // Rows are 24pt, 1pt apart: over a row's upper half inserts before it, else after it.
   derive dragInsert = (dragLive ? min(count, max(0, floor((dragFrom * 25 + 12 + dragDy + 13) / 25))) : -1)
@@ -940,10 +940,10 @@ component QueuedControl
         row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
           CcIcon(name=(collapsed == data.threadId ? "chevron-up" : "chevron-down"), size=14, color="light-dark(#71717b, #818181)", weight=2)
       // thread-commands-and-keys: ⌥↑ expands the queue as it starts the edit (QueuedRunsControl editLatest setExpanded).
-      when collapsed != data.threadId or data.composer.queueEditing != ""
+      if collapsed != data.threadId or data.composer.queueEditing != ""
         scroll max-height="8rem" width="100%"
           column width="100%" gap=1 role="list" testId="queued-list"
-            each row in data.composer.queued key=row.runId
+            for row in data.composer.queued key=row.runId
               QueuedRow(row=row, count=count, data=data, busy=busy, command=command, keyed=keyed, drag=drag, drop=drop, dragging=(dragLive and dragRun == row.runId), insertTop=(dragLive and dragInsert == row.index), insertBottom=(dragLive and row.last and dragInsert == count), dropValue=(dragLive ? `${dragRun}|${dragInsert}` : ""), urls=urls)
 
 // ComposerBanner.Root "comfortable", attached (its last 17pt tucks under the
@@ -964,66 +964,66 @@ component NoticeRow
     column opacity=(exiting ? 0 : 1) translate=(exiting and not still ? (attached ? "0 64px" : "0 112px") : "0 0") transition="opacity 220ms ease-in, translate 220ms ease-in" pointer-events=(exiting ? "none" : "auto") margin-left=(attached ? "1.375rem" : "0px") margin-right=(attached ? "1.375rem" : "0px") margin-bottom=(attached ? "-1.0625rem" : "0px") padding-left="0.1875rem" padding-right="0.1875rem" padding-top="0.3125rem" padding-bottom=(attached ? "1.375rem" : "0.3125rem") box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : attached ? "1.125rem" : "1rem") border-top-right-radius=(stacked ? "0px" : attached ? "1.125rem" : "1rem") border-bottom-left-radius=(attached ? "0px" : "1rem") border-bottom-right-radius=(attached ? "0px" : "1rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=(attached ? 0 : 1) border-color=(notice.variant == "warning" ? "light-dark(#fe9a0047, #fe9a0047)" : notice.variant == "error" ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#00000014, #ffffff0d)") background-color=(notice.variant == "warning" ? "light-dark(#fef6eacc, #231b0fcc)" : notice.variant == "error" ? "light-dark(#feededcc, #231415cc)" : "light-dark(#ffffffcc, #121212cc)") box-shadow="0 12px 28px -18px #00000066" role="alert" testId=`notice-${notice.id}`
       row width="100%" gap="0.25rem" align-items="center"
         row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" flex-shrink=0 align-self="flex-start"
-          when notice.icon == "dot"
+          if notice.icon == "dot"
             box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)" animation="ccPulse 2s ease-in-out infinite"
           else
-            when notice.icon == "dot-static"
+            if notice.icon == "dot-static"
               box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)"
             else
               // ComposerServerUpdateIcon: a spinner while an update runs; a red alert once it failed.
-              when notice.icon == "spinner"
+              if notice.icon == "spinner"
                 box width="0.75rem" height="0.75rem" display="flex" animation=(still ? "none" : "ccSpin 1s linear infinite") testId=`notice-spinner-${notice.id}`
                   CcIcon(name="loader", size=12, color="light-dark(#71717b, #818181)", weight=2)
               else
                 CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
-        when length(notice.machines) > 0
+        if notice.machines.length > 0
           // auto-balance: the multi-machine banner's title opens its machine list (auto-balance.contract).
           NoticeMachines(notice=notice, busy=busy, command=command, still=still)
         else
-          when notice.tip != ""
+          if notice.tip != ""
             // The title's tooltip: "<server> X → Y", or the update status in full.
             Tip(label=notice.tip, side="top", align="start", offset=28)
               text notice.title role=(notice.liveRole == "" ? "none" : notice.liveRole) aria-label=notice.tip font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 line-clamp=1 testId=`notice-title-${notice.id}`
           else
             text notice.title font-size="0.75rem" font-weight=500 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 max-width="60%" line-clamp=1
-        when notice.sep
+        if notice.sep
           text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0 aria-hidden=true
-        when length(notice.segments) > 0
+        if notice.segments.length > 0
           // The background-work roster: a subagent with its own thread is an InlineButton (tone muted).
           row flex=1 min-width="2rem" align-items="center" overflow="hidden" testId=`notice-segments-${notice.id}`
-            each seg in notice.segments key=seg.key
-              when seg.threadId != ""
+            for seg in notice.segments key=seg.key
+              if seg.threadId != ""
                 button press=command("select-thread", seg.threadId, "", 0) disabled=busy aria-label=`Open subagent ${seg.label}` testId=`notice-open-${seg.threadId}` padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" flex-shrink=0
                   text seg.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
               else
                 text seg.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
-              when not seg.last
+              if not seg.last
                 text ", " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="pre" flex-shrink=0
         else
-          when notice.redact != ""
+          if notice.redact != ""
             // usage-reset-and-feedback: an account address stays blurred until clicked (AccountSummary).
             row flex=1 min-width="2rem" align-items="center"
               UsageAccountLabel(label="", redact=notice.redact, redactMask=notice.redactMask, plan=notice.redactAfter, testId=`notice-label-${notice.id}`)
-          else when notice.description != ""
+          else if notice.description != ""
             text notice.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex=1 min-width="2rem" line-clamp=1
           else
             box flex=1 min-width=0
-        when notice.action != ""
+        if notice.action != ""
           Tip(label=(notice.actionReason != "" ? notice.actionReason : notice.actionTip), side="top", align="center", offset=28)
             button press=command(notice.action, "", "", 0) disabled=(busy or notice.actionReason != "") testId=`notice-action-${notice.id}` aria-label=notice.actionLabel height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy or notice.actionReason != "" ? 0.64 : 1)
               text notice.actionLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-        when notice.action2 != ""
+        if notice.action2 != ""
           Tip(label=notice.action2Tip, side="top", align="center", offset=28)
             button press=command(notice.action2, "", "", 0) disabled=busy testId=`notice-action2-${notice.id}` aria-label=notice.action2Label height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" flex-shrink=0 opacity=(busy ? 0.64 : 1)
               text notice.action2Label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-        when notice.dismiss != ""
+        if notice.dismiss != ""
           button press=dismiss(notice.id, notice.dismiss, notice.dismissId) disabled=(busy or exiting) testId=`notice-dismiss-${notice.id}` aria-label=notice.dismissLabel width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
             CcIcon(name="x", size=14, color="light-dark(#71717b, #818181)", weight=2)
-      when length(notice.usage) > 0
+      if notice.usage.length > 0
         UsageLimitsBody(accounts=notice.usage, notices=notice.lines, busy=busy, command=command, testId=`notice-body-${notice.id}`)
-      else when length(notice.lines) > 0
+      else if notice.lines.length > 0
         column width="100%" padding-left="1.75rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.375rem" gap="0.5rem" box-sizing="border-box" testId=`notice-body-${notice.id}`
-          each line in notice.lines key=line
+          for line in notice.lines key=line
             text line font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // ComposerActivityRow: the thread is loading or resynchronising.
@@ -1051,16 +1051,16 @@ component TasksRow
         text "Tasks" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
         text data.composer.tasksCurrent font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272acc, #f5f5f5cc)" flex=1 min-width=0 line-clamp=1 text-align="left"
         text `${data.composer.tasksDone}/${data.composer.tasksTotal}` font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.5rem" text-align="center" font-variant-numeric="tabular-nums" color=(data.composer.tasksDone >= data.composer.tasksTotal ? "light-dark(#00a63e, #00c950)" : "light-dark(#71717b, #818181)") flex-shrink=0
-        when data.composer.tasksTotal > 1 and data.composer.tasksTotal <= 10
+        if data.composer.tasksTotal > 1 and data.composer.tasksTotal <= 10
           row width="5rem" gap="0.125rem" align-items="center" flex-shrink=0 aria-hidden=true
-            each step in data.composer.tasks key=step.key
+            for step in data.composer.tasks key=step.key
               box flex=1 min-width=0 height="0.1875rem" border-radius="0.125rem" background-color=(step.status == "completed" ? "light-dark(#00a63e, #00c950)" : step.status == "inProgress" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b40, #81818140)")
         row width="1.5rem" height="1.5rem" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
           CcIcon(name=(expanded ? "chevron-down" : "chevron-up"), size=14, color="light-dark(#71717b, #818181)", weight=2)
-      when expanded
+      if expanded
         scroll max-height="15rem" width="100%"
           column width="100%" gap=1 role="list" aria-label=`Task list. ${data.composer.tasksDone} of ${data.composer.tasksTotal} complete.` testId="composer-tasks-list"
-            each step in data.composer.tasks key=step.key
+            for step in data.composer.tasks key=step.key
               row width="100%" min-height="1.25rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-right="0.5rem" box-sizing="border-box" gap="0.25rem" align-items="flex-start" role="listitem"
                 row width="1.5rem" height="1rem" align-items="center" justify-content="center" flex-shrink=0
                   CcIcon(name=(step.status == "completed" ? "check" : step.status == "inProgress" ? "circle-dot" : "circle"), size=12, color=(step.status == "completed" ? "light-dark(#00a63e, #00c950)" : step.status == "inProgress" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b66, #81818166)"), weight=2)
@@ -1077,7 +1077,7 @@ component ActivityStrip
     toggle: action
   view
     column margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.1875rem" padding-right="0.1875rem" padding-top="0.25rem" padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1.125rem") border-top-right-radius=(stacked ? "0px" : "1.125rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 12px 28px -18px #00000066" testId="composer-activity"
-      when data.composer.activity == "sync"
+      if data.composer.activity == "sync"
         SyncRow(label=data.composer.syncStatus)
       else
         TasksRow(data=data, expanded=expanded, toggle=toggle)
@@ -1092,7 +1092,7 @@ component ComposerDock
     command: action
     keyed: action
     drop: action
-    urls: list<AttachmentUrl>
+    urls: AttachmentUrl[]
     // server-update-banner: the notice sliding out, reduced motion, and the root's delayed dismissal.
     exiting: string
     still: bool
@@ -1104,38 +1104,38 @@ component ComposerDock
   action toggleTasks
     tasksOpen = not tasksOpen
   derive activity = data.composer.activity != ""
-  derive notices = length(data.composer.notices)
+  derive notices = data.composer.notices.length
   derive behind = (activity ? notices : notices - 1)
   derive expanded = open == data.threadId and behind > 0
   view
     column width="100%" testId="composer-dock"
-      when length(data.composer.queued) > 0
+      if data.composer.queued.length > 0
         QueuedControl(data=data, busy=busy, command=command, keyed=keyed, drop=drop, urls=urls)
-      when behind > 0
+      if behind > 0
         column width="100%" position="relative" min-height="0.75rem"
-          when expanded
+          if expanded
             column width="100%" gap="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" role="group" aria-label="Other notices" testId="composer-other-notices"
-              each n in data.composer.notices key=n.id
-                when not n.front
+              for n in data.composer.notices key=n.id
+                if not n.front
                   row width="100%" padding-left="1.375rem" padding-right="1.375rem" box-sizing="border-box"
                     column width="100%"
                       NoticeRow(notice=n, attached=false, stacked=false, busy=busy, command=command, exiting=(exiting == n.id), still=still, dismiss=dismiss)
           else
             row width="100%" height="0.75rem" justify-content="center"
               button press=toggleStack testId="show-other-notices" aria-label="Show other notices" aria-expanded=false width="calc(96% - 42px)" height="0.75rem" padding=0 border-top-left-radius="1rem" border-top-right-radius="1rem" border-style="solid" border-top-width=1 border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 4px 6px -1px #0000001a, 0 2px 4px -2px #0000001a" title=""
-          when expanded
+          if expanded
             button press=toggleStack tabindex=-1 testId="hide-other-notices" aria-label="Hide other notices" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 width=1 height=1 padding=0 border-width=0 background-color="#00000000" opacity=0 title=""
-      when activity
-        ActivityStrip(data=data, stacked=(length(data.composer.queued) > 0), expanded=tasksOpen, toggle=toggleTasks)
+      if activity
+        ActivityStrip(data=data, stacked=(data.composer.queued.length > 0), expanded=tasksOpen, toggle=toggleTasks)
       else
-        each n in data.composer.notices key=n.id
-          when n.front
-            NoticeRow(notice=n, attached=true, stacked=(length(data.composer.queued) > 0), busy=busy, command=command, exiting=(exiting == n.id), still=still, dismiss=dismiss)
-      when data.composer.planReady and data.requestMode == ""
+        for n in data.composer.notices key=n.id
+          if n.front
+            NoticeRow(notice=n, attached=true, stacked=(data.composer.queued.length > 0), busy=busy, command=command, exiting=(exiting == n.id), still=still, dismiss=dismiss)
+      if data.composer.planReady and data.requestMode == ""
         row margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.1875rem" padding-right="0.1875rem" padding-top="0.25rem" padding-bottom="1.3125rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-top-left-radius=(activity or notices > 0 ? "0px" : "1.125rem") border-top-right-radius=(activity or notices > 0 ? "0px" : "1.125rem") border-style="solid" border-top-width=(activity or notices > 0 ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#ffffffcc, #121212cc)" box-shadow="0 12px 28px -18px #00000066" testId="plan-ready"
           box width="1.5rem" height="1.5rem" flex-shrink=0
           text "Plan ready" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
-          when data.composer.planTitle != ""
+          if data.composer.planTitle != ""
             text data.composer.planTitle font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)" flex=1 min-width=0 line-clamp=1
 
 // ProviderSubagentBar: a provider-native subagent thread takes no messages, so
@@ -1152,16 +1152,16 @@ component SubagentBar
   view
     row width="100%" min-height="3rem" gap="0.75rem" align-items="center" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="1.25rem" padding-right="0.5rem" box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color=(data.look.themed ? data.look.border : "light-dark(#00000014, #ffffff0d)") background-color=(data.look.themed ? data.look.popover : "light-dark(#fefefe, #101010)") box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" testId="provider-subagent-bar" id="provider-subagent-bar" data-paint=`${(data.look.themed ? "border" : "")} ${(data.look.themed ? "surfaceOverlay" : "")}` data-pick=((data.look.themed ? "surfaceOverlay" : "") != "" ? (data.look.themed ? "surfaceOverlay" : "") : ((data.look.themed ? "border" : "") != "" ? (data.look.themed ? "border" : "") : ""))
       row min-width=0 gap="0.5rem" align-items="center"
-        when data.providerDriver != ""
+        if data.providerDriver != ""
           ProviderInstanceMark(driver=data.providerDriver, size=16, color="light-dark(#27272a, #f5f5f5)", badge=data.providerBadge, accent=data.providerBadgeColor)
         text data.composer.subagentModel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
-        when data.composer.subagentEffort != ""
+        if data.composer.subagentEffort != ""
           text data.composer.subagentEffort font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" flex-shrink=0 white-space="nowrap"
       text data.composer.subagentStatus font-size="0.875rem" line-height="1.25rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)" line-clamp=1 min-width=0 aria-hidden=true testId="subagent-status"
       text data.composer.subagentAnnounce position="absolute" width=1 height=1 overflow="hidden" opacity=0 font-size=1 role="status"
       box flex=1 min-width=0
       text "Runs on its own" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" flex-shrink=0 white-space="nowrap"
-      when data.composer.subagentParent != ""
+      if data.composer.subagentParent != ""
         button press=openParent(data.composer.subagentParent) hover=hover disabled=busy testId="subagent-open-parent" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" gap="0.375rem" border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
           CcIcon(name="arrow-up-left", size=16, color="light-dark(#27272a, #f5f5f5)", weight=2)
           text "Open parent" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"

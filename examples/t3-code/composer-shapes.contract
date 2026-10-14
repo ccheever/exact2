@@ -45,10 +45,10 @@ shape ComposerNotice
   front: bool
   action2: string
   action2Label: string
-  lines: list<string>
+  lines: string[]
   actionReason: string
   dismissId: string
-  segments: list<NoticeSegment>
+  segments: NoticeSegment[]
   // server-update-banner: the title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
   tip: string
   actionTip: string
@@ -57,13 +57,13 @@ shape ComposerNotice
   sep: bool
   liveRole: string
   // auto-balance: the multi-machine update banner's popover rows, and its title's accessible name.
-  machines: list<NoticeMachine>
+  machines: NoticeMachine[]
   menuLabel: string
   // usage-reset-and-feedback: an account address as the description (redacted until clicked, then `redactAfter`) and the /usage-limits body.
   redact: string
   redactMask: string
   redactAfter: string
-  usage: list<UsageAccount>
+  usage: UsageAccount[]
 // auto-balance: one machine of the banner's popover (status idle, running or failed; a manual copy action or note).
 shape NoticeMachine
   id: string
@@ -92,7 +92,7 @@ shape ComposerQueued
   index: number
   editing: bool
   last: bool
-  thumbnails: list<QueuedThumb>
+  thumbnails: QueuedThumb[]
   pending: bool
 // The workspace / branch strip under the draft composer (composer-controls-branch.ts).
 shape BranchRef
@@ -112,13 +112,13 @@ shape ComposerBranches
   branchLabel: string
   branch: string
   loading: bool
-  refs: list<BranchRef>
+  refs: BranchRef[]
   status: string
   creatable: string
   enterOp: string
   enterValue: string
   // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
-  checkout: list<R9CheckoutItem>
+  checkout: R9CheckoutItem[]
   // lane r4-git: "Run on" (r4-git-env.ts stripRunOn).
   envShow: bool
   // lanes r12/r13-threads: a non-Git project (a No project draft, say) shows only the machine selector
@@ -126,7 +126,7 @@ shape ComposerBranches
   gitless: bool
   envMachine: string
   envMachineLabel: string
-  envOptions: list<R4EnvOption>
+  envOptions: R4EnvOption[]
   envMenuWidth: number
   // auto-balance: the host-resource load the root's balanceLoad task sends ("" when none is due).
   balanceFetch: string
@@ -141,7 +141,7 @@ shape ComposerBranches
   prList: bool
   prUrl: string
   prTarget: string
-  prTips: list<StripPrTip>
+  prTips: StripPrTip[]
 // One provider mark of a multi-model draft's trigger (r3-composer-controls-fanout.ts).
 shape FanoutMark
   key: string
@@ -152,9 +152,9 @@ shape ComposerView
   fanout: bool
   fanoutLabel: string
   fanoutAria: string
-  fanoutMarks: list<FanoutMark>
+  fanoutMarks: FanoutMark[]
   fanoutMore: number
-  fanoutKeys: list<string>
+  fanoutKeys: string[]
   traitsLabel: string
   traitsSpeed: string
   traitsAria: string
@@ -177,15 +177,15 @@ shape ComposerView
   tasksTotal: number
   tasksDone: number
   tasksCurrent: string
-  tasks: list<ComposerTask>
+  tasks: ComposerTask[]
   syncStatus: string
   activity: string
-  notices: list<ComposerNotice>
+  notices: ComposerNotice[]
   // usage-reset-and-feedback: the account whose reset credit confirm is open ('' when none).
   resetConfirm: string
   implementX: number
   implementWidth: number
-  queued: list<ComposerQueued>
+  queued: ComposerQueued[]
   contextShow: bool
   contextAria: string
   contextPercent: string
@@ -212,21 +212,21 @@ shape ComposerView
   queueSteerReason: string
   queueEditing: string
   // composer-fidelity G12a: the edit's kept attachments and whether its save is in flight.
-  queueEditAttachments: list<QueueEditAttachment>
+  queueEditAttachments: QueueEditAttachment[]
   queueEditSaving: bool
   queueDropSeq: number
   traitsCount: number
   traitsSelected: number
-  traits: list<ComposerTrait>
+  traits: ComposerTrait[]
   runtimeMode: string
   runtimeLabel: string
   runtimeIcon: string
   runtimeDescription: string
   runtimeSelected: number
   runtimeCount: number
-  runtimes: list<ComposerRuntime>
+  runtimes: ComposerRuntime[]
   // r5-composer: menu texts to measure, and the menus' widths from the measurements (r5-composer-menus.ts).
-  menuProbes: list<R5Probe>
+  menuProbes: R5Probe[]
   effortMenuWidth: number
   runtimeMenuWidth: number
   effortMenuHeight: number
@@ -243,9 +243,9 @@ shape ComposerView
   restingTraitsOverflow: bool
   controlsHidden: bool
   restingControlsHidden: bool
-  more: list<ComposerTrait>
+  more: ComposerTrait[]
   moreCount: number
-  restingMore: list<ComposerTrait>
+  restingMore: ComposerTrait[]
   restingMoreCount: number
   moreMenuWidth: number
   restingMoreMenuWidth: number
@@ -317,10 +317,10 @@ shape PickerCatalog
   highlightKind: string
   highlightId: string
   highlightProvider: string
-  models: list<PickerRow>
-  providers: list<PickerRail>
+  models: PickerRow[]
+  providers: PickerRail[]
   railIndex: number
-  setup: list<PickerSetup>
+  setup: PickerSetup[]
   chatgptSharing: bool
   // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
   legacyDefault: bool

@@ -12,7 +12,7 @@ shape CalendarDay
   stop: bool
 shape CalendarWeek
   id: string
-  days: list<CalendarDay>
+  days: CalendarDay[]
 shape CalendarWeekday
   id: string
   short: string
@@ -20,8 +20,8 @@ shape CalendarWeekday
 shape SnoozeCalendar
   dateLabel: string
   title: string
-  weekdays: list<CalendarWeekday>
-  weeks: list<CalendarWeek>
+  weekdays: CalendarWeekday[]
+  weeks: CalendarWeek[]
   focus: string
   focusSeq: number
 
@@ -94,7 +94,7 @@ shape Thread
   searchFirst: bool
   matchLabel: string
   matchUser: bool
-  matchParts: list<SearchPart>
+  matchParts: SearchPart[]
   card: bool
   statusIcon: string
   statusColor: string
@@ -123,7 +123,7 @@ shape Thread
   idleRecede: bool
   idleTitleColor: string
   idleTitleWeight: number
-  tips: list<SidebarRowTip>
+  tips: SidebarRowTip[]
   hoverEnvironment: string
   hoverMachine: string
   hoverModel: string
@@ -131,7 +131,7 @@ shape Thread
   hoverError: string
   hoverErrorWarning: bool
   // handleThreadContextMenu's items, or the bulk menu's on a selected row (the row's context popover).
-  menu: list<SidebarMenuRow>
+  menu: SidebarMenuRow[]
 shape SidebarScope
   key: string
   label: string
@@ -150,12 +150,12 @@ shape SidebarDraft
   preview: string
   glyph: ProjectGlyph
   // handleDraftContextMenu's items (the row's context popover).
-  menu: list<SidebarMenuRow>
+  menu: SidebarMenuRow[]
 shape SidebarView
-  drafts: list<SidebarDraft>
+  drafts: SidebarDraft[]
   // r6-polish: a row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (r6-polish.contract).
   ticking: bool
-  probes: list<R5Probe>
+  probes: R5Probe[]
   searching: bool
   searchPending: bool
   searchIndex: number
@@ -178,7 +178,7 @@ shape SidebarView
   scopeInk: string
   scopeSurface: string
   scopeGlyph: ProjectGlyph
-  scopes: list<SidebarScope>
+  scopes: SidebarScope[]
   scopeOpen: bool
   scopeQuery: string
   scopeFirst: string

@@ -309,7 +309,7 @@ describe('Escape in the theme editor (popover-escape-parity)', () => {
     const editor = await source('settings-appearance-editor.contract');
     const nodes = editor.split('\n').filter(line => /^\s*[a-z][\w-]*\b/.test(line) && !/^\s*(\/\/|action|state|derive|use|component|fn)\b/.test(line));
     expect(nodes.filter(line => /aria-keyshortcuts=/.test(line))).toEqual([expect.stringContaining('testId="theme-inspector-cancel"')]);
-    expect(nodes.filter(line => !line.trimStart().startsWith('each ') && /\skey=/.test(line))).toEqual([expect.stringContaining('key=inspectorKey')]);
+    expect(nodes.filter(line => !line.trimStart().startsWith('for ') && /\skey=/.test(line))).toEqual([expect.stringContaining('key=inspectorKey')]);
     expect(nodes.filter(line => /aria-modal=/.test(line))).toEqual([]);
     const close = nodes.find(line => line.includes('testId="theme-editor-close"'))!;
     expect(close).toContain('button press=close aria-label="Close the theme editor" class=SettingsGhost');

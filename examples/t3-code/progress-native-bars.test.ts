@@ -53,7 +53,7 @@ describe('the markup', () => {
     expect(bar).toBeGreaterThan(0);
     expect(lines[bar]!.line).toContain('display="block" width="100%" height="0.25rem"');
     expect(lines[bar]!.line).not.toContain('aria-hidden');
-    expect(lines[bar - 1]!.line.trim()).toBe('when runtime.progressMax > 0');
+    expect(lines[bar - 1]!.line.trim()).toBe('if runtime.progressMax > 0');
     // The `h-1` slot keeps its place while nothing downloads.
     expect(lines[bar - 2]!.line.trim()).toBe('box width="100%" height="0.25rem"');
     expect(lines.some(row => /runtime\.progress(Percent|Label)/.test(row.line))).toBe(false);
@@ -64,7 +64,7 @@ describe('the markup', () => {
     const bar = lines.findIndex(row => row.line.includes('testId="context-window-bar"'));
     expect(lines[bar]!.line).toContain('role="progressbar" aria-valuemin=0 aria-valuemax=100 aria-valuenow=data.composer.contextValueNow aria-label="Context window usage"');
     expect(lines[bar]!.line).not.toContain('aria-hidden');
-    expect(lines[bar - 1]!.line.trim()).toBe('when data.composer.contextMax != ""');
+    expect(lines[bar - 1]!.line.trim()).toBe('if data.composer.contextMax != ""');
     expect(indent(lines[bar + 1]!.line)).toBe(indent(lines[bar]!.line) + 2);
     expect(lines[bar + 1]!.line).toContain('width=`${data.composer.contextPercent == "" ? "0%" : data.composer.contextPercent}`');
   });

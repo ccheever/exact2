@@ -16,11 +16,11 @@ shape R5CodeRun
 shape R5CodeLine
   id: string
   number: string
-  runs: list<R5CodeRun>
+  runs: R5CodeRun[]
 shape R5TableRow
   id: string
   header: bool
-  cells: list<R5CodeRun>
+  cells: R5CodeRun[]
 shape R5PrRow
   key: string
   label: string
@@ -43,8 +43,8 @@ shape R5PrRow
   r6: R6PrExtra
 shape R5PrRows
   show: bool
-  rows: list<R5PrRow>
-  rest: list<R5PrRow>
+  rows: R5PrRow[]
+  rest: R5PrRow[]
   moreLabel: string
   expanded: bool
   merge: R6MergeAsk
@@ -71,17 +71,17 @@ shape R5Attachment
   saving: bool
   saveLabel: string
   truncatedNote: string
-  table: list<R5TableRow>
-  lines: list<R5CodeLine>
+  table: R5TableRow[]
+  lines: R5CodeLine[]
   gutter: number
   url: string
   noPreview: string
   // audit-wave-followups-3 FW-2: the rendered Markdown is ChatMarkdown, as Files' (R4Files): app.contract's filesMarkdown
   // answers markdownSource (kind "attachment"); md, code, diagrams, mdUrls and Copy code's check as the transcript's.
-  markdownSource: list<MarkdownSource>
+  markdownSource: MarkdownSource[]
   md: MarkdownEnv
-  code: list<CodeHighlight>
-  diagrams: list<MermaidDiagram>
-  mdUrls: list<AttachmentUrl>
+  code: CodeHighlight[]
+  diagrams: MermaidDiagram[]
+  mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number

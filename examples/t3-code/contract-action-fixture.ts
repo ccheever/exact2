@@ -4,7 +4,7 @@
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
 // call (an action prop such as ThreadSection's `hoverCard`, an injected action, a host command such as `preventDefault()`),
-// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `when` / `else when` /
+// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `if` / `else if` /
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
 import { readFileSync } from 'node:fs';
@@ -137,8 +137,8 @@ export function contractComponent(file: string, name: string) {
       Object.assign(state, writes);
     },
     /**
-     * Whether the first view line containing `marker` is drawn: each `when`, `else when` and `else` arm around it holds,
-     * read over `state`, `scope` and the derives (an `each` around it counts as drawn).
+     * Whether the first view line containing `marker` is drawn: each `if`, `else if` and `else` arm around it holds,
+     * read over `state`, `scope` and the derives (a `for` around it counts as drawn).
      */
     drawn(marker: string, state: Env, scope: Env): boolean {
       const env: Env = { ...scope, ...state, ...derives(state, scope) };
@@ -152,8 +152,8 @@ export function contractComponent(file: string, name: string) {
         while (open.length && open[open.length - 1]!.indent >= indent) open.pop();
         const prior = () => (arms.get(indent) ?? []).map(arm => `!(${js(arm)[0]})`);
         let cond: string | null = null, m: RegExpExecArray | null;
-        if ((m = /^when (.+)$/.exec(text))) { arms.set(indent, [m[1]!]); cond = js(m[1]!)[0]; }
-        else if ((m = /^else when (.+)$/.exec(text))) { cond = [...prior(), `(${js(m[1]!)[0]})`].join(' && '); arms.get(indent)!.push(m[1]!); }
+        if ((m = /^if (.+)$/.exec(text))) { arms.set(indent, [m[1]!]); cond = js(m[1]!)[0]; }
+        else if ((m = /^else if (.+)$/.exec(text))) { cond = [...prior(), `(${js(m[1]!)[0]})`].join(' && '); arms.get(indent)!.push(m[1]!); }
         else if (text === 'else') cond = prior().join(' && ');
         open.push({ indent, cond });
         if (text.includes(marker)) {

@@ -11,8 +11,8 @@ const rows = source('diff-rows.contract');
 const cell = component(rows, 'DiffCell');
 const number = component(rows, 'DiffNumber');
 const row = component(rows, 'DiffRow');
-/** One `when item.kind == "<kind>"` branch of DiffRow. */
-const branch = (kind: string) => { const start = row.indexOf(`when item.kind == "${kind}"\n`); const next = row.indexOf('\n      when ', start + 1); return row.slice(start, next < 0 ? undefined : next); };
+/** One `if item.kind == "<kind>"` branch of DiffRow. */
+const branch = (kind: string) => { const start = row.indexOf(`if item.kind == "${kind}"\n`); const next = row.indexOf('\n      if ', start + 1); return row.slice(start, next < 0 ? undefined : next); };
 
 /** CDP (1e2ecbd975), light then dark. */
 const REFERENCE = {

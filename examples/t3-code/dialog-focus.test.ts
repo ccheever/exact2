@@ -85,7 +85,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     const lines = (await component('sidebar-overlays.contract', 'SidebarSnoozeDialog')).flatMap(line => line.trim().startsWith('SnoozeDateField(') ? trigger : [line]);
     // The two arms of `when data.sidebar.dialogMode == "date"` … `else`, each with what surrounds them.
     const indent = (line: string) => line.length - line.trimStart().length;
-    const when = lines.findIndex(line => line.trim() === 'when data.sidebar.dialogMode == "date"');
+    const when = lines.findIndex(line => line.trim() === 'if data.sidebar.dialogMode == "date"');
     const otherwise = lines.findIndex((line, index) => index > when && line.trim() === 'else' && indent(line) === indent(lines[when]!));
     const after = lines.findIndex((line, index) => index > otherwise && line.trim() !== '' && indent(line) <= indent(lines[otherwise]!));
     const date = [...lines.slice(0, otherwise), ...lines.slice(after)];

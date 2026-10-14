@@ -168,7 +168,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect(contract).toContain('      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))');
     expect(contract).toContain('button press=openRefs popovertarget="task-branch-menu"');
     expect(contract).toContain('scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"');
-    expect(contract).not.toContain('includes(ref.search, refSearch)');
+    expect(contract).not.toContain('ref.search.includes(refSearch)');
     const app = await source('app.contract');
     expect(app).toContain('settingsCheckout, taskBase, shellClock) as shape ScheduledPage');
     expect(app.match(/\n    taskBase = ""\n/g)?.length).toBe(2); // restOpen and restClose

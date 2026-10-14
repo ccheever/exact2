@@ -31,28 +31,28 @@ component R7DevGlyph
     color: string
   view
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
-      when name == "sliders"
+      if name == "sliders"
         path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
-      when name == "box"
+      if name == "box"
         path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"
         path d="m3.3 7 8.7 5 8.7-5M12 22V12"
-      when name == "smartphone"
+      if name == "smartphone"
         rect x=5 y=2 width=14 height=20 rx=2 ry=2
         path d="M12 18h.01"
-      when name == "back"
+      if name == "back"
         path d="m15 18-6-6 6-6"
-      when name == "square"
+      if name == "square"
         rect x=3 y=3 width=18 height=18 rx=2
-      when name == "keyboard"
+      if name == "keyboard"
         path d="M10 8h.01M12 12h.01M14 8h.01M16 12h.01M18 8h.01M6 8h.01M7 16h10M8 12h.01"
         rect x=2 y=4 width=20 height=16 rx=2
-      when name == "maximize"
+      if name == "maximize"
         path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"
-      when name == "chevron-down"
+      if name == "chevron-down"
         path d="m6 9 6 6 6-6"
-      when name == "x"
+      if name == "x"
         path d="M18 6 6 18M6 6l12 12"
-      when name == "spinner"
+      if name == "spinner"
         path d="M21 12a9 9 0 1 1-6.219-8.56"
 
 // RightPanelTabs' device tab glyph: the Apple and Android marks of Icons.tsx (filled).
@@ -63,7 +63,7 @@ component R7DevPlatformGlyph
     color: string
   view
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
-      when platform == "apple"
+      if platform == "apple"
         path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"
       else
         path d="m8 3-1-2m9 2 1-2" fill="none" stroke="currentColor" stroke-width=1.4 stroke-linecap="round"
@@ -148,7 +148,7 @@ component R7DevSelect
     known: bool
     width: number
     disabled: bool
-    options: list<R7DevOption>
+    options: R7DevOption[]
     choose: action
   // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
   state keyed = 0
@@ -167,8 +167,8 @@ component R7DevSelect
         box margin-right="-0.25rem" opacity=0.5 display="flex"
           R7DevGlyph(name="chevron-down", size=12, color=r7devInk())
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
-      SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=width, items=map(options, (option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
-        each option in options key=option.value
+      SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=width, items=options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
+        for option in options key=option.value
           SkMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose(option.value))
 
 component R7DevSection
@@ -202,26 +202,26 @@ component R7DevToolsDrawer
     column min-height=0 height="100%" width=(tools.overlay ? "100%" : "18rem") max-width="18rem" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=r7devBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow=(tools.overlay ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") role="complementary" aria-label="Device tools" testId="device-tools"
       row height="2.25rem" flex-shrink=0 gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder()
         text "Tools" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=r7devInk()
-        when tools.pending
+        if tools.pending
           R7DevSpinner(size=14)
         box flex=1
         button press=local("surface-r6dev-tools-close", "", "") aria-label="Close tools" testId="device-tools-close" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
           R7DevGlyph(name="x", size=14, color=r7devMuted())
       scroll flex=1 min-height=0
         column width="100%"
-          when tools.error != ""
+          if tools.error != ""
             text tools.error padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="light-dark(#e400141a, #ff64671a)" font-size="0.75rem" line-height="1rem" color=r7devDestructive() role="alert" testId="device-tools-error"
-          when tools.loading
+          if tools.loading
             row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.75rem" padding-bottom="0.75rem" align-items="center"
               R7DevSpinner(size=14)
               text "Reading device settings…" font-size="0.75rem" line-height="1rem" color=r7devMuted()
-          when tools.diagnostics != ""
+          if tools.diagnostics != ""
             R7DevSection(title="Host diagnostics", last=false)
               text tools.diagnostics white-space="pre-line" font-size="0.75rem" line-height="1rem" color=r7devMuted()
           R7DevSection(title="App", last=false)
             R7DevRow(label="Foreground")
               text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=r7devInk() testId="device-tools-foreground"
-            when tools.hasForeground
+            if tools.hasForeground
               row gap="0.375rem"
                 R7DevButton(label="Terminate", outline=true, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "terminate", "", 0), testId="device-tools-terminate")
                 R7DevButton(label="Relaunch", outline=true, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "relaunch", "", 0), testId="device-tools-relaunch")
@@ -236,7 +236,7 @@ component R7DevToolsDrawer
               R7DevSegment(label="Appearance", value=tools.appearance, first="light", firstLabel="Light", second="dark", secondLabel="Dark", disabled=tools.disabled, choose=edit("surface-r6dev-tools-pick-appearance", ""), testId="device-tools-appearance")
             R7DevRow(label="Text size")
               R7DevSelect(selectId="device-tools-text-size", label="Text size", valueLabel=tools.textSizeLabel, known=tools.textSizeKnown, width=160, disabled=tools.disabled, options=tools.textSizes, choose=edit("surface-r6dev-tools-pick-text-size", ""))
-            when tools.ios
+            if tools.ios
               R7DevRow(label="Liquid Glass")
                 R7DevSegment(label="Liquid Glass", value=tools.liquidGlass, first="clear", firstLabel="Clear", second="tinted", secondLabel="Tinted", disabled=tools.liquidGlassDisabled, choose=edit("surface-r6dev-tools-pick-liquid-glass", ""), testId="device-tools-liquid-glass")
               R7DevRow(label="Color filter")
@@ -244,7 +244,7 @@ component R7DevToolsDrawer
             else
               R7DevRow(label="Orientation")
                 R7DevSelect(selectId="device-tools-orientation", label="Orientation", valueLabel="Rotate to…", known=false, width=160, disabled=tools.disabled, options=tools.orientations, choose=edit("surface-r6dev-tools-pick-orientation", ""))
-            each item in tools.switches key=item.id
+            for item in tools.switches key=item.id
               R7DevRow(label=item.label)
                 R7DevSwitchControl(on=item.checked, label=item.label, disabled=item.disabled, press=command("shell:surface-r6dev-tools-act", "toggle", `${item.id}=${item.checked ? "0" : "1"}`, 0), testId=`device-tools-${item.id}`)
           R7DevSection(title="Accessibility", last=false)
@@ -257,7 +257,7 @@ component R7DevToolsDrawer
             row gap="0.375rem" flex-wrap="wrap" align-items="center"
               R7DevSelect(selectId="device-tools-preset", label="Location preset", valueLabel="Preset…", known=false, width=128, disabled=tools.disabled, options=tools.presets, choose=edit("surface-r6dev-tools-pick-preset", ""))
               R7DevButton(label="Set", outline=true, disabled=(tools.disabled or not tools.locationValid), press=command("shell:surface-r6dev-tools-act", "location", "", 0), testId="device-tools-location-set")
-              when tools.ios
+              if tools.ios
                 R7DevButton(label="Clear", outline=false, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "location-clear", "", 0), testId="device-tools-location-clear")
           R7DevSection(title="Permissions", last=not tools.ios)
             R7DevField(value=tools.permApp, placeholder=tools.permPlaceholder, label="App ID", disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-permApp", ""), submit=local("surface-r6dev-tools-noop", "", ""), testId="device-tools-permission-app")
@@ -265,26 +265,26 @@ component R7DevToolsDrawer
               R7DevSelect(selectId="device-tools-permission", label="Permission", valueLabel=tools.permissionLabel, known=true, width=160, disabled=tools.disabled, options=tools.permissions, choose=edit("surface-r6dev-tools-permission", ""))
               R7DevButton(label="Grant", outline=true, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "grant", "", 0), testId="device-tools-grant")
               R7DevButton(label="Revoke", outline=true, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "revoke", "", 0), testId="device-tools-revoke")
-              when tools.ios
+              if tools.ios
                 R7DevButton(label="Reset", outline=false, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "reset", "", 0), testId="device-tools-reset")
-          when tools.ios
+          if tools.ios
             R7DevSection(title="Push notification", last=false)
               row gap="0.375rem" align-items="flex-start"
                 R7DevField(value=tools.push, placeholder="Alert text", label="Alert text", disabled=tools.pushDisabled, input=edit("surface-r6dev-tools-draft-push", ""), submit=local("surface-r6dev-tools-submit-push", "", ""), testId="device-tools-push")
                 R7DevButton(label="Send", outline=true, disabled=tools.pushSendDisabled, press=command("shell:surface-r6dev-tools-act", "push", "", 0), testId="device-tools-push-send")
-              when not tools.hasForeground
+              if not tools.hasForeground
                 text "Open an app first." font-size="0.75rem" line-height="1rem" color=r7devMuted()
-          when tools.log
+          if tools.log
             button press=local("surface-r6dev-tools-log", "", "") aria-expanded=tools.logOpen testId="device-tools-log" width="100%" gap="0.375rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="#00000000" display="flex" flex-direction="row" align-items="center"
               text "Event log" flex=1 text-align="left" font-size="0.75rem" font-weight=500 line-height="1rem" color=r7devMuted()
               box display="flex" rotate=(tools.logOpen ? 180 : 0)
                 R7DevGlyph(name="chevron-down", size=14, color=r7devMuted())
-            when tools.logOpen
+            if tools.logOpen
               scroll max-height="16rem"
                 column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hatch="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
-                  when tools.eventsEmpty
+                  if tools.eventsEmpty
                     text "No events yet." font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devMuted()
-                  each entry in tools.events key=entry.id
+                  for entry in tools.events key=entry.id
                     row gap="0.5rem" min-width=0
                       text entry.time flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devMuted()
                       text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devInk()

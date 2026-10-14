@@ -44,14 +44,14 @@ component ModelRow
   action hover(value: bool)
     over = value
     if row.reason != ""
-      hoverTipAt(hoverTipAtFrame(`model-row-tip-${row.key}`, "tip", row.reason, [], "left", "center", frame(`model-row-${row.key}`), min(20 * rem, length(row.reason) * 0.4 * rem + 1.125 * rem), `model-row-tip-${row.key}`), "trigger", value)
+      hoverTipAt(hoverTipAtFrame(`model-row-tip-${row.key}`, "tip", row.reason, [], "left", "center", frame(`model-row-${row.key}`), min(20 * rem, row.reason.length * 0.4 * rem + 1.125 * rem), `model-row-tip-${row.key}`), "trigger", value)
   action hoverStar(value: bool)
     starOver = value
   // model-picker-parity CO-7: Shift+click adds the model to a draft's several (onValueChange's shiftKey).
   action pick(e: MouseEvent)
     select(row.id, row.providerId, e.shiftKey)
   view
-    when row.kind == "legacy"
+    if row.kind == "legacy"
       button press=toggleLegacy hover=hover class=Control width="100%" min-height="2.8125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" gap="0.5rem" justify-content="flex-start" aria-expanded=legacyOpen testId="model-legacy" background-color=(highlighted or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
           text "Legacy models" font-size="0.75rem" font-weight=500 line-height="1.03125rem" color="light-dark(#27272a, #f5f5f5)"
@@ -64,16 +64,16 @@ component ModelRow
           column flex=1 min-width=0 gap="0.25rem" align-items="flex-start"
             row gap="0.5rem" align-items="center" min-width=0 max-width="100%"
               text row.name font-size="0.75rem" font-weight=500 line-height="1.03125rem" color=(highlighted or over ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
-              when row.isNew
+              if row.isNew
                 text "NEW" font-size="0.5rem" font-weight=700 line-height="0.5rem" letter-spacing=0.2 padding-left="0.125rem" padding-right="0.125rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed859, #346bf159)" background-color="light-dark(#1b4ed826, #346bf126)" color="light-dark(#1b4ed8, #51a2ff)" flex-shrink=0
             row gap="0.375rem" align-items="center" min-width=0 max-width="100%"
               ProviderMark(driver=row.driver, size=12, color="light-dark(#71717a, #818181)")
               text row.label font-size="0.75rem" line-height="1.03125rem" color="light-dark(#71717ab3, #818181b3)" line-clamp=1 min-width=0
         // ModelListRow: a chosen model of a multi-model draft shows its check before the star.
-        when row.checked
+        if row.checked
           CcIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)", weight=2)
         // model-picker-parity CO-1: ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
-        when row.jump != ""
+        if row.jump != ""
           text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0 testId=`model-jump-${row.id}`
         button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "") testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
           CmpIcon(name=(row.favorite ? "star-filled" : "star"), size=12, color=(row.favorite ? "#fe9a00" : starOver ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717a, #818181)"), weight=2)
@@ -111,7 +111,7 @@ component ModelPicker
   derive navigated = navSession == session
   derive legacyOpen = (legacySession == session) != catalog.legacyDefault
   derive railOver = (railSession == session ? railHoverIndex : -1)
-  derive sidebar = not catalog.searching and length(catalog.providers) > 0
+  derive sidebar = not catalog.searching and catalog.providers.length > 0
   derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)
   // Combobox autoHighlight (model-picker-parity CO-3): a search highlights its first row a person can choose
   // until the arrows move the highlight; an unsearched list highlights nothing until then.
@@ -119,16 +119,16 @@ component ModelPicker
   derive highlight = (count > 0 ? base : -1)
   // Return's model: any highlighted model row a person can choose, an open Legacy section's rows too (the reference's
   // Enter parses the highlighted model key); the highlight reaches those rows only while the section is open (`count`).
-  derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == ""), (r) => r.id), "")
-  derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == ""), (r) => r.providerId), "")
-  derive targetLegacy = length(filter(catalog.models, (r) => r.index == highlight and r.kind == "legacy")) > 0
+  derive targetId = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.id).join("")
+  derive targetProvider = catalog.models.filter((r) => r.index == highlight and (r.kind == "model" or r.kind == "legacy-model") and r.reason == "").map((r) => r.providerId).join("")
+  derive targetLegacy = catalog.models.filter((r) => r.index == highlight and r.kind == "legacy").length > 0
   derive width = min(362, viewport.width - 10)
   // Content height (a6aebbe2e0): the rail (4 + 36 + 4 + 1 + 4 per provider 40, + 4) or the
   // search row (43) over the list (rows × 45 + gaps + 20; "No models found" is 36).
-  derive rails = length(catalog.providers)
+  derive rails = catalog.providers.length
   derive restRows = (legacyOpen ? catalog.restCount : catalog.restCount - catalog.restLegacyCount)
   // provider-sign-in-and-install: the setup footer (max-h-44, a 1pt border, 8pt inset, each entry two message lines and its button) replaces "No models found".
-  derive setupCount = length(catalog.setup)
+  derive setupCount = catalog.setup.length
   derive footer = (setupCount > 0 ? min(176, 17 + 58 * setupCount) : 0)
   derive sharing = (catalog.chatgptSharing ? 41 : 0) // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button
   derive listHeight = (count > 0 ? count * 47 + 18 : (setupCount > 0 ? 0 : 36)) + footer
@@ -176,29 +176,29 @@ component ModelPicker
   action railHover(index: number, label: string, over: bool)
     railHoverIndex = over ? index : (railOver == index ? -1 : railOver)
     railSession = session
-    hoverTipAt(hoverTipAtFrame(`picker-rail-tip-${index}`, "tip", label, [], "left", "center", frame(`picker-rail-${index}`), min(20 * rem, length(label) * 0.4 * rem + 1.125 * rem), `picker-rail-tip-${index}`), "trigger", over)
+    hoverTipAt(hoverTipAtFrame(`picker-rail-tip-${index}`, "tip", label, [], "left", "center", frame(`picker-rail-${index}`), min(20 * rem, label.length * 0.4 * rem + 1.125 * rem), `picker-rail-tip-${index}`), "trigger", over)
   action railMove(origin: number, name: string)
     if name == "ArrowRight"
       focus("model-search")
     if name == "ArrowDown"
-      focus(`picker-rail-${origin + 1 > length(catalog.providers) ? 0 : origin + 1}`)
+      focus(`picker-rail-${origin + 1 > catalog.providers.length ? 0 : origin + 1}`)
     if name == "ArrowUp"
-      focus(`picker-rail-${origin <= 0 ? length(catalog.providers) : origin - 1}`)
+      focus(`picker-rail-${origin <= 0 ? catalog.providers.length : origin - 1}`)
   view
     // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40; model-picker-parity S2-4).
     button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker" title=""
     column position="absolute" left=x top=y width=width height=height border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=(anchored ? 50 : 30)
       column width="100%" height="100%" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
         row width="100%" flex=1 min-height=0
-          when sidebar
+          if sidebar
             column width="2.75rem" flex-shrink=0 height="100%" padding="0.25rem" gap="0.25rem" box-sizing="border-box" position="relative" background-color="light-dark(#fafafa4d, #ffffff02)" role="toolbar" aria-label="Providers" testId="model-picker-rail"
-              when catalog.railIndex >= 0
+              if catalog.railIndex >= 0
                 box position="absolute" right=0 top=((catalog.railIndex == 0 ? 12 : 57 + (catalog.railIndex - 1) * 40) * rem / 16) width="0.1875rem" height="1.25rem" border-top-left-radius="0.1875rem" border-bottom-left-radius="0.1875rem" background-color="light-dark(#1b4ed8, #346bf1)" z-index=2 testId="model-picker-indicator"
               button press=chooseRail("favorites") hover=railHover(0, "Favorites") key=railMove(0) id="picker-rail-0" class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label="Favorites" aria-pressed=catalog.favoritesSelected testId="provider-favorites" background-color=(railOver == 0 ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000") title=""
                 CmpIcon(name="star-filled", size=20, color="light-dark(#27272a, #f5f5f5)", weight=2)
               box width="2.25rem" height=1 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
               // A disabled button sits in a span that keeps its tooltip (ModelPickerSidebar `trigger`): the hover is the wrapper's.
-              each provider in catalog.providers key=provider.id
+              for provider in catalog.providers key=provider.id
                 box hover=railHover(provider.index, provider.label) display="flex" flex-shrink=0 testId=`provider-hover-${provider.id}`
                   button press=chooseRail(provider.id) key=railMove(provider.index) id=`picker-rail-${provider.index}` class=Control width="2.25rem" height="2.25rem" min-height="2.25rem" padding=0 border-radius="0.5rem" flex-shrink=0 aria-label=provider.label aria-pressed=provider.selected testId=`provider-${provider.id}` disabled=(not provider.selectable) opacity=(provider.selectable ? 1 : 0.5) background-color=(railOver == provider.index and provider.selectable ? "light-dark(#27272a1a, #f5f5f51a)" : "#00000000") title=""
                     ProviderInstanceMark(driver=provider.driver, size=20, color="light-dark(#27272a, #f5f5f5)", badge=provider.providerBadge, accent=provider.providerBadgeColor)
@@ -207,26 +207,26 @@ component ModelPicker
               row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" position="relative" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=(searchFocused ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#e4e4e7b3, #ffffff0b)")
                 box position="absolute" left=0 top="0.375rem" display="flex"
                   CmpIcon(name="search", size=16, color="light-dark(#71717a8c, #8181818c)", weight=2)
-                when query == ""
+                if query == ""
                   text "Search models..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true
                 input id="model-search" testId="model-search" value=query input=search key=searchKey focus=searchFocus blur=searchBlur aria-label="Search models" flex=1 min-width=0 height="1.625rem" padding-left="1.125rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
             scroll flex=(count > 0 ? 1 : 0) min-height=0 width="100%" padding-top=(count > 0 ? "0.625rem" : "0px") padding-bottom=(count > 0 ? "0.625rem" : "0px") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" testId="model-list"
               column gap="0.125rem" width="100%" role="listbox"
-                each row in catalog.models key=row.key
-                  when row.kind != "legacy-model" or legacyOpen
+                for row in catalog.models key=row.key
+                  if row.kind != "legacy-model" or legacyOpen
                     ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
             // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
             // matches, it was clipped away (fix-misc-batch, #298 bug 8).
-            when count == 0 and setupCount == 0
+            if count == 0 and setupCount == 0
               text "No models found" flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #818181)" testId="model-empty"
-            when setupCount > 0
+            if setupCount > 0
               scroll max-height="11rem" flex-shrink=0 width="100%" box-sizing="border-box" padding="0.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-setup"
-                each entry in catalog.setup key=entry.id
+                for entry in catalog.setup key=entry.id
                   column width="100%" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="flex-start" gap="0.25rem"
                     text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #818181)"
                     ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
         // managed-codex-chatgpt: ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx:317-319).
-        when catalog.chatgptSharing
+        if catalog.chatgptSharing
           row width="100%" flex-shrink=0 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-chatgpt-sharing"
             row gap="0.5rem" align-items="center"
               ProviderMark(driver="codex", size=14, color="light-dark(#71717a, #818181)")
@@ -248,7 +248,7 @@ component SettingsPickerTrigger
     press: action
   view
     button press=press disabled=disabled id=`setting-${rowId}` testId=`setting-${rowId}` aria-label=name aria-haspopup="dialog" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(disabled ? 0.64 : 1) flex-shrink=0
-      when driver != ""
+      if driver != ""
         ProviderInstanceMark(driver=driver, size=16, color="light-dark(#71717b, #818181)", badge=badge, accent=(accent == "" ? "#00000000" : accent))
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #818181)" line-clamp=1
       CcIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)", weight=2)

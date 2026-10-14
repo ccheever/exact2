@@ -141,13 +141,13 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
     // z-index orders siblings here), not in the window's overlays.
     const column = await component('app-main.contract', 'ChatColumn');
-    const popover = column.indexOf('when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
+    const popover = column.indexOf('if detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
     expect(popover).toBeGreaterThan(0);
     expect(column.indexOf('R6DeviceMiniPlayer(')).toBeGreaterThan(popover);
     expect(column.indexOf('BrowserMiniPlayer(')).toBeGreaterThan(popover);
     // Over a right panel sheet (a narrow window) the window draws it, above the sheet, as the base did.
     const overlays = await component('app-overlays.contract', 'WindowOverlays');
-    expect(overlays).toContain('when detailsSheet\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
+    expect(overlays).toContain('if detailsSheet\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
     const window = await component('app-window.contract', 'T3Window');
     expect(window).toContain('derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)');
     expect(window).toContain('detailsSheet=detailsSheet, detailsDensity=canvas.density');
@@ -244,17 +244,17 @@ describe('DP-2: the pull request rows place their cards for the presentation sho
 describe('DP-1: the rows each density shows (ThreadDetailsPanel)', () => {
   test('full only: the Run on and workspace rows, Automations and Lineage; Open in leaves in essential', async () => {
     const body = await component('shell-details.contract', 'DetailsBody');
-    const top = under(body, 'when density == "full"');
+    const top = under(body, 'if density == "full"');
     expect(top[0]).toContain('column width="100%" hatch="t3-frame" data-frame="details-full-top"');
     const topText = top.join('\n');
     for (const row of ['R4EnvRow(', 'testId="details-workspace"', 'testId="details-folder"']) expect(topText).toContain(row);
-    expect(under(body, 'when details.editorShow and density != "essential"').join('\n')).toContain('testId="details-open-editor"');
+    expect(under(body, 'if details.editorShow and density != "essential"').join('\n')).toContain('testId="details-open-editor"');
     const tail = under(body, 'data-frame="details-full-tail"').join('\n');
     expect(tail).toContain('ThreadAutomationsSection(');
     expect(tail).toContain('LineageGroups(');
-    expect(under(body, 'when details.cwd != ""').join('\n')).toContain('DetailsSection(title="Version Control", separated=(density == "full"), heading=false)');
+    expect(under(body, 'if details.cwd != ""').join('\n')).toContain('DetailsSection(title="Version Control", separated=(density == "full"), heading=false)');
     expect(body).toContain('R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)');
-    expect(under(body, 'when density == "compact"')[0]).toContain('data-frame="details-density-compact"');
+    expect(under(body, 'if density == "compact"')[0]).toContain('data-frame="details-density-compact"');
     // The scripts row stays in every density; its menu and Open in's hang under the rows each density shows.
     expect(body).toContain('top=((44 + (density == "full" ? (details.envShow ? 64 : 32) : 0) + (details.editorShow and density != "essential" ? 32 : 0)) * rem / 16)');
     expect(body).toContain('top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem")');
@@ -262,9 +262,9 @@ describe('DP-1: the rows each density shows (ThreadDetailsPanel)', () => {
 
   test('compact: the Git action group shows only while an action runs or just finished; Changes always', async () => {
     const git = await component('r4-git.contract', 'R4GitRows');
-    const group = under(git, 'when not compact or details.git.progress or details.git.success').join('\n');
+    const group = under(git, 'if not compact or details.git.progress or details.git.success').join('\n');
     expect(group).toContain('role="group" aria-label="Git actions"');
-    expect(group).toContain('when not details.git.progress and not details.git.success\n            box position="absolute" left=0 top=0 bottom=0 width=0 pointer-events="none" aria-hidden=true hatch="t3-frame" data-frame="details-full-git"');
+    expect(group).toContain('if not details.git.progress and not details.git.success\n            box position="absolute" left=0 top=0 bottom=0 width=0 pointer-events="none" aria-hidden=true hatch="t3-frame" data-frame="details-full-git"');
     expect(group).not.toContain('testId="details-changes"');
     expect(git).toContain('testId="details-changes"');
   });
@@ -285,7 +285,7 @@ describe('DR-1: the device rail menus hear the keys at a focused row (Base UI Me
     const workspace = await component('r6-device.contract', 'R6DeviceWorkspaceView');
     for (const [menu, rows] of [['text', ['device-text-small', 'device-text-default', 'device-text-large', 'device-text-extra-large']],
       ['rotate', ['device-rotate-portrait', 'device-rotate-landscape']], ['more', ['device-float', 'device-close-panel', 'device-power-off']]] as const) {
-      const popup = under(workspace, `when ws.rail.menu == "${menu}"`);
+      const popup = under(workspace, `if ws.rail.menu == "${menu}"`);
       expect(popup[0]).toContain(`role="menu"`);
       const keyMenu = under(workspace, `KeyMenu(menuId="device-${menu}-keys"`).join('\n');
       for (const row of rows) expect(keyMenu).toMatch(new RegExp(`R6MenuItem\\(keysId="device-${menu}-keys".*testId="${row}"\\)`));

@@ -224,10 +224,10 @@ describe('G1-4: a terminal close confirm that is open refuses the close chord ap
     expect(terminal).toContain('id="terminal-close", elementId=`terminal-close-${view.surface}`');
     expect(terminal).toContain('button id=`terminal-tab-close-${view.surface}-${tab.id}` press=askClose(tab.target, tab.closeTitle, tab.closeBody, `terminal-tab-close-${view.surface}-${tab.id}`)');
     const app = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
-    expect(app).toContain('confirmReturn = op == "ui:confirm" ? "" : slice(op, 11)');
+    expect(app).toContain('confirmReturn = op == "ui:confirm" ? "" : op.slice(11)');
     expect(app).toMatch(/else if not accept and \(confirmOp == "terminallocal:close" or confirmOp == "terminalpanellocal:close"\) and confirmReturn != ""\n\s+focus\(confirmReturn\)/);
     // A ⌘W the confirm met is the refusal row's, whose press is no window op.
-    expect(readFileSync(new URL('./settings-shortcuts.contract', import.meta.url), 'utf8')).toContain('when item.kind == "refuse"\n          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))');
+    expect(readFileSync(new URL('./settings-shortcuts.contract', import.meta.url), 'utf8')).toContain('if item.kind == "refuse"\n          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))');
   });
 });
 
