@@ -15,11 +15,12 @@ package final class Presenter {
     var launchAutofocusReleased = false
     private var projectionSyncOwed = false
     /// Nodes whose frame or content box applied since the batch or projection
-    /// sync last looked, sheet replays among them: their lists redraw
-    /// separators by them
+    /// sync last looked, those applied after a batch among them: their lists
+    /// redraw separators by them
     private var geometryApplied: [UInt32] = []
     /// What the native projections show changed outside a batch (a subtree's
-    /// appearance or size traits, geometry a sheet replayed after the batch).
+    /// appearance or size traits, geometry applied after the batch, as a
+    /// flight's landing is).
     /// Run the projection steps an empty batch used to run, once, on the next
     /// turn, without waiting for a batch an idle app may never commit (LLP
     /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
@@ -897,7 +898,7 @@ package final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id], !modals.deferGeometry(op, for: v) { applyGeometry(op) }
+            case .svg: if views[id] != nil { applyGeometry(op) }
             case .animations:
                 if flats.isFlat(id) { flats.promote(id) }
                 svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
@@ -945,7 +946,7 @@ package final class Presenter {
                 }
                 if kind == .frame { pool.framed(id) }
                 if flightFrame(op) { continue }
-                if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
+                if views[id] != nil { applyGeometry(op) }
             case .present:
                 if flats.isFlat(id) {
                     if op.property == "opacity" { flats.opacity(id, Float(op.x)); continue }
@@ -1008,17 +1009,12 @@ package final class Presenter {
             keyboardToolbars.finishBackendChange()
             for id in scrollers.union(pendingScrolls).union(materialNodes) {
                 guard let node = views[id] else { continue }
-                // A modal's live source retains its old geometry until release.
-                // Its scroll writes must wait too, especially on newly added rows
-                // whose extent is still zero. releaseBackground applies both.
-                if !modals.defersGeometry(for: node) {
-                    // Navigation can resize a native port after its row projection.
-                    // Settle that layout before restoring or authoring an offset.
-                    if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
-                    if !collections.owns(node.id) { node.restoreScrollPosition() }
-                    if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
-                    node.applyPendingScroll()
-                }
+                // Navigation can resize a native port after its row projection.
+                // Settle that layout before restoring or authoring an offset.
+                if node.groupedOwner { node.scrollView?.layoutIfNeeded() }
+                if !collections.owns(node.id) { node.restoreScrollPosition() }
+                if node.pendingScrollTop != nil || node.pendingScrollLeft != nil { collections.userIntent(node.id) }
+                node.applyPendingScroll()
                 if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
             }
             pendingScrolls = pendingScrolls.filter { self.views[$0]?.pendingScrollTop != nil || self.views[$0]?.pendingScrollLeft != nil }
@@ -1093,15 +1089,14 @@ package final class Presenter {
         return seen
     }
 
-    /// Geometry can be deferred for the source route while a modal owns the
-    /// session viewport. Replaying it uses the same path as the original batch.
+    /// A frame, content box or scene, in a batch or after one (a flight
+    /// landing, FlightsIOS.swift).
     func applyGeometry(_ op: BatchOp) {
-        // Replayed outside a batch (a sheet's dismissal completing): carried
-        // rows go back to their authored parents first, as before a batch,
-        // so the new box is theirs; the projections remount on the next turn.
-        // Inside one they went back as it began, unless a list laid out in the
-        // batch carried one again: a box replayed then (a sheet closing, LLP
-        // 1116.002 D2) is the row's too, which `restore` would otherwise undo.
+        // Outside a batch, carried rows go back to their authored parents
+        // first, as before a batch, so the new box is theirs; the projections
+        // remount on the next turn. Inside one they went back as it began,
+        // unless a list laid out in the batch carried one again: a box applied
+        // then is the row's too, which `restore` would otherwise undo.
         if !applying {
             groupedLists?.prepare()
             requestProjectionSync()

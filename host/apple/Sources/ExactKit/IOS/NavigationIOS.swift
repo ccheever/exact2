@@ -490,7 +490,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return
         }
         if boundaries.count > mounted.count, let background = modalNavigation ?? primaryOwner, let owner {
-            let source = navigation?.topViewController as? RouteController
             let part = parts[mounted.count + 1], route = wanted[part.lowerBound].node
             guard presenter.modals.canPresent(from: owner, route: route) else { return }
             // The sheet mounts its own navigation (`ModalHost.present`)
@@ -504,7 +503,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             nav.view.layoutIfNeeded()
             pendingSync = boundaries.count > mounted.count + 1
             let preceding = part.lowerBound > 0 ? wanted[part.lowerBound - 1].node : nil
-            presenter.modals.present(route, navigation: nav, from: background, node: source?.node,
+            presenter.modals.present(route, navigation: nav, from: background,
                                      preceding: preceding, owner: owner)
         }
         // A presented navigation fills its sheet; the primary owner the root,

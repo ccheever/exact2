@@ -1156,19 +1156,16 @@ extension NavigationHost {
                     let view = presenter.session?.view, view.window != nil {
                 // Authored tabs are page content outside the routes. Protect
                 // only the edges they reach; leave the viewport and bar
-                // backgrounds full-size. A sheet never measures these covers.
-                if presenter.modals.coordinateView != nil {
-                    if case .edges? = covers[list.id] { wanted[list.id] = covers[list.id] }
-                } else {
-                    let rect = list.convert(list.bounds, to: view)
-                    let safe = view.bounds.inset(by: view.safeAreaInsets)
-                    let edges = HostCover.Edges(
-                        top: max(0, min(rect.height, safe.minY - rect.minY)),
-                        right: max(0, min(rect.width, rect.maxX - safe.maxX)),
-                        bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
-                        left: max(0, min(rect.width, safe.minX - rect.minX)))
-                    if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
-                }
+                // backgrounds full-size. A sheet leaves them where they are
+                // (LLP 1123 D1).
+                let rect = list.convert(list.bounds, to: view)
+                let safe = view.bounds.inset(by: view.safeAreaInsets)
+                let edges = HostCover.Edges(
+                    top: max(0, min(rect.height, safe.minY - rect.minY)),
+                    right: max(0, min(rect.width, rect.maxX - safe.maxX)),
+                    bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
+                    left: max(0, min(rect.width, safe.minX - rect.minX)))
+                if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
             }
         }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }

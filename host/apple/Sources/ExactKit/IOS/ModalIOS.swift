@@ -158,10 +158,8 @@ private final class Presentation {
     let kind: String
     let navigation: UIViewController
     let background: UIViewController
-    let backgroundNode: NodeView?
     let backgroundInteraction: Bool
     let backgroundAccessibility: Bool
-    var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
     var presenting = true
     var animated = false
     /// Samples where a zoom lands while the route's nodes are still mapped:
@@ -171,13 +169,12 @@ private final class Presentation {
     var alreadyDismissed = false
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
-         background: UIViewController, node: NodeView?) {
+         background: UIViewController) {
         self.route = route
         kind = route.props["navigationPresentation"] ?? "modal"
         controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
         self.navigation = navigation
         self.background = background
-        backgroundNode = node
         backgroundInteraction = background.view.isUserInteractionEnabled
         backgroundAccessibility = background.view.accessibilityElementsHidden
     }
@@ -226,8 +223,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
     var isDismissing: Bool { !retiring.isEmpty }
     /// LLP 1080.001 D3: every presentation's controller view, live and
-    /// retiring, with what the presenter put in it beside the viewport; and
-    /// whether a node's geometry is held while a modal owns the viewport.
+    /// retiring, with what the presenter put in it: its probes and the mount
+    /// its navigation is in.
     var inspectionRoots: [(view: UIView, label: String, owned: [UIView])] {
         var seen = Set<ObjectIdentifier>()
         return (layers.map { ($0, false) } + retiring.map { ($0, true) }).compactMap { layer, retiring in
@@ -241,7 +238,6 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var inspectionRetiring: [UIView] {
         (layers + retiring).flatMap { [$0.controller.retiringRoot, $0.controller.retiringNavigation?.viewIfLoaded].compactMap { $0 } }
     }
-    func holdsGeometry(_ id: UInt32) -> Bool { (layers + retiring).contains { $0.geometry[id] != nil } }
     var defersFocus: Bool { closing || layers.contains { $0.presenting } }
     var closedby: String? { layers.last?.route.props["closedby"] }
     var presentation: String? { layers.last?.kind }
@@ -357,42 +353,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
     }
 
-    private func background(for node: NodeView) -> Presentation? {
-        layers.first { layer in
-            guard let source = layer.backgroundNode else { return false }
-            return node === source || node.isDescendant(of: source)
-        }
-    }
-
-    func defersGeometry(for node: NodeView) -> Bool { background(for: node) != nil }
-
-    func deferGeometry(_ op: BatchOp, for node: NodeView) -> Bool {
-        guard let layer = background(for: node) else { return false }
-        let kind = op.op
-        var saved = layer.geometry[node.id] ?? (node, [:])
-        saved.ops[kind] = op
-        layer.geometry[node.id] = saved
-        return true
-    }
-
     private func releaseBackground(_ layer: Presentation) {
         let background = layer.background
         background.view.isUserInteractionEnabled = layer.backgroundInteraction
         background.view.accessibilityElementsHidden = layer.backgroundAccessibility
-        // Frames precede content extents, as in a normal batch. A retired
-        // identity cannot replay geometry into its replacement.
-        let geometry = layer.geometry
-        layer.geometry = [:]
-        for (id, kind) in NavigationRules.replayOrder(deferred: geometry.mapValues { Set($0.ops.keys.map(\.rawValue)) }) {
-            if let saved = geometry[id], presenter.views[id] === saved.node,
-               let op = saved.ops[BatchOp.Kind(rawValue: kind) ?? .unknown] { presenter.applyGeometry(op) }
-        }
-        for saved in geometry.values where presenter.views[saved.node.id] === saved.node {
-            // A view kept for its held geometry may be a flat leaf again at the next batch
-            presenter.flats.styleChanged(saved.node.id)
-            saved.node.restoreScrollPosition()
-            saved.node.applyPendingScroll()
-        }
     }
 
     func updatePermissions() {
@@ -483,9 +447,9 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 
     func present(_ route: NodeView, navigation: UIViewController, from background: UIViewController,
-                 node: NodeView?, preceding: NodeView?, owner: UIViewController) {
+                 preceding: NodeView?, owner: UIViewController) {
         let layer = Presentation(host: self, route: route, navigation: navigation,
-                                 background: background, node: node)
+                                 background: background)
         // The presenting screen stays where it is, inert (HTML modal dialogs)
         background.view.isUserInteractionEnabled = false
         background.view.accessibilityElementsHidden = true

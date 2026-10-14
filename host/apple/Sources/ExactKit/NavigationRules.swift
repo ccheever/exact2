@@ -173,19 +173,6 @@ enum NavigationRules {
         closedby == "none"
     }
 
-    /// D4: geometry deferred behind a sheet replays as a batch would apply
-    /// it — every frame before any content box, content size or scene laid
-    /// out in them, node ids ascending.
-    static func replayOrder(deferred: [UInt32: Set<String>]) -> [(id: UInt32, kind: String)] {
-        var out: [(id: UInt32, kind: String)] = []
-        for kind in ["frame", "fieldContent", "content", "svg"] {
-            for id in deferred.keys.sorted() where deferred[id]?.contains(kind) == true {
-                out.append((id, kind))
-            }
-        }
-        return out
-    }
-
     /// D5: a keyboard notification is a session's business only when one of
     /// its own editors is editing, or it still holds an inset from a show it
     /// applied; another session's keyboard in the same window is not.
