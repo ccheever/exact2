@@ -644,3 +644,70 @@ fn an_auto_glass_group_is_written_as_auto() {
     assert!(doc.contains("glassGroup=\"12\""), "{doc}");
     assert!(!doc.contains("glassGroup=\"-1\""), "{doc}");
 }
+
+#[test]
+fn split_facts_survive_live_updates_and_both_document_walks() {
+    let source = r#"routes nav
+  home "/"
+    item "/item/:id"
+
+component App
+  state wide = false
+  action toggle
+    wide = !wide
+  action open
+    nav = push(nav, path("item", "a"))
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      for e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          list testId="rows" role=(wide ? "presentation" : "list") estimated-item-width=(wide ? 180 : 0)
+            link "A" href="/item/a" testId="href"
+            link "Pick" href="/item/a" press=toggle testId="local"
+            button "Open" press=open testId="push"
+          button "Toggle" press=toggle testId="toggle"
+"#;
+    let mut host = host(source, Says(""), "/");
+    for (role, width) in [("list", "0"), ("presentation", "180"), ("list", "0")] {
+        let doc = host.document().unwrap();
+        let tree = host.runner().document_tree().unwrap();
+        let (detached, _) =
+            exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+        assert_eq!(detached.root, doc.root);
+        let id = |name| {
+            let kernel = host.runner().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .id
+        };
+        let row = opening(&doc.root, id("rows").into());
+        assert!(row.contains("data-exact-list=\"\""), "{row}");
+        assert!(row.contains(&format!("role=\"{role}\"")), "{row}");
+        assert!(
+            row.contains(&format!("data-exact-estimated-item-width=\"{width}\"")),
+            "{row}"
+        );
+        for (name, fact) in [
+            ("href", None),
+            ("local", Some("false")),
+            ("push", Some("true")),
+        ] {
+            let node = opening(&doc.root, id(name).into());
+            match fact {
+                Some(value) => assert!(
+                    node.contains(&format!("data-exact-router-press=\"{value}\"")),
+                    "{node}"
+                ),
+                None => assert!(!node.contains("data-exact-router-press"), "{node}"),
+            }
+        }
+        let batch = host.dispatch(id("toggle"), exact_runner::Event::Press);
+        assert!(!batch.contains("\"error\""), "{batch}");
+        assert!(batch.contains("data-exact-estimated-item-width"), "{batch}");
+        assert!(
+            !batch.contains("\"op\":\"create\""),
+            "retained nodes: {batch}"
+        );
+    }
+}

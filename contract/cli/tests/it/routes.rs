@@ -138,6 +138,19 @@ fn interview_table_shapes_roundtrip_and_launch_fill() {
         assert_eq!(change.url, url);
         assert_eq!(json!(change.top), s["derives"]["current"]["id"]);
         assert!(change.removed.is_empty());
+        let visits: Vec<_> = s["slots"]["nav"]["tabs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|tab| tab["stack"].as_array().unwrap())
+            .map(|entry| {
+                (
+                    entry["id"].as_u64().unwrap(),
+                    entry["url"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect();
+        assert_eq!(change.visits, visits);
         assert!(r.take_router_change().is_none());
         if url == "/" {
             assert!(
@@ -914,4 +927,34 @@ component Pane
         assert_eq!(error.id, "lower-route-scroll", "{body}: {error}");
         assert!(error.message.contains("never scrolls on y"), "{error}");
     }
+}
+
+#[test]
+fn coalesced_router_changes_keep_latest_visits_and_all_retired_ids() {
+    let mut r = boot(contract::compile(SOURCE).unwrap(), "/");
+    r.take_router_change();
+    r.act("openPost", vec![Value::str("a")]).unwrap();
+    let retired = state(&r)["derives"]["current"]["id"].as_u64().unwrap();
+    r.act("back", vec![]).unwrap();
+    r.act("openPost", vec![Value::str("b")]).unwrap();
+    r.act("selectTab", vec![Value::str("prompts")]).unwrap();
+    let change = r.take_router_change().unwrap();
+    let current = state(&r);
+    let visits: Vec<_> = current["slots"]["nav"]["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .flat_map(|tab| tab["stack"].as_array().unwrap())
+        .map(|entry| {
+            (
+                entry["id"].as_u64().unwrap(),
+                entry["url"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    assert_eq!(change.url, "/prompts");
+    assert_eq!(change.removed, [retired]);
+    assert_eq!(change.visits, visits);
+    assert!(change.visits.iter().any(|(_, url)| url == "/post/b"));
+    assert!(!change.visits.iter().any(|(id, _)| *id == retired));
 }

@@ -24,9 +24,9 @@ const check = need('chrome', unavailable);
 const style = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 const chevron = '<img data-symbol-source="symbol:forward-chevron" alt="" style="width:17px;height:17px">';
 const abs = 'position:absolute;inset:0;display:flex;flex-direction:column';
-// A route of rows (`rows` true: each row draws the disclosure), as the hosts write a `list` of `button`s; `inner` after it.
+// A route of rows (`rows` true: each row writes the router and draws the disclosure), as the hosts write a `list` of `button`s; `inner` after it.
 const list = (id, key, rows = true, extra = '', inner = '') => `<div navigationKey="${key}" id="${id}" style="${abs}" ${extra}><header><h1>People</h1></header>
-  <div role="list" id="${id}-list">${['ada', 'bo'].map(n => `<button id="${id}-${n}" data-exact-on="press" style="display:flex"><span data-exact-text>${n}</span>${rows ? chevron : ''}</button>`).join('')}</div>${inner}</div>`;
+  <div data-exact-list role="list" id="${id}-list">${['ada', 'bo'].map(n => `<button id="${id}-${n}" data-exact-on="press" data-exact-router-press="${rows}" style="display:flex"><span data-exact-text>${n}</span>${rows ? chevron : ''}</button>`).join('')}</div>${inner}</div>`;
 const detail = (id, key, extra = '') => `<div navigationKey="${key}" id="${id}" style="${abs}" ${extra}><header><h2>${id}</h2></header><div>${id}</div></div>`;
 const tabs = (bar) => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;display:flex;flex-direction:column;position:relative">
     <div id="panels" style="flex:1 1 0%;min-height:0;position:relative">
@@ -43,7 +43,11 @@ const page = (body, routePaths = []) => style + `<div id="exact-root">${body}</d
   window.calls = [];
   navigation.connect(root, () => false, line => calls.push(line), id => calls.push('host back ' + id), null, href => ${JSON.stringify(routePaths)}.includes(href));
   window.select = key => { document.getElementById('nav').setAttribute('navigationKey', key); navigation.project(root, () => {}); };
-  window.push = (key, url, visits = [[Number(key), url]]) => { navigation.apply({ top: Number(key), url, removed: [], visits }); select(key); };
+  const locations = new Map();
+  window.push = (key, url, visits) => {
+    locations.set(Number(key), url);
+    navigation.apply({ top: Number(key), url, removed: [], visits: visits ?? [...locations] }); select(key);
+  };
   window.box = id => { const b = document.getElementById(id).getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map(Math.round); };
   window.shown = id => { const e = document.getElementById(id); return getComputedStyle(e).visibility === 'visible' && !e.closest('[inert]'); };
   window.off = () => unselected(document.getElementById('nav')).map(e => e.id);
@@ -171,7 +175,7 @@ check('a list whose rows push is beside its detail on a wide window, and pushes 
   await evaluate(`select('2')`);
   await size(1280);
   expect(await evaluate(`[shown('r1'), shown('r2'), box('r1')[2], document.getElementById('r1-bo').hasAttribute('data-exact-split-row')]`)).toEqual([true, true, 320, true]);
-  // The other tab's list draws no disclosure: it pushes, unsplit, with no placeholder.
+  // The other tab's rows do not write the router: the stack stays unsplit, with no placeholder.
   expect(await evaluate(`[document.getElementById('t1').hasAttribute('data-exact-split'), placeholder('p2')]`)).toEqual([false, null]);
   // A row that is a link (LLP 1115.000 D4.4) is followed from the document's capture phase (input-glue.js, router.js),
   // so its commit lands within the click, before a listener nearer the row would hear it: its row is marked all the same.
@@ -287,7 +291,7 @@ check('turning a split off clears its selected mark and stale row ownership cann
 
 check('check advises on a bottom tab bar and an unsplit pushing list at a desktop width, and on neither at a phone\'s', () => {
   const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
-  const html = page(tabs(positioned).replaceAll(chevron, '')) + `<script type="module">
+  const html = page(tabs(positioned).replaceAll(chevron, '').replace('id="r1" style="position:absolute', 'id="r1" style="position:relative')) + `<script type="module">
     import { observe } from './check.js';
     window.advice = () => { const views = new Map([...document.querySelectorAll('#exact-root *')].map(e => [e.id || e.localName, e])); return (observe(views).advice ?? []).map(a => a.kind + ' ' + a.id); };
   </script>`;
@@ -309,9 +313,9 @@ check('the split and sidebar leave check nothing to advise', () => inChrome(page
 }), 30000);
 
 // LLP 1116.005 D3: each route keeps its own scroll (LLP 1038 §7: mounted rows keep theirs), on a phone and through a
-// split. A route of `n` tall rows over its own scroller; `rows` draws the disclosure, so a stack it roots splits.
-const tall = (id, key, n, rows = false) => `<div navigationKey="${key}" id="${id}" style="${abs}"><header><h2>${id}</h2></header><div id="${id}-scroll" style="flex:1 1 0%;min-height:0;overflow:auto">${
-  Array.from({ length: n }, (_, i) => rows ? `<button data-exact-on="press" style="display:flex;height:50px"><span data-exact-text>${i}</span>${chevron}</button>` : `<div style="height:50px">${i}</div>`).join('')}</div></div>`;
+// split. A route of `n` tall rows over its own scroller; `rows` writes the router, so its stack splits.
+const tall = (id, key, n, rows = false) => `<div navigationKey="${key}" id="${id}" style="${abs}"><header><h2>${id}</h2></header><div id="${id}-scroll" ${rows ? 'data-exact-list' : ''} style="flex:1 1 0%;min-height:0;overflow:auto">${
+  Array.from({ length: n }, (_, i) => rows ? `<button data-exact-on="press" data-exact-router-press="true" style="display:flex;height:50px"><span data-exact-text>${i}</span>${chevron}</button>` : `<div style="height:50px">${i}</div>`).join('')}</div></div>`;
 
 check('a pushed route opens at its top, Back finds the list where it was, and a detail another row replaces starts at its top', () => inChrome(page(`<main id="nav" navigationKey="1" navigationBack="back" style="width:100%;height:100%;position:relative">${tall('r1', 1, 60, true)}</main>`), async (evaluate, size) => {
   // The renderer's rows: a push adds the route's row, a pop removes it, a `replace` keeps it (its key is the visit's id).
@@ -338,3 +342,40 @@ check('a pushed route opens at its top, Back finds the list where it was, and a 
   await evaluate(pop);
   expect(await evaluate(`[shown('r1'), ${tops}]`)).toEqual([true, [1500]]);
 }), 30000);
+
+check('retained visit URLs restore href selection after adoption, replace and same-top reset', () => {
+  const body = `<div data-exact-list role="presentation" id="rows"><div data-listitemkey="a"><a id="row-a" href="/item/a">A<button data-exact-router-press="false">Star</button></a></div><a id="row-b" href="/item/b">B</a></div>`;
+  const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
+  return inChrome(page(html, ['/item/a', '/item/b']), async evaluate => {
+    const marks = `[...document.querySelectorAll('[data-exact-split-row]')].map(e => e.id)`;
+    // A restored deeper route inherits its underlying row's selection, but keeps Back.
+    await evaluate(`push(3, '/edit', [[1, '/'], [2, '/item/a'], [3, '/edit']])`);
+    expect(await evaluate(`[${marks}, back('r2'), back('r3')]`)).toEqual([['row-a'], false, true]);
+    await evaluate(`push(3, '/edit', [[1, '/'], [2, '/item/b'], [3, '/edit']])`);
+    expect(await evaluate(marks)).toEqual(['row-b']);
+    // A same-top reset must replace the snapshot before its history fast path returns.
+    await evaluate(`(async () => { const {navigation} = await import('./navigation.js'); navigation.reset({top:3,url:'/edit',visits:[[1,'/'],[2,'/unknown'],[3,'/edit']]}); select(3); })()`);
+    expect(await evaluate(`[${marks}, back('r3')]`)).toEqual([[], true]);
+    await evaluate(`push(3, '/edit', [[1, '/'], [2, '/item/a'], [3, '/edit']]); document.getElementById('row-a').setAttribute('data-exact-router-press', 'false'); select(3)`);
+    expect(await evaluate(marks)).toEqual([]);
+    await evaluate(`document.getElementById('row-a').removeAttribute('data-exact-router-press'); select(3)`);
+    expect(await evaluate(marks)).toEqual(['row-a']);
+    await evaluate(`document.getElementById('rows').style.display = 'none'; select(3)`);
+    expect(await evaluate(`[${marks}, document.getElementById('r1').hasAttribute('data-exact-split')]`)).toEqual([[], false]);
+    await evaluate(`document.getElementById('rows').style.display = ''; select(3)`);
+    expect(await evaluate(marks)).toEqual(['row-a']);
+  });
+}, 30000);
+
+check('an inner nonrouter press cannot associate its outer row with unrelated navigation', () => {
+  const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div></div>';
+  const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
+  return inChrome(page(html), async evaluate => {
+    await evaluate(`push(2, '/item/a'); document.getElementById('star').click(); push(3, '/edit')`);
+    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
+    await evaluate(`document.getElementById('owner').click(); push(3, '/item/b')`);
+    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([true, false]);
+    await evaluate(`(async () => { const {navigation} = await import('./navigation.js'); navigation.reset({top:3,url:'/item/b',visits:[[3,'/item/b']]}); select(3); })()`);
+    expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
+  });
+}, 30000);

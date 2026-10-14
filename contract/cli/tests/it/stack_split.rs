@@ -1,7 +1,7 @@
 //! LLP 1115.002 D4 (the rule is LLP 1116.004 D1.2's): a stack splits when a
 //! row of its root route's list pushes, read from the push and not from a
 //! chevron (`Runner::stack_split`). The Mac's split view reads it; the web's
-//! own rule (`host/web/navigation.js` `splitOf`) is its own until it moves.
+//! projection reads the same plan facts and retained visit URLs.
 
 use exact_kernel::{Kernel, Op, PropId, PropValue, ViewId};
 use exact_plan::Value;

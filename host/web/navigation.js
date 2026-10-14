@@ -6,7 +6,7 @@ let managed = new WeakMap(), shown = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [], waiters = new Set();
-let root, navigate, log, hostBack, hostGo;
+let root, navigate, log, hostBack, hostGo, routeMatches = () => false;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
 // Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
@@ -23,22 +23,80 @@ const tabsOf = nav => {
 };
 const panelsOf = nav => tabsOf(nav)[1];
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
-// @ref LLP 1116.004 D1, LLP 1116.007 D3.7 — WIDE projects an unsaid root tablist as a sidebar and a root disclosure
-// list beside its pushed detail, without changing routing or state. Authored arrangements stay; sheets stay sheets.
-// `navigationSplit` opts out ("none") or sets the column width (320 unsaid); the compiler opts out rows that push nowhere.
-const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches, splitRoots = new WeakSet(), rowOf = new WeakMap();
+// @ref LLP 1115.002 D4, LLP 1116.004 D1.2 — the shared list/outer-press rule;
+// WIDE is the web's presentation threshold, not a different navigation rule.
+const WIDE = "(min-width: 900px)", wide = () => !!globalThis.matchMedia?.(WIDE).matches;
+let splitLists = new WeakMap(), rowOf = new WeakMap(), actionRows = new WeakMap(), visits = new Map();
 const sheet = route => ["modal", "fullscreen"].includes(route?.getAttribute("navigationPresentation"));
-const DISCLOSURE = ':is(button, a[href], [data-exact-on~="press"]) img:is([data-symbol-source="symbol:forward-chevron"], [data-symbol-source="symbol:sf/chevron.forward"], [data-symbol-source="symbol:sf/chevron.right"])';
-let pressedRow = null; // [the row a press reached in a list column, when, the location then]
+let pressedRow = null, pendingRow = null;
+const excluded = el => el.hasAttribute("popover") || el.hasAttribute("data-exiting") || getComputedStyle(el).display === "none";
+const rowPress = el => el.getAttribute("data-exact-router-press");
+const rowHref = el => el.getAttribute("href") || null;
+const linked = href => href?.startsWith("/") && !href.startsWith("//") && routeMatches(href);
+/** Outermost press owners; unlike candidate discovery, this walk crosses a navigationKey. */
+function listRows(list) {
+  const rows = [], walk = parent => {
+    for (const el of parent.children) {
+      if (excluded(el)) continue;
+      const press = rowPress(el), href = rowHref(el);
+      if (press !== null || href) rows.push({ el, press, href });
+      else walk(el);
+    }
+  };
+  walk(list); return rows;
+}
+function pushingList(route) {
+  const retained = splitLists.get(route), stack = [...route.children].reverse();
+  let empty = null;
+  while (stack.length) {
+    const el = stack.pop();
+    if (el.hasAttribute("navigationKey") || excluded(el)) continue;
+    const style = getComputedStyle(el), sideways = /flex/.test(style.display) && style.flexDirection.startsWith("row")
+      || Number(el.getAttribute("data-exact-estimated-item-width")) > 0;
+    if (el.hasAttribute("data-exact-list") && !sideways) {
+      const rows = listRows(el), found = { list: el, rows };
+      if (rows.some(r => r.press === "true" || r.press === null && linked(r.href))) return found;
+      if (el === retained && !rows.length) empty = found;
+      continue; // An admitted list owns its row scan, including nested lists.
+    }
+    stack.push(...[...el.children].reverse());
+  }
+  return empty;
+}
+/** Recheck authored admission even while narrow. Projection's visibility/inert never opt a list out. */
+function splitOf([route]) {
+  const said = route?.getAttribute("navigationSplit"), explicit = Number(said);
+  const found = route && said !== "none" && !sheet(route) ? pushingList(route) : null;
+  const width = route && said !== "none" && !sheet(route) && wide() && /^(absolute|fixed)$/.test(getComputedStyle(route).position)
+    ? Number.isFinite(explicit) && explicit > 0 ? explicit : found ? 320 : 0 : 0;
+  if (route) { if (found && (width || splitLists.has(route))) splitLists.set(route, found.list); else splitLists.delete(route); }
+  return { width, list: found?.list, rows: found?.rows ?? [] };
+}
+function captureRow(event) {
+  pressedRow = null;
+  const route = event.target.closest?.('[data-exact-split="list"]'), list = route && splitLists.get(route);
+  if (!list || !root.contains(route)) return;
+  let owner = event.target;
+  while (owner && owner !== list && rowPress(owner) === null && !rowHref(owner)) owner = owner.parentElement;
+  if (listRows(list).some(r => r.el === owner && r.press === "true"))
+    pressedRow = { row: owner, list, route, at: performance.now(), from: last?.url };
+}
+/** Href rows restore from retained visits. Action-only rows remember only a normal click's next router change. */
+function detailRows(routes, found) {
+  for (const route of routes.slice(1)) {
+    const id = route.getAttribute("navigationKey"), url = visits.get(id);
+    let action = actionRows.get(route);
+    if (pendingRow?.id === id && pendingRow.url === url) action = pendingRow;
+    const valid = action && action.route === routes[0] && action.list === found.list && action.url === url
+      && found.rows.some(r => r.el === action.row && r.press === "true");
+    if (valid) actionRows.set(route, action); else actionRows.delete(route);
+    const link = found.rows.find(r => r.press === null && linked(r.href) && r.href === url)?.el;
+    const row = link ?? (valid ? action.row : null);
+    if (row) rowOf.set(route, row); else rowOf.delete(route);
+  }
+}
 // @ref LLP 1116.005 D3 — a route `replace` gives another path (a split's detail, another row's) keeps its id, so its node: it opens at its top, as a pushed one does; a new query keeps its place.
 const paths = new WeakMap(), freshPath = route => { const path = last?.url?.split(/[?#]/)[0], was = paths.get(route); paths.set(route, path); if (was !== undefined && was !== path) for (const el of [route, ...route.querySelectorAll("*")]) if (el.scrollTop || el.scrollLeft) el.scrollTo(0, 0); };
-/** The width of the column a stack's root route is beside its top on this window; 0 where the stack does not split. A
- * list that loses its last row keeps its column. */
-function splitOf([r]) {
-  const said = r?.getAttribute("navigationSplit");
-  if (!r || said === "none" || !wide() || sheet(r) || !/^(absolute|fixed)$/.test(getComputedStyle(r).position) || (said == null && !splitRoots.has(r) && !r.querySelector(DISCLOSURE))) return 0;
-  splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
-}
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
 const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical"
   && (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]);
@@ -217,11 +275,13 @@ function drain() {
 const settled = () => { if (echo === null && !queue.length) for (const finish of [...waiters]) finish(); };
 export const navigation = {
   /** `dispatch(location)` is false when no `navigate` handler heard it; `back(id)` is the runner's own `back` from visit `id`, `goTo(location)` its own `go`. */
-  connect(hostRoot, dispatch, journal, back = null, goTo = null) {
-    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo;
-    // A row a press reaches in a list column (`project` marks it once its detail shows), a resize across WIDE, and one under an author's split placeholder (its pane's width). Heard at the document, before the listener that follows a link row there (input-glue.js, router.js), whose commit lands within the click.
-    document.addEventListener("click", event => { const row = event.target.closest?.('[data-exact-split="list"] :is(button, a[href], [data-exact-on~="press"])'); if (row && root.contains(row)) pressedRow = [row, performance.now(), last?.url]; }, true); document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — and a symbol, or an image in something pressable, is not dragged out as a picture (the shell's rule says so where an engine has the property)
-    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log)); addEventListener("resize", () => root.querySelector("[data-exact-split-placeholder]") && navigation.project(root, log));
+  connect(hostRoot, dispatch, journal, back = null, goTo = null, matchesRoute = () => false) {
+    root = hostRoot; navigate = dispatch; log = journal; hostBack = back; hostGo = goTo; routeMatches = matchesRoute;
+    // Capture before either target's link listener commits. Early replay before connect has no action-row association.
+    document.addEventListener("click", captureRow, true);
+    document.addEventListener("dragstart", event => { if (root.contains(event.target) && event.target.matches?.('img[data-symbol-source], :is(button, a[href], [data-exact-on~="press"]) img')) event.preventDefault(); }); // @ref LLP 1115.000 D4.14 — symbols and images inside pressables do not start picture drags.
+    globalThis.matchMedia?.(WIDE).addEventListener?.("change", () => navigation.project(root, log));
+    addEventListener("resize", () => navigation.project(root, log)); // Bare plans have no exactViewport callback.
     addEventListener("popstate", event => {
       if (!last) return;
       const index = browserIndex();
@@ -248,7 +308,8 @@ export const navigation = {
     });
   },
   reset(op = null) {
-    refused = new WeakMap();
+    refused = new WeakMap(); splitLists = new WeakMap(); rowOf = new WeakMap(); actionRows = new WeakMap();
+    pressedRow = pendingRow = null; visits = new Map((op?.visits ?? []).map(([id, url]) => [String(id), url]));
     if (op && written[cursor]?.id === op.top) return;
     last = null;
     written = []; gone = new Set(); cursor = 0; first = null; originIndex = null;
@@ -256,6 +317,10 @@ export const navigation = {
     for (const finish of [...waiters]) finish();
   },
   apply(op) {
+    visits = new Map((op.visits ?? []).map(([id, url]) => [String(id), url]));
+    pendingRow = pressedRow && op.url !== pressedRow.from && performance.now() - pressedRow.at < 2000
+      ? { ...pressedRow, id: String(op.top), url: op.url } : null;
+    pressedRow = null;
     last = op;
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
     else { queue.push({ op }); drain(); }
@@ -305,11 +370,12 @@ export const navigation = {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
         if (stack === at) shown.set(nav, routes.slice(0, selected + 1).map(route => route.getAttribute("navigationKey")));
-        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal", split = splitOf(routes), live = split && !sheet(routes[selected]);
+        const found = splitOf(routes), split = found.width, live = split && !sheet(routes[selected]);
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        detailRows(routes, found);
         if (stack === at && list) list.inert = sheet(routes[selected]) || !!list.authoredInert; // a sheet is modal: the root's tab bar is inert beneath it, as the route it covers is (LLP 1115.000 D4.5)
         // A split's detail shown is the top, or the route a sheet covers; its row is the one whose press pushed it, or pushed a route beneath it in its column.
         const detail = split ? routes.findLastIndex((r, i) => i > 0 && i <= selected && !sheet(r)) : -1;
-        if (detail > 0 && detail === selected && pressedRow && last?.url !== pressedRow[2] && routes[0].contains(pressedRow[0]) && performance.now() - pressedRow[1] < 2000) { rowOf.set(routes[detail], pressedRow[0]); pressedRow = null; }
         for (const [index, route] of routes.entries()) {
           const active = index === selected || (live && index === 0);
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
@@ -323,7 +389,7 @@ export const navigation = {
           appBarBack(nav, routes, index, split > 0); if (stack === at && index === selected) freshPath(route);
         }
         let row = null; for (let i = detail; i > 0 && !row; i--) row = rowOf.get(routes[i])?.isConnected ? rowOf.get(routes[i]) : null;
-        for (const el of split ? routes[0].querySelectorAll("[data-exact-split-row]") : []) if (el !== row) el.removeAttribute("data-exact-split-row");
+        for (const el of routes[0]?.querySelectorAll("[data-exact-split-row]") ?? []) if (el !== row) el.removeAttribute("data-exact-split-row");
         row?.setAttribute("data-exact-split-row", "");
         // @ref LLP 1116.006 D2 — a split showing no detail fills the detail pane, as an iPad's split view does: the platform's placeholder (the shell draws `data-exact-split-empty`), or the author's, a box of the root route marked `navigationSplit="placeholder"` (which the lowerer hides everywhere else), at the pane's width.
         const empty = split > 0 && detail < 0, own = routes[0]?.querySelector('[navigationSplit="placeholder"]'), box = routes[0]?.parentElement;
@@ -331,6 +397,7 @@ export const navigation = {
         if (empty) { box.style.setProperty("--exact-split", `${split}px`); own && routes[0].style.setProperty("--exact-split-pane", `${(routes[0].offsetParent ?? box).clientWidth - split}px`); }
       }
     }
+    pendingRow = null;
     // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
     globalThis.exact?.onProject?.(root); pageTitle();
   },

@@ -33,12 +33,12 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
     <div role="tabpanel" id="p1" style="flex:1;position:relative">
       <div navigationKey="list" id="list" style="position:absolute;inset:0;display:flex;flex-direction:column">
         <header><h1 id="list-title">Books</h1><button id="add">Add</button><input id="search" data-native></header>
-        <div id="scroller" style="flex:1;min-height:0;overflow-y:auto">
-          <button id="row-1" style="height:60px"><img data-symbol-source="symbol:forward-chevron" alt="">One</button>
+        <div id="scroller" data-exact-list style="flex:1;min-height:0;overflow-y:auto">
+          <button id="row-1" data-exact-router-press="true" style="height:60px"><img data-symbol-source="symbol:forward-chevron" alt="">One</button>
           <a id="row-2" data-view href="/item/2" style="height:60px"><div><img data-symbol-source="symbol:forward-chevron" alt="">Two</div></a>
-          <button id="bare" style="height:60px">Bare</button>
+          <button id="bare" data-exact-router-press="true" style="height:60px">Bare</button>
           <div style="height:2000px"></div>
-          <button id="row-far" style="height:60px">Far</button>
+          <button id="row-far" data-exact-router-press="true" style="height:60px">Far</button>
         </div>
         <div id="menu" role="menu" popover="auto"><button id="m-1">Open</button><button id="m-2" disabled>Share</button><a id="m-3" href="#x">Copy</a><button id="m-4">Remove</button></div>
       </div>
@@ -59,8 +59,8 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   // One commit: the tree's attributes, the projection, what the action focused, then the focus follows the route.
   const show = window.show = (key = stack.at(-1)[0], removed = []) => {
     nav.setAttribute('navigationKey', key);
+    if (key !== 'other') navigation.apply({ top: stack.length - 1, url: stack.at(-1)[1], removed, visits: stack });
     navigation.project(root, () => {});
-    if (key !== 'other') navigation.apply({ top: stack.length - 1, url: stack.at(-1)[1], removed });
     const after = window.then; window.then = null; after?.();
     input?.arrive();
   };
@@ -75,7 +75,7 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
   };
   window.pop = () => { const [key] = stack.pop(); document.getElementById('route-' + key).remove(); show(undefined, [stack.length]); };
   window.replace = (key, url) => { const [old] = stack.pop(); document.getElementById('route-' + old).remove(); stack.push(['x', url]); stack.pop(); push(key, url); };
-  navigation.connect(root, () => false, () => {}, () => pop(), () => {});
+  navigation.connect(root, () => false, () => {}, () => pop(), () => {}, href => href.startsWith("/item/"));
   document.getElementById('row-1').addEventListener('click', () => push('1', '/item/1'));
   // A link to a route is followed from the document's capture phase, as both targets follow one (input-glue.js,
   // router.js): its commit lands before any listener nearer the link has heard the click.
