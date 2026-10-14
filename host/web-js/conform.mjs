@@ -78,6 +78,7 @@ import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
+import { startNet } from './conformance/net.mjs';
 
 /** `spawnSync`'s result without holding the event loop: the other targets'
  *  drives keep running while one builds. */
@@ -116,6 +117,13 @@ mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
 process.env.CHROME ??= chromium().executable;
+// The outside servers the apps ask are answered locally (conformance/net.mjs): every browser, build
+// and child process this run starts inherits the route, and an outside request nothing answers is
+// a failure (an app catches a failed fetch and shows its fallback, so it would otherwise pass).
+const net = await startNet();
+const netCertificate = resolve(out, 'net-certificate.pem');
+writeFileSync(netCertificate, net.cert);
+Object.assign(process.env, net.env, { NODE_EXTRA_CA_CERTS: netCertificate });
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
 function serve(dir) {
@@ -446,7 +454,8 @@ async function drive(t, report, fail, dir, ws, js) {
       // A clock step the wasm runner refuses (a timer's or a `then`'s refusal
       // stops the advance at its time) is refused by the others too, then compared.
       let refused = null;
-      try { await run(W); } catch (e) { if (op !== 'clock') { report.steps.push({ target: t.name, step: line, skipped: `${reference}: ${e.message.split('\n')[0]}` }); continue; } refused = e.message.split('\n')[0]; }
+      // A scripted step is one the reference must take: one it cannot take is a failure, not a skip.
+      try { await run(W); } catch (e) { if (op !== 'clock') { fail(line, `${reference}: ${e.message.split('\n')[0]}`); continue; } refused = e.message.split('\n')[0]; }
       const answered = who => { if (refused) fail(line, `${who}: answered where ${reference} refused (${refused})`); };
       let jsRefused = null;
       try { await run(J); } catch (e) { jsRefused = e.message.split('\n')[0]; }
@@ -728,9 +737,10 @@ if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: tr
 if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));
   if (direct) mkdirSync(resolve(wasmRoot, a), { recursive: true });
+  // Asynchronously, as a build's render may fetch through the proxy this process serves
   const b = direct
-    ? spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(root, 'apps', a, 'app.contract'), '-o', resolve(wasmRoot, a, 'app.plan')], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
-    : spawnSync('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], {
+    ? await spawned('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(root, 'apps', a, 'app.contract'), '-o', resolve(wasmRoot, a, 'app.plan')], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 })
+    : await spawned('bun', ['host/web/build.mjs', `${a}-web`, '--wasm'], {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 64 << 20,
@@ -757,7 +767,7 @@ if (linuxRef && argv.includes('--build') && engineReady) {
   const builds = [...(rooted.length ? [{ what: rooted.join(' '), args: rooted.flatMap(c => ['-p', c]), env: {} }] : []),
     ...own.map(o => ({ what: o.crate, args: [...injectedProfiles(resolveApp(o.a)), '--manifest-path', resolve(root, 'apps', o.a, 'linux', 'Cargo.toml')], env: { CARGO_TARGET_DIR: o.target } }))];
   for (const { what, args, env } of builds) {
-    const b = spawnSync('cargo', ['build', '-q', '--profile', HOST_DEV, ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
+    const b = await spawned('cargo', ['build', '-q', '--profile', HOST_DEV, ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20, env: { ...process.env, ...env } });
     if (b.status !== 0) report.failures.push({ target: 'linux', step: `linux-build ${what}`, what: b.stderr.trim().split('\n').slice(-3).join(' ').slice(0, 300) });
   }
 }
@@ -779,8 +789,14 @@ if (synthetic.length) {
 }
 // Several targets at once, one queue: `next` is read and advanced with no
 // await between, and each target's failures are its own entries.
-const jobs = Math.max(1, Number(options['--jobs']));
+const jobs = Number(options['--jobs']);
+if (!Number.isInteger(jobs) || jobs < 1) {
+  console.error(`conform: --jobs takes a positive whole number, not "${options['--jobs']}"`);
+  process.exit(2);
+}
 const queue = engineReady ? targets : [];
+// A run that compares nothing fails rather than passing: no app named, built or matched by --only
+if (engineReady && !targets.length) report.failures.push({ target: 'harness', step: 'targets', what: 'no app or fixture to compare: name one, build with --build, or check --only' });
 let next = 0;
 try {
   await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
@@ -792,7 +808,10 @@ try {
   }));
 } finally {
   closeFilesystemReader();
+  await net.close();
 }
+report.net = { answered: [...new Set(net.answered)].sort(), unanswered: net.unanswered, tunnels: [...new Set(net.tunnels)].sort(), aborted: net.aborted, browser: [...new Set(net.browser)].sort() };
+for (const request of net.unanswered) report.failures.push({ target: 'net', step: 'unanswered', what: `${request}: no generated answer in conformance/net.mjs` });
 // The report lists targets in their order, whatever order they finished in.
 const order = new Map(targets.map((t, i) => [t.name, i]));
 const byOrder = (a, b) => (order.get(a.target) ?? -1) - (order.get(b.target) ?? -1);

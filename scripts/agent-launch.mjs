@@ -146,6 +146,27 @@ export function webStore({ id, dir }, storage, env = process.env, home = homedir
   return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
+/** Chrome's flags for conformance's network (host/web-js/conformance/net.mjs), when
+ *  `EXACT_NET_PROXY` names its proxy: every outside request goes through it, loopback
+ *  (the page's own server) excepted, and its run's certificate is trusted by its SPKI
+ *  digest (`EXACT_NET_SPKI`). */
+export function netFlags(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return [];
+  return [`--proxy-server=http://${environment.EXACT_NET_PROXY}`, `--ignore-certificate-errors-spki-list=${environment.EXACT_NET_SPKI}`,
+    // Chrome's implicit bypass covers link-local addresses too: `<-loopback>` drops it, and loopback is named instead
+    '--proxy-bypass-list=<-loopback>;127.0.0.1;localhost;[::1]',
+    // Chrome's own services (sign-in, updates, safe browsing), which would otherwise ask the proxy for Google's hosts
+    '--disable-background-networking', '--disable-sync', '--no-pings', '--disable-domain-reliability', '--disable-client-side-phishing-detection',
+    '--disable-features=AutofillServerCommunication,OptimizationHints,MediaRouter,CertificateTransparencyComponentUpdater,NetworkTimeServiceQuerying'];
+}
+
+/** Playwright's launch and context options for the same network: Firefox and WebKit through the
+ *  proxy, loopback direct, and the run's certificate accepted (Playwright has no SPKI pin). */
+export function netOptions(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return { launch: {}, context: {} };
+  return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
+}
+
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
  * name is resolved through PATH before a test decides whether to skip. */
