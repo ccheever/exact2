@@ -225,7 +225,9 @@ A form you lay out (fields, Save, Cancel) is a route presented as a sheet:
 under it is inert. A question with buttons only is a `dialog role="alertdialog"`
 (`contract vocab confirm`). A `dialog` you lay out yourself is a smaller thing: the web's and
 macOS's modal `dialog`, and on iOS a sheet as tall as its content, with no bar.
-`role="dialog"` on a `column` gets no Escape, focus or sheet anywhere.
+`role="dialog"` on a `column` gets no Escape, focus or sheet anywhere. A `dialog` opens with
+`showModal(id)` or `commandfor=id command="show-modal"` and takes no `open`: in HTML `open` alone
+shows a dialog non-modally, and a dialog that state holds open is not available yet.
 
 ```contract
 routes nav
@@ -276,7 +278,8 @@ A `dialog role="alertdialog"`: its `aria-label` the question, a `text` the messa
 a `button` with `press` that also closes it, and one Cancel (a closing button with no
 `press`). It is iOS's alert, the web's modal `dialog`, macOS's alert. Open it from an action
 with `showModal(id)` (a swipe or menu action asks first), or from a button with
-`commandfor=id command="show-modal"`.
+`commandfor=id command="show-modal"`. It takes no `open`: in HTML `open` alone shows a dialog
+non-modally, and a dialog that state holds open is not available yet.
 
 ```contract
 component App
