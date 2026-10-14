@@ -125,6 +125,7 @@ mod text_selection;
 mod theme;
 mod time;
 mod timelines;
+mod top_layer_inheritance;
 mod transform_binding;
 mod trim;
 mod typescript;

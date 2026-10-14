@@ -67,7 +67,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Open top-layer boxes in the presenter's back-to-front order and their
-    /// actual viewport frames.
+    /// viewport frames: where the host shows each border box (its placement,
+    /// a keyboard's lift included) before the box's own CSS transform, which
+    /// the runner applies.
     pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])]) {
         self.scrolled.top_layer_frames(&self.kernel, frames);
     }
