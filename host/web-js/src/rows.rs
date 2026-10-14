@@ -898,7 +898,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("exact-column-count-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("col.html");
-        let cursor_writes = style::style_writes(StyleId::Cursor as u16, false).unwrap();
+        let cursor_writes =
+            crate::style::style_writes(exact_kernel::StyleId::Cursor as u16, false).unwrap();
         let cursor_map = cursor_writes[0].map.unwrap();
         let html = format!(
             r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}button{{cursor:default}}</style><div id="flow">column</div><div style="cursor:grab"><button id="cursor">Cursor</button></div><pre id="out"></pre><script>

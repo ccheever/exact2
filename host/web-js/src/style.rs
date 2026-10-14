@@ -564,6 +564,12 @@ static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     )
 });
 
+static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let mut initial = String::new();
+    exact_kernel::gradient::color_css(&mut initial, exact_kernel::StyleProps::default().tint_color);
+    format!(r#"v=>v==null?v:/^\s*unset\s*$/i.test(v)?{initial:?}:v"#)
+});
+
 fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
     vec![Write {
         name: name.into(),
@@ -592,7 +598,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
-        StyleId::TintColor => vec![with("--exact-tint", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?\"var(--exact-accent, AccentColor)\":v")],
+        StyleId::TintColor => vec![with("--exact-tint", &TINT_MAP)],
         StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
@@ -979,6 +985,24 @@ pub(crate) mod tests {
                 &["null", "\"unset\"", "\"#123456\""]
             ),
             serde_json::json!([null, "initial", "#123456"])
+        );
+    }
+
+    #[test]
+    fn a_bound_tint_clear_restores_the_symbol_role() {
+        let writes = style_writes(StyleId::TintColor as u16, false).unwrap();
+        assert_eq!(writes[0].name, "--exact-tint");
+        let map = writes[0].map.unwrap();
+        assert_eq!(
+            run(
+                &format!("v=>({map})(JSON.parse(v))"),
+                &["null", "\"unset\"", "\"#123456\""]
+            ),
+            serde_json::json!([
+                null,
+                "var(--exact-symbol, var(--exact-accent, AccentColor))",
+                "#123456"
+            ])
         );
     }
 

@@ -568,8 +568,14 @@ component App
     assert!(!css(&first, id("class")).contains("color:"));
     assert!(css(&first, id("placeholder")).contains("--exact-placeholder-color:initial;"));
     let set = host.dispatch(id("toggle"), Event::Press);
-    assert!(css(&set, id("bound")).contains("color:#abcdefff;"), "{set}");
-    assert!(css(&set, id("placeholder")).contains("--exact-placeholder-color:#abcdefff;"));
+    assert!(
+        css(&set, id("bound")).contains("color:rgba(171,205,239,1);"),
+        "{set}"
+    );
+    assert!(
+        css(&set, id("placeholder")).contains("--exact-placeholder-color:rgba(171,205,239,1);"),
+        "{set}"
+    );
     let cleared = host.dispatch(id("toggle"), Event::Press);
     assert!(css(&cleared, id("bound")).contains("color:unset;"));
     assert!(!css(&cleared, id("class")).contains("color:"));
@@ -589,7 +595,7 @@ fn explicit_clears_preserve_special_host_row_contracts() {
         ),
         (
             TintColor,
-            "--exact-tint:var(--exact-accent, AccentColor);",
+            "--exact-tint:var(--exact-symbol, var(--exact-accent, AccentColor));",
             false,
         ),
         (
