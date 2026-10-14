@@ -665,8 +665,10 @@ component App
             for n in ["a", "b"] key=n
               text n width=180
           list testId="rows" role=(wide ? "presentation" : "list")
-            link "A" href="/item/a" testId="href"
-            link "Pick" href="/item/a" press=toggle testId="local"
+            link href="/item/a" testId="href"
+              text "A"
+            link href="/item/a" press=toggle testId="local"
+              text "Pick"
             button "Open" press=open testId="push"
           button "Toggle" press=toggle testId="toggle"
 "#;
