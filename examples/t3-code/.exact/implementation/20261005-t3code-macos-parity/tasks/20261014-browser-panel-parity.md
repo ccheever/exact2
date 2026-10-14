@@ -3,11 +3,11 @@ name: 20261014-browser-panel-parity
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-browser-panel-parity
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/571
 verified_commit: null
 ---
 
@@ -467,16 +467,9 @@ implementation or repair rounds in this preparation.
 
 ## Next action
 
-Implementation is complete and driven natively on 2026-10-14 (see above); verification stays
-`unverified` because G5-A3 had no native step and physical input was not used. Next: the
-integration owner reviews the local commit, decides on the two Base UI notes (press-to-open and
-safe polygon), and publishes. Follow-up 6, `css-workaround-retirements`, waits for this merge.
-
-### Preparation note (historical)
-
-Prepared on 2026-10-14 from feature head `07f9de1e3` in the isolated checkout
-`t3-code-browser-panel-parity` (branch `feat(example)/t3-code-browser-panel-parity`).
-Implement all four retained rows as one bounded application task, verify once through the
-recipe above, and obtain an independent review of the final code. Evidence stays local in
-`target/`; PR images are GitHub attachments. Follow-up 6, `css-workaround-retirements`,
-waits for this task's merge.
+Merged as [#571](https://github.com/ccheever/exact2/pull/571), feature commit
+`70eec59fd8b345df77c5932eeb2a474b40a16e54` (squash). The task stays unverified for physical
+pointer hover, a physical ⇧⌘J, G5-A3 in the native app and zoom below 100%. Known
+differences: a click on Appearance after the hover closes its submenu, and diagonal pointer
+travel through the Zoom row closes it. Follow-up 6, `css-workaround-retirements`, starts from
+this feature head.
