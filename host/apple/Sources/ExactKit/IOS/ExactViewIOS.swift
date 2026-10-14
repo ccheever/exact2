@@ -259,10 +259,10 @@ public final class ExactView: UIView {
         // presentation lays its routes out in their own blocks (D2)
         let safe = safeAreaInsets
         let cover = presenter.viewportFit == "cover"
-        // A native container showing its bars takes the whole view, as
-        // UIKit's do: the bar's material reaches under the status bar. Its
-        // routes keep their content inside its safe area through covers
-        // (LLP 1075.003 §3.5); `env()` stays what the page authored.
+        // A native primary container takes the whole view, its bars shown
+        // or not, as UIKit's do: a bar's material reaches under the status
+        // bar. Its routes keep their content inside its safe area through
+        // covers (LLP 1075.003 §3.5); `env()` stays what the page authored.
         let whole = cover || presenter.navigation.wantsWholeView
         var frame = whole ? bounds : bounds.inset(by: safe)
         var insets = cover ? safe : .zero
@@ -308,13 +308,9 @@ public final class ExactView: UIView {
             session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
         }
         var size = frame.size
-        // LLP 1075.003 §9.11: the window — this view's own viewport, as it
-        // is without a sheet or the keyboard — always told, whatever is
-        // presented: the viewport units and the segments are its,
-        // root and every sheet, so no length follows a sheet's height.
-        // The root's containers decide it, never a presented sheet's bar.
-        let rootWhole = cover || presenter.navigation.rootWantsWholeView
-        let screenFrame = rootWhole ? bounds : bounds.inset(by: safeAreaInsets)
+        // LLP 1075.003 §9.11: the window, the document's frame before the
+        // keyboard trims it, which the viewport units and segments read
+        let screenFrame = whole ? bounds : bounds.inset(by: safe)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and

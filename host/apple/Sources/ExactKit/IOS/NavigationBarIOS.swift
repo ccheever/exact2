@@ -1047,19 +1047,14 @@ extension NavigationHost {
 
     // MARK: The content area (LLP 1075.003 §3.5)
 
-    /// Whether a native container shows its bars, so the session's view
-    /// takes the whole of its own (ExactViewIOS `fit`).
-    var wantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
-    }
-
-    /// `wantsWholeView` for the root's containers alone, whatever a sheet
-    /// shows: what the window's own viewport is, which the viewport units
-    /// resolve against (LLP 1075.003 §9.11; Astra's review).
-    var rootWantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome)
-            || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
-    }
+    /// Whether the root's routes have a native primary container (a stack
+    /// or the tabs), so the session's view takes the whole of its own
+    /// (ExactViewIOS `fit`): the document and the window the viewport units
+    /// resolve against. Its bars, whether shown or not, and a
+    /// presentation's containers never decide it (LLP 1123 D1); its routes
+    /// clear what covers them (`reportCovers`). Not under the agent's own
+    /// chrome, where no native container shows.
+    var wantsWholeView: Bool { primaryOwner != nil && !ExactEnv.authoredChrome }
 
     /// What covers a route of its controller's safe area (`safe`): the
     /// edges past the document's insets (`env()`, which the page authored
@@ -1152,7 +1147,7 @@ extension NavigationHost {
             measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
             if adopts(tablist: list) { wanted[list.id] = .whole }
             else if tablistAppearanceNone, list.style["display"]?.string != "none",
-                    rootWantsWholeView, presenter.viewportFit != "cover",
+                    wantsWholeView, presenter.viewportFit != "cover",
                     let view = presenter.session?.view, view.window != nil {
                 // Authored tabs are page content outside the routes. Protect
                 // only the edges they reach; leave the viewport and bar

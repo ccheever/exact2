@@ -423,8 +423,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         refitForBars()
     }
 
-    /// A container that starts or stops showing its bars changes the view
-    /// the session takes (ExactViewIOS `fit`): lay it out again this turn.
+    /// A native primary container coming or going changes the view the
+    /// session takes (ExactViewIOS `fit`, LLP 1123 D1), whatever its bars
+    /// show: lay it out again this turn.
     func refitForBars() {
         guard wantsWholeView != tookWholeView else { return }
         tookWholeView = wantsWholeView

@@ -247,6 +247,26 @@ final class ContentOwnersIOSTests: XCTestCase {
         XCTAssertTrue(window?.hitTest(middle, with: nil)?.isDescendant(of: ask) == true, "and a touch at its middle lands on it")
     }
 
+    /// LLP 1123 D1: the document is fitted by one rule, whether the root's
+    /// routes have a native primary container, never by its bars or by a
+    /// presentation. A primary stack whose bar an app's `navigation` hatch
+    /// turned off still takes the whole view, and a sheet whose own stack
+    /// shows a bar leaves that fit as it was.
+    func testTheDocumentsFitIsTheRootContainersAlone() throws {
+        let session = try fixture("owner-root-fit", CGSize(width: 402, height: 874), plan: "EXACT_NAVIGATION_BARS_PLAN")
+        let p = session.presenter, view = try XCTUnwrap(session.view)
+        let primary = try XCTUnwrap(p.navigation.primaryNavigation)
+        // As the hatch's answer leaves it (`NativeHatches.navigationHatch`)
+        try XCTUnwrap(p.navigation.stacks[ObjectIdentifier(primary)]).showsBar = false
+        view.fit()
+        XCTAssertEqual(p.viewport.frame, view.bounds, "the primary container takes the whole view, its bar or not")
+        p.press(try node(session, "start-open-sheet").id)
+        let controller = try mountSheet()
+        XCTAssertTrue(p.navigation.presentedNavigations.contains { p.navigation.barShows($0) }, "the sheet's stack may show its bar")
+        view.fit()
+        XCTAssertEqual(p.viewport.frame, view.bounds, "the sheet leaves the document's fit alone")
+    }
+
     /// Reports owed while a collection's slice is in flight (`whenIdle`)
     /// are sampled when they are told, so a later size told first is not
     /// overwritten by an earlier one waiting behind the slice: the route
