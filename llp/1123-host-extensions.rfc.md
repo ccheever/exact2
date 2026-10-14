@@ -1,12 +1,12 @@
-# LLP 1121: Host extensions
+# LLP 1123: Host extensions
 
 **Type:** RFC (a decision brief: each decision carries a proposed answer; nothing here is built in exact2 until Charlie has read it)
-**Status:** Draft r1, 2026-10-13. Not reviewed. Proposed from outside the working set; it needs Charlie's ruling and, if accepted, a take or a waiver under `rules/DEFERRED.md` (§7, question 1). Not in `llp/current/`, which holds 15 of 15; adding it means archiving one, which is Charlie's choice.
+**Status:** Draft r1, 2026-10-14 (drafted 2026-10-13 as 1121, renumbered when LLP 1121, Tamber, landed). Not reviewed. Proposed from outside the working set; it needs Charlie's ruling and, if accepted, a take or a waiver under `rules/DEFERRED.md` (§7, question 1). Not in `llp/current/`, which holds 15 of 15; adding it means archiving one, which is Charlie's choice.
 **Systems:** the app manifest (`scripts/app.schema.json`, `contract/cli/src/manifest.rs`), the bake's checks (`contract/cli`), the plan's record of what an app needs (`plan/`), the runner's native slot and topics (`runner/src/runner/source.rs`, `commit.rs`), the agent's `prefer` and `state` (`runner/src/agent.rs`, each host's agent), each host's module build (`host/apple/build.mjs`, `host/web/native-glue.js`, `host/linux`, `host/windows`, `host/android`)
 **Author:** Douglas Lowder, with Claude (Opus 5.5)
-**Date:** 2026-10-13
+**Date:** 2026-10-14
 **Implementer:** none yet (a spike on today's seams is §6; a spec follows a ruling)
-**Related:** LLP 1024 (native modules; "the roster is packaging, not language"); LLP 1067.000 (one native module per app: `call`, `later`, topics, agent mode); LLP 1016.002 (push invalidates, the answer stays a pull); LLP 1027 D8 (sources routed by name); LLP 1069.000 D4 (battery and thermal state: "a native module"); LLP 1069.007 (capabilities in the agent's hands; D7, the Substitute paragraph); LLP 1075.003 §3.3 and §9.1 (declared `data-*` words, `querySelectorAll`); LLP 1075.003.000.001 (hatches on every platform); LLP 1077 D14 (`haptic`, a host command)
+**Related:** LLP 1024 (native modules; "the roster is packaging, not language"); LLP 1067.000 (one native module per app: `call`, `later`, topics, agent mode); LLP 1016.002 (push invalidates, the answer stays a pull); LLP 1027 D8 (sources routed by name); LLP 1069.000 D4 (battery and thermal state: "a native module"); LLP 1069.007 (capabilities in the agent's hands; D7, the Substitute paragraph); LLP 1075.003 §3.3 and §9.1 (declared `data-*` words, `querySelectorAll`); LLP 1075.003.000.001 (hatches on every platform); LLP 1077 D14 (`haptic`, a host command); LLP 1121 D13 (Tamber's `mode`, the fourth `prefer` group)
 
 ## Summary
 
@@ -63,7 +63,7 @@ already have.
 | A device value with no web name | The app's module answers `native.call` / `native.later`; the app's data source (Rust or TypeScript) calls it (LLP 1067.000 D1, D5) | Per app, per platform; untyped JSON |
 | A value that changes by itself | `native.watch(topic)`; the module announces the topic; the runner asks again (LLP 1016.002) | None |
 | A fact every host gives | A reserved source (`exactPage`, `exactViewport`), checked field by field at bake (LLP 1069.000 D2) | Not for values only some hosts have (D4) |
-| An action on the device | `HOST_COMMANDS`, a closed list (`contract/syntax/src/lib.rs:86`); a send to a mutation, answered by the data source | — |
+| An action on the device | `HOST_COMMANDS`, a closed list (`contract/syntax/src/lib.rs:87`); a send to a mutation, answered by the data source | — |
 | A node's own words | Declared `data-*` words (`app.json` `data`), read by hatches and `querySelectorAll` (LLP 1075.003 §3.3, §9.1) | — |
 | The agent | Ten operations; a fact is a `prefer` name; a request is a held ticket (LLP 1069.007 D1–D4) | The module substitute is owed (LLP 1069.007 D5) |
 | What an app needs from a host | `modules`, `hatches`, `data` in `app.json`; hatch words checked per platform at delivery (LLP 1075.003.000.001 Q6) | No list of device values, so no check |
@@ -194,16 +194,24 @@ app's, never both (question 4).
 
 1. **Shape:** each source is a fact (LLP 1069.007 D1); each send is a
    command whose answer the module gives.
-2. **Fact:** `prefer <extension>.<source> <json>` sets the answer, as
-   `{"level": 0.2, "state": "unplugged"}`. While it is set the runner answers
-   the source itself and does not call the module, on every host. `prefer <extension>.<source> clear` returns it
-   to the module. A launch fixture (`--prefer battery.battery=…`) sets it
-   before the first answer. With no `prefer`, the module's agent-mode
+2. **Fact:** a fifth `prefer` group, `extension`, beside `media`, `page`,
+   `fold` and `mode` (LLP 1121 D13): `prefer extension
+   battery.battery={"level":0.2,"state":"unplugged"}` sets the answer of the
+   extension's source, and the wire carries it as
+   `{"op":"prefer","extension":{"battery.battery":{…}}}`. While it is set the
+   runner answers the source itself and does not call the module, on every
+   host. `prefer extension battery.battery=clear` returns it to the module. A
+   launch fixture (`--prefer extension battery.battery=…`) sets it before the
+   first answer. With no `prefer`, the module's agent-mode
    substitute answers (LLP 1067.000 D6), and an extension with none answers
    its declared `default` (D1).
 3. **Send:** answered by the module's agent-mode substitute, which journals
    it; no ticket is held. A send that opens system UI is a request under LLP
-   1069.007 D3 and needs its own capability LLP.
+   1069.007 D3: the runner holds it as a ticket that the agent answers with
+   `tap @t <choice>`, and the extension's file names the capability and its
+   choices. A permission prompt is one: the §6 spike's `requestAttitude()`
+   asks for motion access in iOS Safari and Chrome. Such an extension needs
+   its own capability LLP, with the D7 paragraph that LLP 1069.007 asks for.
 4. **Disclosure:** `state.extensions` lists each extension's name, version,
    SHA-256, whether this host implements it, and each source's preferred
    value. A field the file marks `secret` shows its presence only.
@@ -309,6 +317,10 @@ a simulator, a real iPhone and Chrome, with no exact2 change.
 | Web (JS target) | `bun exact.mjs test web`, under the agent | `battery`, not implemented on the web: its default, "Unknown"; `attitude`: the substitute, "pitch 0.0°, roll 0.0°" (1 test passed). |
 | Chrome (desktop), JS target | outside the agent | Before access, `attitude` answered its default and the view showed "Enable motion". A click sent `requestAttitude()` ("access: granted") and the view showed the overridden orientation, "pitch 20.0°, roll 5.0°". A new orientation (-15°, 30°) showed at once, with no reload. A change of less than half a degree (-15.3°, 30.2°) reached the page but was not announced, and the view kept "-15.0°, 30.0°". |
 
+- Rechecked on exact2 d15a3f8ed (2026-10-14): `test web` passed, and under
+  the agent the simulator showed "50%", then "49%" after `clock +60000`, and
+  `attitude`'s default. The app needed only the Contract's new spellings
+  (`for`, `if`, `x.toFixed(1)`); the extensions and the glue did not change.
 - The app's own data code for the two extensions is none: `app.ts` only
   spreads the generated sources. The generated glue for two extensions is
   24 lines of TypeScript, 56 of Swift and 26 of JavaScript per app, which
@@ -321,7 +333,9 @@ a simulator, a real iPhone and Chrome, with no exact2 change.
   - a `prefer` name for the value; under the agent only the extension's own
     substitute answers (D7);
   - the `app.json` field: the manifest's schema refuses an unknown key, so
-    the list is in a separate `extensions.json` (D2).
+    the list is in a separate `extensions.json` (D2);
+  - hold a permission request for the agent to answer: under the agent
+    `requestAttitude()` answers "granted" at once (D7, point 3).
 - Not checked: a change of battery state on the iPhone (the cable unplugged
   with the app open); `attitude` in a phone's browser (not run); other
   platforms.
