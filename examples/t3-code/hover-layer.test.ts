@@ -173,7 +173,7 @@ describe('the layer and its timing', () => {
     expect(root).toContain(`  state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}\`
+  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}|\${data.threadId}\` // chat-markdown-media-and-code: a thread change too (a media tooltip whose image went with no leave)
     after(1, hoverTicked)
   action hoverTicked
     hoverWait = hoverWait + 10
