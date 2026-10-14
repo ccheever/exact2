@@ -238,8 +238,8 @@ final class T3TerminalView: ExactNativeInstance {
     /// G1-2). So while text is composing, a key without ⌘ is the input method's first: the terminal's
     /// bindings and readline keys never act on it ahead of the composition; ⌥Return (Hanja, a candidate
     /// list) is offered to the input context here, synchronously, as Chromium's `interpretKeyEvents`;
-    /// a ⌃ chord commits the composition as it stands and is then the terminal's (a binding, a readline
-    /// key) or nothing, as Chromium's composing keydown (key code 229) is: ⌃C commits ㅎ and sends no ^C.
+    /// a ⌃ chord is offered to the input context too, so conversion and candidate keys stay with
+    /// the input method. Only a declined chord commits and then reaches the terminal's key path.
     /// The sign-in terminal's Escape commits too, then goes to its PTY (AppKit would dismiss the form).
     func routeTerminalKey(_ event: NSEvent) -> Bool {
         guard !disposed, event.window === web.window, event.type == .keyDown || event.type == .keyUp else { return false }
@@ -251,6 +251,7 @@ final class T3TerminalView: ExactNativeInstance {
         case .inputContextFirst: return offerToInputMethod(event)
         case .inputMethod where !(authMode && event.keyCode == 53): return false
         case .inputMethod, .commitFirst:
+            if T3TerminalKeys.composing(event) == .commitFirst, offerToInputMethod(event) { return true }
             suppressedKeys.insert(event.keyCode)
             commitComposition { [weak self] in
                 guard let self, !self.disposed else { return }

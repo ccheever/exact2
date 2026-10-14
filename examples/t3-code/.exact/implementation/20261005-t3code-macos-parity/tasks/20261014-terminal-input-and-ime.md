@@ -35,8 +35,8 @@ user decided on 2026-10-11 that each is built now, matching the reference T3 Cod
    and presses the middle button on an inactive pane.
 3. G1-1, G1-2 (`T3TerminalView.swift`, `T3TerminalKeys.swift`, `terminal-host/src/entry.ts`): while the web view holds
    marked text the terminal's native key path (bindings, readline keys, the auth keys) and the page's `beforeKey` leave
-   every key but a ⌘ or ⌃ chord to the input method; ⌥Return goes to the input context first; a ⌃ chord commits the
-   marked text first and is the composition's, as Chromium's.
+   every key but a ⌘ chord to the input method first; ⌥Return and ⌃ chords go to the input context; only a declined
+   ⌃ chord commits marked text before terminal handling.
 4. G1-3: the web view takes the first responder on a middle press (`otherMouseDown`) and focuses the page's input, so
    the pane's focus-in activates it; the surface close copy names the active terminal first.
 5. KW-8: remove both attributes; film again.
@@ -75,10 +75,10 @@ the input method. So the terminal's bindings and readline keys could act on a ke
 (the page's composition state, below, or WebKit's marked text) the view now routes by `T3TerminalKeys.composing`:
 
 - a ⌘ chord is the app's, as before;
-- a ⌃ chord commits the composition as it stands (`unmarkText`, then `discardMarkedText`, WebKit's own order when a
-  page ends a composition) and, once the page's `compositionend` has sent the text, is the terminal's (a binding, a
-  readline key: ⌃L clears after 하) or nothing, as Chromium's composing keydown (key code 229) is: ⌃C commits ㅎ and sends
-  no ^C, as the reference;
+- a ⌃ chord is offered to the input context first. A consumed conversion or candidate key stays with the input
+  method and does not commit or send PTY bytes. Only a declined chord commits (`unmarkText`, then `discardMarkedText`)
+  and runs the terminal binding/readline path after the page sends the committed text. The Korean ⌃C observation
+  does not establish the behavior of other input methods or ⌃L in the reference;
 - ⌥Return is offered to the input context first, synchronously, once (this path can see a key three times), as
   Chromium's `interpretKeyEvents` offers it: the 2-Set Korean input method's Hanja list;
 - every other key is WebKit's, whose `keyDown` offers it to the input method before the page; the sign-in terminal's
@@ -140,10 +140,12 @@ source to 2-Set Korean for steps 1-3 (and back to ABC after); never send a messa
    break; press 1: 韓 goes in at the next prompt. The clone before: no window, ⌥Return reached the shell as a line break.
 3. **G1-2.** At an empty prompt type g (ㅎ composing), ⌃C. Expected (reference): ㅎ is committed at the prompt (`$ ㅎ`), no
    ^C, no new prompt, nothing left composing: ⌃U clears the line, and a second ⌃C prints ^C and a new prompt. Then g,
-   ⌃L: ㅎ is committed and the screen clears.
+   ⌃L: record both apps. Commit-then-clear is the clone fallback when the input method declines; the reference result
+   was not recorded. Also test Japanese にほん then ⌃K: conversion stays with the input method, with no premature commit.
 4. **G1-3.** Split the drawer (⌘D: Terminal 1 | Terminal 2, Terminal 2 active), click the composer, press the middle
    button on Terminal 1's prompt. Expected (reference): the terminal takes the focus (its cursor fills) and Terminal 1
-   becomes active, nothing is pasted; type `echo mid` and Return: it runs in Terminal 1. Then right panel › Terminal, ⌘D
+   becomes active, nothing is pasted. Known difference: the recorded reference focused the viewport container and the
+   next paste reached no pane; the clone focuses the input. Record typing and paste separately in both apps. Then right panel › Terminal, ⌘D
    in it, press the middle button on its tab: "Close 2 terminals?" names the panel's active terminal first.
 
 ## Tests
@@ -205,3 +207,32 @@ The coordinator reviews the draft PR; the real-input batch runs steps 1-4 above.
 - G1-1 and G1-2 under the real 2-Set Korean input method (the Hanja window, the cadence states, ⌃C's commit): no input
   method can be driven in agent mode and the input source is not to be switched here; real-input steps 1-3.
 - G1-3 under a real middle button: real-input step 4 (the agent's `auxclick` is a CGEvent through `NSApp.sendEvent`).
+
+## Continuation review repair
+
+The two saved reviews disagreed about composing Control keys. The implementation bypassed the input context for
+all of them. The repair offers the key first and preserves a consumed composition; commit-then-route remains only
+for declined keys. The AppKit regression replaces `NSTextInputContext.handleEvent` within one test and restores it
+on exit, so it exercises the native event route without changing the machine's selected input source. This proves
+routing, not Kotoeri conversion or the Korean candidate window. Real-input steps above retain those checks.
+
+The middle-press input/container difference remains unresolved. The original isolated middle-press test passes
+on the base too; the existing app drive is its before/after evidence. The Hanja test has no demonstrated failing
+base run, and the close-order change still lacks a visible before/after capture.
+
+Repair verification (2026-10-14, local logs under `target/tii/ime-review-*`):
+
+- Unchanged PR head `2e6a240f2`, new consumed-key test: three failures (no input-method offer, composition committed,
+  `にほん` sent to the PTY). Sources copied into `ime-review-baseline-modules` before compilation.
+- Repaired terminal AppKit suite: 43 tests, one skipped cost-table test, zero failures (`ime-review-final.log`).
+  Both consumed and declined input-method paths run through the native event route.
+- Pinned Bun 1.4.2, `terminal-host/src/entry.test.ts` and `terminal-panel.test.ts`: 31 passed, zero failed.
+- Root build, Clippy, formatting, boot and caps passed. The full root test run had two failures because child
+  processes resolved Bun 1.3.14. Re-running both affected binaries with Bun 1.4.2 on PATH passed:
+  `cargo test -p exact-bake --test cli` (2 tests) and `cargo test -p exact-update --test it` (52 tests).
+- Native bundle build passed (`ime-review-bundle.log`); the freshly built `T3 Code (Exact).app` launched through
+  `scripts/agent.mjs macos --size 1280x840 tree state logs` and exited successfully (`ime-review-launch.log`).
+  This was a startup inspection, not a live IME test. No backend lane was configured, so the development server
+  correctly refused startup; native terminal behavior is covered by the AppKit suite above.
+- The branch's additional workspace check passed: `cargo check --workspace --all-targets --keep-going`
+  (`ime-review-workspace.log`, 5m 18s; existing authored-colour warnings emitted).

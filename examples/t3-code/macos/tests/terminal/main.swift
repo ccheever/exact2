@@ -287,6 +287,15 @@ final class TerminalSurfaceTests: XCTestCase {
     /// composition's, as Chromium's composing keydown is: no ^C, nothing left composing. A ⌃ chord the
     /// terminal owns (⌃L, its clear) runs after the commit, in that order.
     func testControlChordCommitsTheCompositionFirst() throws {
+        // This exercises the declined-key fallback, independently of the machine's input source.
+        let method = try XCTUnwrap(class_getInstanceMethod(NSTextInputContext.self, #selector(NSTextInputContext.handleEvent(_:))))
+        let handler: @convention(block) (NSTextInputContext, NSEvent) -> Bool = { _, _ in false }
+        let replacement = imp_implementationWithBlock(handler)
+        let original = method_setImplementation(method, replacement)
+        defer {
+            method_setImplementation(method, original)
+            imp_removeBlock(replacement)
+        }
         let view = composingTerminal("ime-control")
         try compose(view, "ㅎ")
         try view.agentInput(.key("Control+C", phase: nil))
@@ -327,6 +336,30 @@ final class TerminalSurfaceTests: XCTestCase {
             XCTAssertEqual(String(typed(view).dropFirst(before.count)), "\u{1b}\r")
             XCTAssertEqual(view.inputMethodOffers, offers + 1)
         }
+    }
+
+    /// A consuming input method keeps ownership of its composition (for example Kotoeri's ⌃K).
+    func testControlChordOffersTheInputMethodBeforeCommitting() throws {
+        let view = composingTerminal("ime-consumed-control")
+        try compose(view, "にほん")
+        let method = try XCTUnwrap(class_getInstanceMethod(NSTextInputContext.self, #selector(NSTextInputContext.handleEvent(_:))))
+        var offers = 0
+        let handler: @convention(block) (NSTextInputContext, NSEvent) -> Bool = { _, event in
+            if event.modifierFlags.contains(.control) { offers += 1; return true }
+            return false
+        }
+        let replacement = imp_implementationWithBlock(handler)
+        let original = method_setImplementation(method, replacement)
+        defer {
+            method_setImplementation(method, original)
+            imp_removeBlock(replacement)
+        }
+        try view.agentInput(.key("Control+K", phase: nil))
+        // Drain WebKit's queued work before asserting that the key sent no PTY bytes.
+        _ = evaluate(view, "return 'settled'")
+        XCTAssertEqual(offers, 1, "the input method must see the chord exactly once")
+        XCTAssertTrue(marked(view), "a consumed conversion key must not commit the composition")
+        XCTAssertEqual(typed(view), "", "the terminal must not send a consumed conversion key")
     }
 
     /// The routing table T3TerminalView applies while an input method composes text.
