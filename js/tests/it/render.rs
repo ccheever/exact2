@@ -106,7 +106,12 @@ fn get(addr: SocketAddr, path: &str) -> (u16, Vec<(String, String)>, String) {
     stream
         .set_read_timeout(Some(Duration::from_secs(60)))
         .unwrap();
-    write!(stream, "GET {path} HTTP/1.1\r\nHost: spin.test\r\n\r\n").unwrap();
+    // One request a connection: it ends at the server's close, not at the keep-alive's idle
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: spin.test\r\nConnection: close\r\n\r\n"
+    )
+    .unwrap();
     let mut bytes = Vec::new();
     stream
         .read_to_end(&mut bytes)
