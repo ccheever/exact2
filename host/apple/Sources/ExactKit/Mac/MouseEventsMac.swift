@@ -28,11 +28,11 @@ extension Presenter {
               (window.firstResponder as? NSTextInputClient)?.hasMarkedText() != true else { return false }
         if let run = window.firstResponder as? InlineKeyView, run.owner?.inlineContextMenu(run.id) == true { return true }
         let point: NSPoint
-        var next: NSView?
+        let start: NSView?
         if let focus = keyTarget(window.firstResponder) {
             guard let middle = contextPoint(focus) else { return false }
             point = middle
-            next = focus
+            start = focus
         } else {
             // A handler removed the focus: Chrome hits the page at (1,1).
             // An embedded view/editor still owns its keys, even when its
@@ -43,14 +43,27 @@ extension Presenter {
                   session?.view?.ownsShortcutFocus() ?? true else { return false }
             let clip = viewport.contentView
             point = clip.convert(NSPoint(x: clip.bounds.minX + 1, y: clip.bounds.minY + 1), to: nil)
-            next = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
+            start = viewport.hitTest(viewport.superview?.convert(point, from: nil) ?? point)
         }
+        guard let node = contextTarget(start) else { return false }
+        return contextMenu(node, at: point)
+    }
+
+    /// The node a request from the keyboard at `view` reaches (the
+    /// ContextMenu key, VoiceOver's show menu): the first from it up,
+    /// through a popover's invoker, whose `contextmenu` or `contextPopover`
+    /// answers, as Chrome's `contextmenu` at the element bubbles to its
+    /// first handler; nil at a field, which keeps its own menu.
+    func contextTarget(_ view: NSView?) -> NodeView? {
+        var next = view
         while let view = next {
-            if let node = view as? NodeView, (node.field != nil || node.textArea != nil) { return false }
-            if let node = view as? NodeView, views[node.id] === node, node.answersContextMenu { return contextMenu(node, at: point) }
+            if let node = view as? NodeView {
+                if node.field != nil || node.textArea != nil { return nil }
+                if views[node.id] === node, node.answersContextMenu { return node }
+            }
             next = menus.parent(of: view)
         }
-        return false
+        return nil
     }
 
     /// Where a request from the keyboard lands on `node` (the ContextMenu
@@ -133,8 +146,15 @@ extension NodeView {
     /// bubbles from the run's element to its first handler. Nil where none
     /// does, and the paragraph and its ancestors hear the click as before.
     func inlineContextTarget(at point: CGPoint) -> InlineText? {
-        guard !inlineText.isEmpty, let presenter else { return nil }
-        var run = inlineTarget(at: point)
+        guard !inlineText.isEmpty else { return nil }
+        return inlineContextTarget(from: inlineTarget(at: point))
+    }
+
+    /// The nearest run from `run` up whose own `contextmenu` or
+    /// `contextPopover` answers; nil where none does.
+    private func inlineContextTarget(from run: InlineText?) -> InlineText? {
+        guard let presenter else { return nil }
+        var run = run
         while let current = run {
             if inlineAnswersContextMenu(current.id) { return current }
             run = presenter.inlineText(current.parent)
@@ -155,17 +175,32 @@ extension NodeView {
         return dispatchInlineContextMenu(run, at: convert(event.locationInWindow, from: nil), sample: sample)
     }
 
-    /// Run `id`'s `contextmenu` and `contextPopover` for VoiceOver's show
-    /// menu (X84), as the ContextMenu key sends a node's: at the middle of
-    /// its first line, from that line's top left, no button held.
+    /// A request from the keyboard at run `id` (VoiceOver's show menu, X84;
+    /// the ContextMenu key at the run), as the key sends a node's: at the
+    /// middle of the run's first line, no button held, to the nearest run
+    /// from it up that answers, from that run's first line's top left, else
+    /// to the first node from this paragraph up that does, as Chrome's
+    /// `contextmenu` at the run's element bubbles.
     func inlineContextMenu(_ id: UInt32) -> Bool {
-        guard inlineAnswersContextMenu(id), let presenter, let run = presenter.inlineText(id),
+        guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id),
               let line = inlineRects(run).first, let point = presenter.contextPoint(self, rect: line) else { return false }
+        guard let target = inlineContextTarget(from: run), let first = inlineRects(target).first else {
+            return presenter.contextTarget(self).map { presenter.contextMenu($0, at: point) } ?? false
+        }
         let local = self.local(point), client = presenter.client(point)
-        let sample = PointerSample(x: Double(local.x - line.minX), y: Double(local.y - line.minY),
+        let sample = PointerSample(x: Double(local.x - first.minX), y: Double(local.y - first.minY),
                                    buttons: 0, pressure: 0, type: "mouse", id: 1,
                                    clientX: Double(client.x), clientY: Double(client.y))
-        return dispatchInlineContextMenu(run, at: convert(point, from: nil), sample: sample)
+        return dispatchInlineContextMenu(target, at: convert(point, from: nil), sample: sample)
+    }
+
+    /// Whether a request from the keyboard at run `id` reaches a run or
+    /// node from it up whose `contextmenu` or `contextPopover` runs.
+    func inlineOffersContextMenu(_ id: UInt32) -> Bool {
+        guard let presenter, presenter.views[self.id] === self, !disabled, !inert,
+              presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        if inlineContextTarget(from: run) != nil { return true }
+        return presenter.contextTarget(self).map { !$0.disabled && !$0.inert } ?? false
     }
 
     /// `run`'s `contextmenu`, then its `contextPopover`'s menu at `point`
