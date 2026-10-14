@@ -51,6 +51,11 @@ use CitationCommentLayer from "./citation-comment.contract" // diff-cite-popover
 use CiteAction, CiteOffer, citeLineFrame from "./diff-cite.contract" // cite-selection-anchor: Cite over the timeline
 component T3Window
   props
+    // cite-selection-anchor: the root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
+    // and its count of the window's focus losses.
+    citeWaitDone: number
+    citeWaitAsk: action
+    citeBlurs: number
     data: Snapshot
     viewport: Viewport
     scheme: string
@@ -342,6 +347,8 @@ component T3Window
     citeOffered = (citeShows ? citeFor : "")
     citeOfferSet
     citeWithdraw
+    citeHold
+    citeHolding = (citeWaits > citeWaitDone)
     citeScrolled
     outsidePressDown
     outsidePressUp
@@ -430,16 +437,28 @@ component T3Window
     outsideDown = false
   // cite-selection-anchor (AssistantSelectionToolbar.tsx): the Cite an answer offers, drawn by the window above the timeline
   // as the reference portals it to the body; shown on the thread it was offered on, under no page, Settings or dialog.
-  // It hides as the timeline scrolls (observeSelectionActions' scroll), and the press sends the quote with the window frame
-  // of the selection's last line, measured again, then clears the selection (`removeAllRanges()` after `onCite`).
+  // It hides as the timeline scrolls or the window is resized (observeSelectionActions' scroll and resize), and the press
+  // sends the quote with the window frame of the selection's last line, measured again, then clears the selection
+  // (`removeAllRanges()` after `onCite`).
   state citeOffer = CiteOffer(source="", ranges="", stream="", size=0, x=0, y=0, end="", lx=0, ly=0, lw=-1, lh=0)
   state citeFor = ""
   state citeThread = ""
-  derive citeShows = citeFor != "" and citeThread == data.threadId and not pageCover and not settingsOpen and not modal
+  state citeViewport = ""
+  // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the focus losses at the offer.
+  state citeWaits = 0
+  state citeBlurAt = 0
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover and not settingsOpen and not modal
   action citeOfferSet(offer: CiteOffer)
     citeOffer = offer
     citeFor = offer.source
     citeThread = data.threadId
+    citeViewport = `${viewport.width}x${viewport.height}`
+    citeBlurAt = citeBlurs
+  // A double-click, or a click while its wait runs (a third): Cite waits 500 ms more.
+  action citeHold
+    let next = citeWaits + 1
+    citeWaits = next
+    citeWaitAsk(next)
   action citeWithdraw(source: string)
     if citeFor == source
       citeFor = ""
