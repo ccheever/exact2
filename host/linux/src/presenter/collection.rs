@@ -247,12 +247,13 @@ fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
         at = parent.parent;
     }
     ancestors.into_iter().rev().fold(viewport, |basis, node| {
-        let [_, right, _, left] = node.style.border_widths();
+        let style = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let [_, right, _, left] = style.border_widths();
         (node.frame.width as f64
             - left as f64
             - right as f64
-            - length(kernel, node.style.padding_left, basis)
-            - length(kernel, node.style.padding_right, basis))
+            - length(kernel, style.padding_left, basis)
+            - length(kernel, style.padding_right, basis))
         .max(0.)
     })
 }

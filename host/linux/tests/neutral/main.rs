@@ -302,6 +302,7 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     route_headers_keep_the_page_tree_and_take_the_neutral_defaults();
     route_header_geometry_matches_the_browser();
     route_header_sticky_geometry_and_hits_follow_the_browser();
+    route_header_padding_is_the_containing_width_of_a_windowed_list();
     route_header_classes_restore_defaults();
     route_header_context_changes_invalidate_retained_nodes();
     route_header_effective_rows_reach_layout_admission_and_motion();
@@ -861,6 +862,57 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
         assert!(order.positioned && order.stacks);
         assert_eq!(order.z, None);
     }
+    // In a column flow, sticky is relative. Its absolute descendant must
+    // still follow the column containing that positioned header's content.
+    k.apply(
+        0,
+        1,
+        &[
+            create(7),
+            style(
+                1,
+                &[
+                    (StyleId::Height, "40px"),
+                    (StyleId::ColumnCount, "2"),
+                    (StyleId::ColumnFill, "auto"),
+                ],
+            ),
+            style(
+                2,
+                &[
+                    (StyleId::MinHeight, "0"),
+                    (StyleId::PaddingTop, "0"),
+                    (StyleId::PaddingRight, "0"),
+                    (StyleId::PaddingBottom, "0"),
+                    (StyleId::PaddingLeft, "0"),
+                    (StyleId::BackgroundColor, "transparent"),
+                    (StyleId::BorderStyleBottom, "none"),
+                ],
+            ),
+            style(3, &[(StyleId::Top, "20px")]),
+            style(7, &[(StyleId::Height, "60px")]),
+            children(1, &[6, 2]),
+            children(2, &[3, 7]),
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
+    let reference = k.node(3).unwrap().frame;
+    assert!(reference.x > 5.0 && reference.y < 50.0, "{reference:?}");
+    assert!(k.columns(k.node(1).unwrap().key).unwrap().columns.len() >= 2);
+    assert_eq!(k.fragment_refusal(k.node(2).unwrap().key), None);
+    for op in [
+        style(2, &[(StyleId::PositionType, "sticky")]),
+        Op::ClearStyle {
+            id: 2,
+            mask: exact_kernel::StyleMask::of(StyleId::PositionType),
+            written: false,
+        },
+    ] {
+        k.apply(0, 1, &[op]).unwrap();
+        k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
+        assert_eq!(k.node(3).unwrap().frame, reference);
+    }
 }
 
 // Chrome 155.0.8059.80, 2026-10-14: ordinary emitted app, two widths and both schemes.
@@ -1096,4 +1148,69 @@ fn route_header_sticky_geometry_and_hits_follow_the_browser() {
             }
         }
     }
+}
+
+fn route_header_padding_is_the_containing_width_of_a_windowed_list() {
+    let rows = (0..100)
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let mut outcomes = Vec::new();
+    for padding in ["", "padding=\"6px 16px\""] {
+        let source = format!(
+            r#"component App
+  derive rows = [{rows}]
+  view
+    column navigationKey="route" width=320
+      header {padding}
+        list virtualized=true height=100 width="100%" box-sizing="border-box" padding="10%" testId="feed"
+          for item in rows key=item
+            row height=24 testId=`row-${{item}}`
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let (mut p, error) = Presenter::boot_with(
+            &plan.encode(),
+            (),
+            (320.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        let feed = id(&p, "feed");
+        for end in [false, true] {
+            if end {
+                p.wheel(feed, 0.0, 100_000.0).unwrap();
+            }
+            for _ in 0..16 {
+                assert!(p.pump(p.host().now()).is_none());
+                if p.dirty() {
+                    p.frame();
+                }
+            }
+            let snapshot = p.host().collection(feed).unwrap();
+            assert!(!snapshot.pending && !p.dirty());
+            assert_eq!(snapshot.count, 100);
+            assert!(snapshot.rows.len() < 100 && snapshot.rows.iter().all(|r| r.measured));
+            assert_eq!(size(&mut p, "feed").0, 288.0);
+            // The header's 320px box has 16px on each side: the list's
+            // 10% padding is 28.8px, leaving 230.4px for its row wrappers.
+            let kernel = p.host().kernel();
+            let row = kernel.node(snapshot.rows[0].view).unwrap();
+            let port = kernel.node(feed).unwrap();
+            assert!((row.frame.x - port.frame.x - 28.8).abs() < 0.01);
+            assert!((row.frame.width - 230.4).abs() < 0.01);
+            if end {
+                let offset = p.scroll_of(feed).1;
+                assert!(offset > 2_000.0);
+                outcomes.push(offset);
+            }
+        }
+    }
+    assert_eq!(
+        outcomes[0], outcomes[1],
+        "unsaid and authored header padding report the same list origin and end"
+    );
 }
