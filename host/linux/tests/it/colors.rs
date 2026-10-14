@@ -2,18 +2,7 @@
 //! time, is refused as an invalid colour is (the bake refuses a literal one).
 use exact_kernel::{ColorValue, MonospaceMeasurer};
 use exact_linux::Host;
-use exact_runner::{DataError, DataSource, Event};
-
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
+use exact_runner::Event;
 
 #[test]
 fn a_colour_outside_srgb_is_refused_as_it_is_set() {
@@ -23,14 +12,14 @@ fn a_colour_outside_srgb_is_refused_as_it_is_set() {
     let plan = contract::compile(src).unwrap().encode();
     let mut h = Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,
     )
     .unwrap()
     .0;
-    let node = |h: &Host<NoData>, t: &str| {
+    let node = |h: &Host<()>, t: &str| {
         let k = h.kernel();
         k.node_by_key(k.find_by_test_id(t)[0])
             .unwrap()

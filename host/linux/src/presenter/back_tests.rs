@@ -2,15 +2,6 @@
 //! `navigate`, the runner's own `back`, and who takes nothing; and a
 //! desktop's Back keys, whose default action it is (LLP 1115.000 D5.4).
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// A two-route app. `ROOT` is the navigation root's own attributes, `BACK`
 /// what the pushed route holds beside its text.
@@ -47,11 +38,11 @@ component App
             BACK
 "#;
 
-fn boot(root: &str, back: &str) -> Presenter<Nothing> {
+fn boot(root: &str, back: &str) -> Presenter<()> {
     let source = APP.replace("ROOT", root).replace("BACK", back);
     let (p, error) = Presenter::boot_with(
         &contract::compile(&source).unwrap().encode(),
-        Nothing,
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -62,24 +53,24 @@ fn boot(root: &str, back: &str) -> Presenter<Nothing> {
     p
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> Option<ViewId> {
+fn id(p: &Presenter<()>, name: &str) -> Option<ViewId> {
     let kernel = p.host().kernel();
     let key = kernel.find_by_test_id(name).first().copied()?;
     Some(kernel.node_by_key(key)?.id)
 }
 
 /// Whether the pushed route is the one that shows.
-fn on_detail(p: &Presenter<Nothing>) -> bool {
+fn on_detail(p: &Presenter<()>) -> bool {
     id(p, "detail").is_some_and(|id| !p.host().route_visibility(id).0)
 }
 
-fn slot(p: &mut Presenter<Nothing>, name: &str) -> serde_json::Value {
+fn slot(p: &mut Presenter<()>, name: &str) -> serde_json::Value {
     let state: serde_json::Value =
         serde_json::from_str(&crate::agent::handle(p, r#"{"op":"state"}"#)).unwrap();
     state["slots"][name].clone()
 }
 
-fn open(p: &mut Presenter<Nothing>) {
+fn open(p: &mut Presenter<()>) {
     let button = id(p, "open").unwrap();
     p.dispatch_press(button, 0., false);
     assert!(on_detail(p), "the button pushed the route");
@@ -151,7 +142,7 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
         )
         .unwrap()
         .encode(),
-        Nothing,
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -170,7 +161,7 @@ fn a_node_that_only_has_the_id_back_is_no_back_control() {
 
 /// A key at the device, down and up, inside the modifiers `held` (each its
 /// code and its name), as the display loop and VNC deliver them.
-fn device_key(p: &mut Presenter<Nothing>, held: &[(&str, &str)], key: &str) {
+fn device_key(p: &mut Presenter<()>, held: &[(&str, &str)], key: &str) {
     for (code, name) in held {
         p.hardware_key(code, name, true, false);
     }
@@ -184,7 +175,7 @@ const ALT: &[(&str, &str)] = &[("AltLeft", "Alt")];
 
 #[test]
 fn a_desktops_back_keys_go_back_in_the_same_order() {
-    // Nothing focused, no control, no `navigate`: the runner's own back.
+    // () focused, no control, no `navigate`: the runner's own back.
     let mut p = boot("", "text \"no control here\"");
     device_key(&mut p, ALT, "ArrowLeft"); // nowhere to go: the app stays as it is
     open(&mut p);

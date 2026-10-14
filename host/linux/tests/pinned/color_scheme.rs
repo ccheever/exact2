@@ -3,7 +3,6 @@
 //! nested `light` wins below it; a colour moving under the subtree moves in
 //! its scheme too.
 
-use crate::borders::NoData;
 use crate::pin_font;
 use exact_linux::Presenter;
 use std::path::PathBuf;
@@ -20,19 +19,19 @@ const APP: &str = r##"component App
         column color-scheme="light" width=50 height=40 background-color="light-dark(#00ff00, #ff00ff)"
 "##;
 
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     pin_font();
     let plan = contract::compile(APP).unwrap();
     let assets = PathBuf::from(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../apps/caltrain/assets"
     ));
-    let (p, error) = Presenter::boot(&plan.encode(), NoData, (200.0, 300.0), 1.0, assets).unwrap();
+    let (p, error) = Presenter::boot(&plan.encode(), (), (200.0, 300.0), 1.0, assets).unwrap();
     assert!(error.is_none(), "{error:?}");
     p
 }
 
-fn pixel(p: &mut Presenter<NoData>, x: u32, y: u32) -> [u8; 4] {
+fn pixel(p: &mut Presenter<()>, x: u32, y: u32) -> [u8; 4] {
     let c = p.frame().pixel(x, y).unwrap().demultiply();
     [c.red(), c.green(), c.blue(), c.alpha()]
 }

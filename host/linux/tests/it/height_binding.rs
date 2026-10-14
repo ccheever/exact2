@@ -4,17 +4,6 @@ use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
 use exact_runner::{DataError, DataSource, Event};
 
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 const APP: &str = r#"component App
   state target = 180
   state releases = 0
@@ -73,10 +62,10 @@ const APP: &str = r#"component App
       text `${seenHeight}` testId="seenHeight"
       text `${seenVelocity}` testId="seenVelocity"
 "#;
-fn boot(source: &str) -> Host<Empty> {
+fn boot(source: &str) -> Host<()> {
     let (h, error) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         500.,
@@ -85,16 +74,16 @@ fn boot(source: &str) -> Host<Empty> {
     assert!(error.is_none(), "{error:?}");
     h
 }
-fn key(h: &Host<Empty>, name: &str) -> NodeKey {
+fn key(h: &Host<()>, name: &str) -> NodeKey {
     h.kernel().find_by_test_id(name)[0]
 }
-fn id(h: &Host<Empty>, name: &str) -> u32 {
+fn id(h: &Host<()>, name: &str) -> u32 {
     h.kernel().node_by_key(key(h, name)).unwrap().id
 }
-fn press(h: &mut Host<Empty>, name: &str, now: f64) {
+fn press(h: &mut Host<()>, name: &str, now: f64) {
     assert!(h.dispatch_at(id(h, name), Event::Press, now).is_none());
 }
-fn text<'a>(h: &'a Host<Empty>, name: &str) -> &'a str {
+fn text<'a>(h: &'a Host<()>, name: &str) -> &'a str {
     h.kernel()
         .node_by_key(key(h, name))
         .unwrap()

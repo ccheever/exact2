@@ -35,14 +35,6 @@ fn boot() -> Presenter<caltrain_data::Caltrain> {
     p
 }
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(s.into()))
-    }
-}
-
 #[test]
 fn an_analysis_core_entry_refuses_before_constructing_app_data() {
     struct MustNotBoot;
@@ -60,7 +52,7 @@ fn an_analysis_core_entry_refuses_before_constructing_app_data() {
     assert_eq!(exact_linux::run::<MustNotBoot>(b"EXPL", compat), 1);
 }
 
-fn fixture(name: &str) -> Presenter<NoData> {
+fn fixture(name: &str) -> Presenter<()> {
     pin_font();
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
@@ -68,8 +60,7 @@ fn fixture(name: &str) -> Presenter<NoData> {
     ))
     .unwrap();
     let plan = contract::compile(&src).unwrap();
-    let (p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    let (p, error) = Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none(), "{error:?}");
     p
 }
@@ -210,7 +201,7 @@ fn disabled_controls_refuse_pointer_and_text_input() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut presenter, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     presenter.tap(view(&presenter, "disabled-button")).unwrap();
     assert_eq!(
@@ -249,13 +240,13 @@ fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let field = view(&p, "field");
     for key in ["7", "x"] {
         p.type_key(field, key, key, true, false).unwrap();
     }
-    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    let slot = |p: &Presenter<()>, name: &str| p.host().runner().slot(name).cloned();
     assert_eq!(slot(&p, "text"), Some(Value::str("7")), "x was prevented");
     assert_eq!(slot(&p, "heard"), Some(Value::str("f7o7fxox")));
 }
@@ -285,7 +276,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
 "#;
     let plan = contract::compile(source).unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let area = view(&p, "area");
     for key in ["a", "Shift+Enter", "b"] {
@@ -295,7 +286,7 @@ fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
         );
         assert!(!r.contains("error"), "{key}: {r}");
     }
-    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    let slot = |p: &Presenter<()>, name: &str| p.host().runner().slot(name).cloned();
     assert_eq!(slot(&p, "draft"), Some(Value::str("a\nb")));
     p.hardware_key("ControlLeft", "Control", true, false);
     p.hardware_key("KeyS", "s", true, false);
@@ -333,7 +324,7 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     )
     .unwrap();
     let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+        Presenter::boot(&plan.encode(), (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let picker = view(&p, "picker");
     assert!(p
@@ -755,7 +746,7 @@ fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
     let plan = contract::compile(source).unwrap().encode();
     let (host, error) = exact_linux::Host::boot_at(
         &plan,
-        NoData,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         390.0,
         844.0,
@@ -766,8 +757,7 @@ fn a_launch_location_precedes_initializers_and_root_type_navigates_once() {
     .unwrap();
     assert!(error.is_none());
     assert!(exact_runner::agent::state(host.runner()).contains("\"first\":\"/post/42\""));
-    let (mut presenter, error) =
-        Presenter::boot(&plan, NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    let (mut presenter, error) = Presenter::boot(&plan, (), (390.0, 844.0), 1.0, assets()).unwrap();
     assert!(error.is_none());
     let root = presenter.host().kernel().roots()[0];
     presenter.type_text(root, "/post/42").unwrap();
@@ -791,7 +781,7 @@ fn new_trunk_apps_compile_and_present_on_the_linux_cpu_host() {
         let plan = contract::compile_path(&assets.join("app.contract")).unwrap();
         let (mut presenter, error) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (390., 844.),
             1.,
             assets,
@@ -832,8 +822,7 @@ fn closed_popovers_keep_their_tree_but_never_paint_or_intercept_input() {
 "#,
     )
     .unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     let ordinary = view(&p, "ordinary");
     let danger = view(&p, "danger");
@@ -883,8 +872,7 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
       column id="menu" popover="auto" position="absolute"
         button "Item" press=recount
 "#).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     for name in ["invoke", "label", "no-handler"] {
         let id = view(&p, name);
@@ -896,7 +884,7 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
     }
     let (mut host, error) = exact_linux::host::Host::boot(
         &plan.encode(),
-        NoData,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         390.,
         844.,
@@ -940,8 +928,7 @@ fn a_context_menu_and_its_submenu_row_are_refused_as_popovers() {
       column id="copy-menu" popover="auto" role="menu" position="absolute"
         button "Copy path" press=did("copy-path") popovertarget="row-menu" popovertargetaction="hide" testId="m-copy-path" width=200 height=40
 "#).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     let row = view(&p, "row");
     let answer = handle(
@@ -985,20 +972,20 @@ fn a_reload_keeps_focus_at_its_place_and_autofocuses_nothing() {
         .unwrap()
         .encode()
     };
-    let (mut p, error) = Presenter::boot(&plan("one"), NoData, (390., 844.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan("one"), (), (390., 844.), 1., assets()).unwrap();
     assert!(error.is_none());
     assert_eq!(p.focus(), Some(view(&p, "play")));
     // Autofocus's own target keeps the focus through a reload.
-    p.reload(&plan("two"), NoData).unwrap();
+    p.reload(&plan("two"), ()).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "play")));
     // Focus the user moved stays where it went; autofocus takes nothing back.
     p.type_text(view(&p, "name"), "Ada").unwrap();
     assert_eq!(p.focus(), Some(view(&p, "name")));
-    p.reload(&plan("three"), NoData).unwrap();
+    p.reload(&plan("three"), ()).unwrap();
     assert_eq!(p.focus(), Some(view(&p, "name")));
     // Nothing focused before a reload: nothing after it.
     p.blur();
-    p.reload(&plan("four"), NoData).unwrap();
+    p.reload(&plan("four"), ()).unwrap();
     assert_eq!(p.focus(), None);
 }
 
@@ -1016,8 +1003,7 @@ fn covered_id_tap_refuses_without_dispatching_the_cover() {
         text "Cover"
 "#;
     let plan = contract::compile(source).unwrap();
-    let (mut p, error) =
-        Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+    let (mut p, error) = Presenter::boot(&plan.encode(), (), (100., 100.), 1., assets()).unwrap();
     assert!(error.is_none());
     let id = view(&p, "under");
     assert!(p.tap(id).unwrap_err().contains("covered or not hit"));
@@ -1044,7 +1030,7 @@ fn tap_passive_descendant_activates_parent_but_actionable_descendant_refuses() {
         );
         let plan = contract::compile(&source).unwrap();
         let (mut p, error) =
-            Presenter::boot(&plan.encode(), NoData, (100., 100.), 1., assets()).unwrap();
+            Presenter::boot(&plan.encode(), (), (100., 100.), 1., assets()).unwrap();
         assert!(error.is_none());
         let result = p.tap(view(&p, "parent"));
         if actionable {
