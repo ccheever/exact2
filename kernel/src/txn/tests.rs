@@ -80,8 +80,16 @@ fn a_node_keeps_which_of_its_rows_its_author_wrote() {
     k.apply(0, 4, &[colour(1, "#222222", false)]).unwrap();
     assert!(wrote(&k, 1).is_empty(), "the winner's bit");
     // A cleared row has no bit.
-    k.apply(0, 5, &[Op::ClearStyle { id: 2, mask: row }])
-        .unwrap();
+    k.apply(
+        0,
+        5,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: row,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert!(wrote(&k, 2).is_empty() && !k.node(2).unwrap().style.mask.has(StyleId::TextColor));
 }
 
@@ -115,6 +123,9 @@ fn explicit_clear_intent_changes_without_an_own_value() {
         );
         assert!(k.apply(0, 3, &[clear(id)]).unwrap().touched.is_empty());
     }
+    k.apply(0, 3, &[tall(2, 40.0)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
     k.apply(0, 4, &[colour(1, "#654321", true)]).unwrap();
     assert_eq!(
         k.node(2).unwrap().text_color(),
@@ -136,8 +147,18 @@ fn explicit_clear_intent_changes_without_an_own_value() {
     k.apply(0, 8, &[clear(2)]).unwrap();
     assert!(!k.node(2).unwrap().style.mask.has(color));
     assert!(k.node(2).unwrap().style.written.has(color));
-    k.apply(0, 9, &[Op::ClearStyle { id: 2, mask: row }])
+    let removed = k
+        .apply(
+            0,
+            9,
+            &[Op::ClearStyle {
+                id: 2,
+                mask: row,
+                written: false,
+            }],
+        )
         .unwrap();
+    assert!(removed.touched.contains(&k.node(2).unwrap().key));
     assert!(!k.node(2).unwrap().style.written.has(color));
 }
 

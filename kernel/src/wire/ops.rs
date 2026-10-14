@@ -32,8 +32,12 @@ pub enum Op {
     ClearProp { id: ViewId, prop: PropId },
     /// Apply a masked style patch.
     SetStyle { id: ViewId, patch: Box<StyleProps> },
-    /// Reset the rows in `mask` to their defaults.
-    ClearStyle { id: ViewId, mask: StyleMask },
+    /// Clear own values; `written` retains an explicit authored CSS clear.
+    ClearStyle {
+        id: ViewId,
+        mask: StyleMask,
+        written: bool,
+    },
     /// Replace the ordered child list.
     SetChildren { id: ViewId, children: Vec<ViewId> },
     /// Register `id` as a layout root. Roots have no parent.
@@ -86,7 +90,10 @@ impl Op {
             }
             Op::ClearProp { prop, .. } => w.u16(*prop as u16),
             Op::SetStyle { patch, .. } => patch.encode_patch(w),
-            Op::ClearStyle { mask, .. } => w.style_mask(*mask),
+            Op::ClearStyle { mask, written, .. } => {
+                w.style_mask(*mask);
+                w.u8(u8::from(*written));
+            }
             Op::SetChildren { children, .. } => {
                 w.u32(children.len() as u32);
                 for child in children {
@@ -144,6 +151,11 @@ impl Op {
             OpCode::ClearStyle => Op::ClearStyle {
                 id,
                 mask: r.style_mask()?,
+                written: match r.u8()? {
+                    0 => false,
+                    1 => true,
+                    value => return Err(DecodeError::NonCanonicalBool(value)),
+                },
             },
             OpCode::SetChildren => {
                 let count = r.u32()?;
@@ -229,7 +241,16 @@ mod tests {
                 id: 4,
                 patch: Box::new(patch),
             },
-            Op::ClearStyle { id: 4, mask },
+            Op::ClearStyle {
+                id: 4,
+                mask,
+                written: false,
+            },
+            Op::ClearStyle {
+                id: 4,
+                mask,
+                written: true,
+            },
             Op::SetChildren {
                 id: 5,
                 children: vec![1, 2, 3],
@@ -240,17 +261,14 @@ mod tests {
         }
     }
 
-    /// LLP 1115.000 D2: a patch says "written" only of a row it sets.
     #[test]
-    fn a_patch_that_writes_a_row_it_does_not_set_is_rejected() {
+    fn a_clear_with_a_noncanonical_author_bit_is_rejected() {
         let mut w = Writer::new();
-        w.style_mask(StyleMask::of(StyleId::Opacity));
-        w.style_mask(StyleMask::of(StyleId::Width));
-        w.f32(0.5);
-        let bytes = w.into_vec();
+        w.style_mask(StyleMask::of(StyleId::TextColor));
+        w.u8(2);
         assert_eq!(
-            Op::decode_payload(OpCode::SetStyle, 1, &mut Reader::new(&bytes)),
-            Err(DecodeError::WrittenUnsetRow)
+            Op::decode_payload(OpCode::ClearStyle, 1, &mut Reader::new(w.as_slice())),
+            Err(DecodeError::NonCanonicalBool(2))
         );
     }
 

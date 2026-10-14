@@ -163,8 +163,15 @@ pub fn project(
                         });
                     }
                 }
-                // `unset`, or `inherit` on an inherited row: no row (feed F1).
-                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
+                // An explicit clear has no own value but still beats host defaults.
+                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {
+                    if row.written {
+                        patch
+                            .written
+                            .set(StyleId::from_bit(row.id as u32).ok_or("unknown style")?);
+                        styled = true;
+                    }
+                }
                 // With what the binding says of the row (the author wrote it, or the compiler
                 // implied it: LLP 1115.000 D2), which the page's marks read (`data-exact-said`).
                 (BindingKind::Style, Some(v)) => {

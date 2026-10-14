@@ -780,14 +780,14 @@ pub(crate) fn continue_document(
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, touched, receipt);
                 }
-                Op::ClearStyle { id, mask } => {
+                Op::ClearStyle { id, mask, written } => {
                     let slot = live_slot(arena, op_index, *id)?;
-                    let changed = arena.style(slot).cleared_mask(*mask);
+                    let changed = arena.style(slot).cleared_mask(*mask, *written);
                     if changed.is_empty() {
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.clear_style(slot, *mask);
+                    arena.clear_style(slot, *mask, *written);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -1350,7 +1350,9 @@ fn propagate_inherited(
         let pass = rows.minus(arena.style(s).mask).minus(
             arena
                 .control_text_start(s)
-                .map_or(StyleMask::EMPTY, |start| start.mask),
+                .map_or(StyleMask::EMPTY, |start| {
+                    start.mask.minus(arena.style(s).written)
+                }),
         );
         if pass.is_empty() {
             continue;

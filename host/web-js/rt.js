@@ -831,12 +831,12 @@ function css(e, prop, unit, v, rendered) {
   // (`transparent` is the color the renderer writes as rgba(0, 0, 0, 0).)
   if (rendered) {
     const now = e.style.getPropertyValue(prop);
-    if (t == null ? !now : same(now) === normal(prop, t)) return;
+    if (t == null ? !now : same(now) === (normal(prop, t) || "unset")) return;
   }
   if (t == null) return e.style.removeProperty(prop);
   e.style.removeProperty(prop);
   e.style.setProperty(prop, t);
-  if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
+  if (!e.style.getPropertyValue(prop)) { e.style.setProperty(prop, "unset"); say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`); }
 }
 /** `S` for a row that can reference an element (`url(#…)`): an authored id
  * names the node the kernel's `resolve_id` would, the nearest in the tree

@@ -897,3 +897,44 @@ fn an_href_that_turns_out_empty_is_no_href_to_swift() {
     assert!(!cleared.contains("\"href\""), "{cleared}");
     assert!(cleared.contains(page), "{cleared}");
 }
+
+#[test]
+fn explicit_clears_export_computed_values_and_own_declaration_intent() {
+    use exact_kernel::StyleId;
+    for ground in ["", " color=\"#123456\""] {
+        let plan = contract::compile(&format!(
+            r##"component App
+  state changed = false
+  action change
+    changed = not changed
+  view
+    column{ground}
+      button "Change" press=change testId="change"
+      input color="inherit" testId="field"
+      text "Words" color=(changed ? "#abcdef" : "unset") testId="words"
+"##
+        ))
+        .unwrap();
+        let (mut host, first) = Host::boot(
+            &plan.encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            402.0,
+            874.0,
+        )
+        .unwrap();
+        for name in ["field", "words"] {
+            let id = view(&host, name);
+            let node = host.runner().kernel().node(id).unwrap();
+            assert!(!node.style.mask.has(StyleId::TextColor));
+            assert!(node.style.written.has(StyleId::TextColor));
+            let batch = op(&first, id);
+            assert!(batch.contains("\"text_color\":"), "{batch}");
+            assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+        }
+        host.dispatch(view(&host, "change"), Event::Press);
+        let restored = host.dispatch(view(&host, "change"), Event::Press);
+        let batch = op(&restored, view(&host, "words"));
+        assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
+    }
+}

@@ -3980,7 +3980,8 @@
     },
     {
       "id": 6,
-      "name": "ClearStyle"
+      "name": "ClearStyle",
+      "_comment": "Payload: style mask, then one canonical bool byte. True retains an authored CSS clear declaration without an own value; false removes the declaration. Style patches likewise preserve written bits outside their value mask as explicit clears (LLP 1115.000 D2)."
     },
     {
       "id": 7,

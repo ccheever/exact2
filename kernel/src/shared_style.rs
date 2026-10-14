@@ -130,7 +130,7 @@ impl SharedStyles {
 
     /// One allocation for every style whose set rows equal `style`'s.
     pub(crate) fn intern(&mut self, style: StyleProps) -> Rc<StyleProps> {
-        if style.mask.is_empty() {
+        if style.mask.is_empty() && style.written.is_empty() {
             debug_assert!(
                 style == *self.default,
                 "an unset row holds its initial value"
@@ -160,18 +160,20 @@ impl SharedStyles {
     /// Look up a patch's result before cloning the full style. Repeated
     /// updates of equally styled nodes normally find the first node's result.
     pub(crate) fn patch(&mut self, base: &StyleProps, patch: &StyleProps) -> Rc<StyleProps> {
-        let mask = base.mask.union(patch.mask);
-        if mask.is_empty() {
+        let affected = patch.mask.union(patch.written);
+        let mask = base.mask.minus(affected).union(patch.mask);
+        let written = base.written.minus(affected).union(patch.written);
+        if mask.is_empty() && written.is_empty() {
             return self.default_style();
         }
         self.scratch.clear();
-        base.encode_overlaid(mask, patch, &mut self.scratch);
+        base.encode_overlaid(mask, written, patch, &mut self.scratch);
         let mut keyed;
         let bytes = if base.relative.is_empty() && patch.relative.is_empty() {
             self.scratch.as_slice()
         } else {
             let mut relative = base.relative.clone();
-            relative.copy(&patch.relative, patch.mask);
+            relative.copy(&patch.relative, affected);
             keyed = self.scratch.as_slice().to_vec();
             relative.encode(&mut keyed);
             &keyed[..]
@@ -186,13 +188,22 @@ impl SharedStyles {
     }
 
     /// Look up the remaining rows before materializing a cleared style.
-    pub(crate) fn clear(&mut self, base: &StyleProps, cleared: StyleMask) -> Rc<StyleProps> {
+    pub(crate) fn clear(
+        &mut self,
+        base: &StyleProps,
+        cleared: StyleMask,
+        authored: bool,
+    ) -> Rc<StyleProps> {
         let mask = base.mask.minus(cleared);
-        if mask.is_empty() {
+        let written =
+            base.written
+                .minus(cleared)
+                .union(if authored { cleared } else { StyleMask::EMPTY });
+        if mask.is_empty() && written.is_empty() {
             return self.default_style();
         }
         self.scratch.clear();
-        base.encode_masked(mask, &mut self.scratch);
+        base.encode_overlaid(mask, written, base, &mut self.scratch);
         let mut keyed;
         let bytes = if base.relative.is_empty() {
             self.scratch.as_slice()
@@ -209,6 +220,7 @@ impl SharedStyles {
         }
         let mut next = base.clone();
         next.clear(cleared);
+        next.written = written;
         self.table.insert(hash, bytes.into(), next)
     }
 
@@ -249,7 +261,7 @@ mod tests {
         assert!(implied.written.has(StyleId::Height));
         patch.written = patch.mask;
         assert!(Rc::ptr_eq(&authored, &shared.patch(&implied, &patch)));
-        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width));
+        let cleared = shared.clear(&authored, StyleMask::of(StyleId::Width), false);
         assert!(!cleared.written.has(StyleId::Width));
         assert!(cleared.written.has(StyleId::Height));
     }
@@ -273,7 +285,7 @@ mod tests {
         let authored = shared.patch(&first, &value);
         assert!(authored.mask.has(StyleId::TextColor));
         assert!(Rc::ptr_eq(&first, &shared.patch(&authored, &clear)));
-        assert!(Rc::ptr_eq(&empty, &shared.clear(&first, color)));
+        assert!(Rc::ptr_eq(&empty, &shared.clear(&first, color, false)));
     }
 
     #[test]
@@ -357,11 +369,11 @@ mod tests {
             let mut expected = base.clone();
             expected.clear(mask);
             let mut shared = SharedStyles::default();
-            let first = shared.clear(&base, mask);
+            let first = shared.clear(&base, mask, false);
             assert_eq!(*first, expected, "{mask:?}");
             let authored = shared.intern(expected);
             assert!(Rc::ptr_eq(&first, &authored), "{mask:?}");
-            let again = shared.clear(&base, mask);
+            let again = shared.clear(&base, mask, false);
             assert!(Rc::ptr_eq(&first, &again), "{mask:?}");
             assert_eq!(
                 encoded(&base),

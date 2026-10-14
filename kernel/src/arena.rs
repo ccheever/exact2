@@ -531,7 +531,7 @@ impl NodeArena {
             }
             if self
                 .control_text_start(s)
-                .is_some_and(|start| start.mask.has(id))
+                .is_some_and(|start| start.mask.has(id) && !self.styles[s as usize].written.has(id))
             {
                 return None;
             }
@@ -565,7 +565,7 @@ impl NodeArena {
             }
             if let Some(start) = self
                 .control_text_start(s)
-                .filter(|start| start.mask.has(id))
+                .filter(|start| start.mask.has(id) && !own.written.has(id))
             {
                 return start;
             }
@@ -577,16 +577,14 @@ impl NodeArena {
         &self.styles[slot as usize]
     }
 
-    /// [`crate::text::TextStyle::from_style`] of the computed style, read
-    /// where its rows are set, without copying a style.
+    /// The computed text style without copying unrelated rows.
     pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
         crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
             self.copy_inherited(slot, rows, take)
         })
     }
 
-    /// Values used only to compare inherited rows across a topology change.
-    /// No unrelated style payloads are copied into these transient snapshots.
+    /// Inherited values for comparison across a topology change.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
         let mut out = InheritedStyle::new(&self.styles[slot as usize]);
         self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
@@ -614,7 +612,7 @@ impl NodeArena {
                 pending = pending.minus(found);
             }
             if let Some(start) = self.control_text_start(p) {
-                let stopped = pending.intersect(start.mask);
+                let stopped = pending.intersect(start.mask).minus(ancestor.written);
                 if !stopped.is_empty() {
                     copy(start, stopped);
                     pending = pending.minus(stopped);
@@ -1005,8 +1003,10 @@ impl NodeArena {
     }
 
     /// Clear rows without copying a style another node already holds.
-    pub(crate) fn clear_style(&mut self, slot: u32, mask: crate::StyleMask) {
-        let style = self.shared.clear(&self.styles[slot as usize], mask);
+    pub(crate) fn clear_style(&mut self, slot: u32, mask: crate::StyleMask, written: bool) {
+        let style = self
+            .shared
+            .clear(&self.styles[slot as usize], mask, written);
         self.set_shared_style(slot, style);
     }
 

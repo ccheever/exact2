@@ -505,3 +505,67 @@ fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
     let (css, _) = css_text(&s, &[]);
     assert!(css.contains("width:0vw;"), "{css}");
 }
+
+#[test]
+fn explicit_clears_emit_css_unset_instead_of_removing_the_declaration() {
+    let plan = contract::compile(
+        r##"component App
+  state clear = true
+  action toggle
+    clear = not clear
+  class Colored
+    color "#abcdef"
+  class Empty
+    opacity 1
+  view
+    main navigationKey="/" color="#123456"
+      button "Toggle" testId="toggle" press=toggle
+      header color="inherit" testId="static"
+        text "Heading"
+      header color=(clear ? "unset" : "#abcdef") testId="bound"
+        text "Heading"
+      header class=(clear ? Empty : Colored) testId="class"
+        text "Heading"
+"##,
+    )
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let id = |name| {
+        parsed["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["props"]["data-testid"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap() as u32
+    };
+    let css = |batch: &str, node| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == node && op.get("css").is_some())
+            .unwrap()["css"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert!(css(&first, id("static")).contains("color:unset;"));
+    assert!(css(&first, id("bound")).contains("color:unset;"));
+    assert!(!css(&first, id("class")).contains("color:"));
+    let set = host.dispatch(id("toggle"), Event::Press);
+    assert!(css(&set, id("bound")).contains("color:rgb(171,205,239);"));
+    let cleared = host.dispatch(id("toggle"), Event::Press);
+    assert!(css(&cleared, id("bound")).contains("color:unset;"));
+    assert!(!css(&cleared, id("class")).contains("color:"));
+}

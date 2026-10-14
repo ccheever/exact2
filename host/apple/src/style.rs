@@ -925,7 +925,8 @@ pub fn style_json_presented(
             // it (LLP 1034 §8).
             .union(StyleMask::of(StyleId::ColorScheme))
     };
-    let mut computed = node.computed_style(rows);
+    let mut computed = node.computed_style(rows.union(node.style.written));
+    computed.mask = computed.mask.union(computed.written);
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area

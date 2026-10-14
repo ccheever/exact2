@@ -967,8 +967,7 @@ impl NodeInst {
             // invalid at computed-value time (CSS Custom Properties §3.1): the
             // row is unset — inherited or initial — and a journal line says
             // so. Not CSSOM's `setProperty`, which keeps the earlier value:
-            // the view would then depend on history, not state. Unknown rows
-            // are plan defects.
+            // the view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
@@ -985,9 +984,8 @@ impl NodeInst {
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
-                // A class choice's row the chosen style does not set is
-                // `none`: an explicit unset, cleared to the kernel's default.
-                // So is CSS's `unset`, and `inherit` on an inherited row.
+                // A missing class row removes its declaration. An authored CSS
+                // clear keeps declaration intent while inheriting or using the initial value.
                 BindingKind::Style
                     if matches!(value, Value::Option(None))
                         || bridge::unsets(binding.id, &value) =>
@@ -999,6 +997,7 @@ impl NodeInst {
                     u.ops.push(Op::ClearStyle {
                         id: self.view,
                         mask,
+                        written: binding.written && !matches!(value, Value::Option(None)),
                     });
                 }
                 BindingKind::Style => {
@@ -1060,6 +1059,7 @@ impl NodeInst {
                             u.ops.push(Op::ClearStyle {
                                 id: self.view,
                                 mask,
+                                written: binding.written,
                             });
                             let name = style.name().replace('_', "-");
                             u.notes.push(invalid(self.view, &name, &value));
