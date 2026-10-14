@@ -689,7 +689,7 @@ impl<D: DataSource> Runner<D> {
         for text in &plan.strings {
             exact_kernel::style::roles::intern_literals(text);
         }
-        crate::bridge::set_role_overrides(&plan);
+        let replaced = crate::bridge::set_role_overrides(&plan);
         let carried = match seed {
             Seed::Carried(carried) => Some(carried),
             _ => None,
@@ -1058,6 +1058,12 @@ impl<D: DataSource> Runner<D> {
         if let Some(why) = runner.store.unparsed() {
             let line = format!("{why}; nothing is granted");
             runner.log(line);
+        }
+        if replaced {
+            // @ref LLP 1121 §10 — the overridden roles are the thread's until
+            // per-session tables (stage 5): a second plan with other ones
+            // takes them over from the first, which is said, not silent.
+            runner.log("theme: this plan's role overrides replace another plan's on this thread; a session still running the other now shows these (per-session tables are owed)".to_string());
         }
         Ok(runner)
     }

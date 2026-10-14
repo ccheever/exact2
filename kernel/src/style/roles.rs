@@ -271,21 +271,24 @@ thread_local! {
 }
 
 /// Replace the overridden roles; the reported generation moves, so every
-/// session re-presents what it resolved from the old ones.
-pub fn set_overrides(next: Vec<(u8, ColorValue)>) {
+/// session re-presents what it resolved from the old ones. `true` when a
+/// different, non-empty set is replaced.
+pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
     let next: Vec<(u8, ColorValue)> = next
         .into_iter()
         .filter(|(id, c)| role_of(*id).is_some() && !matches!(c, ColorValue::Role(r) if r == id))
         .collect();
-    let changed = OVERRIDES.with(|t| {
+    let (changed, replaced) = OVERRIDES.with(|t| {
         let mut table = t.borrow_mut();
         let changed = *table != next;
+        let replaced = changed && !table.is_empty() && !next.is_empty();
         *table = next;
-        changed
+        (changed, replaced)
     });
     if changed {
         GENERATION.fetch_add(1, Ordering::AcqRel);
     }
+    replaced
 }
 
 /// What the theme replaces a role with, if it does.

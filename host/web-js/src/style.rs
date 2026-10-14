@@ -415,11 +415,7 @@ fn theme_map(plan: &Plan) -> Option<String> {
     if plan.theme.is_empty() {
         return None;
     }
-    let _theme = exact_kernel::style::theme::declarations(plan.theme.iter().flat_map(|row| {
-        let value = plan.str(row.value);
-        std::iter::once((plan.str(row.name), value))
-            .chain((!plan.str(row.role).is_empty()).then(|| (plan.str(row.role), value)))
-    }));
+    let _theme = exact_kernel::style::theme::bind(&exact_runner::bridge::theme_table(plan));
     let (mut names, mut roles) = (Vec::new(), Vec::new());
     for row in &plan.theme {
         let value = plan.str(row.value);

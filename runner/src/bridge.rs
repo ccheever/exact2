@@ -201,21 +201,54 @@ pub fn set_plan_style(
             )
         });
     // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
-    let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!())).then(|| {
-        exact_kernel::style::theme::declarations(plan.theme.iter().flat_map(|row| {
+    let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!()))
+        .then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
+    set_style(patch, id, value, plan.stacks.len())
+}
+
+thread_local! {
+    /// The last plan's theme table, kept so a themed list's thousand rows
+    /// bind it by pointer instead of building it each.
+    static THEME_TABLE: std::cell::RefCell<Option<exact_kernel::style::theme::Table>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `plan`'s theme as a parse binds it: each entry under its name, and an
+/// override under its role's spelling too. Built when the plan differs from
+/// the last one this thread bound (compared entry by entry, without
+/// allocating), else the one built before.
+pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
+    let pairs = || {
+        plan.theme.iter().flat_map(|row| {
             let value = plan.str(row.value);
             std::iter::once((plan.str(row.name), value))
                 .chain((!plan.str(row.role).is_empty()).then(|| (plan.str(row.role), value)))
-        }))
-    });
-    set_style(patch, id, value, plan.stacks.len())
+        })
+    };
+    THEME_TABLE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some(table) = cache.as_ref() {
+            let same = table.len() == pairs().count()
+                && table
+                    .iter()
+                    .zip(pairs())
+                    .all(|((n, v), (pn, pv))| **n == *pn && **v == *pv);
+            if same {
+                return table.clone();
+            }
+        }
+        let table = exact_kernel::style::theme::table(pairs());
+        *cache = Some(table.clone());
+        table
+    })
 }
 
 /// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, set where the
 /// kernel resolves a role: its own defaults (unsaid text is `CanvasText`)
 /// and what crosses to a host, as well as a row naming the role. A plan with
-/// none clears them.
-pub fn set_role_overrides(plan: &exact_plan::Plan) {
+/// none clears them. `true` when they replace a different set another plan
+/// made (a second session's, a reload's), which the runner says.
+pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
     let overrides = plan
         .theme
         .iter()
@@ -228,7 +261,7 @@ pub fn set_role_overrides(plan: &exact_plan::Plan) {
             Some((id, colour))
         })
         .collect();
-    exact_kernel::style::roles::set_overrides(overrides);
+    exact_kernel::style::roles::set_overrides(overrides)
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the

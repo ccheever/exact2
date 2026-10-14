@@ -219,3 +219,44 @@ fn an_overridden_role_is_replaced_where_the_kernel_resolves_it() {
     );
     assert_eq!(wire, "CanvasText");
 }
+
+/// Each plan's names are its own, bound per parse: two runners on one
+/// thread, each with its own `brand`, each read their own as their rows
+/// are set; and the second's role overrides taking the thread's over is
+/// said in its journal. An unknown name is an invalid colour in the log.
+#[test]
+fn two_plans_each_read_their_own_names() {
+    let app = |brand: &str, canvas: &str| {
+        format!("theme\n  brand = \"{brand}\"\n  CanvasText = \"{canvas}\"\n\ncomponent App\n  state c: string = \"brand\"\n  action pick(v: string)\n    c = v\n  view\n    text \"a\" testId=\"t\" color=c\n")
+    };
+    // Compiled, not baked: a bake boots the plan once itself.
+    let run = |src: &str| {
+        Runner::boot(
+            contract::compile(src).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let mut red = run(&app("#ff0000", "#010101"));
+    let mut blue = run(&app("#0000ff", "#020202"));
+    assert!(
+        blue.journal().any(|l| l.contains("replace another plan's")),
+        "{:?}",
+        blue.journal().collect::<Vec<_>>()
+    );
+    for _ in 0..2 {
+        red.act("pick", vec![Value::str("x")]).unwrap();
+        red.act("pick", vec![Value::str("brand")]).unwrap();
+        blue.act("pick", vec![Value::str("x")]).unwrap();
+        blue.act("pick", vec![Value::str("brand")]).unwrap();
+        assert_eq!(colour(&red, "t", StyleId::TextColor), parsed("#ff0000"));
+        assert_eq!(colour(&blue, "t", StyleId::TextColor), parsed("#0000ff"));
+    }
+    let before = red.journal().count();
+    red.act("pick", vec![Value::str("nope")]).unwrap();
+    let said: Vec<&str> = red.journal().skip(before).collect();
+    assert!(said.iter().any(|l| l.contains("nope")), "{said:?}");
+}
