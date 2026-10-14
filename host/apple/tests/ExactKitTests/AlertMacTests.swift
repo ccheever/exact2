@@ -207,6 +207,43 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(p.alerts.presented)
     }
 
+    /// A press handler that changes its own button's action: what the surviving
+    /// button invokes after the handler runs, as HTML resolves it.
+    func testAPressHandlerThatChangesItsButtonsActionRunsTheLiveInvocation() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        trigger.handlers.insert("press")
+        trigger.props["popovertargetaction"] = "hide"
+        p.onPress = { _ in trigger.props["popovertargetaction"] = "show" }
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "the handler made it a show, and the show ran")
+    }
+
+    /// HTML's dialog `close` does nothing to a dialog showing as a popover.
+    func testADialogCloseDoesNothingToADialogShownAsAPopover() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        try XCTUnwrap(p.views[3]).props["semanticTag"] = "dialog"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "opened as a popover")
+        trigger.props["commandfor"] = "ask"
+        trigger.props["command"] = "close"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "a dialog close leaves the popover up")
+    }
+
+    /// HTML's popover commands do nothing to a dialog opened by `show-modal`.
+    func testPopoverCommandsDoNothingToADialogShownModally() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        try XCTUnwrap(p.views[3]).props["semanticTag"] = "dialog"
+        trigger.props["commandfor"] = "ask"
+        trigger.props["command"] = "show-modal"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "opened modally")
+        trigger.props["command"] = "hide-popover"
+        p.press(2)
+        p.menus.action("hidePopover", ["ask"])
+        XCTAssertNotNil(p.alerts.presented, "popover commands leave it open")
+    }
+
     /// The default (LLP 1115.000 D7.3): exactly one `filled`, non-destructive
     /// button answers Return and is the one AppKit draws so; with several, or
     /// only a destructive one, nothing is.

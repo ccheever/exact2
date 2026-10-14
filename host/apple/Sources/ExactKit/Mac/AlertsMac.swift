@@ -47,6 +47,8 @@ final class AlertHost {
         /// A source element, whether an invoker or an explicit `source=`.
         let sourced: Bool
         let invoked: Bool
+        /// Shown for its `popover`, not by `show-modal`
+        let popover: Bool
         weak var window: NSWindow?
         let rows: [Row]
         /// Which row Return presses, when one does.
@@ -54,9 +56,9 @@ final class AlertHost {
         /// Ended by this host (a batch changed what it shows, `close(id)`, a
         /// reset), not by a button: nothing is pressed.
         var withdrawn = false
-        init(node: NodeView, source: NodeView?, invoked: Bool, window: NSWindow, rows: [Row], defaultRow: Int?) {
+        init(node: NodeView, source: NodeView?, invoked: Bool, popover: Bool, window: NSWindow, rows: [Row], defaultRow: Int?) {
             self.node = node; self.source = source; sourced = source != nil; self.window = window
-            self.invoked = invoked
+            self.invoked = invoked; self.popover = popover
             self.rows = rows; self.defaultRow = defaultRow
         }
     }
@@ -70,6 +72,7 @@ final class AlertHost {
     /// The sheet's window while an alert is up.
     var sheet: NSWindow? { presented?.alert.window }
     func isOpen(_ node: NodeView) -> Bool { presented?.node === node }
+    func isOpenAsPopover(_ node: NodeView) -> Bool { presented?.node === node && presented?.popover == true }
 
     private func closes(_ row: NodeView, _ pop: NodeView) -> Bool {
         if pop.props["popover"] != nil { return presenter?.menus.closes(row, pop) == true }
@@ -133,13 +136,13 @@ final class AlertHost {
     /// and its window can take a sheet; false leaves it to its other
     /// presentations.
     @discardableResult
-    func present(_ pop: NodeView, from source: NodeView?) -> Bool {
+    func present(_ pop: NodeView, from source: NodeView?, popover: Bool) -> Bool {
         // On the sheet of the dialog that is open, when one is: AppKit keeps
         // a second sheet on the page's window waiting behind the first.
         guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.frontWindow,
               window.attachedSheet == nil, let plan = plan(of: pop) else { return false }
         let menus = presenter.menus, rows = plan.rows
-        let owner = Presented(node: pop, source: source, invoked: source.map { menus.opens($0, pop) } ?? false,
+        let owner = Presented(node: pop, source: source, invoked: source.map { menus.opens($0, pop) } ?? false, popover: popover,
                               window: window, rows: rows, defaultRow: plan.defaultRow)
         owner.alert.messageText = plan.title
         owner.alert.informativeText = plan.message

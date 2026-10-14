@@ -135,6 +135,77 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(pop), "a later hide cancels a queued reopen too")
     }
 
+    /// Native invokers queue and cancel a reopen while the alert is still
+    /// leaving, as the imperative commands above do.
+    func testANativeShowDuringDismissalReopensAndAHideCancelsIt() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch(native(20, ["popovertarget": "confirm", "popovertargetaction": "show"], press: false)
+            + native(21, ["popovertarget": "confirm", "popovertargetaction": "hide"], press: false)
+            + [["op": "roots", "ids": [1, 2, 20, 21]]]))
+        let show = try XCTUnwrap(p.views[20]), hide = try XCTUnwrap(p.views[21])
+        p.menus.invoke(show)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop))
+        p.menus.invoke(show)
+        XCTAssertTrue(p.menus.isOpen(pop), "a show while the alert leaves queues its reopen")
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop), "a hide cancels the queued reopen")
+    }
+
+    /// `close(id)` cancels a reopen queued while the alert leaves, as a
+    /// native hide does.
+    func testCloseCancelsAShowModalQueuedDuringDismissal() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.dialogCommand("showModal", "confirm")
+        p.dialogCommand("close", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop))
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertTrue(p.menus.isOpen(pop), "queued behind the leaving alert")
+        p.dialogCommand("close", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop), "and cancelled")
+    }
+
+    /// HTML's dialog commands act only on a modal dialog and its popover
+    /// commands only on a popover, however each was opened.
+    func testCommandsActOnlyOnAConfirmationOpenedInTheirMode() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.props["semanticTag"] = "dialog"
+        p.apply(wireBatch(native(20, ["commandfor": "confirm", "command": "close"], press: false)
+            + native(21, ["commandfor": "confirm", "command": "hide-popover"], press: false)
+            + [["op": "roots", "ids": [1, 2, 20, 21]]]))
+        let close = try XCTUnwrap(p.views[20]), hide = try XCTUnwrap(p.views[21])
+        p.menus.action("showPopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(close)
+        XCTAssertTrue(p.menus.isOpen(pop), "a dialog close leaves a popover with no invoker open")
+        p.menus.invoke(hide)
+        XCTAssertFalse(p.menus.isOpen(pop))
+
+        // Opened modally, here as the reopen queued while that alert leaves,
+        // its rows closing it as a modal dialog's do
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertFalse(p.menus.isOpen(pop), "refused: hide-popover rows do not close a modal dialog")
+        for id: UInt32 in [3, 9] {
+            let row = try XCTUnwrap(p.views[id])
+            row.props["popovertarget"] = nil; row.props["popovertargetaction"] = nil
+            row.props["commandfor"] = "confirm"; row.props["command"] = "close"
+        }
+        p.dialogCommand("showModal", "confirm")
+        XCTAssertTrue(p.menus.isOpen(pop))
+        p.menus.invoke(hide)
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop), "popover commands leave a modal dialog open")
+        p.menus.invoke(close)
+        XCTAssertFalse(p.menus.isOpen(pop))
+    }
+
     /// "Remove book?" — the shape of React Native's `Alert.alert`: a
     /// centred alert, titled by the label, its text the message, the
     /// destructive action and the Cancel both drawn.
