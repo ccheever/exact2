@@ -312,3 +312,7 @@ This worker does not push, publish the PR update, or merge.
 Implementation is ready for independent verification. The coordinator owns integration checks, the PR update and
 final acceptance; the prior implementation verification remains stale until that handoff completes.
 Real-input batch steps 1-4 remain open acceptance rows.
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#534](https://github.com/ccheever/exact2/pull/534) was read back at `fd8c6541ef841649868e3559cf150faf37525bee`, based on `feat(example)/t3-code`. Projection, ranges and labels reviewed; native AX proof passed; VoiceOver and terminal-send remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.

@@ -3,7 +3,7 @@ name: 20261014-device-player-gestures
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: partial
-delivery: draft-pr
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-device-player-gestures
@@ -276,3 +276,7 @@ re-run in the same batch. This task stays active until those acceptance limits a
 - The clone's docked composer overlay is 164–165 pt where the reference's is 172 pt (1280 and 840 wide), so wherever the
   composer is the player's obstacle the clone's player is a few points taller (DP-4 W: 277×600 against 273×592; DP-10's
   thread: 175×380 against 172×372). The rules are the same; the composer's height is not this task's.
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#539](https://github.com/ccheever/exact2/pull/539) was read back at `0cd3821cc21c07adf626bf06dfdabaff6bf35686`, based on `feat(example)/t3-code`. Removed vacuous arithmetic check and preserved authentic resize/pill proof; real pointer/cursors remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.

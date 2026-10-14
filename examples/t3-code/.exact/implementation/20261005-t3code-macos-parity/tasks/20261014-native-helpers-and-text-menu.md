@@ -160,3 +160,7 @@ PR delivery, and task closure belong to the coordinator's verification pass.
 ## Publication and review
 
 Draft PR [#544](https://github.com/ccheever/exact2/pull/544) publishes implementation `d488d1057c12039d98359846a4efb0c8bac5545f`. Independent source review found no blocking issue in the two native changes and their red/green checks. This bookkeeping update moves raw logs to the established evidence branch; it changes no runtime or test inputs. Integrated checks and the real-input cases above remain open.
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#544](https://github.com/ccheever/exact2/pull/544) was read back at `4f81dc73ffb3984524ada9f8542ab3a67254e6ea`, based on `feat(example)/t3-code`. Native Services and tracking timer proof passed; original real-grant/Finder observations remain unresolved. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
