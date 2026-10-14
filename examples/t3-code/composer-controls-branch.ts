@@ -24,10 +24,18 @@ import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from './shell-vcs';
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 // `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
 type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
-const repos = new WeakMap<T3Client, Map<string, Repo>>();
+type RepoCache = { environmentId: string; generation: number; origin: string; byCwd: Map<string, Repo> };
+const repos = new WeakMap<T3Client, RepoCache>();
+function repositoryCache(client: T3Client): Map<string, Repo> {
+  let cache = repos.get(client);
+  if (!cache || cache.environmentId !== client.environmentId || cache.generation !== client.generation || cache.origin !== client.origin) {
+    cache = { environmentId: client.environmentId, generation: client.generation, origin: client.origin, byCwd: new Map() };
+    repos.set(client, cache);
+  }
+  return cache.byCwd;
+}
 function repo(client: T3Client, cwd: string): Repo {
-  let byCwd = repos.get(client);
-  if (!byCwd) { byCwd = new Map(); repos.set(client, byCwd); }
+  const byCwd = repositoryCache(client);
   let entry = byCwd.get(cwd);
   if (!entry) { entry = { isRepo: false, refName: '', checked: false, refs: [], total: 0, refsQuery: null, error: '' }; byCwd.set(cwd, entry); }
   return entry;
@@ -102,7 +110,7 @@ export function toggleServerOrigin(client: T3Client): boolean {
  */
 export function serverThreadWorkspace(client: T3Client): Obj | null {
   if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return null;
-  const entry = repos.get(client)?.get(projectRoot(client));
+  const entry = repositoryCache(client).get(projectRoot(client));
   const base = serverEnvBranch(client) || defaultRefName(client) || (entry?.refName ?? '');
   if (!base) throw new ClientError('Select a base branch before sending in New worktree mode.');
   return { type: 'worktree', baseRef: base, ...(serverOrigin(client) ? { startFromOrigin: true } : {}) };
@@ -241,7 +249,7 @@ export function stripShortcuts(client: T3Client): { workspace: boolean; branch: 
   const none = { workspace: false, branch: false, previous: false };
   if (client.connection !== 'connected' || !client.ready || !client.projectId) return none;
   if (client.threadId && (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip !== true) return none;
-  const cwd = cwdFor(client), entry = cwd ? repos.get(client)?.get(cwd) : undefined;
+  const cwd = cwdFor(client), entry = cwd ? repositoryCache(client).get(cwd) : undefined;
   if (!entry || (entry.checked && !entry.isRepo)) return none; // a checkout whose status has not arrived is assumed Git
   return { workspace: !client.threadId || canOverrideServerEnv(client), branch: true, previous: !!previousWorktree(client) };
 }
@@ -356,14 +364,14 @@ export async function branchMenu(client: T3Client, native: Native, name: string)
 /** The launch's workspace: a new worktree from its base ref, an existing worktree, else the project root (on a chosen branch). */
 /** A multi-model draft's base: the repository check and the branch each new worktree starts from. */
 export function fanoutBase(client: T3Client): { isRepo: boolean; branch: string; startFromOrigin: boolean } {
-  const entry = repos.get(client)?.get(projectRoot(client));
+  const entry = repositoryCache(client).get(projectRoot(client));
   return { isRepo: entry?.isRepo === true, branch: draftContext(client).branch || (entry?.refName ?? ''), startFromOrigin: false };
 }
 export function workspaceStrategy(client: T3Client): Obj {
   const context = draftContext(client);
   if (context.worktreePath) return { type: 'existing_worktree', worktreePath: context.worktreePath, ...(context.branch ? { branch: context.branch } : {}) };
   if (context.envMode === 'worktree') {
-    const entry = repos.get(client)?.get(projectRoot(client));
+    const entry = repositoryCache(client).get(projectRoot(client));
     const base = context.branch || defaultRefName(client) || (entry?.refName ?? '');
     if (!base) throw new ClientError('Choose a base ref for the new worktree.');
     return { type: 'worktree', baseRef: base, ...(startFromOrigin(client) ? { startFromOrigin: true } : {}) };
@@ -372,7 +380,7 @@ export function workspaceStrategy(client: T3Client): Obj {
 }
 
 /** r6-polish: the open strip picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
-export function stripPages(client: T3Client): Repo[] { return [...(repos.get(client)?.values() ?? [])].filter(entry => entry.refsQuery !== null); }
+export function stripPages(client: T3Client): Repo[] { return [...repositoryCache(client).values()].filter(entry => entry.refsQuery !== null); }
 
 // Branch-notice-and-navigation: ported from BranchToolbar.logic.ts and ChatView.tsx at
 // 1e2ecbd975. Exact shares the workspace status stream and represents the AlertDialog request
@@ -392,12 +400,13 @@ function mismatchSession(client: T3Client) {
   return state;
 }
 function checkoutMismatch(client: T3Client) {
-  const cwd = projectRoot(client), cached = repos.get(client)?.get(cwd), status = peekVcsStatus(client, cwd) ?? cached?.status;
+  const cwd = projectRoot(client), cached = repositoryCache(client).get(cwd), status = peekVcsStatus(client, cwd) ?? cached?.status;
   const current = cached?.switched && cached.switched.status === status ? cached.switched.name : str(status?.refName);
   const mismatch = client.threadId ? resolveLocalCheckoutBranchMismatch({ effectiveEnvMode: effectiveEnvMode(client),
     activeWorktreePath: activeWorktree(client) || null, activeThreadBranch: serverEnvBranch(client), currentGitBranch: current }) : null;
   return mismatch ? { ...mismatch, cwd, dirty: status?.hasWorkingTreeChanges === true,
-    key: `${client.environmentId}:${client.threadId}:${mismatch.threadBranch}:${mismatch.currentBranch}` } : null;
+    key: `${client.environmentId}:${client.threadId}:${mismatch.threadBranch}:${mismatch.currentBranch}`,
+    confirmationKey: `${client.environmentId}:${client.generation}:${client.origin}:${cwd}:${client.threadId}:${mismatch.threadBranch}:${mismatch.currentBranch}` } : null;
 }
 export function branchMismatchNotice(client: T3Client) {
   const mismatch = checkoutMismatch(client), state = mismatchSession(client), key = mismatch?.key ?? '';
@@ -415,8 +424,8 @@ export function dismissBranchMismatch(client: T3Client, key: string): void { mis
 /** Restore the local checkout. A confirmation belongs to this exact thread and mismatch. */
 export async function restoreThreadBranch(client: T3Client, native: Native, storage: Files, confirmed = false): Promise<string> {
   const mismatch = checkoutMismatch(client), state = mismatchSession(client);
-  if (!mismatch || (confirmed && state.confirm !== mismatch.key)) { state.confirm = ''; return ''; }
-  if (!confirmed && mismatch.dirty) { state.confirm = mismatch.key; return `branch-restore-confirm:${mismatch.threadBranch}`; }
+  if (!mismatch || (confirmed && state.confirm !== mismatch.confirmationKey)) { state.confirm = ''; return ''; }
+  if (!confirmed && mismatch.dirty) { state.confirm = mismatch.confirmationKey; return `branch-restore-confirm:${mismatch.threadBranch}`; }
   state.confirm = '';
   const access = client.restAccess(native), threadId = client.threadId;
   const environmentId = client.environmentId, generation = client.generation, origin = client.origin, projectId = client.projectId;

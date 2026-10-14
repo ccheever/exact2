@@ -414,6 +414,37 @@ describe('local checkout branch mismatch', () => {
     expect((await command('cc:branch-restore-confirmed')).message).toBe('focus:composer');
     expect(native.branch).toBe('feature');
   });
+  test.each(['environment', 'generation', 'origin'])('a changed %s cannot reuse another connection’s clean checkout status', async change => {
+    const { client, native, disk, status } = await mismatch();
+    client.local.drafts[client.draftKey] = 'Continue';
+    await composerBranches(client, native, false, '', true); // populate both the stream and branch-picker caches
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    if (change === 'environment') client.environmentId = 'env2';
+    if (change === 'generation') { client.generation++; native.generation++; }
+    if (change === 'origin') client.origin = 'http://env2:3773';
+    client.local.drafts[client.draftKey] = 'Continue in the new connection';
+    expect(branchMismatchNotice(client)).toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('');
+    await watchVcsStatus(client, native, '/repo', 1);
+    expect(branchMismatchNotice(client)).toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    status('env2-branch', true);
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    expect(await restoreThreadBranch(client, native, disk, true)).toBe('focus:composer');
+  });
+  test('a reconnect cannot inherit dirty-checkout consent even when both branch names match', async () => {
+    const { client, native, disk, status } = await mismatch(true);
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+    client.generation++; native.generation++;
+    await watchVcsStatus(client, native, '/repo', 1);
+    status('main', true);
+    expect(await restoreThreadBranch(client, native, disk, true)).toBe('');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+  });
   test.each(['switch', 'ids'])('an environment change during %s cannot dispatch metadata on the new environment', async stage => {
     const { client, native, disk } = await mismatch();
     const original = native.later.bind(native);

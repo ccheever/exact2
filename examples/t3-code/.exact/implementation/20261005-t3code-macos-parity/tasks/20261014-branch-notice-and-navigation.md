@@ -70,6 +70,9 @@ and concise writing guidance were applied.
   action is tied to the exact mismatch so a changed checkout cannot inherit consent.
 - Restore captures environment, generation, origin, project and thread across awaits. A late
   answer cannot issue metadata for the prior thread on a newly focused environment.
+- Repository and streamed Git-status caches are scoped to environment, connection generation and
+  origin. A second server with the same repository path cannot inherit a clean status or restore
+  consent; restore remains unavailable until its own status arrives.
 - The existing error toasts distinguish failure to switch from failure to update metadata
   after switching. Successful restore focuses the composer.
 - Toast navigation clears Settings, its theme dialog and a utility page before sending the
@@ -112,8 +115,8 @@ capture. Independent review and real-input cases remain with the parent workflow
   switch/ID calls, and Home draft startup with saved drafts intact.
 - Related composer/Git/clone tests: 55 passed, 0 failed, 240 assertions across the matching
   three files. This includes existing Studio environment project navigation behavior.
-- Full application Bun suite: 4,864 passed, 1 existing grammar-generation skip, 0 failures,
-  117,795 assertions across 328 files. A historical relaunch-selection expectation was updated
+- Full application Bun suite: 4,868 passed, 1 existing grammar-generation skip, 0 failures,
+  117,829 assertions across 328 files. A historical relaunch-selection expectation was updated
   to the now-confirmed Home startup rule; saved draft content remains asserted.
 - Caps and staged diff whitespace checks: passed.
 - Strict application TypeScript: passed. An exploratory command including test files failed
@@ -126,6 +129,11 @@ capture. Independent review and real-input cases remain with the parent workflow
   A test-only relaunch expectation update also invalidated a capture because the baker includes
   test files. Final sources and tests are now frozen. No native success is claimed from these
   interrupted captures. Final native result is recorded below.
+- The native build of `f12352a80` passed. Independent review then reproduced a same-path
+  cross-environment Git-status leak; the cache scope and pending consent were corrected.
+  Focused composer/client/shell/diff tests now pass 123 tests and 584 assertions, including
+  changed-environment, generation, origin, and reconnect-consent regressions. Strict application
+  TypeScript and the full suite pass after this correction. A final native rebuild follows.
 - Local raw outputs are under `target/branch-navigation/evidence` and task-named temporary
   build/test logs. Scratch scripts and credentials are not tracked.
 
