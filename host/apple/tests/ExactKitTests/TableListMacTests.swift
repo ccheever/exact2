@@ -386,6 +386,12 @@ extension TableListMacTests {
         if let feed = f.presenter.tables.feeds[list.id], let item = feed.rows.first(where: { $0.node === row || $0.root == row.id }) {
             return feed.table.convert(feed.table.rect(ofRow: item.index), to: view).maxY
         }
+        if let entry = f.presenter.collections.entries[list.id] {
+            let wrapper = try XCTUnwrap(entry.snapshot.rows.compactMap { f.presenter.views[$0.view] }
+                .first { row === $0 || row.isDescendant(of: $0) }, "the authored row is in a current mounted wrapper")
+            XCTAssertNotNil(wrapper.props["listItemKey"])
+            return wrapper.convert(wrapper.bounds, to: view).maxY
+        }
         return row.convert(row.bounds, to: view).maxY
     }
 
