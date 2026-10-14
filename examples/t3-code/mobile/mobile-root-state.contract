@@ -101,12 +101,30 @@ shape ArchiveFilters
   query: string
   environment: string
   sort: string
-fn archiveFiltersChange(previous: ArchiveFilters, reply: option<ArchiveChromeEvent>, routeName: string, routeId: string): ArchiveFilters = match reply {
-  case some(event) => routeName != "archive" or event.routeKey != routeId ? previous :
-    event.kind == "search" ? ArchiveFilters(previous, query=event.value) :
-    event.kind == "environment" ? ArchiveFilters(previous, environment=event.value) :
-    event.kind == "sort" ? ArchiveFilters(previous, sort=event.value) : previous,
-  case none => previous
+shape ArchiveVisit
+  routeKey: string
+  filters: ArchiveFilters
+fn archiveDefaultFilters(): ArchiveFilters = ArchiveFilters(query="", environment="", sort="newest")
+fn archiveLiveKeys(entries: WorkspaceEntry[]): string[] = entries.filter(entry => entry.name == "archive").map(entry => entry.id)
+fn archiveLiveRecords(previous: ArchiveVisit[], entries: WorkspaceEntry[]): ArchiveVisit[] = previous.filter(record => archiveLiveKeys(entries).includes(record.routeKey))
+fn archiveVisitFilters(previous: ArchiveVisit[], entries: WorkspaceEntry[], routeKey: string): ArchiveFilters = match first(archiveLiveRecords(previous, entries).filter(record => record.routeKey == routeKey)) {
+  case some(record) => record.filters,
+  case none => archiveDefaultFilters()
+}
+fn archiveFilterOperation(previous: ArchiveFilters, event: ArchiveChromeEvent): ArchiveFilters = (
+  event.kind == "search" ? ArchiveFilters(previous, query=event.value) :
+  event.kind == "environment" ? ArchiveFilters(previous, environment=event.value) :
+  event.kind == "sort" ? ArchiveFilters(previous, sort=event.value) : previous
+)
+// The decoder admits values while focused; completion still belongs to that captured live entry.
+fn archiveOperationRecords(previous: ArchiveVisit[], entries: WorkspaceEntry[], event: ArchiveChromeEvent): ArchiveVisit[] = (
+  archiveLiveKeys(entries).includes(event.routeKey) and (event.kind == "search" or event.kind == "environment" or (event.kind == "sort" and ["newest", "oldest"].includes(event.value)))
+    ? archiveLiveRecords(previous, entries).filter(record => record.routeKey != event.routeKey).concat([ArchiveVisit(routeKey=event.routeKey, filters=archiveFilterOperation(archiveVisitFilters(previous, entries, event.routeKey), event))])
+    : archiveLiveRecords(previous, entries)
+)
+fn archiveEventRecords(previous: ArchiveVisit[], reply: option<ArchiveChromeEvent>, entries: WorkspaceEntry[]): ArchiveVisit[] = match reply {
+  case some(event) => archiveOperationRecords(previous, entries, event),
+  case none => archiveLiveRecords(previous, entries)
 }
 shape ArchiveDeleteTarget
   environment: string
