@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -488,7 +488,7 @@ theme
   side, or a `light-dark()` whose light side is the default's; another light side is refused
   (`tamber-under-light`). A role or `platform-color` has no light side to keep, so as such a
   `when`'s value, or as the default of a token that has one, it is refused unless written
-  inside a `light-dark()` (`tamber-under-role`). Only colours may vary by such an
+  inside a `light-dark()` (`tamber-under-role`; as built, that `light-dark()` is itself refused until LLP 1095 D10, §10). Only colours may vary by such an
   axis: the kernel picks a length's slice without knowing the scheme, so a non-colour `when`
   on it is refused (`tamber-under-kind`). A design whose axes multiply past 64 tuples is
   refused with the axes named.
@@ -1174,7 +1174,7 @@ theme
   accent.fill-faded = light-dark(color-mix(in srgb, accent 50%, #ffffff), color-mix(in srgb, #208bfe 50%, #000000))
   accent.on-fill = #ffffff
   type.body = -exact-body/1.35 "InterVariable"
-    radius.md = 12px
+  radius.md = 12px
   radius.full = 999px
 
 icons
@@ -1201,8 +1201,10 @@ break (every native host binary moves on one, LLP 1030 D3a) and the hosts that m
 what it adds: the web's JS target, the wasm host, iOS, macOS, tvOS, Linux, Windows,
 Android's reader and the terminal.
 
-1. **LLP 1095 D4 and its reach** (its branch). Gate: LLP 1095 §5 item 6's measurement and
-   Charlie's word.
+1. **LLP 1095 D4 and its reach**, built from main (the earlier branch never reached origin).
+   Gate: LLP 1095 §5 item 6's measurement, and Charlie's word, which is given: "Land it"
+   (2026-10-13). It lands when the RFC owner's review, the external reviews and the checks
+   pass. A reach report follows the landing, so he can see what reached what.
 2. **Colour tokens and app axes.** The crate; `app.tamber` or inline `theme`; dials; app axes
    with `setMode`, `-exact-mode` and `prefer mode`; colour tokens on the reach's table, keyed
    by app tuple; the web's mode boundaries; the retention rule. Digest break: the app tuple
@@ -1358,3 +1360,67 @@ the implementation follows until Charlie rules otherwise.
 7. **Figma.** Is a Variables writer wanted beside the plugin bridge, and is Enterprise access
    (which Variables writes need) available? *Provisional default:* DTCG export and
    import-as-proposals only; no Variables writer.
+
+## 10. As built
+
+Notes on what was built where it differs from, or makes precise, the decisions above. Each
+is the implementer's (x2-perf3), reviewed by the RFC's owner.
+
+### Stage 2, commit 9: `setRootFontSize("125%")` (`b00aad973`, reviews `178ae7237`)
+
+Built as D6 says, with no difference:
+- The grammar is CSS's number syntax with a `%`, above 0. `exact_num::css_percent` reads it
+  for the compiler and the runner, and the JS target uses the same pattern.
+- The runner's app size is either px, which parks the host's size, or a ratio, which
+  re-resolves in one commit at each new host size (`runner/src/runner/root_font.rs`).
+- The web writes `calc(var(--exact-host-font-size, 100%) * ratio)`; the agent's
+  `prefer root-font-size` sets that variable.
+- Apple and Linux needed no change.
+- Neither form persists across a launch (§9 Q5's default).
+
+### Stage 2, commit 1: the `exact-tamber` crate (`8dc5953af`, reviews `67aa250d3`)
+
+The crate's grammar, checker and colour folder follow D2–D5, D7 and §3, except:
+- **The lexer is the crate's own.** `contract/syntax`'s lexer makes tokens, but a value
+  must be kept as CSS text (§3). So `tamber/src/lex.rs` reimplements Contract's layout
+  rules over lines: space indentation, `//` comments, blank lines, and strings with
+  escapes. §3's "the Contract lexer, extended" holds for the rules, not the code.
+- **The role vocabulary comes from the caller.** The list of roles and each role's
+  fallback pair are passed in (a `Vocab` read from `kernel/tables/schema.json`), so the
+  crate stays a leaf.
+- **A `light-dark()` with a role on one side is `tamber-residual`.** `ColorValue::LightDark`
+  holds two fixed colours, so that pair has no kernel form. D5's "refused unless written
+  inside a `light-dark()`" (`tamber-under-role`) therefore has no accepted case until LLP
+  1095 D10, and the diagnostic says so.
+- **"The default's light side" under an axis `under scheme=dark`** is the light side of the
+  value the tuple selects when every `when` naming such an axis is ignored. So a `when` on
+  another axis (`density=compact`) still sets the light side.
+- **A token that names another token** takes that token's value for the same tuple.
+- **A `color-mix()` in `hsl` or `hwb`** is stored as `Wide` in srgb. The kernel has no `Wide`
+  form in those spaces, and serializing as `hsl()` would quantise to `Fixed`, against D7's
+  "every mix is Wide".
+- **Reserved names (D3).** A token or dial may not be named:
+  - a CSS colour keyword;
+  - a CSS-wide keyword (`inherit`, `initial`, `unset`, `revert`, `revert-layer`);
+  - `none`, `from`, `in`, `alpha`, `transparent` or `currentcolor`.
+
+  `scheme` and `contrast` may not be app axes (`tamber-axis-host`). A platform colour's
+  names follow the kernel's `native_name_ok` rule, and its fallback must be a legacy colour
+  or a pair of them, as the kernel requires. The token's fallback pair is the pair the
+  kernel reads back.
+- **Refused, not folded yet:**
+  - `currentcolor` as a token's value (no `ColorValue` holds it);
+  - a missing component (`none`, or a powerless hue that a relative colour names, by CSS
+    Color 4's thresholds);
+  - a `color-mix()` without `in <space>`, or with more than two colours.
+
+  CSS Color 5 allows both of the `color-mix()` forms. They are refused with the expected
+  form named rather than folded wrongly. They are owed: the RFC's owner asked for them in
+  review, and they come before stage 2's port needs them.
+- **`tamber-dial-inert` decides by influence, not mention.** Each dial is set to probe values
+  and every token refolded; a dial that changes no token is inert. A dial that moved a token
+  only at values no probe takes would be wrongly called inert. A probe the fold refuses is
+  not counted as influence.
+- **§3's example** indented `radius.md` four spaces, which reads as a malformed `when` under
+  `type.body`. It is corrected above. The crate's corpus keeps the uncorrected text as a
+  refusal case (`tamber/tests/corpus/bluesky-rfc.err`).
