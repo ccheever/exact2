@@ -16,24 +16,34 @@ impl<D: DataSource> Runner<D> {
         value: &str,
         slices: &[&str],
     ) -> Result<(CommitReceipt, usize), RunnerError> {
-        crate::bridge::edit_token(name, value, slices);
-        // A role override is matched by its row spelling too.
-        let role = self
+        let refused = |reason: &str| RunnerError::InvalidValue {
+            event: "setToken",
+            reason: format!("`{name}`: {reason}"),
+        };
+        let token = self
             .plan
             .theme
             .iter()
             .find(|t| self.plan.str(t.name) == name)
-            .map(|t| self.plan.str(t.role))
-            .filter(|r| !r.is_empty());
-        let bits = exact_kernel::style::theme::name_bit(name)
-            | role.map_or(0, exact_kernel::style::theme::name_bit);
+            .ok_or_else(|| refused("is no token this plan keeps"))?;
+        // A role's value also crosses to the hosts and the kernel's own
+        // defaults (LLP 1095 D4's reach), which an edit does not reach yet.
+        if !self.plan.str(token.role).is_empty() {
+            return Err(refused(
+                "overrides a role, which an edit does not reach yet",
+            ));
+        }
+        crate::bridge::edit_token(&self.plan, name, value, slices);
+        let bits = exact_kernel::style::theme::name_bit(name);
         let mut patches: Vec<(exact_kernel::ViewId, Box<StyleProps>)> = Vec::new();
         let mut set = 0;
+        // A retired view is not set: the index forgets it with the rest.
+        let kernel = &self.kernel;
         let mut rows: Vec<_> = self
             .ids
             .theme
             .rows()
-            .filter(|(_, r)| r.tokens & bits != 0)
+            .filter(|(view, r)| r.tokens & bits != 0 && kernel.node(*view).is_some())
             .collect();
         rows.sort_by_key(|(view, r)| (*view, r.style as u16));
         for (view, row) in rows {

@@ -8,13 +8,17 @@
 use exact_kernel::{StyleId, ViewId};
 use exact_plan::{BindingKind, NodesRow, Plan, Value};
 
-/// The inherited colour rows a mode boundary writes again (D7): the
-/// schema's, in this order.
-pub(super) const INHERITED: [StyleId; 4] = [
+/// The inherited rows that hold a colour, which a mode boundary writes
+/// again (D7): every one the schema marks inherited, in this order.
+pub(super) const INHERITED: [StyleId; 8] = [
     StyleId::TextColor,
     StyleId::CaretColor,
     StyleId::Fill,
     StyleId::Stroke,
+    StyleId::AccentColor,
+    StyleId::TextShadow,
+    StyleId::TextStrokeColor,
+    StyleId::SymbolPalette,
 ];
 
 /// What the nodes being visited are in: their app tuple, and for each
@@ -25,7 +29,7 @@ pub struct Around {
     /// The app tuple: the window's, overridden by the pins above.
     pub tuple: u32,
     /// The nearest themed text of each inherited colour row.
-    pub inherited: [Option<Value>; 4],
+    pub inherited: [Option<Value>; 8],
     /// Every themed row is set again and every node visited: the window's
     /// tuple changed (`setMode`) or a pin above the visit did.
     pub retheme: bool,
@@ -110,12 +114,11 @@ pub(super) fn tuple_of(plan: &Plan, pin: Option<&Value>, around: u32) -> u32 {
         .unwrap_or(around)
 }
 
-/// Per binding of a node, whether its last text read a token: a bit each
-/// for the first 64, inline; a node with more keeps the rest beside.
+/// Bits a binding, the first 64 inline and the rest beside.
 #[derive(Debug, Default)]
-pub(super) struct Themed(u64, Vec<bool>);
+pub(super) struct Bits(u64, Vec<bool>);
 
-impl Themed {
+impl Bits {
     pub(super) fn get(&self, i: usize) -> bool {
         match i {
             0..64 => self.0 & (1 << i) != 0,
@@ -123,20 +126,44 @@ impl Themed {
         }
     }
 
-    pub(super) fn set(&mut self, i: usize, named: bool) {
+    pub(super) fn set(&mut self, i: usize, on: bool) {
         match i {
-            0..64 => match named {
+            0..64 => match on {
                 true => self.0 |= 1 << i,
                 false => self.0 &= !(1 << i),
             },
-            _ if !named && self.1.is_empty() => {}
+            _ if !on && self.1.is_empty() => {}
             _ => {
                 if self.1.len() <= i - 64 {
                     self.1.resize(i - 63, false);
                 }
-                self.1[i - 64] = named;
+                self.1[i - 64] = on;
             }
         }
+    }
+}
+
+/// Per binding of a node: whether its last text read a token, and whether
+/// it set its row (a row it unset, or whose value the row refused, is the
+/// inherited one's).
+#[derive(Debug, Default)]
+pub(super) struct Themed {
+    named: Bits,
+    set: Bits,
+}
+
+impl Themed {
+    pub(super) fn get(&self, i: usize) -> bool {
+        self.named.get(i)
+    }
+
+    pub(super) fn sets(&self, i: usize) -> bool {
+        self.set.get(i)
+    }
+
+    pub(super) fn set(&mut self, i: usize, named: bool, set: bool) {
+        self.named.set(i, named);
+        self.set.set(i, set);
     }
 }
 
@@ -160,21 +187,27 @@ impl super::NodeInst {
     /// Enter this node's children: their tuple is its own, their inherited
     /// colours what it sets or passes on, and a tuple that moved since
     /// `before` sets every themed row below again. The modes it was in.
-    pub(super) fn enter(&self, u: &mut super::Update<'_>, before: u32) -> Around {
+    pub(super) fn enter(&mut self, u: &mut super::Update<'_>, before: u32) -> Around {
         let plan = u.env.plan;
         if plan.theme.is_empty() {
             return u.theme.clone();
         }
         let row = plan.node(self.node);
+        // A row it sets passes its text on when that read a token, else
+        // nothing; a row it does not set, its implied row's or the one around.
         let inherited = std::array::from_fn(|k| match binding_of(plan, row, INHERITED[k]) {
-            Some(b) => self.themed.get(b).then(|| self.last[b].clone()).flatten(),
-            None => match self.implied.as_ref().and_then(|implied| implied[k].clone()) {
+            Some(b) if self.themed.sets(b) => {
+                self.themed.get(b).then(|| self.last[b].clone()).flatten()
+            }
+            _ => match self.implied.as_ref().and_then(|implied| implied[k].clone()) {
                 Some(text) => Some(text),
                 None => u.theme.inherited[k].clone(),
             },
         });
         let saved = u.theme.clone();
-        u.theme.retheme |= self.tuple != before;
+        // A pin that moved, or a colour its descendants inherit, which a
+        // boundary below sets again in its own tuple.
+        u.theme.retheme |= self.tuple != before || std::mem::take(&mut self.colour_moved);
         u.theme.tuple = self.tuple;
         u.theme.inherited = inherited;
         saved
@@ -195,7 +228,8 @@ impl super::NodeInst {
         let Some(style) = StyleId::from_bit(binding.id as u32) else {
             return;
         };
-        self.themed.set(i, named);
+        self.colour_moved |= INHERITED.contains(&style);
+        self.themed.set(i, named, ok);
         match named {
             true => u.ids.theme.put(
                 self.view,
@@ -213,7 +247,8 @@ impl super::NodeInst {
 
     /// Binding `i`'s `style` row was unset: it reads no token.
     pub(super) fn unthemed(&mut self, u: &mut super::Update<'_>, i: usize, style: StyleId) {
-        self.themed.set(i, false);
+        self.colour_moved |= INHERITED.contains(&style);
+        self.themed.set(i, false, false);
         u.ids.theme.drop_row(self.view, style);
     }
 
@@ -229,7 +264,7 @@ impl super::NodeInst {
         let plan = u.env.plan;
         let row = plan.node(self.node);
         for (k, style) in INHERITED.into_iter().enumerate() {
-            if binding_of(plan, row, style).is_some() {
+            if binding_of(plan, row, style).is_some_and(|b| self.themed.sets(b)) {
                 continue;
             }
             let want = u.theme.inherited[k].clone();

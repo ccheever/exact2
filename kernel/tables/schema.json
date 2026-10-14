@@ -3956,6 +3956,7 @@
     {
       "bit": 211,
       "field": "mode",
+      "terminal": "admit",
       "codec": "u32",
       "inherited": true,
       "default": 0,

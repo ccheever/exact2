@@ -602,3 +602,114 @@ fn a_virtualized_lists_rows_are_in_the_modes_around_it() {
         parsed("light-dark(#111111, #cccccc)")
     );
 }
+
+#[test]
+fn a_changed_inherited_colour_is_set_again_at_a_boundary_below() {
+    let path = app(
+        "inherited-change",
+        &[
+            ("app.tamber", "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  ink = light-dark(#111111, #eeeeee)\n    when dark-style=dim: light-dark(#111111, #cccccc)\n  soft = light-dark(#555555, #999999)\n    when dark-style=dim: light-dark(#555555, #777777)\n"),
+            ("app.contract", "component App\n  state quiet = false\n  action flip\n    quiet = not quiet\n  view\n    column color=(quiet ? \"soft\" : \"ink\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\"\n        text \"b\" testId=\"inner\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    assert_eq!(
+        row(&r, "inner", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+    let flip = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id("flip")[0]).unwrap().id
+    };
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        row(&r, "inner", StyleId::TextColor),
+        parsed("light-dark(#555555, #777777)")
+    );
+}
+
+const TWO_AXES: &str = "tamber t\n\naxes\n  dark-style = black | dim\n  density = cozy | compact\n\ntheme\n  ink = #111111\n    when dark-style=dim: #222222\n    when density=compact: #333333\n    when dark-style=dim density=compact: #444444\n";
+
+fn press(r: &mut Runner<NoData>, id: &str) {
+    let view = {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
+    };
+    r.dispatch(view, exact_runner::Event::Press).unwrap();
+}
+
+#[test]
+fn an_inner_pin_takes_the_axis_its_outer_pin_moves() {
+    let path = app(
+        "nested-pins",
+        &[
+            ("app.tamber", TWO_AXES),
+            ("app.contract", "component App\n  state dim = false\n  action flip\n    dim = not dim\n  view\n    column -exact-mode=(dim ? \"dark-style=dim\" : \"dark-style=black\")\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column testId=\"inner\" -exact-mode=\"density=compact\"\n        text \"a\" testId=\"text\" color=\"ink\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    fn mode(r: &Runner<NoData>) -> String {
+        let key = r.kernel().find_by_test_id("inner")[0];
+        format!(
+            "{:?}",
+            r.kernel().node_by_key(key).unwrap().computed(StyleId::Mode)
+        )
+    }
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#333333"));
+    assert_eq!(mode(&r), "Number(2.0)", "black, compact: tuple 1");
+    press(&mut r, "flip");
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
+    assert_eq!(mode(&r), "Number(4.0)", "dim, compact: tuple 3");
+}
+
+#[test]
+fn an_unset_colour_passes_the_token_around_it_to_a_boundary() {
+    let path = app(
+        "unset-colour",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = not loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column color=(loud ? \"#ff0000\" : none)\n        column -exact-mode=\"dark-style=dim\"\n          text \"a\" testId=\"text\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    assert_eq!(
+        row(&r, "text", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+    press(&mut r, "flip");
+    assert_eq!(
+        row(&r, "text", StyleId::TextColor),
+        parsed("#ff0000"),
+        "a literal above the boundary"
+    );
+    press(&mut r, "flip");
+    assert_eq!(
+        row(&r, "text", StyleId::TextColor),
+        parsed("light-dark(#111111, #cccccc)")
+    );
+}
+
+#[test]
+fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
+    let path = app(
+        "edit-retired",
+        &[
+            ("app.tamber", "tamber t\n\ntheme\n  ink = #111111\n  Canvas = #fafafa\n"),
+            ("app.contract", "component App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"hide\"\n      text \"kept\" testId=\"kept\" color=\"ink\"\n      if shown\n        text \"gone\" color=\"ink\"\n"),
+        ],
+    );
+    let plan = contract::compile_path(&path).unwrap();
+    let mut r = booted(plan.clone());
+    press(&mut r, "hide");
+    let (_, set) = r.set_token("ink", "#ff0000", &[]).unwrap();
+    assert_eq!(set, 1, "the retired row is not set");
+    assert_eq!(row(&r, "kept", StyleId::TextColor), parsed("#ff0000"));
+    assert!(
+        r.set_token("Canvas", "#000000", &[]).is_err(),
+        "a role's edit is refused"
+    );
+    assert!(r.set_token("nonesuch", "#000000", &[]).is_err());
+    // Another runner of the same app starts from the plan's own value.
+    let other = booted(plan);
+    assert_eq!(row(&other, "kept", StyleId::TextColor), parsed("#111111"));
+}

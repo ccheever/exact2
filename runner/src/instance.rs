@@ -152,7 +152,12 @@ pub struct NodeInst {
     /// Which of its bindings' text read a token.
     themed: theme::Themed,
     /// A mode boundary's implied rows, by [`theme::INHERITED`] (D7).
-    implied: Option<Box<[Option<Value>; 4]>>,
+    implied: Option<Box<[Option<Value>; 8]>>,
+    /// One of its inherited colour rows was set since its children last
+    /// took the text they inherit (D7): they are visited again.
+    colour_moved: bool,
+    /// The tuple around it when its rows were last set.
+    around: u32,
 }
 
 #[derive(Debug)]
@@ -886,8 +891,12 @@ impl NodeInst {
             tuple: u.theme.tuple,
             themed: theme::Themed::default(),
             implied: None,
+            colour_moved: false,
+            around: u.theme.tuple,
         };
         inst.emit_bindings(u, frames, true)?;
+        // Its children are created in what it sets: nothing to visit again.
+        inst.colour_moved = false;
         let saved = inst.enter(u, inst.tuple);
         let lists = u.env.lists;
         let realized = (|| {
@@ -950,6 +959,9 @@ impl NodeInst {
             .then(|| theme::binding_of(plan, row, exact_kernel::StyleId::Mode))
             .flatten();
         let (around, before) = (u.theme.tuple, self.tuple);
+        // The tuple around moved: a pin's row is the tuple it makes over it.
+        let around_moved = !fresh && (u.theme.retheme || around != self.around);
+        self.around = around;
         let _tuple = theme::Bound::new(around);
         let mut tuned = mode.is_none();
         let mut force = false;
@@ -970,7 +982,10 @@ impl NodeInst {
                 force = !fresh && (u.theme.retheme || self.tuple != before);
                 tuned = true;
             }
-            let forced = force && self.themed.get(i);
+            let forced = match Some(i) == mode {
+                true => around_moved,
+                false => force && self.themed.get(i),
+            };
             if !fresh && !forced && !u.stale(&deps.bindings[b.0 as usize]) {
                 continue;
             }

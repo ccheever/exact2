@@ -521,6 +521,23 @@ thread_local! {
     static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
+/// Bind `file`'s design's axes for the pins a pass checks before lowering
+/// (the lint): none for an inline `theme` or no design.
+pub(crate) fn bind_axes(file: &File) {
+    let axes = file
+        .design
+        .as_ref()
+        .and_then(|d| tamber::parse(&d.text).ok())
+        .map(|d| {
+            d.axes
+                .into_iter()
+                .map(|a| (a.name.value, a.values))
+                .collect()
+        })
+        .unwrap_or_default();
+    AXES.with(|a| *a.borrow_mut() = axes);
+}
+
 /// `-exact-mode`'s pins (LLP 1121 D5): `axis=value`, space- or
 /// comma-separated, each axis once, every one the design's. A computed pin
 /// is the runner's to read; one it cannot is unset, as an invalid row is.
