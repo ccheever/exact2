@@ -106,7 +106,7 @@ impl Kernel {
 /// both insets, so its children keep their start and their scroll extent's
 /// end is where the platform's own inset begins.
 pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
-    let (style, env) = (arena.style(slot), arena.env());
+    let (style, env) = (arena.effective_style(slot), arena.env());
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
         Some(HostCover::Edges(_)) => {
@@ -155,7 +155,7 @@ pub(crate) fn inset(arena: &NodeArena, slot: u32) -> bool {
 /// `s` as authored at the end the platform's inset took (`apply`).
 pub(crate) fn without_inset(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     if inset(arena, slot) {
-        let (style, env) = (arena.style(slot), arena.env());
+        let (style, env) = (arena.effective_style(slot), arena.env());
         s.padding.bottom = style.padding_bottom.floor_lp(env, 0.0);
     }
 }

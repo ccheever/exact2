@@ -1363,6 +1363,7 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .effective_style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
+    arena.alert_layout(slot, &mut s);
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content
     // sits in an anonymous flow-root box centred safely in the block axis,

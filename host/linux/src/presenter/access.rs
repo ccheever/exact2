@@ -1021,6 +1021,22 @@ impl<D: DataSource> Presenter<D> {
             item: (0, 0),
             limits: self.collection_scroll_limits(),
         };
+        if let Some(root) = self.alert_root() {
+            let viewport = (0., 0., self.viewport.0, self.viewport.1);
+            self.access_walk(
+                &mut b,
+                root,
+                Scope {
+                    parent: 0,
+                    hash: None,
+                    shift: (0., 0.),
+                    clip: viewport,
+                    inside: false,
+                    disabled: false,
+                },
+            );
+            return (b.out, 0, (0, String::new()));
+        }
         if self.top_open() {
             let serial = self.access_surface(&mut b);
             return (b.out, serial, (0, String::new()));

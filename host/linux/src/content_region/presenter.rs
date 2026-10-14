@@ -53,6 +53,7 @@ impl<D: DataSource> Presenter<D> {
         crate::text::cache::deferring_eviction(|| self.paint_frame())
     }
     fn paint_frame(&mut self) -> Arc<Pixmap> {
+        self.alert_sync();
         self.brush.placements = self.surfaces.placements(&self.host);
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);

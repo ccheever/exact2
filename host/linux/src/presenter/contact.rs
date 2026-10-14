@@ -81,7 +81,10 @@ impl<D: DataSource> Presenter<D> {
         let Some(node) = self.host.kernel().node_by_key(key) else {
             return false;
         };
-        if self.host.route_visibility(node.id).1 || self.brush.region_blocks_action(node.id) {
+        if !self.alert_allows(node.id)
+            || self.host.route_visibility(node.id).1
+            || self.brush.region_blocks_action(node.id)
+        {
             return false;
         }
         let mut at = Some(node.id);
@@ -406,7 +409,7 @@ impl<D: DataSource> Presenter<D> {
         // A hatch observes after this dispatch, and claims nothing
         // (LLP 1075.003.000.001 §2.2.2); so for a move, an up and a cancel.
         // Under an open surface of the top layer the page takes no touch.
-        if self.top_takes_pointer(now_ms) {
+        if self.alert_pointer(x, y, now_ms) || self.top_takes_pointer(now_ms) {
             return Ok(false);
         }
         let mark = self.hatch_pointer_mark(crate::hatches::Phase::Down, x, y);

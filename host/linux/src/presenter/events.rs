@@ -165,6 +165,9 @@ impl<D: DataSource> Presenter<D> {
     /// Move the focus in DOM order, with both bubbling paths fixed before an
     /// action on either path can change the tree.
     pub(crate) fn set_focus(&mut self, next: Option<ViewId>, now_ms: f64) -> Option<String> {
+        if next.is_some_and(|id| !self.alert_allows(id)) {
+            return Some("focus refused: page under alert is inert".into());
+        }
         let previous = self.focus;
         if previous == next {
             return None;

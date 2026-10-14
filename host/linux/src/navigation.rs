@@ -347,3 +347,21 @@ mod tests {
         assert_eq!(survivor(&[], |_| true), None);
     }
 }
+
+impl<D: exact_runner::DataSource> crate::Host<D> {
+    pub(crate) fn neutral_dialog_invoker(&self, view: ViewId) -> bool {
+        let kernel = self.kernel();
+        kernel
+            .node(view)
+            .and_then(|n| n.props.str(PropId::Commandfor))
+            .and_then(|name| kernel.find_by_id(name).first().copied())
+            .and_then(|key| kernel.node_by_key(key))
+            .is_some_and(|n| {
+                crate::presenter::top::shape::neutral_alert(kernel, n.id, &|id| {
+                    self.runner()
+                        .handlers_of(id)
+                        .contains(&exact_plan::EventKind::Press)
+                })
+            })
+    }
+}

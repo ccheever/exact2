@@ -42,10 +42,12 @@ mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
+mod alert;
 pub(crate) mod inline;
 mod layer;
 mod lift;
 pub(crate) mod look;
+pub(crate) use alert::Picture as AlertPicture;
 mod native;
 pub(crate) mod neutral;
 pub(crate) mod numerals;
@@ -489,6 +491,7 @@ pub use backend::{Backend, WindowLayer};
 /// The painter: the walk over one backend.
 pub struct Painter {
     pub(crate) window_canvas: Option<ViewId>,
+    pub(crate) alert: Option<alert::Picture>,
     /// The text engine, shared with the kernel's measurer.
     pub text: Shared,
     /// Device pixels per point.
@@ -619,6 +622,7 @@ impl Painter {
             backend,
             #[cfg(test)]
             rank_passes: 0,
+            alert: None,
             paint_epoch: None,
             fresh_order: HashMap::new(),
             rank_increments: 0,
@@ -845,6 +849,7 @@ impl Painter {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
         self.paint_ghost(&mut walk);
+        self.paint_alert(&mut walk);
         self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
@@ -918,7 +923,7 @@ impl Painter {
         if (walk.scene.hidden)(id)
             || node.is_inline_run()
             || node.style.display == Display::None
-            || node.props.str(PropId::SemanticTag) == Some("dialog")
+            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.reveal != Some(id))
         {
             return;
         }
@@ -1050,6 +1055,7 @@ impl Painter {
         // and a text node still walks its runs so a visible inline paints.
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
+            self.alert_title(walk, node, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
             let (dark, feedback) = (self.dark, self.feedback);
             let kernel = walk.scene.kernel;

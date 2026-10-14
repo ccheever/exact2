@@ -1090,6 +1090,14 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
         return;
     };
     let _entries = layout.sync_children(arena, parent, node);
+    if arena.neutral_alert(parent) {
+        for child in arena.children(parent) {
+            if let Some(node) = arena.taffy(*child) {
+                layout.restyle(arena, *child, node);
+                layout.mark_dirty(node);
+            }
+        }
+    }
     #[cfg(test)]
     count(_entries, 0);
 }

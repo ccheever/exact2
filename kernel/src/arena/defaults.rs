@@ -56,6 +56,7 @@ static TAB_BAR: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct DefaultContext {
+    pub alert: u8,
     pub header: bool,
     pub inside_header: bool,
     pub tab_bar: bool,
@@ -125,6 +126,7 @@ impl NodeArena {
 
     pub(crate) fn default_context(&self, slot: u32) -> DefaultContext {
         DefaultContext {
+            alert: self.alert_context(slot),
             header: self.is_neutral_header(slot),
             inside_header: self.inside_neutral_header(slot),
             tab_bar: self.is_neutral_tab_bar(slot),
@@ -150,6 +152,7 @@ impl NodeArena {
         ]
         .into_iter()
         .flatten()
+        .chain(self.alert_start(slot))
     }
 
     pub(crate) fn style_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {

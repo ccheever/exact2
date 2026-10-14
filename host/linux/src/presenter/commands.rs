@@ -115,8 +115,8 @@ impl<D: DataSource> Presenter<D> {
                 name @ ("showPopover" | "hidePopover" | "togglePopover") => {
                     self.popover_command(name, &c.args)
                 }
-                "showModal" if self.has_windows() => self.show_modal(&c.args, c.source),
-                "close" if self.has_windows() && !c.args.is_empty() => self.close_modal(&c.args),
+                "showModal" if self.has_windows() || self.neutral_alerts() => self.show_modal(&c.args, c.source),
+                "close" if (self.has_windows() || self.neutral_alerts()) && !c.args.is_empty() => self.close_modal(&c.args),
                 "showModal" => self
                     .host
                     .log("showModal refused: dialogs unsupported on the headless/DRM host"),

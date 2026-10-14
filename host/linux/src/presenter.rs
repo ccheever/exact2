@@ -34,6 +34,7 @@ use tiny_skia::Pixmap;
 pub mod access;
 mod addressed_tap;
 mod ahead;
+mod alert;
 mod arrange;
 mod arrange_geometry;
 mod arrive;
@@ -241,6 +242,7 @@ pub struct Presenter<D: DataSource> {
     hosted: hosted::State,
     /// The top layer's open surface, where a shell makes windows (D10).
     top: top::State,
+    alert: Option<alert::Open>,
     /// The shell's top app bar and navigation bar, where it has them (D11).
     bars: bars::State,
     /// The accessibility tree its shell was last told, where one asks (D13).
@@ -504,6 +506,7 @@ impl<D: DataSource> Presenter<D> {
             requests: Default::default(),
             hosted: Default::default(),
             top: Default::default(),
+            alert: None,
             bars: Default::default(),
             access: Default::default(),
             segments: Vec::new(),
@@ -746,6 +749,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     fn service_commit(&mut self) -> Option<String> {
+        self.alert_sync();
         // What the commit asked the host to run goes to the executor (LLP
         // 1016 D2); the reply comes back through `pump`. Its commands wait
         // for the loop (`run_commands`).
@@ -929,6 +933,9 @@ impl<D: DataSource> Presenter<D> {
         changed |= !gone.is_empty();
         for id in gone {
             self.scroll.remove(&id);
+        }
+        if self.alert.is_some() {
+            return;
         }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
@@ -1123,7 +1130,7 @@ impl<D: DataSource> Presenter<D> {
     /// every clip.
     pub fn hit(&mut self, x: f32, y: f32) -> Option<ViewId> {
         // Under an open surface of the top layer the page is inert.
-        if !self.display.contains(x, y) || self.top_open() {
+        if !self.display.contains(x, y) || (self.top_open() && self.alert.is_none()) {
             return None;
         }
         self.boxes();
@@ -1131,7 +1138,8 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .rev()
             .filter(|b| {
-                b.contains(x, y)
+                self.alert_allows(b.id)
+                    && b.contains(x, y)
                     && crate::paint::hits(self.host.kernel(), b, x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
@@ -1151,6 +1159,9 @@ impl<D: DataSource> Presenter<D> {
             || (dx == 0.0 && dy == 0.0)
             || !self.display.contains(x, y)
         {
+            return;
+        }
+        if self.alert.is_some() && self.hit(x, y).is_none() {
             return;
         }
         // A canvas that wants input takes the wheel, and the nodes' own
@@ -1242,12 +1253,18 @@ impl<D: DataSource> Presenter<D> {
             }
             // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
             // has no display box: it scrolls with its `svg`'s ancestors.
+            if self.alert_root() == Some(id) {
+                return;
+            }
             at = self.display.parent(kernel, id).or_else(|| {
                 node.node_type
                     .is_svg_element()
                     .then_some(node.parent)
                     .flatten()
             });
+        }
+        if self.alert.is_some() {
+            return;
         }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
@@ -1270,7 +1287,7 @@ impl<D: DataSource> Presenter<D> {
         if !dx.is_finite() || !dy.is_finite() {
             return Err("wheel needs finite deltas".into());
         }
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         let b = self

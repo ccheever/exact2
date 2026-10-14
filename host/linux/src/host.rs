@@ -876,7 +876,11 @@ impl<D: DataSource> Host<D> {
         // A host with no top layer refuses a press that would open one.
         let press = matches!(event, Event::Press | Event::PressWith(_));
         let refused = |host: &Self, dialog| {
-            let refusal = host.navigation.refusal(host.runner.kernel(), view, dialog);
+            let refusal = if dialog && host.neutral_dialog_invoker(view) {
+                None
+            } else {
+                host.navigation.refusal(host.runner.kernel(), view, dialog)
+            };
             refusal.filter(|_| press).map(str::to_string)
         };
         if let Some(refusal) = refused(self, false) {

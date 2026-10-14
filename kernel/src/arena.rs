@@ -11,6 +11,7 @@ use crate::id::{BoxInset, IdMap};
 use crate::shared_style::SharedStyles;
 use crate::sorted::SlotSet;
 use std::rc::Rc;
+pub(crate) mod alert;
 pub(crate) mod button;
 pub(crate) mod control_text;
 pub(crate) mod defaults;

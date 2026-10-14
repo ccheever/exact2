@@ -7,7 +7,7 @@ impl<D: DataSource> Presenter<D> {
     /// Type into a focused field. `input` edits it now; `change` waits
     /// for Enter or blur, as for hardware typing (LLP 1069.001 D4).
     pub fn type_text(&mut self, id: ViewId, text: &str) -> Result<String, String> {
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         let kernel = self.host.kernel();
@@ -182,7 +182,7 @@ impl<D: DataSource> Presenter<D> {
             "paste" => EventKind::Paste,
             _ => return Err(format!("type: {edit} is not copy, cut or paste")),
         };
-        if self.host.route_visibility(id).1 {
+        if !self.alert_allows(id) || self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
         // A field's own paste inserts with no handler to hear it.
@@ -444,7 +444,8 @@ impl<D: DataSource> Presenter<D> {
             .kernel()
             .node(id)
             .and_then(|n| n.props.get(PropId::TabIndex).and_then(|v| v.as_int()));
-        explicit.is_none_or(|i| i >= 0)
+        self.alert_allows(id)
+            && explicit.is_none_or(|i| i >= 0)
             && self.focusable(id)
             && self.radio_tab_stop(id)
             && self.host.route_visibility(id) == (false, false)
