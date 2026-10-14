@@ -103,6 +103,8 @@ the terminal.
 `TerminalWriteInput` (`data` at most 65,536) first and its sync encode throws "Schema validation failed", nothing sent.
 Fix (`T3TerminalSessions.write`): over 65,536 UTF-16 units it writes `[terminal] Schema validation failed` and sends
 nothing. `systemMessage` writes the message's line ends as CRLF, so no line stair-steps.
+Normalizing embedded newlines is the task's explicit CRLF cleanup. The reference wraps system messages in CRLF
+but preserves their embedded line endings; full multiline parity is not claimed for that normalization.
 
 **G1-11.** `providers-setup.contract` gave the sign-in terminal `focus-request=1`; `ProviderAuthTerminal` never focuses
 its surface. Now `0`. The wizard's setup terminal keeps `1` (`TerminalViewport autoFocus focusRequestId={1}`).
@@ -164,7 +166,7 @@ g1 lanes (`prep/g1/f3-standins.sh`). Never send a message; never run an installe
 
 ## Checks
 
-On the final head's code (`1e4513680`; the later commits change only this record):
+Earlier verification on application code `1e4513680` (before the review test repair below):
 
 | Check | Exit | Note |
 | --- | --- | --- |
@@ -180,6 +182,28 @@ On the final head's code (`1e4513680`; the later commits change only this record
 | `cargo fmt --all -- --check` | 0 | |
 | `bun scripts/boot.mjs` | 0 | |
 | `host/apple/build.mjs t3-code-macos --bundle` | 0 | once before the after drive (`1e4513680`) |
+
+## Review repair, 2026-10-14
+
+The earlier background-environment test called `terminalLinkAction` directly with a supplied environment. It did
+not cover how the welcome wizard selects the setup session's configuration and routes its request. Replaced that
+test with the complete `welcomeView` / `welcomeLocal` flow: enter the wizard, pair a second environment, open its
+setup terminal, then deliver its path-link message and close report. The focused environment offers Cursor at
+`/Users/lane/work`; the setup environment offers Zed at `/remote/work`. The test requires `shell.openInEditor` to
+reach the second environment's fleet transport and generation with `/remote/work/src/app.ts:3` and `zed`, and
+requires no RPC on the focused connection. Fleet and primary fixture state are restored after the test.
+
+Focused verification with Bun 1.4.2:
+
+```sh
+bun test examples/t3-code/terminal-links-and-close.test.ts \
+  examples/t3-code/pages-welcome.test.ts --timeout 60000
+```
+
+Result: 17 passed, 0 failed, 78 assertions. This repair changes one test and this record; the application code and
+the earlier native-drive evidence are unchanged. G1-5 remains unreproduced under real input, and all real-input
+acceptance steps remain open. The source assertions for confirm focus and sign-in focus are supported by the
+earlier agent drive; those assertions alone do not establish runtime behavior.
 
 ## Not done / not verified
 

@@ -12,7 +12,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { T3Client } from './client';
-import type { Obj } from './domain';
+import { initialShell, obj, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { keyboardDispatch, keyboardDispatchSource, TERMINAL_CLOSE_CONFIRMS, type DispatchContext } from './keyboard-dispatch';
 import { keybindingDefaults } from './keybinding-settings';
@@ -24,6 +24,7 @@ import { terminalDrawerView, terminalOps } from './terminal-drawer-view';
 import { terminalLinkAction } from './terminal-integrations';
 import { welcomeLocal, welcomeView } from './pages-welcome';
 import { noPrimary, resetPrimary } from './local-primary-fixture';
+import { environmentKey, fleet, type FleetEntry } from './settings-b-fleet';
 
 const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, async readFile() { return new ArrayBuffer(0); } } };
 const out = () => ({ message: '', id: '', value: '' });
@@ -87,12 +88,45 @@ describe('G1-10: the welcome wizard setup terminal\'s links are the drawer\'s', 
   });
 
   test('a setup terminal on another environment opens a path with that environment\'s editors and server', async () => {
-    const { client, native, rpcs } = wizardClient();
-    const remote: { method: string; payload: Obj }[] = [];
-    await terminalLinkAction(client, native, { text: 'src/app.ts:3', cwd: '/remote/work', environmentId: 'other-env', threadId: 'onboarding-agent-setup', terminalId: 't' },
-      { environment: { config: { availableEditors: ['zed'] }, request: async (method, payload) => { remote.push({ method, payload }); return {}; } } });
-    expect(remote).toEqual([{ method: 'shell.openInEditor', payload: { cwd: '/remote/work/src/app.ts:3', editor: 'zed' } }]);
-    expect(rpcs).toEqual([]);
+    noPrimary();
+    const origin = 'http://127.0.0.1:16403', key = environmentKey(origin, 'other-env');
+    const saved = fleet.saved, previous = fleet.entries.get(key);
+    const { client, native: focusedNative, rpcs } = wizardClient();
+    const remote: Obj[] = [];
+    const entry: FleetEntry = { key, origin, environmentId: 'other-env', phase: 'connected', message: '', traceId: '', generation: 7, synchronized: 7,
+      lastEvent: 0, subscriptions: {}, config: { ...client.config, cwd: '/remote/work', availableEditors: ['zed'] }, shell: initialShell(), scopes: [], error: '', requested: true };
+    const native: Native = { available: true, watch() {}, async later(request) {
+      const call = obj(request);
+      if (call.op === 'environments') return { ok: true, value: { saved: fleet.saved }, generation: 1 };
+      if (call.fleet === key) { remote.push(call); return { ok: true, value: {}, generation: entry.generation }; }
+      return focusedNative.later(request);
+    } };
+    try {
+      fleet.saved = [];
+      // Enter the wizard before pairing the second environment, as first-run setup does.
+      expect((await welcomeView(client, native, { step: 'connect', now: Date.now() })).show).toBe(true);
+      fleet.saved = [{ origin, environmentId: entry.environmentId, enabled: true }];
+      fleet.entries.set(key, entry);
+      const connect = await welcomeView(client, native, { step: 'connect', now: 0 });
+      expect(connect.computers.find(computer => computer.key === key)?.selected).toBe(true);
+      await welcomeLocal(client, native, 'setup', '', '');
+      const agents = await welcomeView(client, native, { step: 'agents', now: 0 });
+      const card = agents.machines.find(machine => machine.key === key)!.agents.find(agent => agent.driver === 'claudeAgent')!;
+      await welcomeLocal(client, native, 'terminal-open', key, card.key);
+      const terminalId = (await welcomeView(client, native, { step: 'agents', now: 0 })).machines.find(machine => machine.key === key)!.terminal.terminalId;
+      expect(remote.filter(call => call.op === 'request').map(call => call.method)).toEqual(['terminal.open', 'terminal.write']);
+      remote.length = 0;
+
+      await welcomeLocal(client, native, 'terminal-exited', entry.environmentId, JSON.stringify({ type: 'link', text: 'src/app.ts:3', terminalId }));
+      expect(remote).toEqual([{ op: 'request', method: 'shell.openInEditor', payload: { cwd: '/remote/work/src/app.ts:3', editor: 'zed' }, generation: 7, fleet: key }]);
+      expect(rpcs).toEqual([]);
+      await welcomeLocal(client, native, 'terminal-exited', entry.environmentId, JSON.stringify({ type: 'closed', terminalId }));
+      expect(remote.at(-1)).toMatchObject({ method: 'terminal.close', fleet: key, generation: 7 });
+    } finally {
+      fleet.saved = saved;
+      if (previous) fleet.entries.set(key, previous); else fleet.entries.delete(key);
+      resetPrimary();
+    }
   });
 });
 
