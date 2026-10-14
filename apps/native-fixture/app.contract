@@ -406,9 +406,9 @@ component NativeFixture
                       text "Bump from the bar"
                     // Rows that open a confirmation, with no handler or after one: it presents
                     // once the menu has gone, from the bar item.
-                    button commandfor="clear-confirm" command="show-modal" role="menuitem" testId="bar-menu-clear" height=44 text-align="start"
+                    button appearance="none" commandfor="clear-confirm" command="show-modal" role="menuitem" testId="bar-menu-clear" height=44 text-align="start"
                       text "Clear count…"
-                    button press=refreshProviders popovertarget="open-in-sheet" popovertargetaction="show" role="menuitem" testId="bar-menu-open-in" height=44 text-align="start"
+                    button appearance="none" press=refreshProviders popovertarget="open-in-sheet" popovertargetaction="show" role="menuitem" testId="bar-menu-open-in" height=44 text-align="start"
                       text "Open in…"
                 if e.name == "home"
                   column testId="fixture" gap=8 padding=12
