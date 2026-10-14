@@ -7,6 +7,18 @@ pub(super) struct Open {
     key: NodeKey,
     restore: Option<NodeKey>,
     title: Option<(String, Rect4)>,
+    measured: Option<Inputs>,
+}
+#[derive(PartialEq)]
+struct Inputs {
+    epoch: u64,
+    env: exact_kernel::Env,
+    frame: exact_kernel::Frame,
+    viewport: (f32, f32),
+    root_font: f32,
+    scale: f32,
+    fonts: usize,
+    dark: bool,
 }
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn neutral_alerts(&self) -> bool {
@@ -96,6 +108,7 @@ impl<D: DataSource> Presenter<D> {
             key,
             restore,
             title: None,
+            measured: None,
         });
         if let Err(e) = self.alert_layout() {
             self.host.log(e);
@@ -154,6 +167,9 @@ impl<D: DataSource> Presenter<D> {
         let Some(id) = self.alert_root() else {
             return Ok(());
         };
+        if self.alert.as_ref().and_then(|a| a.measured.as_ref()) == self.alert_inputs(id).as_ref() {
+            return Ok(());
+        }
         // Desktop covers are otherwise owned only by the bars path, excluded
         // at admission. Neither the cover nor block writes authored rows.
         self.host
@@ -220,6 +236,7 @@ impl<D: DataSource> Presenter<D> {
             .unwrap_or_default()
             .1
             - covered;
+        let dark = self.host.presented(id).dark.unwrap_or(self.dark());
         let title = title.map(|(label, p)| {
             let rect = (origin.0 + left, origin.1 + own_top, p.width, p.height);
             self.alert.as_mut().unwrap().title = Some((label, rect));
@@ -227,7 +244,7 @@ impl<D: DataSource> Presenter<D> {
                 p,
                 rect,
                 crate::text::RunPaint {
-                    color: crate::paint::rgba(style.text_color.resolve(self.dark())),
+                    color: crate::paint::rgba(style.text_color.resolve(dark)),
                     source: id,
                 },
             )
@@ -236,14 +253,41 @@ impl<D: DataSource> Presenter<D> {
             self.alert.as_mut().unwrap().title = None;
         }
         self.brush.alert = Some(crate::paint::AlertPicture { key, offset, title });
+        self.alert.as_mut().unwrap().measured = self.alert_inputs(id);
         Ok(())
+    }
+    fn alert_inputs(&self, id: ViewId) -> Option<Inputs> {
+        let k = self.host.kernel();
+        Some(Inputs {
+            epoch: k.epoch(),
+            env: k.env(),
+            frame: k.node(id)?.frame,
+            viewport: self.viewport,
+            root_font: k.root_font_size(),
+            scale: self.brush.scale,
+            fonts: self.host.runner().runtime_font_count(),
+            dark: self.host.presented(id).dark.unwrap_or(self.dark()),
+        })
     }
     pub(super) fn alert_key(&mut self, name: &str, now: f64) -> bool {
         let Some(id) = self.alert_root() else {
             return false;
         };
-        let (_, prevented) = self.key_event(EventKind::Key, name, "", false, now);
-        if prevented {
+        let opening = self.alert.as_ref().unwrap().key;
+        let focus = self
+            .focus
+            .and_then(|id| self.host.kernel().node(id).map(|n| n.key));
+        let (error, prevented) = self.key_event(EventKind::Key, name, "", false, now);
+        if let Some(error) = error {
+            self.host.log(error);
+        }
+        if prevented
+            || self.alert.as_ref().is_none_or(|a| a.key != opening)
+            || self
+                .focus
+                .and_then(|id| self.host.kernel().node(id).map(|n| n.key))
+                != focus
+        {
             return true;
         }
         match name {

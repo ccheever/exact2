@@ -26,7 +26,7 @@ impl Painter {
             ],
             Transform::identity(),
         );
-        walk.reveal = Some(node.id);
+        walk.dialog = Some(node.id);
         self.node(
             walk,
             node.id,
@@ -34,7 +34,7 @@ impl Painter {
             alert.offset,
             Some((0., 0., self.viewport.0, self.viewport.1)),
         );
-        walk.reveal = None;
+        walk.dialog = None;
     }
     pub(super) fn alert_title(
         &mut self,

@@ -115,6 +115,9 @@ fn a_desktop_clear_confirmation_opens_by_invoker_and_action() {
                 assert_eq!(p.focus(), Some(clear));
                 assert!(p.tap(id(&p, "bump")).is_err());
                 assert!(p.type_text(id(&p, "field"), "leak").is_err());
+                assert!(p
+                    .type_key(id(&p, "field"), "KeyL", "l", true, false)
+                    .is_err());
                 assert!(p.wheel(id(&p, "bump"), 0., 100.).is_err());
                 let old_page = p.page();
                 p.wheel_at(1., 1., 0., 100.);
@@ -144,6 +147,8 @@ fn a_desktop_clear_confirmation_opens_by_invoker_and_action() {
         }
     }
     lifetime_and_authored_rows();
+    defaults_fonts_and_visibility();
+    coordinate_and_keyboard_modal_input();
 }
 
 fn visible(rect: Option<(f32, f32, f32, f32)>, w: f32, h: f32) -> (f32, f32, f32, f32) {
@@ -162,7 +167,7 @@ fn words(p: &Presenter<()>, name: &str) -> String {
         .unwrap()
         .text_runs()
         .iter()
-        .map(|r| r.text.as_str())
+        .map(|r| &*r.text)
         .collect()
 }
 fn key(p: &mut Presenter<()>, name: &str) -> Value {
@@ -282,14 +287,13 @@ fn lifetime_and_authored_rows() {
             written: true,
         }],
     );
+    let node = p.host().kernel().node(dialog).unwrap();
+    assert!(node.style.written.has(StyleId::BackgroundColor));
+    assert!(!node.style.mask.has(StyleId::BackgroundColor));
+    let ground = node.computed_style(StyleMask::EMPTY).background_color;
     assert_eq!(
-        p.host()
-            .kernel()
-            .node(dialog)
-            .unwrap()
-            .computed_style(StyleMask::EMPTY)
-            .background_color,
-        None,
+        ground.map_or(0, |c| c.resolve(false).a()),
+        0,
         "explicit initial beats platform ground"
     );
     ops(
@@ -331,4 +335,198 @@ fn lifetime_and_authored_rows() {
     p.run_commands(|| ());
     visible(p.rect_of(id(&p, "clear-confirm-clear")), 320., 640.);
     assert_eq!(original.padding_top, exact_kernel::Dimension::Points(16.));
+}
+
+fn dialog_id(p: &Presenter<()>) -> ViewId {
+    let k = p.host().kernel();
+    k.node_by_key(k.find_by_id("clear-confirm")[0]).unwrap().id
+}
+fn boot(source: &str, width: f32) -> Presenter<()> {
+    let (p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (width, 640.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p
+}
+fn style(p: &mut Presenter<()>, id: ViewId, row: exact_kernel::StyleId, value: &str) {
+    let mut patch = exact_kernel::StyleProps::default();
+    patch
+        .set_dynamic(row, &exact_kernel::StyleValue::Text(value.into()))
+        .unwrap();
+    patch.written = patch.mask;
+    ops(
+        p,
+        &[exact_kernel::Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }],
+    );
+}
+fn defaults_fonts_and_visibility() {
+    use exact_kernel::{Op, PropId, StyleId, StyleMask};
+    let source = APP
+        .replace(
+            "aria-label=\"Clear the count?\" padding=16",
+            "aria-label=\"Clear the count?\"",
+        )
+        .replace("font-size=16 line-height", "line-height");
+    assert_ne!(source, APP);
+    let mut p = boot(&source, 800.);
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    let dialog = dialog_id(&p);
+    let clear = id(&p, "clear-confirm-clear");
+    let node = p.host().kernel().node(dialog).unwrap();
+    let key = node.key;
+    assert!(!node.style.mask.has(StyleId::PaddingTop));
+    assert!(!node.style.written.has(StyleId::PaddingTop));
+    assert_eq!(
+        node.computed_style(StyleMask::EMPTY).padding_top,
+        exact_kernel::Dimension::Points(24.)
+    );
+    let title = read(&mut p, "state")["surface"]["title"].clone();
+    let rect = p.rect_of(dialog).unwrap();
+    assert_eq!(rect.2, 416.);
+    assert_eq!(title["rect"][0].as_f64().unwrap() as f32 - rect.0, 24.);
+    assert_eq!(title["rect"][1].as_f64().unwrap() as f32 - rect.1, 24.);
+    let first_height = title["rect"][3].as_f64().unwrap();
+    let first_pixels = p.frame();
+    // An unchanged paint keeps authored style/geometry and the measured title.
+    let authored = p.host().kernel().node(dialog).unwrap().style.clone();
+    let start = std::time::Instant::now();
+    for _ in 0..3 {
+        assert_eq!(p.frame().data(), first_pixels.data());
+    }
+    println!(
+        "ALERT_STILL_FRAMES {}",
+        json!({"frames":3,"elapsedMicros":start.elapsed().as_micros()})
+    );
+    assert_eq!(p.host().kernel().node(dialog).unwrap().style, &authored);
+    assert_eq!(read(&mut p, "state")["surface"]["title"], title);
+    assert!(p.set_root_font_size(20.).is_none());
+    p.frame();
+    assert_eq!(
+        p.rect_of(dialog).unwrap().2,
+        520.,
+        "26rem uses the live root font"
+    );
+    assert!(
+        read(&mut p, "state")["surface"]["title"]["rect"][3]
+            .as_f64()
+            .unwrap()
+            > first_height,
+        "the title follows the live inherited font"
+    );
+    style(&mut p, dialog, StyleId::FontSize, "24px");
+    let large = read(&mut p, "state")["surface"]["title"].clone();
+    assert!(large["rect"][3].as_f64().unwrap() > first_height);
+    let light = p.frame();
+    p.set_system_scheme(true);
+    let dark = p.frame();
+    assert_ne!(dark.data(), light.data());
+    assert_eq!(read(&mut p, "state")["surface"]["title"], large);
+    assert!(p.resize(320., 640.).is_none());
+    p.frame();
+    assert_eq!(
+        p.rect_of(dialog).unwrap().2,
+        266.,
+        "UA ceiling uses the live 24px em"
+    );
+    visible(p.rect_of(clear), 320., 640.);
+    let action = p.rect_of(clear).unwrap();
+    style(&mut p, dialog, StyleId::Visibility, "hidden");
+    assert!(p
+        .hit(action.0 + action.2 / 2., action.1 + action.3 / 2.)
+        .is_none());
+    assert!(
+        p.tap(clear).is_err(),
+        "opening never reveals an authored hidden subtree"
+    );
+    style(&mut p, dialog, StyleId::Visibility, "visible");
+    assert!(p.tap(clear).is_ok());
+    p.run_commands(|| ());
+    assert!(p.host().kernel().arena().cover(key.index).is_none());
+    // Removing the label retires only its host reservation.
+    p.tap(id(&p, "ask-clear")).unwrap();
+    p.run_commands(|| ());
+    ops(
+        &mut p,
+        &[Op::ClearProp {
+            id: dialog,
+            prop: PropId::AccessibilityLabel,
+        }],
+    );
+    assert!(read(&mut p, "state")["surface"]["title"].is_null());
+    assert!(p.host().kernel().arena().cover(key.index).is_none());
+    p.tap(id(&p, "clear-confirm-cancel")).unwrap();
+    p.run_commands(|| ());
+}
+fn click(p: &mut Presenter<()>, x: f32, y: f32) {
+    let now = p.host().now();
+    p.pointer_down(x, y, now).unwrap();
+    p.pointer_up(x, y, now + 1.).unwrap();
+    p.run_commands(|| ());
+}
+fn coordinate_and_keyboard_modal_input() {
+    let source = APP
+        .replace("state count = 7", "state count = 7\n  state clears = 0")
+        .replace("count = 0", "count = 0\n    clears = clears + 1")
+        .replace("Count ${count}", "Count ${count} clear ${clears}");
+    for closedby in ["any", "closerequest"] {
+        let source = source.replace(
+            "role=\"alertdialog\"",
+            &format!("role=\"alertdialog\" closedby=\"{closedby}\""),
+        );
+        let mut p = boot(&source, 640.);
+        let trigger = id(&p, "ask-clear");
+        let clear = id(&p, "clear-confirm-clear");
+        let cancel = id(&p, "clear-confirm-cancel");
+        let bump = p.rect_of(id(&p, "bump")).unwrap();
+        p.tap(trigger).unwrap();
+        p.run_commands(|| ());
+        click(&mut p, bump.0 + bump.2 / 2., bump.1 + bump.3 / 2.);
+        assert_eq!(
+            words(&p, "counts"),
+            "Count 7 clear 0",
+            "outside input never reaches Bump"
+        );
+        assert_eq!(p.rect_of(clear).is_none(), closedby == "any");
+        if closedby == "any" {
+            assert_eq!(p.focus(), Some(trigger));
+            p.tap(trigger).unwrap();
+            p.run_commands(|| ());
+        }
+        let reply = key(&mut p, "Escape");
+        assert!(reply.get("error").is_none(), "{reply}");
+        assert!(p.rect_of(clear).is_none());
+        assert_eq!(words(&p, "counts"), "Count 7 clear 0");
+        p.tap(trigger).unwrap();
+        p.run_commands(|| ());
+        // Coordinate Cancel hits the authored action in the translated overlay.
+        let r = visible(p.rect_of(cancel), 640., 640.);
+        click(&mut p, r.0 + r.2 / 2., r.1 + r.3 / 2.);
+        assert!(p.rect_of(clear).is_none());
+        assert_eq!(p.focus(), Some(trigger));
+        assert_eq!(words(&p, "counts"), "Count 7 clear 0");
+        p.tap(trigger).unwrap();
+        p.run_commands(|| ());
+        assert_eq!(p.focus(), Some(clear));
+        for expected in [cancel, clear, cancel, clear] {
+            let reply = key(&mut p, "Tab");
+            assert!(reply.get("error").is_none(), "{reply}");
+            assert_eq!(p.focus(), Some(expected));
+        }
+        let reply = key(&mut p, "Enter");
+        assert!(reply.get("error").is_none(), "{reply}");
+        p.run_commands(|| ());
+        assert_eq!(words(&p, "counts"), "Count 0 clear 1");
+        assert!(p.rect_of(clear).is_none());
+        assert_eq!(p.focus(), Some(trigger));
+    }
 }

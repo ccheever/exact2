@@ -571,6 +571,7 @@ struct Walk<'a, 'b> {
     /// row inherits from its wrapper shows, one its own nodes set does not
     /// (`lift.rs`; b6 review B4).
     reveal: Option<ViewId>,
+    dialog: Option<ViewId>,
 }
 
 impl Painter {
@@ -843,6 +844,7 @@ impl Painter {
             replay,
             ranks: self.ranks.clone(),
             reveal: None,
+            dialog: None,
         };
         self.rows_begin(&walk);
         for root in scene.roots {
@@ -923,7 +925,7 @@ impl Painter {
         if (walk.scene.hidden)(id)
             || node.is_inline_run()
             || node.style.display == Display::None
-            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.reveal != Some(id))
+            || (node.props.str(PropId::SemanticTag) == Some("dialog") && walk.dialog != Some(id))
         {
             return;
         }
@@ -1307,7 +1309,16 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
 /// `ScrollView`/`List` scrolls on y unless its row says otherwise, and an
 /// unset axis beside a non-visible one is scrollable (CSS Overflow §3).
 pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
-    let s = node.style;
+    let resolved;
+    let s = if look::neutral()
+        && node.props.str(PropId::SemanticTag) == Some("dialog")
+        && node.props.str(PropId::AccessibilityRole) == Some("alertdialog")
+    {
+        resolved = node.computed_style(StyleMask::EMPTY);
+        &resolved
+    } else {
+        node.style
+    };
     let mut y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {

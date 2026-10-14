@@ -272,6 +272,9 @@ impl<D: DataSource> Presenter<D> {
         down: bool,
         repeat: bool,
     ) -> Result<String, String> {
+        if down && !self.alert_allows(id) {
+            return Err(format!("view {id} is inert under the alert"));
+        }
         self.restore_controls();
         // A release's `keyup` handlers at the focus first (#140), whatever
         // took its down; then the release goes where its press went.
