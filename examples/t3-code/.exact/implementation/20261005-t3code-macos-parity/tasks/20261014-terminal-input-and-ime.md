@@ -3,7 +3,7 @@ name: 20261014-terminal-input-and-ime
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-input-and-ime
@@ -240,3 +240,9 @@ Repair verification (2026-10-14, local logs under `target/tii/ime-review-*`):
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#533](https://github.com/ccheever/exact2/pull/533) was read back at `ce8cc79bb16f0caa3d7372a7818ffa51b6f031f9`, based on `feat(example)/t3-code`. IME consumed/declined Control handling; real middle press and live IME remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

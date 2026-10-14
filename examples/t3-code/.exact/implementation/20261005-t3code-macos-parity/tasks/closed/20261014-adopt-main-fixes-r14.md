@@ -1,14 +1,14 @@
 ---
 name: 20261014-adopt-main-fixes-r14
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
-verification: unverified
+implementation: verified
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: feat(example)/t3-code-fix-wave-integration
+branch: feat(example)/t3-code-adopt-main-fixes-r14
 pr_url: null
-verified_commit: null
+verified_commit: b40d3c08dd748bf05ef44a5c124b5232cb45f1ab
 ---
 
 # Main adoption, round 14
@@ -34,10 +34,10 @@ framework decisions are outside this task.
 
 ## Context and guidance
 
-- Parent: [plan](../plan.md), [specification](../spec.md).
-- First wave: [continuation review](../reviews/20261014-first-wave-resume.md).
-- Previous adoption: [round 13](20261014-adopt-main-fixes-r13.md).
-- Kept workarounds: [round 12 inventory](20261013-r12-kept-workarounds.md).
+- Parent: [plan](../../plan.md), [specification](../../spec.md).
+- First wave: [continuation review](../../reviews/20261014-first-wave-resume.md).
+- Previous adoption: [round 13](../20261014-adopt-main-fixes-r13.md).
+- Kept workarounds: [round 12 inventory](../20261013-r12-kept-workarounds.md).
 - Guidance: the parent's `20261005-platforms-v3` snapshot, with foundations,
   application state, accessibility, macOS, and testing guidance. Current public syntax
   and API behavior were checked against the pinned main source and `docs/testing.md`.
@@ -46,7 +46,7 @@ framework decisions are outside this task.
 
 | Dependency | Kind | Resolution |
 | --- | --- | --- |
-| First-wave application repairs | Merged task PRs | Local combined checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`; remote feature merge pending |
+| First-wave application repairs | Merged task PRs | All eleven PRs merged remotely at 03:04 UTC; feature checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a` |
 | Main fixes | Merged framework work | Present in pinned main `178ae7237`; local ancestry-preserving merge `1d8c7d5f1` |
 | Publication and bug-fix merges | Recorded user decision | Existing continuation authorization; no new scope decision |
 
@@ -137,8 +137,9 @@ scrolling, real IME, pointer cursors or VoiceOver speech.
 | Workspace | Fresh `--workspace --all-targets --keep-going` check passed in 198.67 seconds |
 | App Rust | 27 passed |
 | Final Contract plan | Pass: 28,103,415 bytes, 15.6% below the original feature baseline |
-| Native bundle/smoke | Building; drive pending |
-| Remote first-wave and adoption merges | Pending |
+| Native bundle/smoke | Build passed in 309.85 seconds; all ten connected smoke captures completed, with inspected screenshots and unchanged dirty Git state |
+| Remote first-wave merge | All eleven PRs confirmed merged by GitHub; feature checkpoint `1e3152209` |
+| Remote adoption merge | Pending publication |
 
 ## Attempts and evidence
 
@@ -155,11 +156,30 @@ Contract compile, all 27 app Rust tests, the full Bun suite and a fresh workspac
 Local development output is under `target/fix-wave`: `app-tests-adoption-red.log`,
 `app-tests-adoption.log`, `types-adoption.log`, and `<check>-adoption.log` with
 `checks-adoption.json`. Raw verification logs are not committed to the application
-branch. Durable proof and final source identity are added before publication.
+branch. Durable proof is published in the [combined packet](https://github.com/ccheever/exact2/blob/144fe75ff80651336d1a7511f71dbb54923345d7/adopt-main-fixes-r14/20261014-integration/README.md), with exact source/binary identities, checks, earlier failures, reproduction and inspected screenshots.
 
 ## Next action
 
-Complete the running checks, compile and drive the final native bundle, and record the
-results. Publish the first-wave checkpoint, then this adoption PR against the feature
-branch. Merge by fast-forward or a real merge so main remains an ancestor. Keep required
-real-input rows open while the desktop is locked.
+Publish this verified adoption as a PR against the first-wave feature checkpoint.
+Merge by fast-forward or a real merge so main remains an ancestor. Keep the separate
+real-input parity rows open while the desktop is locked.
+
+## Final verification and independent review
+
+The native smoke ran at `b40d3c08dd748bf05ef44a5c124b5232cb45f1ab`. It remained connected
+through the seeded thread, sidebar collapse/return, PR empty state, General, Appearance,
+unsent draft, local browser preview and dirty branch confirmation. Cancel preserved
+`## main` and `?? dirty.txt`; the draft survived. The browser panel closed to its mini
+preview. The unauthenticated provider warning and update toast are expected fixture
+output. No sign-in, update, provider send or remote Git mutation was performed.
+
+Independent reviewer `repair_markdown` approved the exact commit after reviewing all
+54 changed TypeScript files, all 187 Contract files and the three transform exceptions.
+The framework tree and both Cargo exceptions match the intended main pin. The reviewer
+independently reproduced the full 1,241-file source fingerprint, including runtime PNG
+assets: `b630e3a916d82fdc54d04e223ff6d5aa430b2ba1e4765eb6fb026e9165ce73f6`. The earlier
+evidence fingerprint omitted two unchanged runtime PNGs; the published packet corrects
+that provenance without changing application source or requiring a rebuild.
+
+This closes the bounded adoption task. It does not close the first-wave task matrices or
+claim real IME, VoiceOver, pointer, smooth-motion or authenticated-service acceptance.

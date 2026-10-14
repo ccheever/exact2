@@ -3,7 +3,7 @@ name: 20261014-composer-chips-accessibility
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: stale
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-composer-chips-accessibility'
@@ -316,3 +316,9 @@ Real-input batch steps 1-4 remain open acceptance rows.
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#534](https://github.com/ccheever/exact2/pull/534) was read back at `fd8c6541ef841649868e3559cf150faf37525bee`, based on `feat(example)/t3-code`. Projection, ranges and labels reviewed; native AX proof passed; VoiceOver and terminal-send remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

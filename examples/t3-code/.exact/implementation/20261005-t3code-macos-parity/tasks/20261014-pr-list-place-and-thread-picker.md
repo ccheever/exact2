@@ -3,7 +3,7 @@ name: 20261014-pr-list-place-and-thread-picker
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-pr-list-place-and-thread-picker'
@@ -140,3 +140,9 @@ Implementation is ready for verification. The coordinator owns review/publicatio
 Draft PR [#546](https://github.com/ccheever/exact2/pull/546) was read back at `6ff18f2251305c8f3f30a6ace8e425eab001367f`, based on `feat(example)/t3-code`. Cancellation recovery and disabled-row Enter reviewed; connected scroll/picker real input remains open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
 
 [Published before/after packet](https://github.com/ccheever/exact2/blob/9f96bfee3bc6946ccce2c8c45b0cad0fdbfabe5b/pr-list-place-and-thread-picker/20261014-resume/README.md) contains retained-row regressions and native selection observations, with capture limitations; no connected screenshot comparison is claimed.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

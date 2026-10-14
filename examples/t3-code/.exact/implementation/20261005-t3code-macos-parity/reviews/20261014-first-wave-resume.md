@@ -1,10 +1,10 @@
 # First-wave continuation, 2026-10-14
 
-The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. This report is partial: all eleven implementations are published as draft PRs, main is merged into the local integration candidate, and the final repository/native checks are in progress. None of these PRs has merged into the remote feature branch in this continuation.
+The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. All eleven repair PRs are now merged into the remote feature branch at checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a` (GitHub readback, 03:04 UTC). The bounded main adoption has passed repository and native verification; its PR delivery is next. The broader real-input qualifications remain open.
 
 ## Published revisions
 
-| Task | Draft PR | Published revision | Remaining limit |
+| Task | Merged PR | Published revision | Remaining limit |
 | --- | --- | --- | --- |
 | [terminal-links-and-close](../tasks/20261014-terminal-links-and-close.md) | [#531](https://github.com/ccheever/exact2/pull/531) | `d3f075a20892c469a15549fb5f78cbdbf0dfebf3` | Actual background onboarding environment test; original system-browser discrepancy remains unreproduced. |
 | [terminal-input-and-ime](../tasks/20261014-terminal-input-and-ime.md) | [#533](https://github.com/ccheever/exact2/pull/533) | `ce8cc79bb16f0caa3d7372a7818ffa51b6f031f9` | IME consumed/declined Control handling; real middle press and live IME remain open. |
@@ -34,8 +34,8 @@ The combined source at `7baeb1229` compiled at 27,894,502 bytes; strict applicat
 
 Appearance's independent review is bound to runtime `3edaae268` and documentation head `31d46d0a2`. It checked 576 outside-click state/effect comparisons, 33/33 native Inspector checks and 28/28 native font checks. The actual composer uses the selected Georgia family and the expanded local diff carries Menlo to code/gutters. The [durable packet](https://github.com/ccheever/exact2/blob/ffe98932fe5943814d09069cbb210d2f91c5d01d/appearance-theme-tools/20261014-resume/README.md) contains source/binary identities and authentic final screenshots. Its transparent baseline image is rejected; baseline tree/AX observations are separate from the final connected fixture. Both broader task records remain unverified for their outstanding matrix.
 
-Main adoption is tracked in [round 14](../tasks/20261014-adopt-main-fixes-r14.md). The migrated app passes the same 4,978 tests and strict TypeScript. The root source sweep found main's newly refused non-SVG transforms; `30be3a94a` converts four chevrons to individual rotation and removes an ignored monogram transform. The resulting plan compiles to 28,103,415 bytes, 15.6% below the original 33,309,129-byte feature baseline. The affected root test passed its clean rerun across 94 roots and 195 imports. The fresh workspace check and all 27 app Rust tests pass; native integration remains pending.
+Main adoption is tracked in [round 14](../tasks/closed/20261014-adopt-main-fixes-r14.md). The migrated app passes the same 4,978 tests and strict TypeScript. The root source sweep found main's newly refused non-SVG transforms; `30be3a94a` converts four chevrons to individual rotation and removes an ignored monogram transform. The resulting plan compiles to 28,103,415 bytes, 15.6% below the original 33,309,129-byte feature baseline. The affected root test passed its clean rerun across 94 roots and 195 imports. The fresh workspace check and all 27 app Rust tests pass; the native build and connected ten-capture smoke also passed ([durable packet](https://github.com/ccheever/exact2/blob/144fe75ff80651336d1a7511f71dbb54923345d7/adopt-main-fixes-r14/20261014-integration/README.md)).
 
 ## Next action
 
-Complete the final repository gates and one combined native drive. Publish the first-wave checkpoint to the feature branch, then publish/merge main adoption with its ancestry preserved. Keep final real-input rows open while the desktop is locked. PR #541's size/functionality choice is no longer needed after the measured reduction. Start dependent application tasks only after the feature branch contains the adopted main.
+Publish and merge verified main adoption with its ancestry preserved. All eleven first-wave PRs are already merged; required repository checks and the combined native drive have passed. Keep final real-input rows open while the desktop is locked. PR #541's size/functionality choice is no longer needed after the measured reduction. Start dependent application tasks only after the feature branch contains the adopted main.

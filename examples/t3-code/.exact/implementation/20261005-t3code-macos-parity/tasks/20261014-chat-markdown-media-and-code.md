@@ -3,7 +3,7 @@ name: 20261014-chat-markdown-media-and-code
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: stale
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-chat-markdown-media-and-code'
@@ -351,3 +351,9 @@ review, updates the draft PR from the local repair, measures the combined integr
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#541](https://github.com/ccheever/exact2/pull/541) was read back at `8b61e102c317da4be58a01cdc087860031f961b8`, based on `feat(example)/t3-code`. Coordinator review passed the hover move at `95ae39500`. The isolated plan is now below its original baseline, so no size/functionality decision remains. The current eleven-branch integration also compiles at 27,894,502 bytes. Combined repository gates, the final app drive and real pointer remain open. This bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

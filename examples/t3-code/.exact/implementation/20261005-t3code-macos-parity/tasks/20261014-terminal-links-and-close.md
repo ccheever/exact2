@@ -3,7 +3,7 @@ name: 20261014-terminal-links-and-close
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: agent-verified (real-input steps pending)
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-links-and-close
@@ -220,3 +220,9 @@ The coordinator reviews and merges draft PR #531, then runs the real-input batch
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#531](https://github.com/ccheever/exact2/pull/531) was read back at `d3f075a20892c469a15549fb5f78cbdbf0dfebf3`, based on `feat(example)/t3-code`. Actual background onboarding environment test; original system-browser discrepancy remains unreproduced. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.
