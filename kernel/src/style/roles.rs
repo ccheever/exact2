@@ -425,12 +425,28 @@ thread_local! {
 /// `-exact-symbol`) resolve to while it lasts, as the web's
 /// `var(--exact-accent, AccentColor)` reads the nearest one. Restored when
 /// the scope ends.
+///
+/// An accent that is itself a role drawn in the accent (`accent-color=
+/// "AccentColor"`) keeps the one around, as css.rs leaves `--exact-accent`
+/// inherited for it and Apple's tint stays the ancestor's.
 pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
-    AccentScope(AUTHORED.with(|a| a.replace(accent)))
+    let accent = match accent {
+        Some(ColorValue::Role(id)) if role_of(id).is_some_and(web_accent) => {
+            AUTHORED.with(|a| a.get())
+        }
+        other => other,
+    };
+    AccentScope(
+        AUTHORED.with(|a| a.replace(accent)),
+        std::marker::PhantomData,
+    )
 }
 
-/// What [`authored_accent`] restores.
-pub struct AccentScope(Option<ColorValue>);
+/// What [`authored_accent`] restores; the thread's, so it stays on it.
+pub struct AccentScope(
+    Option<ColorValue>,
+    std::marker::PhantomData<std::rc::Rc<()>>,
+);
 
 impl Drop for AccentScope {
     fn drop(&mut self) {
@@ -438,9 +454,20 @@ impl Drop for AccentScope {
     }
 }
 
+/// `c` with a role drawn in the accent replaced by `accent`, where the
+/// node's accent is one it or an ancestor authored: what a host keeps to
+/// resolve later, outside the painting scope ([`authored_accent`]).
+pub fn accented(c: ColorValue, accent: Option<ColorValue>) -> ColorValue {
+    let _scope = authored_accent(accent);
+    match (c, AUTHORED.with(|a| a.get())) {
+        (ColorValue::Role(id), Some(a)) if role_of(id).is_some_and(web_accent) => a,
+        _ => c,
+    }
+}
+
 /// `c` under the scope's authored accent, when it is a role drawn in the
-/// accent; the accent itself is resolved with none around, so an authored
-/// `AccentColor` is the tint.
+/// accent; the accent itself is resolved with none around (the scope never
+/// holds such a role, [`authored_accent`]).
 pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> {
     let ColorValue::Role(id) = c else { return None };
     if !role_of(id).is_some_and(web_accent) {
