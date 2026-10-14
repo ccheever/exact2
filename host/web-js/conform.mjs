@@ -150,11 +150,14 @@ function serve(dir) {
 // only as refused or not (the steps' state). A refusal repeated by a host's own deliveries counts once: a list's edge
 // is asked again at each report, and the Linux host reports a settling list more often than a page does.
 const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
-const boundReasons = async S => (await S.logs()).lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
+const boundReasons = lines => lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
 // The voice table's journal (LLP 1096 D5): every `sound …` and `sounds …` line, stamped, the same on every target; the
 // JS target never refuses one of its three commands (they are the runtime's own, not a host's).
 const SOUND = /^t=\S+ sounds? .*$|refused: (?:playSound|playSounds|stopSounds) .*$/;
-const soundLines = async S => (await S.logs()).lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
+const soundLines = lines => lines.flatMap(l => SOUND.exec(l)?.[0] ?? []);
+// A host's journal since its last read, read once for both filters: a read advances the cursor, so a second read
+// would see none of what the first consumed
+const journal = async S => { const { lines } = await S.logs(); return { bounds: boundReasons(lines), sounds: soundLines(lines) }; };
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', n.props?.checked ?? '', (n.handlers ?? []).join(' '), n.focused === true ? 'focused' : ''].join('|'));
 function diffLists(a, b, what, other = 'js', reference = 'wasm') {
   const out = [];
@@ -424,14 +427,14 @@ async function drive(t, report, fail, dir, ws, js) {
     await settle();
     // Each step's bound refusals, on every target (the journals read from here on).
     const bounds = async step => {
-      const [rw, rj] = await pair(() => boundReasons(W), () => boundReasons(J));
+      const [{ bounds: rw, sounds: sw }, { bounds: rj, sounds: sj }] = await pair(() => journal(W), () => journal(J));
       const say = r => r.join(' | ') || '—';
       if (say(rw) !== say(rj)) fail(step, `bound refusals: ${reference} «${say(rw)}» ${other} «${say(rj)}»`);
-      const [sw, sj] = await pair(() => soundLines(W), () => soundLines(J));
       if (say(sw) !== say(sj)) fail(step, `sound lines: ${reference} «${say(sw).slice(-400)}» ${other} «${say(sj).slice(-400)}»`);
       await onLinux(step, async L => {
-        const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`);
-        const sl = await soundLines(L); if (say(sl) !== say(sw)) fail(step, `linux sound lines: ${reference} «${say(sw).slice(-400)}» linux «${say(sl).slice(-400)}»`);
+        const { bounds: rl, sounds: sl } = await journal(L);
+        if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`);
+        if (say(sl) !== say(sw)) fail(step, `linux sound lines: ${reference} «${say(sw).slice(-400)}» linux «${say(sl).slice(-400)}»`);
       });
     };
     await bounds('boot');
