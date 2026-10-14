@@ -133,7 +133,7 @@ describe('the views', () => {
   test('FlowRuns draws a media run through its media chip, standalone when its run says so, else its alt text', () => {
     expect(markdown).toContain('when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0');
     expect(markdown).toContain('MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
-    expect(markdown).toContain('MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
+    expect(markdown).toContain('MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
     expect(markdown).toContain('and not (run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0)\n          when ms < 0\n            text run.text');
     expect(media).not.toContain('MarkdownInlineMedia');
   });
@@ -151,7 +151,7 @@ describe('the views', () => {
   });
   test('a video in a line of text is the block\'s player: its failure slot has Retry video and the open link (ChatMarkdownVideo)', () => {
     const block = component('MarkdownMedia');
-    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\\n${nodeId}`), nodeId=nodeId)');
+    expect(block).toContain('MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${indexOf(map(galleryIds, (id) => `media-${owner}-${id}`), nodeId)}`), nodeId=nodeId)');
     expect(block).not.toMatch(/when [^\n]*kind == "video"[^\n]*\n\s+video url/);
     const body = component('MarkdownMediaBody');
     expect(body).toContain('aria-label="Retry video"');

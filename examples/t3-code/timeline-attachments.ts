@@ -129,11 +129,11 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
     galleries.set(client, null);
     return '';
   }
-  // G4-05: a Markdown image's press: `id` its media key, `value` its document's owner and, after a line break, its node id.
+  // G4-05: the key identifies the source; the parsed document's occurrence selects this image even when a URL repeats.
   if (op === 'image-md-open') {
-    const cut = value.indexOf('\n'), owner = cut < 0 ? value : value.slice(0, cut), opener = cut < 0 ? '' : value.slice(cut + 1);
-    const document = markdownDocument(owner), items = document ? markdownGallery(document) : [], index = items.findIndex(item => item.key === id);
-    if (!document || index < 0) throw new ClientError('That image is no longer available.');
+    const [owner = '', opener = '', occurrence = ''] = value.split('\n'), index = Number(occurrence);
+    const document = markdownDocument(owner), items = document ? markdownGallery(document) : [];
+    if (!document || !opener || !occurrence || !Number.isInteger(index) || items[index]?.key !== id) throw new ClientError('That image is no longer available.');
     previews.set(client, null); mediaPreviews.set(client, null);
     galleries.set(client, { threadId: client.threadId, signThread: client.threadId || draftThreadId(client), text: document.text, root: document.root, scope: document.scope, items, index,
       opener });

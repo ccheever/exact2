@@ -34,6 +34,8 @@ component MediaFailedFrame
 // has a zero-size status span while it loads and ChatMarkdownImageFallback's chip when it fails. A video is
 // ChatMarkdownVideo (MediaVideoPlayer) either way: the 16:9 slot, the player, its failure slot with Retry video.
 component MarkdownMedia
+  inject
+    galleryIds: list<string>
   props
     alt: string
     kind: string
@@ -68,7 +70,7 @@ component MarkdownMedia
     when access != "blocked" and not refused and url == ""
       box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
     when access != "blocked" and not refused and url != ""
-      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\n${nodeId}`), nodeId=nodeId)
+      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (startsWith(target, "http:") or startsWith(target, "https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\n${nodeId}\n${indexOf(map(galleryIds, (id) => `media-${owner}-${id}`), nodeId)}`), nodeId=nodeId)
 
 // ChatMarkdownImage / ChatMarkdownVideo once the URL is known. A video that fails shows
 // MediaVideoPlayer's slot: Retry video loads it again; the open link is "Open original" for an

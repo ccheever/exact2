@@ -88,7 +88,7 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     expect(markdownDocument('["t1","m1"]')?.text).toBe(TEXT);
     expect(markdownGallery(markdownDocument('["t1","m1"]')!).map(item => item.name)).toEqual(['Shot', 'Logo', 'Badge']);
     const shot = chips.find(chip => chip.kind === 'media' && chip.label === 'Shot')!;
-    imagePreviewAction(client, 'image-md-open', shot.target, `${shot.owner}\nmedia-${shot.owner}-b1`);
+    imagePreviewAction(client, 'image-md-open', shot.target, `${shot.owner}\nmedia-${shot.owner}-b1\n0`);
     expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'media:/repo/docs/shot.png', imagePreviewName: 'Shot', imagePreviewPosition: '(1/3)',
       imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewTip: '/repo/docs/shot.png', imagePreviewReturn: 'media-["t1","m1"]-b1' });
     expect(JSON.parse(imagePreviewView(client).imagePreviewSource)).toMatchObject({ kind: 'image', name: 'Shot', reference: { kind: 'file', path: '/repo/docs/shot.png', relativePath: 'docs/shot.png' } });
@@ -108,10 +108,28 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     imagePreviewAction(client, 'image-close', '', '');
     expect(imagePreviewView(client).imagePreviewId).toBe('');
     // Leaving the thread drops it; an image no document holds opens nothing.
-    imagePreviewAction(client, 'image-md-open', shot.target, shot.owner);
+    imagePreviewAction(client, 'image-md-open', shot.target, `${shot.owner}\nmedia-${shot.owner}-b1\n0`);
     (client as { threadId: string }).threadId = 'other';
     expect(imagePreviewView(client).imagePreviewId).toBe('');
     expect(() => imagePreviewAction(client, 'image-md-open', 'media:/repo/none.png', shot.owner)).toThrow('That image is no longer available.');
+  });
+  test('a repeated image opens at the clicked occurrence, preserves its name and focus, and wraps from there', () => {
+    const { client } = chatClient();
+    const owner = 'files:/repo/docs/repeated.md';
+    const text = '![Shot](shot.png)\n\nInline ![Logo](logo.png), then ![Shot again](shot.png).';
+    const chips = messageChips({ text }, '/repo/docs', [], owner);
+    const shot = chips.find(chip => chip.kind === 'media' && chip.label === 'Shot')!;
+    const opener = `media-${owner}-b1-r5`;
+    imagePreviewAction(client, 'image-md-open', shot.target, `${owner}\n${opener}\n2`);
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Shot again', imagePreviewPosition: '(3/3)', imagePreviewReturn: opener });
+    imagePreviewAction(client, 'image-step', '', 'previous');
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Logo', imagePreviewPosition: '(2/3)' });
+    imagePreviewAction(client, 'image-step', '', 'next');
+    imagePreviewAction(client, 'image-step', '', 'next');
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Shot', imagePreviewPosition: '(1/3)' });
+    for (const occurrence of ['1', '3', '-1', 'NaN', '']) {
+      expect(() => imagePreviewAction(client, 'image-md-open', shot.target, `${owner}\n${opener}\n${occurrence}`)).toThrow('That image is no longer available.');
+    }
   });
   test('Files and an attachment name their own documents', () => {
     expect(source('r4-surfaces-files.ts')).toContain("messageChips({ text }, folder, [], `files:${absolute}`, scope)");
@@ -121,7 +139,7 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     const body = component('media-markdown.contract', 'MarkdownMediaBody');
     expect(body).toContain('MediaPreviewActions(source=source, tip=tip, label=`Preview ${trim(alt) != "" ? trim(alt) : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)');
     expect(body).toContain('when kind == "video" or (brokenUrl != "" and brokenUrl == url)\n      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))');
-    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}`), nodeId=nodeId)');
+    expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${indexOf(map(galleryIds, (id) => `media-${owner}-${id}`), nodeId)}`), nodeId=nodeId)');
     const markdown = source('markdown.contract');
     expect(markdown).toContain('standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
     expect(markdown).toContain('standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');

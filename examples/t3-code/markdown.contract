@@ -169,6 +169,10 @@ fn runAt(runs: list<ChatRun>, id: string): number = length(join(map(slice(runs, 
 fn tokenAt(tokens: list<CodeToken>, id: string): number = length(join(map(slice(tokens, 0, max(0, indexOf(map(tokens, (t) => t.id), id))), (t) => t.text), ""))
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
+// G4-05: occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
+fn galleryImage(href: string, chips: list<ChipView>): bool = length(filter(chips, (chip) => chip.kind == "media" and chip.href == href and chip.size == "image" and chip.icon != "blocked")) > 0
+fn markdownGalleryIds(blocks: list<ChatBlock>, chips: list<ChipView>): list<string> = filter(split(join(map(blocks, (block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : (block.flow and not includes(["code", "table", "table-row", "rule"], block.kind) ? join(map(filter(block.runs, (run) => run.kind == "media" and galleryImage(run.href, chips)), (run) => `${block.id}-${run.id}`), "\n") : "")), "\n"), "\n"), (id) => id != "")
+
 component ChatMarkdown
   props
     document: ChatDocument
@@ -259,6 +263,9 @@ component MarkdownBlocks
     fit: bool
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
+  derive galleryIds = markdownGalleryIds(document.blocks, noChips())
+  provide
+    galleryIds
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
@@ -282,6 +289,9 @@ component EnvBlocks
     env: MarkdownEnv
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
+  derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  provide
+    galleryIds
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -312,6 +322,9 @@ component DiagramBlocks
     // diff-cite-popover DC-1: the cited text's [start, end) in the answer's text stream (-1: none), each block's share.
     markStart: number
     markEnd: number
+  derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  provide
+    galleryIds
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -380,7 +393,7 @@ component BlockBody
       // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
       when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
         each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
+          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     when block.kind == "quote"
