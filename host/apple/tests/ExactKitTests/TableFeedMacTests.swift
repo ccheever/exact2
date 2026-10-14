@@ -30,7 +30,7 @@ final class TableFixture {
     static func source(count: Int) -> String {
         var doublings = 0
         while 10 << doublings < count { doublings += 1 }
-        let derived = (0..<doublings).map { "  derive d\($0 + 1) = concat(\($0 == 0 ? "seed" : "d\($0)"), \($0 == 0 ? "seed" : "d\($0)"))" }.joined(separator: "\n")
+        let derived = (0..<doublings).map { "  derive d\($0 + 1) = \($0 == 0 ? "seed" : "d\($0)").concat(\($0 == 0 ? "seed" : "d\($0)"))" }.joined(separator: "\n")
         return """
         component Rows
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
