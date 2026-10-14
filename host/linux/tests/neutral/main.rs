@@ -307,12 +307,6 @@ fn route_header_classes_restore_defaults() {
   border-bottom="2px solid #654321"
 style Plain
   opacity=1
-component Header
-  props
-    on: bool
-  view
-    header class=(on ? Authored : Plain) height=20 min-height=0 padding=0 testId="head"
-      text "Ink" testId="label"
 component App
   state on = false
   action toggle
@@ -323,6 +317,12 @@ component App
         Header(on=on)
       button press=toggle testId="toggle"
         text "Toggle"
+component Header
+  props
+    on: bool
+  view
+    header class=(on ? Authored : Plain) height=20 min-height=0 padding=0 testId="head"
+      text "Ink" testId="label"
 "##;
     let plan = contract::compile(&source).unwrap();
     let (mut p, error) = Presenter::boot_with(
@@ -389,6 +389,8 @@ fn route_header_context_changes_invalidate_retained_nodes() {
             id,
             node_type: if id == 3 {
                 NodeType::Text
+            } else if id == 6 {
+                NodeType::Control
             } else {
                 NodeType::View
             },
@@ -397,6 +399,7 @@ fn route_header_context_changes_invalidate_retained_nodes() {
     ops.extend([
         prop(1, PropId::NavigationKey, ""),
         prop(2, PropId::SemanticTag, "header"),
+        prop(6, PropId::Type, "button"),
         Op::SetStyle {
             id: 1,
             patch: Box::new(style(&[(
@@ -423,6 +426,11 @@ fn route_header_context_changes_invalidate_retained_nodes() {
         Op::AttachRoot { id: 1 },
     ]);
     k.apply(0, 1, &ops).unwrap();
+    let button_node = k.node(6).unwrap();
+    assert_eq!(
+        exact_kernel::ControlKind::of(button_node.node_type, button_node.props),
+        Some(exact_kernel::ControlKind::Button)
+    );
     let check = |k: &mut Kernel, height, says, source| {
         k.compute_layout(1, Offer::definite(320.0, 150.0)).unwrap();
         assert_eq!(k.node(2).unwrap().frame.height, height);
