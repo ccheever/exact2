@@ -780,17 +780,18 @@ fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
         ],
     );
     let mut r = booted(contract::compile_path(&path).unwrap());
-    press(&mut r, "both");
-    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
-    // A value holding pins is no value: refused, nothing moved.
+    // A value holding pins is no value: refused, nothing moved (the window
+    // is at black and cozy, which the pins would move).
     press(&mut r, "sneak");
     assert_eq!(
         r.modes(),
         [
-            ("dark-style".to_string(), "dim".to_string()),
-            ("density".to_string(), "compact".to_string())
+            ("dark-style".to_string(), "black".to_string()),
+            ("density".to_string(), "cozy".to_string())
         ]
     );
+    press(&mut r, "both");
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#444444"));
     // A literal axis the design lacks is refused whatever the value.
     std::fs::write(&path, "component App\n  state v: string = \"dim\"\n  action go\n    setMode(\"contrast\", v)\n  view\n    button press=go\n      text \"go\"\n").unwrap();
     assert_eq!(contract::compile_path(&path).unwrap_err().id, "tamber-mode");
