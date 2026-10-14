@@ -1,0 +1,172 @@
+[
+  {
+    "label": "paired",
+    "epoch": 22,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": true,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "legacy": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "prIcon": "git-pull-request-arrow",
+      "prState": "open",
+      "prTooltip": "PR #113 - Open: Document the release steps"
+    },
+    "hover": {
+      "sidebarHoverId": "",
+      "outsideDown#1": false,
+      "outsidePresses#1": 4,
+      "sidebarHoverLast#1": "",
+      "sidebarHoverY#1": 0,
+      "sidebarHoverH#1": 0,
+      "sidebarHoverSeq#1": 0,
+      "sidebarHoverHeld#1": ""
+    }
+  },
+  {
+    "label": "legacy-sidebar",
+    "epoch": 30,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": true,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "legacy": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "prIcon": "git-pull-request-arrow",
+      "prState": "open",
+      "prTooltip": "PR #113 - Open: Document the release steps"
+    },
+    "hover": {
+      "sidebarHoverId": "",
+      "outsideDown#1": false,
+      "outsidePresses#1": 5,
+      "sidebarHoverLast#1": "",
+      "sidebarHoverY#1": 0,
+      "sidebarHoverH#1": 0,
+      "sidebarHoverSeq#1": 0,
+      "sidebarHoverHeld#1": ""
+    }
+  },
+  {
+    "label": "default-sidebar",
+    "epoch": 39,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": false,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "hover": {
+      "sidebarHoverId": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active",
+      "outsideDown#1": false,
+      "outsidePresses#1": 10,
+      "sidebarHoverLast#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active",
+      "sidebarHoverY#1": 100,
+      "sidebarHoverH#1": 82,
+      "sidebarHoverSeq#1": 1,
+      "sidebarHoverHeld#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    }
+  },
+  {
+    "label": "control-hover",
+    "epoch": 40,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": false,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "hover": {
+      "sidebarHoverId": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active#settle",
+      "outsideDown#1": false,
+      "outsidePresses#1": 10,
+      "sidebarHoverLast#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active#settle",
+      "sidebarHoverY#1": 100,
+      "sidebarHoverH#1": 0,
+      "sidebarHoverSeq#1": 2,
+      "sidebarHoverHeld#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    }
+  },
+  {
+    "label": "row-hover-restored",
+    "epoch": 41,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": false,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "hover": {
+      "sidebarHoverId": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active",
+      "outsideDown#1": false,
+      "outsidePresses#1": 10,
+      "sidebarHoverLast#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active",
+      "sidebarHoverY#1": 100,
+      "sidebarHoverH#1": 82,
+      "sidebarHoverSeq#1": 3,
+      "sidebarHoverHeld#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    }
+  },
+  {
+    "label": "control-held",
+    "epoch": 43,
+    "connected": true,
+    "error": "",
+    "legacyEnabled": false,
+    "studio": {
+      "id": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b",
+      "title": "Studio branch",
+      "badge": "113",
+      "badgeIcon": "git-pull-request-arrow",
+      "badgeState": "open",
+      "section": "active",
+      "hoverKey": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    },
+    "hover": {
+      "sidebarHoverId": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active#settle",
+      "outsideDown#1": true,
+      "outsidePresses#1": 10,
+      "sidebarHoverLast#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active#settle",
+      "sidebarHoverY#1": -10000,
+      "sidebarHoverH#1": 0,
+      "sidebarHoverSeq#1": 5,
+      "sidebarHoverHeld#1": "ae57ac93-8fc6-4ffc-9c2f-8f48d18d052b~active"
+    }
+  }
+]

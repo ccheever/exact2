@@ -61,33 +61,36 @@ function asPr(value: Obj): BranchPr | null {
 /**
  * Inside each refresh: ask the server (the thread's own environment, through the pull request router) for each live
  * thread's fallback summary that is missing or a minute old, the newest threads first. A failure is remembered as none
- * until it is a minute old; an answer let go mid-read settles nothing.
+ * until it is a minute old; an answer let go mid-read settles nothing. Each read is its own call (`readSummary`): a
+ * closure over a loop's `const` saw another iteration's value in the app's runtime (the live drive's
+ * "Cannot set property 'reading' of undefined").
  */
 export async function syncBranchPullRequests(client: T3Client, native: Native, now: number, source: EnvironmentFleet = fleet): Promise<void> {
   if (!native?.available || client.connection !== 'connected') return;
-  const map = cache(client), asks: Promise<void>[] = [];
+  const map = cache(client), due = new Map<string, { environmentId: string; reference: Obj }>();
   const threads = [...client.shell.threads, ...fleetThreads(source)].filter(thread => !thread.archivedAt)
     .sort((a, b) => str(b.updatedAt).localeCompare(str(a.updatedAt)));
   for (const thread of threads) {
-    if (asks.length >= ASKS_PER_REFRESH) break;
+    if (due.size >= ASKS_PER_REFRESH) break;
     const { environmentId, config } = home(client, thread, source);
     const reference = fallbackReference(thread, config);
     if (!reference) continue;
     const key = keyOf(client, environmentId, reference), cached = map.get(key);
     if (cached && (cached.reading || now - cached.at < STALE_MS)) continue;
-    const entry: Entry = { at: now, pr: cached?.pr ?? null, reading: true };
-    map.set(key, entry);
-    asks.push((async () => {
-      try { entry.pr = asPr(obj(await client.rpc(native, 'pullRequests.summary', { ...(environmentId ? { environmentId } : {}), ...reference }))); }
-      catch (error) {
-        if (letGo(error)) { if (map.get(key) === entry) { if (cached) map.set(key, cached); else map.delete(key); } throw error; }
-        entry.pr = null;
-      }
-      entry.reading = false;
-      if (map.size > 128) map.delete(map.keys().next().value!);
-    })());
+    due.set(key, { environmentId, reference });
   }
-  await Promise.all(asks);
+  await Promise.all([...due].map(([key, { environmentId, reference }]) => readSummary(client, native, map, key, environmentId, reference, now)));
+}
+async function readSummary(client: T3Client, native: Native, map: Map<string, Entry>, key: string, environmentId: string, reference: Obj, now: number): Promise<void> {
+  const cached = map.get(key), entry: Entry = { at: now, pr: cached?.pr ?? null, reading: true };
+  map.set(key, entry);
+  try { entry.pr = asPr(obj(await client.rpc(native, 'pullRequests.summary', { ...(environmentId ? { environmentId } : {}), ...reference }))); }
+  catch (error) {
+    if (letGo(error)) { if (map.get(key) === entry) { if (cached) map.set(key, cached); else map.delete(key); } throw error; }
+    entry.pr = null;
+  }
+  entry.reading = false;
+  if (map.size > 128) map.delete(map.keys().next().value!);
 }
 
 /** sidebarPrBadge's fields for the fallback: the state's glyph and tone, the number. */

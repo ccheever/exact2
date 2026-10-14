@@ -36,7 +36,7 @@ const frames: Record<string, { y: number; height: number }> = {
 };
 async function hoverRig() {
   const tipRow = await contractFn('sidebar.contract', 'sidebarTipRow', ['id'], { indexOf: (text: string, part: string) => text.indexOf(part) });
-  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '' };
+  const win: Env = { sidebarHoverSeq: 0, sidebarHoverLast: '', sidebarHoverY: 0, sidebarHoverH: 0, sidebarHoverHeld: '', outsideDown: false, outsidePresses: 0 };
   const root: Env = { sidebarHoverId: '' };
   const rootScope = { data: { sidebar: { searching: false } } };
   // The host's events, as the window's `hover=hoverCard(key)` and the presses' `sidebarHover("", false)` call them.
@@ -47,6 +47,11 @@ async function hoverRig() {
   }, [id, over]);
   return {
     hover,
+    press: (buttons: number) => windowHalf.call('sidebarPressDown', win, {
+      outsidePressDown: (e: { buttons: number }) => windowHalf.call('outsidePressDown', win, { chipShown: false, detailsOpen: false }, [e]),
+    }, [{ buttons }]),
+    release: () => windowHalf.call('outsidePressUp', win, {}, []),
+    get outsidePresses() { return win.outsidePresses; },
     /** What the overlay draws (sidebar-overlays.contract): the card is the hovered row's at `y`, a tip its control's. */
     get shown() { return { id: root.sidebarHoverId, last: win.sidebarHoverLast, y: win.sidebarHoverY, h: win.sidebarHoverH, held: win.sidebarHoverHeld }; },
   };
@@ -102,7 +107,7 @@ describe('SW-3a: a press on Settle or Snooze closes its tooltip at once', () => 
   test('the press moves the tip and card away; the row stays hovered; leaving the control gives the row back, card still away', async () => {
     const r = await hoverRig();
     r.hover('a~active', true); r.hover('a~active#settle', true);
-    r.hover('', false); // pointerdown=hoverCard("", false)
+    r.press(1);
     // The tip is drawn at hoverY + its top, the card at hoverY: both off the window. The hover id still names the
     // control, so the row keeps its surface and actions (ThreadRow `hovering`) and the press its gesture.
     expect(r.shown).toMatchObject({ id: 'a~active#settle', y: -10000 });
@@ -112,13 +117,24 @@ describe('SW-3a: a press on Settle or Snooze closes its tooltip at once', () => 
     expect(r.shown).toMatchObject({ id: 'b~active', y: 180 });
   });
 
+  test('the control still dismisses a pinned Usage popover when its primary press ends', async () => {
+    const r = await hoverRig();
+    r.press(1);
+    expect(r.outsidePresses).toBe(0);
+    r.release();
+    expect(r.outsidePresses).toBe(1);
+    r.press(2);
+    r.release();
+    expect(r.outsidePresses).toBe(1);
+  });
+
   test('Settle, Snooze, Wake and Un-settle close their tips on pointerdown; the press and the sweep keep their gestures', async () => {
     const text = await source('sidebar-row.contract');
     const controls = [
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("settle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=hoverCard\("", false\) pan=sweep\(t\.id, "settle"\)/,
-      /button cursor="pointer" press=hoverCard\("", false\) key=snoozeKey [^\n]*popovertarget=`snooze-\$\{t\.id\}` pointerdown=hoverCard\("", false\) [^\n]*aria-label="Snooze thread"/,
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsnooze", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=hoverCard\("", false\) pan=sweep\(t\.id, "unsnooze"\)/,
-      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsettle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=hoverCard\("", false\) pan=sweep\(t\.id, "unsettle"\)/,
+      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("settle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "settle"\)/,
+      /button cursor="pointer" press=hoverCard\("", false\) key=snoozeKey [^\n]*popovertarget=`snooze-\$\{t\.id\}` pointerdown=pressDown [^\n]*aria-label="Snooze thread"/,
+      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsnooze", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsnooze"\)/,
+      /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsettle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsettle"\)/,
     ];
     for (const control of controls) expect(text).toMatch(control);
     expect(text.match(/pointerdown=/g)?.length).toBe(4);
@@ -241,6 +257,40 @@ describe('B12-PR-GLYPH: a thread with no pull request link draws its branch\'s',
     expect(asks).toEqual([{ method: 'pullRequests.summary', payload: { projectId: LANE_PROJECT, host: 'github.com', repository: 'daehyeonmun2021/playground', number: 113, fleet: 'gh' } }]);
     expect(defaultRow(client, 'fleet:env-gh:studio')).toMatchObject({ badge: '113', badgeState: 'open' });
     expect(legacyRow(client, 'fleet:env-gh:studio')).toMatchObject({ prTooltip: 'PR #113 - Open: Document the release steps' });
+  });
+
+  test('concurrent summaries stay with their rows and duplicate references share one pending read', async () => {
+    const other = studio({ id: 'other', branchPullRequest: { projectId: LANE_PROJECT, repository: 'daehyeonmun2021/playground', number: 132,
+      url: 'https://github.com/daehyeonmun2021/playground/pull/132' } });
+    const { client, native, asks } = laneRig([studio(), studio({ id: 'duplicate' }), other]);
+    const replies = new Map<number, (value: Obj) => void>();
+    client.request = (_native, method, payload) => {
+      asks.push({ method, payload });
+      return new Promise(resolve => replies.set(Number(payload.number), resolve));
+    };
+    const refresh = syncBranchPullRequests(client, native, NOW);
+    await syncBranchPullRequests(client, native, NOW + 1);
+    expect(asks.map(ask => ask.payload.number)).toEqual([113, 132]);
+    expect(defaultRow(client).badge).toBe('');
+    // Reply in reverse order, so a closure accidentally sharing the loop's entry cannot pass.
+    replies.get(132)!({ ...SUMMARY, number: 132, title: 'Add a changelog', state: 'merged' });
+    replies.get(113)!(SUMMARY);
+    await refresh;
+    expect(defaultRow(client)).toMatchObject({ badge: '113', badgeState: 'open' });
+    expect(defaultRow(client, 'duplicate')).toMatchObject({ badge: '113', badgeState: 'open' });
+    expect(defaultRow(client, 'other')).toMatchObject({ badge: '132', badgeState: 'merged' });
+  });
+
+  test('a superseded refresh keeps the prior summary and can retry immediately', async () => {
+    const { client, native, asks } = laneRig([studio()]);
+    await syncBranchPullRequests(client, native, NOW);
+    client.request = async () => { throw { name: 'FetchError', kind: 'Aborted' }; };
+    await expect(syncBranchPullRequests(client, native, NOW + 61_000)).rejects.toMatchObject({ kind: 'Aborted' });
+    expect(defaultRow(client)).toMatchObject({ badge: '113', badgeState: 'open' });
+    client.request = async (_native, method, payload) => { asks.push({ method, payload }); return { ...SUMMARY, state: 'merged' }; };
+    await syncBranchPullRequests(client, native, NOW + 61_001);
+    expect(asks.length).toBe(2);
+    expect(defaultRow(client)).toMatchObject({ badge: '113', badgeState: 'merged' });
   });
 
   test('a failed read draws nothing, and a thread with a current link asks nothing', async () => {

@@ -1,0 +1,32 @@
+528 |     // request's Code tab, which the Usage page covers, so its popover is never on screen with them either. files-gutter-parity
+529 |     // FG-2: so do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
+530 |     // beside them close from the gutter's own press, FG-4). device-player-compact-and-rail-keys (review round 2): the floating
+531 |     // device hears its press (app-window.contract detailsPlayerPointer closes the thread details popover and a skill chip's
+532 |     // details as it ends); it is in the chat, which the Usage page covers.
+533 |     expect(takers).toEqual([
+                         ^
+error: expect(received).toEqual(expected)
+
+  [
+    "app-window.contract t3-code",
+    "browser-capture.contract browser-mini-player",
+    "diff-rows.contract diff-line-${path}-${side}-${line}",
+    "diff-rows.contract diff-comment-${path}-${side}-${line}",
+    "pages-usage.contract usage-page",
+    "r4-surfaces-files.contract file-line-${line.number}",
+    "r4-surfaces-files.contract file-comment-${line.number}",
+    "r6-device.contract device-mini-player",
++   "sidebar-row.contract wake-${t.id}",
++   "sidebar-row.contract unsettle-${t.id}",
++   "sidebar-row.contract snooze-${t.id}",
++   "sidebar-row.contract settle-${t.id}",
+    "theme-color-picker.contract theme-editor-swatch-${row.id}",
+    "theme-color-picker.contract theme-color-${row.id}-plane",
+    "theme-color-picker.contract theme-color-${row.id}-hue",
+  ]
+
+- Expected  - 0
++ Received  + 4
+
+      at <anonymous> (<checkout>/examples/t3-code/usage-pooled.test.ts:533:20)
+(fail) light dismiss of a pinned segment popover (popover-escape-parity) > a press anywhere else in the window (the sidebar, the theme editor, a toast) closes it too [14.39ms]
