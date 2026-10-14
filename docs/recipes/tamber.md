@@ -34,7 +34,7 @@ component App
           text "Black"
       column background-color="surface.card" padding=12 testId="card"
         text "Follows the window"
-      column -exact-mode="dark-style=black" background-color="surface.card" padding=12 testId="preview"
+      column -exact-mode="dark-style=black" color-scheme="dark" background-color="surface.card" padding=12 testId="preview"
         text "Always Black"
 ```
 
@@ -46,7 +46,9 @@ What to know:
 - **An axis is the app's.** `under scheme=dark` keeps the light side; a `when`
   line gives the mode's value; the first value is the default.
 - **A pin** (`-exact-mode="axis=value"`) holds its subtree in a mode; inherited
-  text inside takes the pin's value. `axis:value` is refused.
+  text inside takes the pin's value. `axis:value` is refused. A pin picks the
+  app's mode, not the scheme: a preview that is always dark says
+  `color-scheme="dark"` too.
 - **Drive it** with `prefer mode dark-style=dim`; `layout <id>` shows the token
   beside each row's value.
 - **One way to write a colour:** a role if the platform has one, a token if it

@@ -889,3 +889,27 @@ fn layout_of_a_node_names_the_token_each_row_read() {
         "{card}"
     );
 }
+
+/// The names `layout` shows are the entries the row's parse read, each by its
+/// token's name: never another whose bit or text it shares, and an override
+/// read by its role's spelling under the name the design gave it.
+#[test]
+fn layout_names_exactly_the_tokens_a_row_read() {
+    let path = app(
+        "layout-names",
+        &[
+            ("app.tamber", "tamber t\n\ntheme\n  brand = #c8102e\n  brand.label = #00aa00\n  secondary-label = light-dark(#111111, #eeeeee)\n"),
+            ("app.contract", "component App\n  view\n    column\n      text \"a\" testId=\"label\" color=\"brand.label\"\n      text \"b\" testId=\"role\" color=\"-exact-secondary-label\"\n"),
+        ],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        exact_runner::agent::handle(&r, &format!("{{\"op\":\"node\",\"id\":{view}}}"))
+    };
+    let label = node("label");
+    assert!(label.contains("\"names\":[\"brand.label\"]"), "{label}");
+    let role = node("role");
+    assert!(role.contains("\"names\":[\"secondary-label\"]"), "{role}");
+}

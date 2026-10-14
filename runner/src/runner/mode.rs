@@ -178,8 +178,8 @@ impl<D: DataSource> Runner<D> {
     /// `view`'s `style` row as D7's index holds it, for `layout <node>`:
     /// the tokens it read (the theme's names its text names), its text, the
     /// tuple it was set in as `axis=value` by commas, and whether a boundary
-    /// set it (an implied row) rather than its author. `None` when it read
-    /// no token.
+    /// set it (an implied row) rather than a binding. `None` when it read no
+    /// token.
     pub fn row_token(
         &self,
         view: exact_kernel::ViewId,
@@ -194,14 +194,23 @@ impl<D: DataSource> Runner<D> {
                 s
             }
         };
+        // The entries a parse of its text reads in its tuple, each by its
+        // token's name (an override read by a role's spelling too).
+        let tuple = crate::bridge::set_tuple(row.tuple);
+        let mut scratch = exact_kernel::StyleProps::default();
+        let (_, read) = exact_kernel::style::theme::recorded(|| {
+            crate::bridge::set_plan_style(&mut scratch, style as u16, &row.text, &self.plan)
+        });
+        crate::bridge::set_tuple(tuple);
         let mut names: Vec<String> = Vec::new();
-        for t in self.plan.theme.iter() {
-            let name = self.plan.str(t.name);
-            if row.tokens & exact_kernel::style::theme::name_bit(name) != 0
-                && text.contains(name)
-                && !names.iter().any(|n| n == name)
-            {
-                names.push(name.to_string());
+        for entry in read {
+            let token = self.plan.theme.iter().find(|t| {
+                *self.plan.str(t.name) == *entry
+                    || self.plan.str(t.role).eq_ignore_ascii_case(&entry)
+            });
+            let name = token.map_or(entry.to_string(), |t| self.plan.str(t.name).to_string());
+            if !names.contains(&name) {
+                names.push(name);
             }
         }
         let modes = self
@@ -210,7 +219,7 @@ impl<D: DataSource> Runner<D> {
             .map(|(a, v)| format!("{a}={v}"))
             .collect::<Vec<_>>()
             .join(",");
-        Some((names, text, modes, !row.written))
+        Some((names, text, modes, row.implied))
     }
 
     /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.

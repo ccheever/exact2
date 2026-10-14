@@ -32,3 +32,20 @@ test("an app's design is read for its token names", async () => {
   for (const name of ['surface.page', 'text.primary', 'accent.soft', 'AccentColor']) assert.ok(names.has(name), name);
   assert.ok(!names.has('dark-style'));
 });
+
+test('a relative colour keeps its channels to be an expression, and roles match without case', () => {
+  const tokens = new Set(['surface.card']);
+  const source = 'component A\n  view\n    text "x" color="oklch(from canvastext l c h / 0.4)" background-color="oklch(from surface.card calc(l * 0.9) c h)" border-color="color(from surface.card srgb r g b / 0.5)"\n    text "y" color="rgb(from surface.card 255 0 0)" background-color="oklch(from CanvasText 0.7 0.2 30)"\n';
+  assert.deepEqual(tellsIn(source, tokens).map(t => [t.line, t.property]), [[4, 'color'], [4, 'background-color']]);
+});
+
+test("a design's entries are read at the block's own indent, with or without a kind", async () => {
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { designTokens } = await import('./no-tells.mjs');
+  const dir = mkdtempSync(join(tmpdir(), 'no-tells-design-'));
+  writeFileSync(join(dir, 'app.json'), '{}');
+  writeFileSync(join(dir, 'app.tamber'), 'tamber t\n\ntheme\n    surface.card: color = #ffffff\n      when x=y: #000000\n    brand = #c8102e\n');
+  assert.deepEqual([...designTokens(join(dir, 'app.contract'))], ['surface.card', 'brand']);
+});

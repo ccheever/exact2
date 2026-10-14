@@ -28,7 +28,7 @@ const USAGE: &str = "usage:
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
   contract vocab [--json] [--all] [<name> …]
-  contract tamber check | eval [--mode <axis>=<value>] | ir [-o <tamber.json>] <app dir | app.contract | file.tamber>";
+  contract tamber check | eval | ir <app dir | app.contract | file.tamber> [--mode <axis>=<value>] [-o <tamber.json>]";
 
 #[cfg(windows)]
 fn main() -> ExitCode {

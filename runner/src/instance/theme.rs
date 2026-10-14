@@ -46,6 +46,8 @@ pub struct ThemedRow {
     pub tuple: u32,
     /// Its author wrote it (LLP 1115.000 D2); a boundary's implied row not.
     pub written: bool,
+    /// A boundary set it (D7's implied row), not a binding.
+    pub implied: bool,
     /// The tokens it read, as `theme::name_bit`s.
     pub tokens: u64,
 }
@@ -249,6 +251,7 @@ impl super::NodeInst {
                     text: text.clone(),
                     tuple: self.tuple,
                     written: binding.written,
+                    implied: false,
                     tokens,
                 },
             ),
@@ -301,6 +304,7 @@ impl super::NodeInst {
                                 text: text.clone(),
                                 tuple: self.tuple,
                                 written: false,
+                                implied: true,
                                 tokens,
                             },
                         );

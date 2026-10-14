@@ -884,7 +884,7 @@ function main(argv) {
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
   // An app's design on its own (LLP 1121 D2): the compiler's `tamber` verbs.
-  if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
+  if (verb === 'tamber') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('tamber')), 0) : contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {

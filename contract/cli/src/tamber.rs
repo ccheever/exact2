@@ -10,7 +10,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   contract tamber check <app dir | app.contract | file.tamber>
   contract tamber eval <app dir | app.contract | file.tamber> [--mode <axis>=<value>[,…]]
-  contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]";
+  contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
+  (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
     if matches!(args, [] | [_]) || args.iter().any(|a| a == "--help" || a == "-h") {
@@ -22,8 +23,33 @@ pub fn run(args: &[String]) -> ExitCode {
             ExitCode::from(2)
         };
     }
-    let (verb, input, rest) = (args[0].as_str(), &args[1], &args[2..]);
-    let Some(path) = design(Path::new(input)) else {
+    // The one path, and a flag with its value before or after it.
+    let verb = args[0].as_str();
+    let (mut input, mut rest) = (None, Vec::new());
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            flag @ ("--mode" | "-o") if i + 1 < args.len() => {
+                rest.push(flag.to_string());
+                rest.push(args[i + 1].clone());
+                i += 2;
+            }
+            path if input.is_none() && !path.starts_with('-') => {
+                input = Some(path.to_string());
+                i += 1;
+            }
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(input) = input else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    let rest = rest.as_slice();
+    let Some(path) = design(Path::new(&input)) else {
         eprintln!("contract tamber: {input} has no design (an app.tamber, or the file app.json's \"tamber\" names)");
         return ExitCode::from(2);
     };

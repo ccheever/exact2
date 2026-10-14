@@ -46,11 +46,17 @@ fn check_eval_and_ir_read_the_apps_design() {
         out,
         "surface.card = light-dark(#ffffffff, #000000ff)\nbrand = #c8102eff\n"
     );
-    let (ok, out, _) = contract(&["tamber", "eval", at, "--mode", "dark-style=dim"]);
-    assert!(
-        ok && out.starts_with("surface.card = light-dark(#ffffffff, #15202bff)\n"),
-        "{out}"
-    );
+    // The flag after the path or before it.
+    for args in [
+        ["tamber", "eval", at, "--mode", "dark-style=dim"],
+        ["tamber", "eval", "--mode", "dark-style=dim", at],
+    ] {
+        let (ok, out, _) = contract(&args);
+        assert!(
+            ok && out.starts_with("surface.card = light-dark(#ffffffff, #15202bff)\n"),
+            "{out}"
+        );
+    }
     let (ok, out, _) = contract(&["tamber", "ir", &format!("{at}/app.tamber")]);
     assert!(
         ok && out.contains("\"format\": 1") && out.contains("\"tuples\": 2"),

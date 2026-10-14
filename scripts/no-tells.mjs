@@ -154,14 +154,41 @@ function withoutPairs(literal) {
   return out;
 }
 
-// A role, which a relative colour may take its colour from (`from CanvasText`).
-const ROLE = /^(-exact-[a-z0-9-]+|-apple-system-[a-z0-9-]+|[A-Z][A-Za-z]+)$/;
+// A role, which a relative colour may take its colour from (`from CanvasText`):
+// Exact's, or a CSS system colour, as roles match, without case.
+const SYSTEM = new Set('canvas canvastext linktext visitedtext activetext buttonface buttontext buttonborder field fieldtext highlight highlighttext selecteditem selecteditemtext mark marktext graytext accentcolor accentcolortext'.split(' '));
+const isRole = word => /^(-exact-|-apple-system-)[a-z0-9-]+$/i.test(word) || SYSTEM.has(word.toLowerCase());
+// Each relative colour function's channel keywords (CSS Color 5 §4).
+const KEYWORDS = { rgb: 'r g b', rgba: 'r g b', hsl: 'h s l', hsla: 'h s l', hwb: 'h w b', lab: 'l a b', lch: 'l c h', oklab: 'l a b', oklch: 'l c h', color: 'r g b x y z' };
+
+/** Whether the colour function whose `(` ends at `at` in `text` is relative to a
+ * token or a role and keeps its channels (a keyword, or an expression over
+ * one: `calc(l * 0.9)`): then the build folds it from the name. A literal
+ * channel (`rgb(from brand 255 0 0)`) is a colour of its own. */
+function relativeTo(text, fn, at, tokens) {
+  const from = /^\s*from\s+([^\s,()]+)\s*/i.exec(text.slice(at));
+  if (!from || !(tokens.has(from[1]) || isRole(from[1]))) return false;
+  const keys = new Set(KEYWORDS[fn.toLowerCase()].split(' '));
+  let rest = text.slice(at + from[0].length);
+  if (fn.toLowerCase() === 'color') rest = rest.replace(/^[\w-]+\s*/, '');
+  // The channels, to `/` or the function's `)`, at its own depth.
+  const words = [];
+  let depth = 0, word = '';
+  for (const c of rest) {
+    if (depth === 0 && (c === ')' || c === '/')) break;
+    if (c === '(') depth++;
+    if (c === ')') depth--;
+    if (depth === 0 && /\s/.test(c)) { if (word) words.push(word); word = ''; } else word += c;
+  }
+  if (word) words.push(word);
+  return words.length > 0 && words.every(w => keys.has(w.toLowerCase()) || w.includes('(') && w.split(/[^a-z]+/i).some(k => keys.has(k.toLowerCase())));
+}
 
 function colourIn(literal, tokens = new Set()) {
   if (HEX.test(literal)) return '#' + literal.match(HEX)[2];
   // A colour function relative to a token or a role is an expression over it.
   const relative = [...literal.matchAll(new RegExp(COLOUR_FUNCTION.source, 'gi'))]
-    .every(m => { const from = /^\s*from\s+([^\s,()]+)/i.exec(literal.slice(m.index + m[0].length)); return from && (tokens.has(from[1]) || ROLE.test(from[1])); });
+    .every(m => relativeTo(literal, m[1], m.index + m[0].length, tokens));
   if (COLOUR_FUNCTION.test(literal) && !relative) return literal.match(COLOUR_FUNCTION)[0] + '…)';
   const named = literal.split(/[\s,()]+/).find(word => NAMED.has(word.toLowerCase()));
   return named ?? null;
@@ -245,19 +272,22 @@ function contractBlocks(text) {
 /** The token names of the design beside `file`'s app (LLP 1121 D2): the
  * `"tamber"` file `app.json` names, else `app.tamber`, in the nearest
  * directory up that has either. Its `theme` block's entries, each `name = …`
- * one indent in. */
+ * at the block's own indent, with or without a kind (`name: color = …`). */
 export function designTokens(file) {
   for (let dir = resolve(file, '..'); ; dir = resolve(dir, '..')) {
     let named = null;
     try { named = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).tamber ?? null; } catch {}
     const path = named ? join(dir, named) : join(dir, 'app.tamber');
     if (existsSync(path)) {
+      // The block's entries share one indent, its first's; a `when` line is deeper.
       const names = new Set();
-      let inTheme = false;
+      let inTheme = false, indent = null;
       for (const line of uncomment(readFileSync(path, 'utf8')).split('\n')) {
-        if (/^\S/.test(line)) inTheme = /^theme\s*$/.test(line);
-        const entry = inTheme && /^ {2}([^\s=]+)\s*=/.exec(line);
-        if (entry) names.add(entry[1]);
+        if (/^\S/.test(line)) { inTheme = /^theme\s*$/.test(line); indent = null; continue; }
+        const entry = inTheme && /^(\s+)([^\s=:]+)\s*(?::\s*[\w-]+\s*)?=/.exec(line);
+        if (!entry) continue;
+        indent ??= entry[1];
+        if (entry[1] === indent) names.add(entry[2]);
       }
       return names;
     }
