@@ -83,7 +83,7 @@ final class TableListMacTests: XCTestCase {
         for name in ["bound-display", "bound-direction"] {
             let node = try list(name)
             XCTAssertNotEqual(node.props["listRows"], "true", "Contract does not mark a list whose layout is bound")
-            XCTAssertNil(tables.feeds[node.id], "AppKit follows Contract's mark even when the bound value currently lays rows out vertically")
+            XCTAssertNil(tables.feeds[node.id], "\(name): AppKit follows Contract's mark even when the bound value currently lays rows out vertically")
         }
         XCTAssertNil(tables.feeds[try list("inner-0").id], "a list in another list's row keeps its painted rows")
         // The driver's own chrome paints every list's rows, and gives them back.
@@ -94,6 +94,9 @@ final class TableListMacTests: XCTestCase {
         f.settle()
         XCTAssertNotNil(tables.feeds[try list("rows").id])
         XCTAssertNotNil(tables.feeds[try list("windowed").id])
+        for name in ["bound-display", "bound-direction"] {
+            XCTAssertNil(tables.feeds[try list(name).id], "\(name): changing chrome keeps the same admission rule")
+        }
     }
 
     /// A list the runner does not window: a heading that presses nothing,
