@@ -256,3 +256,48 @@ fn each_varying_token_has_its_own_property() {
         "{rule}"
     );
 }
+
+#[test]
+fn a_literal_clear_sets_no_row() {
+    let out = emitted(
+        "clear",
+        DESIGN,
+        "component App\n  view\n    column color=\"text.primary\"\n      column -exact-mode=\"dark-style=dim\" color=\"unset\" testId=\"pin\"\n        text \"a\"\n",
+    );
+    assert!(
+        out.js
+            .contains("\"data-x-b\":\"0\",\"data-x-pin\":\"dark-style=dim\""),
+        "{}",
+        out.js
+    );
+    assert_eq!(out.css.matches("--xi0:").count(), 1, "{}", out.css);
+}
+
+#[test]
+fn a_pinned_accent_naming_its_token_declares_the_accent_where_the_token_is_a_colour() {
+    let design = "tamber t\n\naxes\n  ink = tint | plain\n\ntheme\n  accent.mix = AccentColor\n    when ink=plain: #000000\n";
+    let out = emitted(
+        "accent-rule",
+        design,
+        "component App\n  view\n    column accent-color=\"accent.mix\" -exact-mode=\"ink=plain\" testId=\"pinned\"\n      text \"b\"\n",
+    );
+    assert!(
+        out.js.contains("\"data-x-accent\":\"--x-accent-mix\""),
+        "{}",
+        out.js
+    );
+    assert!(
+        out.css.contains(
+            "[data-x-modes=\"ink=plain\"][data-x-accent=\"--x-accent-mix\"]{--exact-accent:#000000ff}"
+        ),
+        "{}",
+        out.css
+    );
+    assert!(
+        !out.css
+            .contains("[data-x-modes=\"ink=tint\"][data-x-accent"),
+        "{}",
+        out.css
+    );
+    assert!(out.js.contains(",[\"--x-accent-mix\"]);"), "{}", out.js);
+}

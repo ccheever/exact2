@@ -3,8 +3,10 @@
 // box's text its own tuple's; a Light card on the page, with `color-scheme`,
 // keeps light text; a text under a box with its own `accent-color` reads a
 // token that names the accent in that accent, and a box whose accent is that
-// token keeps it, on a Light card too; a pin's own bound colour, cleared, is
-// the page's text in the pin's tuple. `setMode` and a bound pin move them.
+// token keeps it, on a Light card too, and under a pin where that token is a
+// colour of its own the accent is that colour; a pin's own bound colour,
+// cleared, is the page's text in the pin's tuple. `setMode` and a bound pin
+// move them.
 component App
   state pin: string = "dark-style=black"
   state own: bool = true
@@ -45,3 +47,5 @@ component App
             text "The token's accent" color="accent.text" testId="accent-token"
           column accent-color="accent.text" color-scheme="light" background-color="surface.card" testId="token-accent-light"
             text "The token's accent, Light" color="accent.text" testId="accent-token-light"
+          column accent-color="accent.text" -exact-mode="ink=plain" testId="token-accent-pinned"
+            text "The accent under a plain pin" color="AccentColor" testId="accent-role-pinned"

@@ -110,7 +110,7 @@ impl Modes {
             accent: Vec::new(),
             texts: Vec::new(),
         };
-        modes.accent = modes.rule(plan).1;
+        modes.accent = rules(plan, &properties(plan)).1;
         Some(modes)
     }
 
@@ -187,7 +187,15 @@ impl Modes {
         let mut own = 0u32;
         let mut channels = String::new();
         for (j, (id, prop)) in CHANNELS.iter().enumerate() {
-            let Some(value) = declaration(&p.css, prop).map(str::to_string) else {
+            // A clear sets no row: the one around reaches through it.
+            let Some(value) = declaration(&p.css, prop)
+                .filter(|v| {
+                    !(v.eq_ignore_ascii_case("unset")
+                        || v.eq_ignore_ascii_case("inherit")
+                        || *id == StyleId::TextColor && v.eq_ignore_ascii_case("currentcolor"))
+                })
+                .map(str::to_string)
+            else {
                 continue;
             };
             own |= 1 << j;
@@ -213,12 +221,18 @@ impl Modes {
         // declares the token itself, `--exact-accent` would name itself (as
         // css.rs leaves `var(--exact-accent, AccentColor)` out), so the one
         // around stands; elsewhere it reads the token from above.
-        let names_accent = declaration(&p.css, "accent-color")
-            .is_some_and(|v| self.accent.iter().any(|a| v.contains(&format!("var({a})"))));
-        if names_accent && boundary {
+        let named = declaration(&p.css, "accent-color").and_then(|v| {
+            self.accent
+                .iter()
+                .find(|a| v.contains(&format!("var({a})")))
+                .cloned()
+        });
+        let names_accent = named.is_some();
+        if let Some(prop) = named.filter(|_| boundary) {
             if let Some(v) = declaration(&p.css, "--exact-accent").map(str::to_string) {
                 p.css = p.css.replace(&format!("--exact-accent:{v};"), "");
             }
+            p.props.insert("data-x-accent".into(), prop);
         }
         let accent =
             !self.accent.is_empty() && has(StyleId::AccentColor).is_some() && !names_accent;
@@ -248,62 +262,15 @@ impl Modes {
         }
     }
 
-    /// The page's tuple rules, and the properties of the tokens that name
-    /// the accent.
-    fn rule(&self, plan: &Plan) -> (String, Vec<String>) {
-        let axes: Vec<(&str, Vec<&str>)> = plan
-            .axes
-            .iter()
-            .map(|a| (plan.str(a.name), plan.str(a.values).split('|').collect()))
-            .collect();
-        let _profiles = exact_kernel::style::profiled::declarations(
-            plan.profiles
-                .iter()
-                .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
-        );
-        let (mut css, mut accent) = (String::new(), Vec::new());
-        if axes.is_empty() {
-            return (css, accent);
-        }
-        for tuple in 0..bridge::tuples(plan) {
-            let table = bridge::theme_table_at(plan, tuple);
-            let selector = format!("[data-x-modes=\"{}\"]", key(&axes, tuple));
-            css.push_str(&if tuple == 0 {
-                format!(":root,{selector}{{")
-            } else {
-                format!("{selector}{{")
-            });
-            for (name, prop, _) in &self.tokens {
-                let Some((_, value, _)) = table.iter().find(|(n, _, role)| **n == **name && !role)
-                else {
-                    continue;
-                };
-                let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
-                    exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
-                });
-                let mut text = String::new();
-                match colour {
-                    Some(c) => exact_kernel::gradient::color_css(&mut text, c),
-                    None => text.push_str("transparent"),
-                }
-                if text.contains("--exact-accent") && !accent.contains(prop) {
-                    accent.push(prop.clone());
-                }
-                let _ = write!(css, "{prop}:{text};");
-            }
-            css.push('}');
-        }
-        (css, accent)
-    }
-
     /// The page's CSS for its modes.
     pub fn css(&self, plan: &Plan) -> String {
-        self.rule(plan).0
+        rules(plan, &properties(plan)).0
     }
 
     /// The module's call that installs the runtime (`modes.js`), each class
     /// named by `classes` index plus one (`c<n>`): the axes, each class's
-    /// channels, the texts, and each class's properties that name a token.
+    /// channels, the texts, each class's properties that name a token, and
+    /// the properties of the tokens that name the accent.
     pub fn js(&self, plan: &Plan, classes: &[String]) -> String {
         let axes: Vec<String> = plan
             .axes
@@ -349,13 +316,79 @@ impl Modes {
             }
         }
         format!(
-            "$modes([{}],{{{}}},{},{{{}}});",
+            "$modes([{}],{{{}}},{},{{{}}},{});",
             axes.join(","),
             channels.join(","),
             serde_json::to_string(&self.texts).unwrap(),
-            vars.join(",")
+            vars.join(","),
+            serde_json::to_string(&self.accent).unwrap()
         )
     }
+}
+
+/// The page's tuple rules for the varying tokens `props` (name, property),
+/// and the properties of those whose value names the accent in some tuple.
+/// A boundary whose own accent is one (`data-x-accent`) declares
+/// `--exact-accent` in each tuple where that token is a colour of its own.
+fn rules(plan: &Plan, props: &[(String, String)]) -> (String, Vec<String>) {
+    let axes: Vec<(&str, Vec<&str>)> = plan
+        .axes
+        .iter()
+        .map(|a| (plan.str(a.name), plan.str(a.values).split('|').collect()))
+        .collect();
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
+    let (mut css, mut accent) = (String::new(), Vec::new());
+    if axes.is_empty() {
+        return (css, accent);
+    }
+    let mut texts = Vec::new();
+    for tuple in 0..bridge::tuples(plan) {
+        let table = bridge::theme_table_at(plan, tuple);
+        let selector = format!("[data-x-modes=\"{}\"]", key(&axes, tuple));
+        css.push_str(&if tuple == 0 {
+            format!(":root,{selector}{{")
+        } else {
+            format!("{selector}{{")
+        });
+        for (name, prop) in props {
+            let Some((_, value, _)) = table.iter().find(|(n, _, role)| **n == **name && !role)
+            else {
+                continue;
+            };
+            let colour = exact_kernel::ColorValue::parse_light_dark(value)
+                .or_else(|| exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed));
+            let mut text = String::new();
+            match colour {
+                Some(c) => exact_kernel::gradient::color_css(&mut text, c),
+                None => text.push_str("transparent"),
+            }
+            if text.contains("--exact-accent") && !accent.contains(prop) {
+                accent.push(prop.clone());
+            }
+            let _ = write!(css, "{prop}:{text};");
+            texts.push((selector.clone(), prop.clone(), text));
+        }
+        css.push('}');
+    }
+    for (selector, prop, text) in texts {
+        if accent.contains(&prop) && !text.contains("--exact-accent") {
+            let _ = write!(
+                css,
+                "{selector}[data-x-accent=\"{prop}\"]{{--exact-accent:{text}}}"
+            );
+        }
+    }
+    (css, accent)
+}
+
+/// The varying tokens whose value names the accent in some tuple, by
+/// property (rows.rs: a boundary's bound accent naming one).
+pub fn accent_properties(plan: &Plan) -> Vec<String> {
+    rules(plan, &properties(plan)).1
 }
 
 /// A full tuple's key: every axis as `axis=value`, as declared, by commas.

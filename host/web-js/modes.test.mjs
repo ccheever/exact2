@@ -20,7 +20,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   const own = el(page, 'c3', { 'data-x-b': '1', 'data-x-pin': 'ink=plain' });
   const bad = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'dark-style:dim' });
   const bound = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'unset' });
-  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {});
+  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, []);
   for (const f of After) f();
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=black,ink=tint');
   expect(dim.getAttribute('data-x-modes')).toBe('dark-style=dim,ink=tint');
@@ -34,12 +34,31 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(bound.getAttribute('data-x-modes')).toBe('dark-style=black,ink=tint');
   expect(journal).toEqual(['invalid -exact-mode value "dark-style:dim": an axis of the app\'s design and one of its values, each axis once; unset']);
   // A bound colour on the page that reads no token: nothing below is written again.
-  const S = (e, prop, unit, f) => { const v = f(); if (v == null) e.style.removeProperty(prop); else e.style.setProperty(prop, v); };
+  // rt.js `S`: the same value again writes nothing.
+  const S = (e, prop, unit, f) => { const v = f(), last = e.$css ??= {}; if (last[prop] === v) return; last[prop] = v; if (v == null) e.style.removeProperty(prop); else e.style.setProperty(prop, v); };
+  const flush = () => { for (const f of After) f(); };
   Sx(S, page, 'color', '', () => '#123456', 0);
+  flush();
   expect(dim.style.map.get('color')).toBeUndefined();
   // One that reads a token (the theme map says so), its text written again.
   Sx(S, page, 'color', '', () => ((globalThis.exact.$th = 1), 'var(--x-text-secondary)'), 0);
+  flush();
   expect(dim.style.map.get('color')).toBe('var(--x-text-secondary)');
+  // A pin's own bound colour, then cleared: the row written again after the
+  // binding's write, and kept through another clear.
+  let mine = '#b00020';
+  const pinned = el(page, '', { 'data-x-b': '0', 'data-x-pin': 'dark-style=dim' }), write = () => Sx(S, pinned, 'color', '', () => mine, 0);
+  write(); flush();
+  expect(pinned.style.map.get('color')).toBe('#b00020');
+  mine = 'unset'; write(); flush();
+  expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
+  mine = 'inherit'; write(); flush();
+  expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
+  // A stroke's shorthand is written again by its colour alone.
+  Sx(S, page, '-webkit-text-stroke', '', () => ((globalThis.exact.$th = 1), '2px var(--x-ink)'), 6);
+  flush();
+  expect(pinned.style.map.get('-webkit-text-stroke-color')).toBe('var(--x-ink)');
+  expect(pinned.style.map.get('-webkit-text-stroke')).toBeUndefined();
   // The window's modes, set by `setMode`, and a refusal that changes nothing.
   globalThis.exact.modes.command(['dark-style', 'dim']);
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=dim,ink=tint');

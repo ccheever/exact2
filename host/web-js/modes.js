@@ -14,7 +14,7 @@ import { After, PropHooks, inflight, say } from "./rt.js";
 const CH = ["color", "caret-color", "fill", "stroke", "accent-color", "text-shadow", "-webkit-text-stroke-color"];
 // A value that sets no row: the row is the one around (`StyleValue::text_unsets`).
 const UNSETS = /^\s*(unset|inherit)\s*$/i;
-let Axes = [], Classes = {}, Texts = [], Vars = {}, Win = [], Pending = false;
+let Axes = [], Classes = {}, Texts = [], Vars = {}, Accent = [], Win = [], Pending = false;
 const key = d => Axes.map(([a, values], i) => `${a}=${values[d[i]]}`).join(",");
 const rendering = () => typeof document === "undefined" || !!globalThis.__exactRender;
 
@@ -30,15 +30,16 @@ function pinned(text, base) {
   return pins.length ? d : null;
 }
 
-/** Row `j` at `e`, as the nearest element that sets it wrote it: the text's
- * index when it read a token, -1 when it read none or none sets it. */
+/** Row `j` at `e`, as the nearest element that sets it wrote it: its text
+ * (`property:value`) when it read a token, null when it read none or none
+ * sets it. A binding's is on its element (`Sx`), a class's in `Texts`. */
 function channel(e, j) {
   for (; e?.nodeType === 1; e = e.parentElement) {
     const own = e.$xi?.[j];
     if (own !== undefined) return own;
-    for (const c of e.classList) { const at = Classes[c]?.[j]; if (at !== undefined) return at; }
+    for (const c of e.classList) { const at = Classes[c]?.[j]; if (at !== undefined) return at >= 0 ? Texts[at] : null; }
   }
-  return -1;
+  return null;
 }
 
 /** The boundaries under `root`, in document order (the render DOM has no
@@ -75,7 +76,7 @@ function apply() {
     for (let j = 0; j < CH.length; j++) {
       // Its own row stands, from its CSS or a binding that sets it now.
       if (own & 1 << j || b.$xi?.[j] !== undefined) { was[j] = undefined; continue; }
-      const at = channel(b.parentElement, j), text = at >= 0 ? Texts[at] : null;
+      const text = channel(b.parentElement, j);
       if (was[j] === text) continue;
       write(b, j, was[j], text);
       was[j] = text;
@@ -85,7 +86,7 @@ function apply() {
 const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute("data-x-modes", k); };
 
 /** Row `j` written again on `b` as `text` (`property:value`), over `was`. An
- * accent names the property buttons read too unless it names a property
+ * accent names the property buttons read too, unless it names the accent
  * (it would name itself here, as css.rs leaves it out). */
 function write(b, j, was, text) {
   const decl = t => { const at = t.indexOf(":"); return [t.slice(0, at), t.slice(at + 1)]; };
@@ -93,34 +94,44 @@ function write(b, j, was, text) {
   if (text == null) return;
   const [p, v] = decl(text);
   b.style.setProperty(p, v);
-  if (j === 4 && !v.includes("var(")) b.style.setProperty("--exact-accent", v);
+  if (j === 4 && !v.includes("--exact-accent") && !Accent.some(a => v.includes(`var(${a})`))) b.style.setProperty("--exact-accent", v);
 }
 
+// A page rendered ahead resolves its boundaries after each commit's writes
+// (`After`), as it is built.
 function schedule() {
-  if (Pending) return;
-  // A page rendered ahead resolves its boundaries as it is built.
-  if (rendering()) return typeof document === "undefined" ? undefined : apply();
+  if (Pending || rendering()) return;
   Pending = true; inflight.n++;
   queueMicrotask(() => { try { apply(); } finally { inflight.n--; } });
 }
 
 /** A bound inherited colour row (`S`, `Sm` or `Sr` as `s`): its value as
- * the binding writes it, and whether it set the row and read a token (the
- * theme map says, style.rs `theme_map`), which the boundaries below read.
- * A reference (`url(#…)`) is resolved per instance (`Sr`): no boundary
- * writes it again. */
+ * the binding writes it, and on the element what it says of the row, which
+ * the boundaries below read: unset (a clear, or a value the property does
+ * not take, which the runner refuses), its text when it read a token (the
+ * theme map says, style.rs `theme_map`), else null. A clear writes nothing,
+ * so on a boundary the row written again stands. A reference (`url(#…)`) is
+ * resolved per instance (`Sr`): no boundary writes it again; a stroke's
+ * shorthand is written again by its colour alone. */
 export function Sx(s, e, prop, unit, f, j) {
+  const after = { "-webkit-text-stroke": "-webkit-text-stroke-color" }[prop] ?? prop;
   s(e, prop, unit, () => {
     const x = globalThis.exact ??= {};
     x.$th = 0;
     const v = f(), text = v == null ? null : typeof v === "number" ? v + unit : String(v);
-    let at = text == null || UNSETS.test(text) || j === 0 && /^\s*currentcolor\s*$/i.test(text) ? undefined : -1;
-    if (at === -1 && x.$th && !text.includes("url(")) { const t = `${prop}:${text}`; at = Texts.indexOf(t); if (at < 0) at = Texts.push(t) - 1; }
+    const clear = text == null || UNSETS.test(text) || j === 0 && /^\s*currentcolor\s*$/i.test(text);
+    const refused = !clear && typeof CSS !== "undefined" && CSS.supports && !CSS.supports(prop, text);
+    let said = clear || refused ? undefined : null;
+    if (said === null && x.$th && !text.includes("url(")) said = `${after}:${after === prop ? text : colourOf(text)}`;
     const xi = e.$xi ??= {};
-    if (xi[j] !== at) { xi[j] = at; schedule(); }
-    return v;
+    // A refused value is written (and journaled, rt.js `css`) as `unset`,
+    // over a row written again: it is written again after.
+    if (xi[j] !== said || refused) { xi[j] = said; if (refused && e.$xs) e.$xs[j] = undefined; schedule(); }
+    return clear ? null : v;
   });
 }
+/** A stroke shorthand's colour: what is not its width. */
+const colourOf = t => (t.match(/(?:[^\s(]+|\((?:[^()]|\([^()]*\))*\))+/g) ?? []).filter(w => !/^([+-]?[\d.]+[a-z%]*|thin|medium|thick)$/i.test(w)).join(" ") || "currentcolor";
 
 /** Each pin `[axis, value]` checked: an error naming them, or null. */
 const refused = pins => {
@@ -136,10 +147,10 @@ const refused = pins => {
 /** `axes`: [name, values] as declared, the first value the default;
  * `classes`: each class's rows by bit, the text's index or -1; `texts`,
  * each `property:value`; `vars`: each class's properties that name a
- * varying token. */
-export function modes(axes, classes, texts, vars) {
-  Axes = axes; Classes = classes; Texts = texts; Vars = vars; Win = axes.map(() => 0);
-  After.push(schedule);
+ * varying token; `accent`: the properties of those that name the accent. */
+export function modes(axes, classes, texts, vars, accent) {
+  Axes = axes; Classes = classes; Texts = texts; Vars = vars; Accent = accent; Win = axes.map(() => 0);
+  After.push(() => rendering() ? typeof document !== "undefined" && apply() : schedule());
   PropHooks["data-x-pin"] = (e, v) => { if (v == null) e.removeAttribute("data-x-pin"); else e.setAttribute("data-x-pin", v); schedule(); return true; };
   (globalThis.exact ??= {}).modes = {
     // The window's modes, `{axis: value}`.
