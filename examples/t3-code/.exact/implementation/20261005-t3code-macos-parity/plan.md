@@ -327,6 +327,8 @@ local, as the user chose for X69). User decisions of 2026-10-10: #99's clean del
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with
 real lane accounts; #227/#228 stay with the user.
 
+Continuation on 2026-10-14: the [first-wave report](reviews/20261014-first-wave-resume.md) records eleven published repair PRs and their source reviews. [Round 14](tasks/20261014-adopt-main-fixes-r14.md) locally adopts main `178ae7237`, migrates the application to the new Contract syntax, and passes the repository gates and application suites. Native integration and remote merges remain pending. The eight dependent follow-up tasks start only after those merges; attended real-input rows remain unverified while the desktop is locked.
+
 Coordinator additions:
 - [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
   (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.
