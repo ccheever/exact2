@@ -63,10 +63,12 @@ package final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
-    /// Open top-layer views in viewport points; a native confirmation has no frame of its own.
-    package var openTopLayerFrames: [(UInt32, CGRect)] {
-        menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) } + (menus.nativeConfirmation.map { [($0.id, CGRect.zero)] } ?? [])
+    /// Open top-layer views in viewport points; a native confirmation has no
+    /// frame of its own. None is a presentation's.
+    package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
+        (menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) } + (menus.nativeConfirmation.map { [($0.id, CGRect.zero)] } ?? []), nil)
     }
+    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []

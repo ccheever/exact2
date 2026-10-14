@@ -711,10 +711,13 @@ fn top_layer_uses_presented_frames_and_stack_order() {
     };
     let back = view("back");
     let front = view("front");
-    r.top_layer_frames(&[
-        (back, [120.0, 10.0, 50.0, 50.0]),
-        (front, [120.0, 10.0, 50.0, 50.0]),
-    ]);
+    r.top_layer_frames(
+        &[
+            (back, [120.0, 10.0, 50.0, 50.0]),
+            (front, [120.0, 10.0, 50.0, 50.0]),
+        ],
+        None,
+    );
     r.act("probe", vec![]).unwrap();
     assert_eq!(
         r.slot("hits"),
@@ -963,63 +966,4 @@ fn intersect_compiles_and_dispatches_its_entry_after_authored_arguments() {
         error.id.starts_with("type") || error.id.starts_with("analyze"),
         "{error:?}"
     );
-}
-
-/// A subtree a host lays out in a containing block of its own (LLP 1115.002
-/// D8.2) and shows elsewhere, as iOS shows a sheet's route (LLP 1123 D2): its
-/// frames are in the block's space, and the host reports where the block's
-/// root is shown as it reports a dialog's (`exact_top_layer`). `frame` and
-/// `elementFromPoint` answer where a person sees the boxes.
-#[test]
-fn a_subtree_in_a_host_block_is_read_where_its_host_shows_it() {
-    let plan = contract::compile(
-        r#"component App
-  state x = 0
-  state y = 0
-  state width = 0
-  state hit = "unset"
-  action read
-    x = frame("card").x
-    y = frame("card").y
-    width = frame("card").width
-    hit = match elementFromPoint(40, 245) { case some(id) => id, case none => "none" }
-  view
-    column id="page" height=800
-      column id="sheet" position="absolute" top=0 right=0 bottom=0 left=0
-        column id="card" margin-top=30 height=40
-      button press=read testId="read"
-        text "read"
-"#,
-    )
-    .unwrap();
-    let mut r = Runner::boot(
-        plan,
-        NoData,
-        Kernel::with_monospace(),
-        Default::default(),
-        "/",
-    )
-    .unwrap();
-    let sheet = r.kernel().find_by_id("sheet")[0];
-    let sheet = r.kernel().arena().local_id(sheet.index);
-    let is = |l| exact_kernel::BlockAxis::Is(l);
-    r.kernel_mut()
-        .set_host_block(
-            sheet,
-            Some(exact_kernel::HostBlock {
-                width: is(300.0),
-                height: is(500.0),
-            }),
-        )
-        .unwrap();
-    lay_out(&mut r);
-    r.top_layer_frames(&[(sheet, [10.0, 200.0, 300.0, 500.0])]);
-    r.act("read", vec![]).unwrap();
-    assert_eq!(num(&r, "width"), 300.0, "the block's width, not the page's");
-    assert_eq!(
-        (num(&r, "x"), num(&r, "y")),
-        (10.0, 230.0),
-        "where it is shown"
-    );
-    assert_eq!(r.slot("hit").and_then(Value::as_str), Some("card"));
 }

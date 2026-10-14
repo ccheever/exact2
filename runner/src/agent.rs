@@ -453,7 +453,8 @@ fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut 
 /// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), or
 /// `initial` — its props, the plan site it was instantiated from with the
 /// instance path to it (D6), and the kernel's frames: `frame` relative to
-/// the parent, `absolute` in the root's space, `content` when it scrolls.
+/// the parent, `absolute` in the root's space, or in its host block's for a
+/// node inside one (LLP 1115.002 D8.2), `content` when it scrolls.
 /// Observations of the runner's memory, tagged with the epoch and
 /// incarnation; a host adds the spaces and what it mounted. An id that is
 /// not a live node in this incarnation is refused by name.

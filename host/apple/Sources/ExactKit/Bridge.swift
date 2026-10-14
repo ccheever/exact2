@@ -65,7 +65,7 @@ public struct Batch {
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
-    var topLayer: (() -> [(UInt32, CGRect)])?
+    var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
     var inlineFrame: ((UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
@@ -96,13 +96,13 @@ package final class Runtime {
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
-        let open = topLayer?() ?? []
+        let (open, modal) = topLayer?() ?? ([], nil)
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
         return Owner.shared.sync({
             ids.withUnsafeBufferPointer { ids in
                 rects.withUnsafeBufferPointer { rects in
-                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count))
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
                 }
             }
             return body()
