@@ -245,7 +245,8 @@ fn decorated(s: &StyleProps) -> bool {
 }
 
 pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {
-    let s = arena.style(slot);
+    let effective = arena.effective_style(slot);
+    let s = &*effective;
     let sized = |d: Dimension| !matches!(d, Dimension::Auto);
     // A negative calculated minimum lays out as zero.
     let floor = |d: Dimension| {

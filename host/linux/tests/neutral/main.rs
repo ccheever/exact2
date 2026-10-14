@@ -297,6 +297,7 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
     route_headers_keep_the_page_tree_and_take_the_neutral_defaults();
     route_header_classes_restore_defaults();
     route_header_context_changes_invalidate_retained_nodes();
+    route_header_effective_rows_reach_layout_admission_and_motion();
 }
 
 fn route_header_classes_restore_defaults() {
@@ -581,4 +582,180 @@ fn route_header_context_changes_invalidate_retained_nodes() {
         assert!(r.touched.contains(&button));
         assert_eq!(k.node(6).unwrap().source_of(StyleId::TextColor), Some(5));
     }
+}
+
+// These public kernel seams must see the same defaults as Taffy and paint.
+// They share this process's Neutral column; the ordinary kernel suite does not.
+fn route_header_effective_rows_reach_layout_admission_and_motion() {
+    use exact_kernel::{
+        ContentRegion, Kernel, NodeType, Offer, Op, PropId, StyleId, StyleProps, StyleValue,
+    };
+    use exact_motion::{Property, Value};
+    let create = |id| Op::CreateView {
+        id,
+        node_type: NodeType::View,
+    };
+    let prop = |id, prop, value: &str| Op::SetProp {
+        id,
+        prop,
+        value: value.into(),
+    };
+    let children = |id, children: &[u32]| Op::SetChildren {
+        id,
+        children: children.to_vec(),
+    };
+    let style = |id, rows: &[(StyleId, &str)]| {
+        let mut patch = StyleProps::default();
+        for (row, text) in rows {
+            let value = text
+                .parse::<f64>()
+                .map_or_else(|_| StyleValue::Text((*text).into()), StyleValue::Number);
+            patch.set_dynamic(*row, &value).unwrap();
+            patch.written.set(*row);
+        }
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[
+            create(1),
+            create(2),
+            create(3),
+            create(4),
+            create(5),
+            prop(1, PropId::NavigationKey, ""),
+            prop(3, PropId::Id, "photo"),
+            prop(5, PropId::TransformDragFor, "photo"),
+            style(
+                2,
+                &[
+                    (StyleId::Width, "100px"),
+                    (StyleId::Height, "100px"),
+                    (StyleId::PositionType, "relative"),
+                    (StyleId::OverflowX, "hidden"),
+                    (StyleId::OverflowY, "hidden"),
+                    (
+                        StyleId::Transition,
+                        "background-color 1s linear, border-bottom-color 1s linear",
+                    ),
+                ],
+            ),
+            style(
+                3,
+                &[
+                    (StyleId::Width, "100%"),
+                    (StyleId::Height, "100%"),
+                    (StyleId::BoxSizing, "border-box"),
+                ],
+            ),
+            style(4, &[(StyleId::PositionType, "absolute")]),
+            children(1, &[2]),
+            children(2, &[3, 4]),
+            children(3, &[5]),
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    let handle = k.node(5).unwrap().key;
+    let binding = ContentRegion {
+        owner: k.node(2).unwrap().key,
+        content: k.node(3).unwrap().key,
+        pending: k.node(4).unwrap().key,
+    };
+    assert!(k.transform_drag_binding(handle).is_some());
+    k.set_content_region(Some(binding)).unwrap();
+    k.set_content_region(None).unwrap();
+    k.apply(0, 1, &[prop(2, PropId::SemanticTag, "header")])
+        .unwrap();
+    assert!(
+        k.transform_drag_binding(handle).is_none(),
+        "the clip now has a border"
+    );
+    assert!(
+        k.set_content_region(Some(binding)).is_err(),
+        "the owner is no longer unpadded"
+    );
+    let node = k.node(2).unwrap();
+    assert!(!node.style.mask.has(StyleId::BackgroundColor));
+    assert!(!node.style.written.has(StyleId::BorderWidthBottom));
+    for (dark, ground, edge) in [(false, 255, 224), (true, 18, 56)] {
+        let targets = exact_kernel::motion::color_targets(&node, dark);
+        for (property, gray) in [
+            (Property::BackgroundColor, ground),
+            (Property::BorderBottomColor, edge),
+        ] {
+            assert_eq!(
+                targets.iter().find(|(p, _)| *p == property).unwrap().1,
+                Some(Value::rgba8(gray, gray, gray, 255))
+            );
+        }
+    }
+    k.apply(
+        0,
+        1,
+        &[style(2, &[(StyleId::BorderColorBottom, "currentcolor")])],
+    )
+    .unwrap();
+    assert_eq!(
+        k.current_color_sides(binding.owner),
+        [Property::BorderBottomColor]
+    );
+    k.apply(0, 1, &[style(2, &[(StyleId::BorderStyleBottom, "none")])])
+        .unwrap();
+    assert!(
+        k.transform_drag_binding(handle).is_some(),
+        "an authored absent edge restores zero insets"
+    );
+    k.set_content_region(Some(binding)).unwrap();
+    k.set_content_region(None).unwrap();
+    // An auto-height header paints decoration even with no stored paint rows;
+    // the existing multicol refusal must keep that box whole.
+    let mut k = Kernel::with_monospace();
+    k.apply(
+        0,
+        1,
+        &[
+            create(1),
+            create(2),
+            create(3),
+            prop(1, PropId::NavigationKey, ""),
+            prop(2, PropId::SemanticTag, "header"),
+            style(
+                1,
+                &[
+                    (StyleId::Width, "200px"),
+                    (StyleId::Height, "40px"),
+                    (StyleId::ColumnCount, "2"),
+                    (StyleId::ColumnFill, "auto"),
+                ],
+            ),
+            style(3, &[(StyleId::Height, "80px")]),
+            children(1, &[2]),
+            children(2, &[3]),
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
+    let header = k.node(2).unwrap().key;
+    assert_eq!(
+        k.fragment_refusal(header),
+        Some(exact_kernel::fragment::FragmentRefusal::Decoration)
+    );
+    k.apply(
+        0,
+        1,
+        &[Op::ClearProp {
+            id: 2,
+            prop: PropId::SemanticTag,
+        }],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
+    assert_eq!(k.fragment_refusal(header), None);
 }

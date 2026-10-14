@@ -798,7 +798,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     if !attached {
         return Err(bad());
     }
-    let s = arena.style(b.owner.index);
+    let s = arena.effective_style(b.owner.index);
     let sized = |v: Dimension| {
         matches!(v,Dimension::Points(x) if x>=0.) || matches!(v,Dimension::Percent(x) if x>=0.)
     };
