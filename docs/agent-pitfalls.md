@@ -13,6 +13,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 
 ## Layout
 
+- **`link "Title" href="/item"` is refused as zero-sized.** Only a `button`'s
+  positional title becomes a text child; a `link` needs explicit children. Write:
+
+  ```contract
+  link href="/item"
+    text "Title"
+  ```
+
+  (Web split metadata fixtures, `lower-zero-size`, 2026-10-14.)
+
 - **A px `width` beside text in a role does not grow with Dynamic Type.** A `text` whose
   font is a role (`-exact-body`, or a `rem`/`em` size) scales with the person's text size,
   and a box the author sized in px does not, so at accessibility sizes the text runs past
