@@ -6,6 +6,7 @@ import { bridgeReply, type Native } from './shared/protocol';
 import { letGo } from './shared/let-go';
 import { mobileCacheClear, mobileCacheInspect, type MobileCacheSummary, type MobileCacheKind } from './mobile-client-cache';
 import { mobileTheme } from './design';
+import { mobileTextRoles } from './settings-preferences';
 
 export interface MobileStorageEnvironment { environmentId: string; label: string; machine: string }
 export interface MobileInformationCommandOptions {
@@ -168,4 +169,8 @@ export async function mobileInformationCommand(op:string,value:string,native:Nat
   return {revision:++revision,message};
 }
 /** Native view owns the WKWebView/loading UI; routes and close remain root-owned. */
-export function mobileInformationLegalConfiguration(routeKey:string,closeActionID:string,colors:unknown){return JSON.stringify({routeKey,closeActionID,url:MOBILE_LEGAL_URL,allowed:MOBILE_LEGAL_DOCUMENTS,colors});}
+export function mobileInformationLegalConfiguration(routeKey:string,closeActionID:string,colors:unknown,baseFontSize:number){
+  const {headline,footnote,body}=mobileTextRoles(baseFontSize);
+  return JSON.stringify({routeKey,closeActionID,url:MOBILE_LEGAL_URL,allowed:MOBILE_LEGAL_DOCUMENTS,colors,
+    typography:{title:headline,detail:{size:footnote.size,line:footnote.size*1.5},button:body}});
+}

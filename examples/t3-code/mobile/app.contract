@@ -267,7 +267,7 @@ component App
   resource informationRoute = informationRoute(top(nav).name) as shape InformationRoute
   resource informationRead = informationPrepare(top(nav).name, `${top(nav).id}`, data.ready) as shape InformationRead
   resource informationData = informationSnapshot(informationQuery, top(nav).params.entryKey, informationRead, pending(informationChanged), appearance.scheme, appearance.themeId) as shape InformationData
-  resource informationLegal = informationLegal(`${top(nav).id}`, "legal-close", settingsData.root.colors) as shape InformationConfiguration
+  resource informationLegal = informationLegal(`${top(nav).id}`, "legal-close", settingsData.root.colors, appearance.baseFontSize) as shape InformationConfiguration
   mutation informationChanged as shape InformationChange refreshes informationRead, informationData, data then didInformationChange
   action informationCommand(op: string, value: string)
     send informationChanged = informationCommand(op, value, `${top(nav).id}`)

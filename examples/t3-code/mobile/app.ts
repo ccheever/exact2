@@ -340,7 +340,7 @@ const sources: Sources = {
   },
   informationLegal: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationLegal', args, nativeInput);
-    return { configuration: mobileInformationLegalConfiguration(String(args[0]), String(args[1]), args[2]) };
+    return { configuration: mobileInformationLegalConfiguration(String(args[0]), String(args[1]), args[2], Number(args[3])) };
   },
   informationRoute: (args, _store, storage, nativeInput) => {
     const native = sourceNative('informationRoute', args, nativeInput);
