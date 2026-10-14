@@ -7,8 +7,8 @@ delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-chat-markdown-media-and-code'
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/541
+verified_commit: 401edb148
 ---
 
 # Chat Markdown media and code: the image's preview button and tooltip, the media key's target, the copy morph, Shiki's line time limit
@@ -245,7 +245,7 @@ failure, video and file media keeping AppKit's help tag, which only the inline i
 
 ## Delivery
 
-Draft PR into `feat(example)/t3-code`; the coordinator reviews and merges.
+Draft PR [#541](https://github.com/ccheever/exact2/pull/541) into `feat(example)/t3-code`; the coordinator reviews and merges.
 
 ## Next action
 
