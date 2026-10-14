@@ -16,7 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, lstatSync, readFileSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origin.mjs';
-import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
+import { compilerWarnings, INPUT_TREE, OUTPUT, listenOn } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
@@ -253,7 +253,8 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   let resident = null, residentChild = null;
   const residentLoop = () => resident ??= new Promise((ok, fail) => {
     // A named port's next one (an assigned range holds both), else a free one.
-    const probe = createServer().once('error', (e) => { resident = null; fail(new Error(`the resident loop's port ${residentPort}: ${e.code ?? e.message}`)); }).listen(residentPort, '127.0.0.1', () => {
+    const probe = createServer();
+    listenOn(probe, residentPort).then(() => {
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
@@ -266,7 +267,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
         });
         residentChild.on('exit', (code) => { resident = null; residentChild = null; fail(new Error(`the resident loop exited ${code}`)); });
       });
-    });
+    }).catch(error => { resident = null; fail(error); });
   });
   const forward = (req, res) => residentLoop().then((internal) => {
     const out = request({ host: '127.0.0.1', port: internal, method: req.method, path: req.url, headers: req.headers }, (answer) => { res.writeHead(answer.statusCode, answer.headers); answer.pipe(res); });

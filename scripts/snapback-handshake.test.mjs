@@ -5,6 +5,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, existsSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
+import { listenOn } from './agent-launch.mjs';
 const sdk = resolve(import.meta.dirname, '..');
 const binary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
 const packageDir = process.env.SNAPBACK4_PACKAGE ?? resolve(sdk, 'node_modules/snapback4');
@@ -18,14 +19,19 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
     return result.stdout;
   };
   try {
-    const reservation = createServer().listen(0, '127.0.0.1');
-    await new Promise(ok => reservation.once('listening', ok));
+    const reservation = createServer();
+    await listenOn(reservation, 0);
     const port = reservation.address().port; await new Promise(ok => reservation.close(ok));
     // Qualify the shipped npm shape, not a source-directory symlink.
-    const packed = JSON.parse(run('npm', ['pack', packageDir, '--ignore-scripts', '--json', '--pack-destination', project]));
-    const tarball = join(project, packed[0].filename);
-    writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: `file:${tarball}`}}));
-    run('npm', ['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund']);
+    if (process.env.SNAPBACK4_REGISTRY) {
+      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.27'}}));
+      run(process.execPath, ['install', '--registry', process.env.SNAPBACK4_REGISTRY]);
+    } else {
+      const packed = JSON.parse(run('npm', ['pack', packageDir, '--ignore-scripts', '--json', '--pack-destination', project]));
+      const tarball = join(project, packed[0].filename);
+      writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: `file:${tarball}`}}));
+      run('npm', ['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund']);
+    }
     assert.ok(readFileSync(join(project, 'node_modules/snapback4/dist/contract.d.ts')).length);
     if (online) {
       mkdirSync(join(project, 'snapback'), {recursive: true});
@@ -57,6 +63,7 @@ mutation post(body: text 1..200):
       run(process.execPath, ['exact.mjs', 'snapback'], app);
       assert.match(JSON.parse(readFileSync(join(app, 'app.json'), 'utf8')).typescript.sources.snapback4, /snapback4\/online$/);
       assert.equal(existsSync(join(app, 'assets/snapback4.wasm')), false);
+      assert.ok(!readFileSync(join(app, 'app.ts'), 'utf8').includes('sqlite.open'));
       writeFileSync(join(app, 'app.contract'), `shape Choice
   value: enum<"a", "b">
 shape Board
@@ -142,11 +149,13 @@ test "one online write"
       {cwd: project, env, stdio: ['ignore', 'pipe', 'pipe']});
     await new Promise((ok, fail) => {
       let text = ''; const timer = setTimeout(() => fail(new Error(`server readiness timeout: ${text}`)), 30_000);
-      const read = bytes => { text += bytes; if (/SNAPBACK4_READY/.test(text)) {clearTimeout(timer); ok();} };
+      const read = bytes => { text += bytes; if (/SNAPBACK4_READY|^http:\/\/127\.0\.0\.1:\d+\s*$/m.test(text)) {clearTimeout(timer); ok();} };
       server.stderr.on('data', read); server.stdout.on('data', read);
       server.once('error', fail); server.once('exit', code => {clearTimeout(timer); fail(new Error(`server exited ${code}: ${text}`));});
     });
     if (mode === 'serve') {
+      const root = await fetch(`http://127.0.0.1:${port}/`);
+      assert.equal(root.status, 401); assert.equal((await root.json()).denied.code, 'E_AUTH');
       const response = await fetch(`http://127.0.0.1:${port}/auth/guest`, {method: 'POST', headers: {'content-type': 'application/json'}, body: '{}'});
       const signed = await response.json(); assert.equal(response.status, 200); assert.ok(signed.session?.token);
       const source = readFileSync(join(app, 'app.ts'), 'utf8').replace('viewer: `dev:${persona}`, headers: () => ({ \'x-snapback-persona\': persona })',
@@ -159,14 +168,23 @@ test "one online write"
     }
     // Execute the exact recovery command the server's refusal prescribes.
     if (!online) writeFileSync(join(app, 'assets/snapback4.wasm'), Buffer.from([0,97,115,109,1,0,0,0]));
-    if (!online) run(process.execPath, ['exact.mjs', 'snapback'], app);
+    if (!online) {
+      // Divergent mounts are kept byte-for-byte during artifact-only repair.
+      const manifest = join(app, 'app.json'), original = readFileSync(manifest, 'utf8');
+      const edited = JSON.parse(original); edited.typescript.sources.backend = '../custom/generated';
+      writeFileSync(manifest, JSON.stringify(edited));
+      const before = ['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(join(app, file), 'utf8'));
+      run(process.execPath, ['exact.mjs', 'snapback', '--rebuild', '--artifact-only'], app);
+      assert.deepEqual(['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(join(app, file), 'utf8')), before);
+      writeFileSync(manifest, original);
+    }
     if (mode === 'dev' && !online) {
       const tests = join(app, 'app.test.contract');
       writeFileSync(tests, readFileSync(tests, 'utf8').replace('  expect text "sending" == "0 sending"',
         '  expect text "sending" == "0 sending"\n  expect text "status" == "Synced"\n  expect text "latest" == "dev:alice: from the tunnel"'));
     }
-    // Upstream check currently gates backend-only mounts; record the coordinated deferral.
-    if (!online) run(binary, ['check']);
+    // 0.4.27 gates device consumers, and admits device-free online mounts.
+    run(binary, ['check']);
     const output = run(process.execPath, ['exact.mjs', 'test', 'web'], app);
     assert.match(output, /0 failed/);
     // Check server authority too: a refused queued write must not satisfy reconnect.

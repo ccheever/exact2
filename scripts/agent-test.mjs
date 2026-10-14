@@ -503,7 +503,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'reload': await reload(); await data(); input = null; loaded = true; break;
             case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'pick': {
+              try { delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); }
+              catch (error) { if (error.message.includes('held: none')) error.message += '; first tap a button whose action calls showPicker("<input id>"); the file input needs id as well as testId'; throw error; }
+              input = st.line; break;
+            }
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; loaded = true; if (/^\+?\d/.test(st.arg)) unpolled = null; break;
             // The driver writes through the app's server as another person (LLP 1116.006 D8), not the app: nothing it

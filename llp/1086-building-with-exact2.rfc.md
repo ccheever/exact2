@@ -5,7 +5,7 @@
 **Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites, `.vscode/tasks.json` among them), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-13
+**Revised:** 2026-10-14
 **Related:** LLP 1036.001 (apps outside the repository: what `exact new` writes); LLP 1035.005 (Contract authoring ergonomics: `fmt`, `symbols`, maps); LLP 1081 (moves the style-name table out of `tags.rs`, which would make D3's enumeration direct); `docs/agent-pitfalls.md` (its rule: an entry is deleted by the change that fixes the footgun); the authoring diaries: `signal-exact2/DIARY.md` (2026-10-02 to 10-03), `bluesky-exact2/DIARY.md`, the dice-tray diary (2026-10-04, fixes on `origin/tuft/diary-fixes`)
 
 ## Summary
@@ -465,12 +465,38 @@ installs the tarball, scaffolds, checks and writes through the browser against d
 serve. `--online` mounts the separate `snapback4/online` HTTP adapter, without wasm,
 SQLite, prediction or retries. Interrupted writes have unknown server fate and throw.
 The Snapback checker must gate actual device consumers, not generated operations
-mounts; its precise outstanding change is in QUEUE. `snapback --port N` is the setting
+mounts; this upstream gate is fixed in Snapback 0.4.27. `snapback --port N` is the setting
 that updates the constant, grants and generated test prefixes; `backend [dev|serve
 <release>]` derives its port from that same constant. Temporary test pages bind port
 zero, unless the author explicitly selects a page port. Native bakes resolve the
 versioned Bun home installation before PATH; an explicit BUN is version-checked.
 Staged declaration internals use skipLibCheck, while application sources stay strict.
+
+**EX6 amendment (Charlie’s wave-11 E1–E7 task, 2026-10-14; implementer Codex):**
+`bun exact.mjs snapback --rebuild --artifact-only` builds only the wasm and its
+identity diagnostics, without inspecting or rewriting mounts or app sources;
+`--port` and `--online` are refused in that mode. Preflight names an obsolete
+`x-snapback-device` shim in app.ts. Device identity is sent on the device-to-server
+leg, after caller credentials; the app-to-host leg supplies no engine identity.
+Production `serve` requires authentication even for `GET /` (401 E_AUTH without it),
+so offline/unauthenticated preflight validates only the artifact; the first
+credentialed device exchange and backend `check` enforce the server floor.
+Online reads expose the server envelope (`complete`, `cut`, branded cursor,
+`denied`); both adapters' media methods use the server asset routes. Online mode
+adds no SQLite grant, upload outbox or durable intent: those intents belong to
+the device. Generated app declarations export structural `ArgsOf` for backend
+handles, without adding a Snapback dependency to a plain app's declaration.
+`contract build` refreshes an existing `<input>.d.ts` from a successful compile,
+only when bytes differ; it creates none and retains the last declaration on
+compile failure. `--json` stays a single diagnostic array.
+Automatic page and resident ports stay within inclusive `PORT_LO`/`PORT_HI` when
+both are set; named `--port`/`EXACT_PORT` still wins. Exhaustion or a malformed
+range refuses. `snapback --port` preserves the origin's quotes, slash and other
+source bytes, and writes nothing when the port and mounts already agree.
+A literal `showPicker` target with no declared file input id is diagnosed at
+compile time; a dynamic id or target retains runtime resolution. TestId remains
+the driver's identifier. The author guide shows form values, held pickers,
+optional failures/results, shared state/action names and sampled resource clocks.
 
 Guestbook tests
 now begin with `fresh` so the default dev suite can run repeatedly.

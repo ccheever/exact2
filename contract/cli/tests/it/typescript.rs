@@ -446,3 +446,54 @@ function mutation() {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn build_refreshes_existing_declarations_and_preserves_them_on_refusal() {
+    let fixture = Fixture::new();
+    fixture.write("app.contract", CONTRACT);
+    fixture.write("app.contract.d.ts", "stale");
+    let invoke = || {
+        Command::new(env!("CARGO_BIN_EXE_contract"))
+            .args(["build", "app.contract", "--json"])
+            .current_dir(&fixture.0)
+            .output()
+            .unwrap()
+    };
+    let first = invoke();
+    assert!(first.status.success(), "{first:?}");
+    assert_eq!(first.stdout, b"[]\n");
+    let path = fixture.0.join("app.contract.d.ts");
+    let expected = contract::typescript(&contract::compile(CONTRACT).unwrap()).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+    assert!(invoke().status.success());
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().modified().unwrap(),
+        modified
+    );
+    let checked = fixture.check(
+        r#"
+import type { ArgsOf } from './app.contract.d.ts';
+declare const op: { readonly __args?: {body: string} };
+const args: ArgsOf<typeof op> = {body: 'hello'};
+// @ts-expect-error generated backend arguments remain strict
+const bad: ArgsOf<typeof op> = {body: 1};
+"#,
+    );
+    assert!(checked.status.success(), "{checked:?}");
+    let changed = CONTRACT.replace("enabled: bool", "enabled: number");
+    fixture.write("app.contract", &changed);
+    assert!(invoke().status.success());
+    let expected = contract::typescript(&contract::compile(&changed).unwrap()).unwrap();
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    fixture.write("app.contract", "component App\n  view\n    text absent\n");
+    assert!(!invoke().status.success());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), expected);
+    std::fs::remove_file(&path).unwrap();
+    fixture.write("app.contract", CONTRACT);
+    assert!(invoke().status.success());
+    assert!(
+        !path.exists(),
+        "a build does not create unsolicited declarations"
+    );
+}

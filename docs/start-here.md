@@ -48,7 +48,9 @@ For a server-only schema, add `--online`; `snapback` and `update` preserve it.
 On a plain scaffold, `snapback --port <n>` adds the origin and fetch/storage
 grants. A computed origin or grants declaration needs an explicit edit.
 After upgrading Snapback4 or Exact's device, run `bun exact.mjs snapback --rebuild`.
-The device's digest-bound `assets/snapback4.wasm.json` records the engine built.
+Custom mounts: add `--artifact-only` to rebuild without rewiring.
+The device's embedded `snapback4.engine` section records its identity;
+`assets/snapback4.wasm.json` is derived diagnostic output.
 `snapback`, `contract build`, `test web` and `agent web` refuse a stale device;
 web drives compare it with the running server before opening the page.
 
@@ -67,7 +69,7 @@ want checked or captured is a test's end; a drive takes any others (`resize`, `p
 Keep scratch files in `.exact/` (any other new file makes the build stale).
 
 **Ports.** `--port <n>` on `web`, `test web` and `agent web`, or `EXACT_PORT=<n>`,
-serves on that port; a held port is refused. Otherwise each picks a free port and
+serves on that port; a held port is refused. Otherwise each picks a free port within `PORT_LO`–`PORT_HI` when both are set, and
 prints its URL. A native client starts a second loop on `n+1`. A storage store
 keeps its data per port, so drive one store on one port.
 

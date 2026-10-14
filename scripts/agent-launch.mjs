@@ -201,12 +201,31 @@ export function webPort(flag, env = process.env) {
 }
 
 /** Temporary tests own a fresh page origin; a persistent named drive keeps its port. */
-export const drivePagePort = (fixed, kept, temporary = false) => fixed ?? (!temporary ? kept?.port : null) ?? 0;
+export function webPortRange(env = process.env) {
+  if (env.PORT_LO === undefined && env.PORT_HI === undefined) return null;
+  const lo = Number(env.PORT_LO), hi = Number(env.PORT_HI);
+  if (!Number.isInteger(lo) || !Number.isInteger(hi) || lo < 1 || hi > 65535 || lo > hi)
+    throw new Error(`PORT_LO/PORT_HI must name an inclusive port range, 1–65535 (got ${env.PORT_LO}/${env.PORT_HI})`);
+  return [lo, hi];
+}
+export function drivePagePort(fixed, kept, temporary = false, env = process.env) {
+  if (fixed != null) return fixed;
+  const range = webPortRange(env), port = !temporary ? kept?.port : null;
+  return port != null && (!range || (port >= range[0] && port <= range[1])) ? port : 0;
+}
 
 /** Listen on `port` (0: any free one). A named port still held is asked again for `ms`: the run's last page, or the
  * last run's, can still be letting go of it (app farm wave 1: "port in use" between runs). `named` (`--port`/EXACT_PORT)
  * says so in the refusal, and when the port is in Linux's ephemeral range, which any outgoing connection can borrow. */
-export async function listenOn(server, port, host = '127.0.0.1', ms = port ? 2000 : 0, named = false) {
+export async function listenOn(server, port, host = '127.0.0.1', ms = port ? 2000 : 0, named = false, env = process.env) {
+  const range = port === 0 ? webPortRange(env) : null;
+  if (range) {
+    for (let candidate = range[0]; candidate <= range[1]; candidate++) {
+      try { return await listenOn(server, candidate, host, 0, false, {}); }
+      catch (error) { if (error.code !== 'EADDRINUSE') throw error; }
+    }
+    throw Object.assign(new Error(`ports ${range[0]}–${range[1]} (PORT_LO/PORT_HI) are all in use`), {code: 'EADDRINUSE'});
+  }
   for (const end = Date.now() + ms; ; await new Promise((r) => setTimeout(r, 100))) {
     try {
       return await new Promise((ok, fail) => {

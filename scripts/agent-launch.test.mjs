@@ -325,3 +325,25 @@ test('temporary test pages ignore a stale storage port while explicit ports rema
     await Promise.all([stale, page].map(server => new Promise(done => server.close(done))));
   }
 });
+
+
+test('automatic web listeners stay in PORT_LO/PORT_HI and refuse exhaustion', async () => {
+  const {createServer} = await import('node:http');
+  const {listenOn, webPortRange, drivePagePort} = await import('./agent-launch.mjs');
+  const holder = createServer(), page = createServer(), exhausted = createServer();
+  const port = await listenOn(holder, 0, '127.0.0.1', 0, false, {});
+  const env = {PORT_LO: String(port), PORT_HI: String(port)};
+  try {
+    expect(webPortRange(env)).toEqual([port, port]);
+    expect(drivePagePort(null, {port: port - 1}, false, env)).toBe(0);
+    expect(drivePagePort(port - 1, null, true, env)).toBe(port - 1);
+    await expect(listenOn(exhausted, 0, '127.0.0.1', 0, false, env)).rejects.toThrow(/PORT_LO\/PORT_HI.*all in use/);
+    await new Promise(ok => holder.close(ok));
+    expect(await listenOn(page, 0, '127.0.0.1', 0, false, env)).toBe(port);
+    expect(() => webPortRange({PORT_LO: '2'})).toThrow('inclusive port range');
+    expect(() => webPortRange({PORT_LO: '4', PORT_HI: '3'})).toThrow('inclusive port range');
+    expect(() => webPortRange({PORT_LO: '1', PORT_HI: '65536'})).toThrow('inclusive port range');
+  } finally {
+    for (const server of [holder, page, exhausted]) if (server.listening) await new Promise(ok => server.close(ok));
+  }
+});

@@ -366,7 +366,9 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
     const next = new URL(origin);
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
     next.port = String(port);
-    const moved = next.href.replace(/\/$/, '');
+    const currentPort = new URL(origin).port || (next.protocol === 'https:' ? '443' : '80');
+    const moved = currentPort === String(port) ? origin
+      : origin.replace(/^(https?:\/\/(?:\[[^\]]+\]|[^/:]+))(?::\d+)?/, (_, authority) => `${authority}:${port}`);
     const files = [source];
     const tests = (path, nested = false) => {
       for (const entry of readdirSync(path, { withFileTypes: true })) {
@@ -394,11 +396,12 @@ export function wireSnapback(dir, { build = true, port = null, online = null, ar
       : `snapback4 check in ${parent} failed; fix the schema, then run this again:\n${(check.stderr || check.stdout || '').trim()}`);
   }
   const text = readFileSync(manifestPath, 'utf8'), app = JSON.parse(text);
+  const beforeSources = JSON.stringify(app.typescript);
   const sources = ((app.typescript ??= {}).sources ??= {});
   sources.snapback4 = driverMount(dir, online);
   if (existsSync(generated)) sources.backend = '../snapback/generated';
   const next = JSON.stringify(app, null, 2) + '\n';
-  if (next !== text) writeFileSync(manifestPath, next);
+  if (JSON.stringify(app.typescript) !== beforeSources) writeFileSync(manifestPath, next);
   const ignore = resolve(dir, '.gitignore');
   const ignored = existsSync(ignore) ? readFileSync(ignore, 'utf8') : '';
   const deviceIgnores = ['/assets/snapback4.wasm', '/assets/snapback4.wasm.json'].filter(path => !ignored.split('\n').includes(path));

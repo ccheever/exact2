@@ -44,6 +44,7 @@ import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv,
 import { developmentLinks } from '../apple/build.mjs';
 import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
+import { webPortRange } from '../../scripts/agent-launch.mjs';
 import { localInstaller } from './local-install.mjs';
 import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
@@ -58,11 +59,12 @@ const lan = argv.includes('--lan');
 /** The first of 100 ports from `from` up that `host` can listen on: another app's loop holding 8765 is common.
  * A probe does not reserve it; a loop started at the same moment can still take it, and its listen error says so. */
 async function freePort(from, host) {
-  for (let p = from; p < from + 100; p++) {
+  const range = webPortRange() ?? [from, Math.min(from + 99, 65535)];
+  for (let p = range[0]; p <= range[1]; p++) {
     const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
     if (free) return p;
   }
-  console.error(`ports ${from}–${from + 99} are all in use; --port <n> picks another`);
+  console.error(`ports ${range[0]}–${range[1]} are all in use; --port <n> picks another`);
   process.exit(1);
 }
 // An explicit --port (or EXACT_PORT: one variable for every listener the app's commands start) is kept, and fails
@@ -70,7 +72,7 @@ async function freePort(from, host) {
 const named = argv.includes('--port') ? arg('--port') : process.env.EXACT_PORT || null;
 if (named != null && !(Number.isInteger(Number(named)) && Number(named) >= 1 && Number(named) <= 65535)) { console.error(`${argv.includes('--port') ? '--port' : 'EXACT_PORT'} ${named}: a port number, 1–65535`); process.exit(2); }
 const port = named != null || argv.includes('--serve-as') ? Number(named ?? 8765) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
-if (port !== 8765 && named == null && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port <n> or EXACT_PORT picks one)`);
+if (port !== 8765 && named == null && !webPortRange() && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port <n> or EXACT_PORT picks one)`);
 // `--serve-as <port>` (internal): the resident loop's producers behind the
 // JS loop on that port (host/web-js/dev.mjs forwards a native client's
 // requests here): its names are that port's, and it listens on loopback.
@@ -88,7 +90,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, residentPort: named != null ? port + 1 : 0 });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts, residentPort: named != null && !webPortRange() ? port + 1 : 0 });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
