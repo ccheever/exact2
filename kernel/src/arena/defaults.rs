@@ -60,6 +60,7 @@ pub(crate) struct DefaultContext {
     pub inside_header: bool,
     pub tab_bar: bool,
     pub tab: bool,
+    pub native_tab: bool,
 }
 
 impl NodeArena {
@@ -128,6 +129,7 @@ impl NodeArena {
             inside_header: self.inside_neutral_header(slot),
             tab_bar: self.is_neutral_tab_bar(slot),
             tab: self.is_neutral_tab(slot),
+            native_tab: self.neutral_tab_root(slot).is_some(),
         }
     }
 

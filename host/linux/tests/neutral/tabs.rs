@@ -872,6 +872,33 @@ fn tab_retained_membership_changes(p: &mut Presenter<()>, width: f32) {
             k.node(outside).unwrap().children().to_vec(),
         )
     };
+    for style in [Some("filled"), None] {
+        let op = match style {
+            Some(style) => Op::SetProp {
+                id: member,
+                prop: PropId::ButtonStyle,
+                value: PropValue::Str(style.into()),
+            },
+            None => Op::ClearProp {
+                id: member,
+                prop: PropId::ButtonStyle,
+            },
+        };
+        let receipt = p
+            .host_mut()
+            .runner_mut()
+            .kernel_mut()
+            .apply(0, 1, &[op])
+            .unwrap();
+        assert!(receipt.layout_invalidated && receipt.touched.contains(&key));
+        assert!(p.resize(width, 1000.0).is_none());
+        assert_eq!(
+            size(p, "member").1,
+            if style.is_some() { 36.0 } else { 56.0 }
+        );
+        let node = p.host().kernel().node(member).unwrap();
+        assert_eq!((node.style.mask, node.style.written), raw);
+    }
     for present in [false, true] {
         let op = if present {
             Op::SetProp {

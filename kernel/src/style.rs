@@ -1369,6 +1369,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
         }
     }
+    if let Some(height) = arena.neutral_tab_min_height(slot) {
+        s.min_size.height = length(height);
+    }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its
     // padding; with `none` the authored padding remains in that border box.

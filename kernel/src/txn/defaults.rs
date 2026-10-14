@@ -19,10 +19,22 @@ pub(super) fn before_prop(
             .filter(|s| arena.props(*s).str(PropId::SemanticTag) == Some("header"))
             .map(|s| (s, arena.default_context(s)))
             .collect(),
-        PropId::AccessibilityRole | PropId::AccessibilityControls => {
+        PropId::AccessibilityRole
+        | PropId::AccessibilityControls
+        | PropId::Type
+        | PropId::ButtonStyle => {
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
                 before.push((parent, arena.default_context(parent)));
+            }
+            if prop == PropId::AccessibilityRole {
+                before.extend(
+                    arena
+                        .children(slot)
+                        .iter()
+                        .copied()
+                        .map(|child| (child, arena.default_context(child))),
+                );
             }
             before
         }
@@ -65,6 +77,10 @@ pub(super) fn changed(
     if !rows.is_empty() {
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
+    }
+    if before.native_tab != after.native_tab {
+        control_env_changed(arena, layout, slot);
+        receipt.layout_invalidated = true;
     }
     // Retained buttons can lose/gain their edge with equal inherited text,
     // even when the enclosing surface has authored all its own style rows.
