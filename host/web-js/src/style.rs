@@ -593,6 +593,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         }],
         StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
         StyleId::TintColor => vec![with("--exact-tint", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?\"var(--exact-accent, AccentColor)\":v")],
+        StyleId::PlaceholderColor => vec![with("--exact-placeholder-color", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?'initial':v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
@@ -971,6 +972,14 @@ pub(crate) mod tests {
         let writes = style_writes(StyleId::PlaceholderColor as u16, false).unwrap();
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0].name, "--exact-placeholder-color");
+        let map = writes[0].map.unwrap();
+        assert_eq!(
+            run(
+                &format!("v=>({map})(JSON.parse(v))"),
+                &["null", "\"unset\"", "\"#123456\""]
+            ),
+            serde_json::json!([null, "initial", "#123456"])
+        );
     }
 
     /// The role's CSS, as the literal path writes it.

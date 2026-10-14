@@ -348,6 +348,9 @@ fn static_authored_clears_keep_inline_css_over_platform_rules() {
       header color="inherit" testId="bar"
         text "Title" role="heading" aria-level=1
         button "Action" color="unset" testId="action"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color="unset"
 "##,
     )
     .unwrap();
@@ -361,4 +364,20 @@ fn static_authored_clears_keep_inline_css_over_platform_rules() {
             .unwrap();
         assert!(part.css.contains("color:unset;"), "{}", part.css);
     }
+    let placeholder = parts
+        .iter()
+        .flatten()
+        .find(|part| {
+            part.props
+                .get("data-testid")
+                .is_some_and(|id| id == "placeholder")
+        })
+        .unwrap();
+    assert!(
+        placeholder
+            .css
+            .contains("--exact-placeholder-color:initial;"),
+        "{}",
+        placeholder.css
+    );
 }

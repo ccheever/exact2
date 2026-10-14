@@ -526,6 +526,9 @@ component App
         text "Heading"
       header class=(clear ? Empty : Colored) testId="class"
         text "Heading"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(clear ? "unset" : "#abcdef")
 "##,
     )
     .unwrap();
@@ -563,11 +566,14 @@ component App
     assert!(css(&first, id("static")).contains("color:unset;"));
     assert!(css(&first, id("bound")).contains("color:unset;"));
     assert!(!css(&first, id("class")).contains("color:"));
+    assert!(css(&first, id("placeholder")).contains("--exact-placeholder-color:initial;"));
     let set = host.dispatch(id("toggle"), Event::Press);
     assert!(css(&set, id("bound")).contains("color:#abcdefff;"));
+    assert!(css(&set, id("placeholder")).contains("--exact-placeholder-color:#abcdefff;"));
     let cleared = host.dispatch(id("toggle"), Event::Press);
     assert!(css(&cleared, id("bound")).contains("color:unset;"));
     assert!(!css(&cleared, id("class")).contains("color:"));
+    assert!(css(&cleared, id("placeholder")).contains("--exact-placeholder-color:initial;"));
 }
 
 #[test]
@@ -576,6 +582,11 @@ fn explicit_clears_preserve_special_host_row_contracts() {
     for (id, expected, skipped) in [
         (TextColor, "color:unset;", false),
         (TextBoxEdge, "text-box-edge:unset;", false),
+        (
+            PlaceholderColor,
+            "--exact-placeholder-color:initial;",
+            false,
+        ),
         (
             TintColor,
             "--exact-tint:var(--exact-accent, AccentColor);",

@@ -12,7 +12,7 @@
 //! (`translate`, `scale`, `rotate`, `opacity`) are left out: a presenter
 //! applies their *presentation* values from `present` ops, never the style.
 //! Rows a presenter cannot use yet are named, not guessed. Beside the rows,
-//! `"written"` names those of them the author wrote on this node (LLP
+//! `"written"` names the declarations the author wrote on this node (LLP
 //! 1115.000 D2): a presenter reads it where the platform's answer stands for
 //! what the author left unsaid, and an inherited value is never in it.
 
@@ -112,9 +112,9 @@ fn style_json_rows(
     let mut first = true;
     // Colour rows that name a system colour (LLP 1077 D13), by row.
     let mut systems: Vec<(&str, &str)> = Vec::new();
-    // @ref LLP 1115.000 D2 — the rows sent that the author wrote here.
+    // @ref LLP 1115.000 D2 — the declarations the author wrote here.
     let mut written = String::new();
-    for id in style.mask.iter() {
+    for id in style.mask.union(style.written).iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
         if matches!(id, StyleId::WrapFlow | StyleId::ShapeMargin) {
@@ -124,6 +124,11 @@ fn style_json_rows(
             continue;
         }
         if !keep_size && matches!(name, "width" | "height") {
+            continue;
+        }
+        if !style.mask.has(id) {
+            let comma = if written.is_empty() { "" } else { "," };
+            let _ = write!(written, "{comma}\"{name}\"");
             continue;
         }
         let mark = out.len();
@@ -458,10 +463,13 @@ fn style_json_rows(
             let _ = write!(out, "\"{row}\":\"{system}\"");
         }
         out.push('}');
+        first = false;
     }
-    // A written row was sent, so an entry precedes this one.
     if !written.is_empty() {
-        let _ = write!(out, ",\"written\":[{written}]");
+        if !first {
+            out.push(',');
+        }
+        let _ = write!(out, "\"written\":[{written}]");
     }
     out.push('}');
     (out, skipped)
@@ -926,7 +934,13 @@ pub fn style_json_presented(
             .union(StyleMask::of(StyleId::ColorScheme))
     };
     let mut computed = node.computed_style(rows.union(node.style.written));
-    computed.mask = computed.mask.union(computed.written);
+    // PlaceholderColor's initial payload is an unread sentinel; absence
+    // selects the platform placeholder colour, including after a clear.
+    computed.mask = computed.mask.union(
+        computed
+            .written
+            .minus(StyleMask::of(StyleId::PlaceholderColor)),
+    );
     computed.mask.set(StyleId::TextColor);
     paint_over(&mut computed, shown);
     // The presenter must inset editors/images and paint the same border area
