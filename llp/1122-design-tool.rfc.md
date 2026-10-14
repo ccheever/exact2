@@ -1,7 +1,7 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r6, 2026-10-13. r6 restructures v1 on Charlie's word: the canvas is the running app, not captures (§0). Rulings so far (§9): Q2 (the DEFERRED admissions, for development builds only, with LLP 1121 §9 Q3), Q3 (template and style rungs: yes), Q4 (the held state: yes), Q5 (no captures in v1; the running app with hot reload). r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`); r6 is reviewed once (round 4) and r7 takes its findings. Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The amendment to `rules/DEFERRED.md` lands with this RFC.
+**Status:** Draft r7, 2026-10-13. r7 folds in round 4's review of r6 (§0). r6 restructured v1 on Charlie's word: the canvas is the running app, not captures (§0). Rulings so far (§9): Q2 (the DEFERRED admissions, for development builds only, with LLP 1121 §9 Q3), Q3 (template and style rungs: yes), Q4 (the held state: yes), Q5 (no captures in v1; the running app with hot reload). r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`); Round 4 reviewed r6: both RIGHT WITH CHANGES (`…-r4.{astra,grok}.md`). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The amendment to `rules/DEFERRED.md` lands with this RFC.
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
 - The Tamber server (LLP 1121 D13): build control over the dev loop's existing channel (D4), the selection join (D5), scrubs and the live-or-rebuild answer, `set-row` (D6), held proposals (D10), `commit` (D9).
@@ -34,8 +34,8 @@ loop's hot reload. Each change is a reviewable diff.
 It is a `tamber/1` client (LLP 1121 D13, D14) with no private channel, and an agent can do
 everything it does. It asks of the rest of exact2:
 - an **inspect mode** in every host's development build;
-- a few **control messages** on the dev loop's existing channel (inspect, outline, hold a
-  state, pin a mode);
+- a **build channel** on the dev loop: four commands down (inspect, outline, hold a state,
+  pin a mode) and three reports up (status, a selection, unsupported);
 - **`set-row`**, a checked edit of one Contract row;
 - **source maps** that name attributes and file digests.
 
@@ -43,6 +43,38 @@ No captures, no driven sessions, no tile grid in v1; several live copies side by
 later (§4 T7). It is not a drawing tool and not a layout editor (D14).
 
 ## 0. Review rounds
+
+**Round 4** (r6 → r7, on the restructure). Astra: RIGHT WITH CHANGES, no BLOCKER (6 MAJOR,
+3 MINOR). Grok: RIGHT WITH CHANGES (2 BLOCKER, 5 MAJOR, 4 MINOR). Both called the live-app
+canvas the right shape and buildable. Each finding is taken:
+- **The channel is one-way** (Grok B1, Astra M1): D4 now adds registration with a nonce,
+  commands with a `kind` dispatched before generation handling, and three reports up by
+  POST (`status`, `selected`, `unsupported`). Devices must be launched connected to the dev
+  URL.
+- **`outline` needed the map** (both): the server sends each build plan-qualified sites;
+  the host never sees a span. A held state's file and span come from the server's join.
+- **Two streams** (Grok M3): T2 and T2b run one `--wasm` loop; the JS loop joins later,
+  publishing on both.
+- **Stale reports** (Astra M3): a report carries its applied design digest, pin revision
+  and mode tuple, and a stale one is refused.
+- **Holds across reloads** (both): the server replays holds and pins with the next hello,
+  only through a checked site correspondence; one hold per build.
+- **Cleanup** (Astra M5): commands belong to their client and clear when it goes; inspect
+  has a local way out.
+- **The JS fallback** (Grok M4): wasm until the JS runtime reports origins and instance
+  paths row for row; the map's origin decides the rungs for any non-runner report.
+- **The iframe** (Grok M6, Astra m7): sized explicitly; never scripted by the tool;
+  scrolled into view by the host; one frame in v1; an open-in-tab fallback; LLP 1121 D14
+  amended.
+- **Remote canvas** (Astra M6, Grok M6): an authenticated canvas gateway, revoked with the
+  token.
+- **Minors:**
+  - text size in `pin`;
+  - the workbench points at D3;
+  - reports bound by nonce;
+  - inspect uses the real tap's hit test;
+  - Q6 says what a relay would carry;
+  - the DEFERRED text lands with this RFC (Astra m9; LLP 1121 §9 Q3 is updated beside it).
 
 **Charlie's restructure** (r5 → r6, 2026-10-13). On Q5 he asked why v1 needs captures at
 all: "Can't we just have it edit the code in place and you see the hot reload". It
@@ -214,33 +246,46 @@ and behaviour stay with Contract source (D14).
 - **The Tamber server**, in the dev loop (LLP 1121 D13), owns:
   - the design files and every write to them (`set-row`, `commit`, held proposals, scrubs);
   - the selection join: a build's report plus that build's source map (D5);
-  - the control messages to builds (D4).
+  - the build channel: registration, commands and reports (D4).
 - **No design state of its own.** The files are the design, git the history.
 - **Two URLs.** `bun exact.mjs tamber tool` opens the tool at its own local URL, served by
   the Tamber server. The app's web build is the dev loop's own URL, which the tool embeds.
 
 ### D3 — The canvas: the app, running
 
-- **The web build, embedded.** The tool shows the app's web development build in an
-  `iframe` (LLP 1020) at the dev loop's URL. It is the real app: it runs, takes input,
-  navigates, and reloads on a structural edit exactly as it does in a browser tab. The tool
-  sizes the frame (a phone width, a tablet, a desktop) and can open a second one at another
-  size.
+- **The web build, embedded.** The tool shows the app's web development build in one
+  `iframe` (LLP 1020) at the dev loop's URL.
+  - **It is the real app:** it runs, takes input, navigates, and reloads on a structural edit
+    as it does in a browser tab.
+  - **An `iframe` is a second document, not a second session in the tool's runtime.** That
+    is why a JS-target app can embed it, where LLP 1121 D14 said hosting another session
+    was later; LLP 1121 D14 is amended to say so.
+  - **Size.** The tool sets the frame's width and height (a phone, a tablet, a desktop),
+    since a bare `iframe` is 300×150 and never sizes to its guest (LLP 1020 D1).
+  - **Origins.** The tool and the dev loop are different origins, so the tool never
+    scripts the frame. Every control goes through the server (D4). A node selected or
+    outlined off screen is scrolled into view by the host, not by the tool.
+  - **One frame in v1.** Two frames of one dev URL would share storage; several copies are
+    T7. An "open in a tab" button covers what an embed cannot do (LLP 1020 defers
+    permission delegation and navigation control). Web content the app itself embeds is a
+    leaf to inspect.
 - **Devices and simulators, as they are.** The developer runs the app on the iOS simulator,
-  a phone or the Mac in the usual way (`bun exact.mjs ios --run`, `--device`). Each
-  development build connects to the dev loop as today; the tool lists them, and inspect and
-  the control messages reach every one.
+  a phone or the Mac in the usual way, but **connected to the dev URL**
+  (`bun exact.mjs ios --run` with the dev server as its live source), not watching a plan
+  file: only a connected build gets live-table batches and commands, and reports
+  back. The tool lists the builds that have registered (D4).
 - **How an edit shows.** Through what the dev loop already does:
   - a token, dial or param value whose closure is `live` (LLP 1121 D13): the live table,
     with no reload, on every connected build at once;
   - anything else (a `set-row`, a state part, a structural change, a motion token): the dev
     loop's rebuild and hot reload, which carries slots, settled resources and the clock
     (LLP 1007 §6; the JS target's checkpoint also restores focus).
-- **Modes.** The tool pins a build's app mode, scheme or contrast with a control message
-  (D4), the same facts `prefer` pins. One copy shows one mode at a time; the app's own
+- **Modes.** The tool pins a build's app mode, scheme, contrast or text size with a control
+  message (D4), the same facts `prefer` pins. One copy shows one mode at a time; the app's own
   preview screens show several at once inside one copy (below); a grid of live copies, one
   per mode, is T7. An app's own `setScheme` beats a requested scheme, so the tool shows each
-  build's **effective** scheme and mode, as the build reports them.
+  build's **effective** scheme, contrast, mode and text size, from the build's status
+  report (D4).
 - **Preview screens.** Ordinary routes, written by the developer (the tool offers a
   starter), that lay out a component or screen under several `color-scheme` and
   `-exact-mode` pins (LLP 1121 D5). A Light preview is `color-scheme="light"`; Dim and
@@ -248,47 +293,91 @@ and behaviour stay with Contract source (D14).
   one. A copy on a preview screen is the component workbench (D7).
 - **No captures in v1.** Nothing is screenshotted, stored or sent as an image.
 
-### D4 — Control messages: four, on the channel builds already hold
+### D4 — The build channel: four commands down, three reports up
 
-Every development build already holds a channel to the dev loop (the event stream that
-tells it a plan changed, which Tamber's live table also uses, LLP 1121 D13). The Tamber
-server sends four more messages on it, each with the build id `hello` lists:
+**Today the dev channel only goes one way.** It is server-sent events (`host/web/dev.js`'s
+`EventSource`; the JS page's `/__dev/page`), and a host acts only on a generation (a new
+plan) or a reload. A native or wasm session can't open `tamber/1`, since it can't send
+socket frames (LLP 1121 D13). So D4 adds both directions.
 
-| Message | What the build does |
+- **Registration.** On connecting, a development build gets a **nonce** in its stream's
+  hello. It answers with one POST to the dev loop (`/__dev/report`) carrying:
+  - the nonce;
+  - its host and capabilities (which commands it speaks);
+  - its plan digest and applied design digest.
+
+  The Tamber server lists registered builds by id; that list is what `hello` gives clients.
+  A report without a current nonce is refused, since the dev loop accepts other POSTs with no
+  token.
+- **Commands, down the stream**, each a frame with a `kind` that a host dispatches before
+  any generation handling, so a command can never be read as a plan push:
+
+| Command | What the build does |
 |---|---|
-| `inspect on`, `inspect off` | enters or leaves inspect mode (D5) |
-| `outline` (a source span, or none) | draws an outline around every mounted node whose site maps to the span, in inspect mode |
-| `hold` (a node's site and instance path, a state, or none) | holds a host-known state on that node (D8) |
-| `pin` (scheme, contrast, an app mode, or none) | pins that fact, as `prefer` would; `none` hands it back |
+| `inspect` on or off | enters or leaves inspect mode (D5) |
+| `outline` (a set of sites in this build's plan, or none) | outlines every mounted node with one of those sites, in inspect mode, and scrolls the first into view |
+| `hold` (a site and instance path in this build's plan, a state, or none) | holds a host-known state on that node; one hold per build, a new one replacing the old (D8) |
+| `pin` (scheme, contrast, an app mode, the root font size in px, or none) | pins those facts, as `prefer` would; `none` hands them back |
 
-That is the whole build relay. The tool drives no input into an app (no taps, no typing),
-takes no pictures, and launches no sessions. A build that does not speak a message (an older
-host) says so by name, and the tool shows it.
+- **Reports, up by POST**, each with the nonce:
+  - `status` (on connect and on any change): the effective scheme, contrast, app mode and
+    text size, the plan digest, the applied design digest, and the pin revision it has
+    applied;
+  - `selected` (D5);
+  - `unsupported` (a command it can't do, by name).
+- **Addresses are plan-qualified.** `outline` and `hold` name sites in the receiving build's
+  plan. The server computes them from a source span through that build's map (D5). A host
+  never sees a span or a map.
+- **Ownership and cleanup.** Each command belongs to the client that sent it.
+  - When that client disconnects or its token is revoked, the server clears its inspect,
+    outlines, holds and pins on every build.
+  - A build that reconnects (a JS reload is a new document; a wasm program rebuild is a page
+    reload) gets its current pins and holds replayed with its new hello. A hold is replayed
+    only where the server finds exactly one corresponding site in the new plan, through the
+    old and new maps. Otherwise it is cleared, with a diagnostic.
+  - On the device, inspect always has a local way out: the banner's close control, or
+    Escape.
+- **One loop, one stream.** The JS loop today forwards a simulator's `/__dev` to a separate
+  resident producer (`host/web-js/dev.mjs`), so its page and its devices listen on different
+  streams. T2 and T2b therefore run one `dev.mjs --wasm` loop, which serves the frame and the
+  devices on the same `/__dev`. The JS loop joins at T2b's second half, publishing every
+  command and batch on both streams.
+
+The tool drives no input into an app (no taps, no typing), takes no pictures and launches no
+sessions. Commands need `write` scope and are journaled with their client.
 
 ### D5 — Inspect: tap the real screen
 
 **Inspect mode** is part of every host's development build, compiled out of release builds.
-- **Entering.** The tool's inspect toggle sends `inspect on` to every connected build (or
-  one). Each shows a small banner so the person knows taps won't reach the app.
+- **Entering.** The tool's inspect toggle sends `inspect` on to every registered build (or
+  one). Each shows a small banner, with a close control, so the person knows taps won't
+  reach the app.
 - **Selecting.** In inspect mode the host takes pointer and touch input itself:
   - hovering (a mouse) outlines the node under the pointer;
   - a tap or click selects it.
 
-  The host hit-tests the real input point natively, as it does for a real tap. There is no
-  capture to go stale.
-- **The report.** The host sends the Tamber server a `selected` message:
-  - the build id and its plan digest;
+    The host hit-tests the real input point with the same path a real tap uses (on the web,
+  the runtime's own hit test, `host/web/geometry-glue.js`), so inspect and a real tap cannot
+  disagree. There is no capture to go stale.
+- **The report.** The host posts a `selected` report (D4):
+  - the nonce, the build id, its plan digest, its applied design digest and its pin
+    revision;
+  - the node's effective mode tuple;
   - the view's site and its `instance` path;
   - the runner's own explanation of the node, as `layout <id>` gives it (LLP 1035.002): each
     row with its value and source, the token beside it (LLP 1121 D7), and, while a hold is
     active, the held state's overlay rows (D8).
 
   The runner computes this in-process; it is the same answer the agent gets.
-- **The join.** The server looks the site up in that build's own source map, verified by
-  plan digest, and checks the map's source digest against the file on disk (D6). It then
-  publishes the selection to subscribed clients, and sends `outline` for the source span to
-  every build, so every copy of the node (each `each` row, each expansion of a component
-  body) is outlined on every screen. The source-map admission let the driver read maps and
+- **The join.** The server checks that the report is current: its nonce, plan digest,
+  applied design digest and pin revision match the build's latest status. A delayed report
+  from before a live-table batch or a pin is refused, and the build is asked again. The server
+  then looks the site up in that build's own source map, verified by plan digest, and checks
+  the map's source digest against the file on disk (D6). A held state's file and span come
+  from this join, not from the host. It then publishes the selection to subscribed clients.
+  It also sends each build an `outline` of that build's own sites for the source span, so
+  every copy of the node (each `each` row, each expansion of a component body) is outlined on
+  every screen. The source-map admission let the driver read maps and
   never a host; the server joins them here, and no host reads a map (§9 Q2, ruled).
 - **Provenance**, in the inspector:
   1. **Node → source:** the file, line and component call-site chain, and each row's source:
@@ -300,9 +389,14 @@ host) says so by name, and the tool shows it.
      the full impact of a change is the tokens whose folded values it changes.
 - **The web JS target** keeps no kernel: its `layout` reads `getComputedStyle`, so a token
   arrives as `rgb(…)` (`host/web-js/agent.js`), and its dev loop's `/exact.json` answers for
-  another producer's plan (`host/web-js/dev.mjs`). So the JS runtime must report a row's
-  token beside its computed value and advertise its own plan and map pair (§3). Until it
-  does, the embedded build is the wasm host's (`dev.mjs --wasm`), which has the kernel.
+  another producer's plan (`host/web-js/dev.mjs`). Its row sources are CSS's (`authored` or
+  `dynamic`), not the kernel's origins, and its DOM carries a site but no instance path
+  (`host/web-js/src/emit.rs`). So the embedded build is the wasm host's
+  (`dev.mjs --wasm`), which has the kernel, until the JS runtime reports, row for row as the
+  kernel does: each row's token beside its computed value, its origin, its instance path,
+  and its own plan and map pair (§3). Whenever a report is not the runner's own, the server
+  takes each row's origin from the map (`contract/cli/src/map.rs`), not from the host, to
+  decide the rungs.
 - **Fail closed.** An edit is offered only when the build's map matches its plan and the
   map's source digest matches the file, and then only these rungs:
   - **template or style:** an `authored` row from a single origin (`own`, or one
@@ -316,7 +410,8 @@ host) says so by name, and the tool shows it.
   Everything else is read-only, with its reason. Until the kernel reports `boundary`, an
   `authored` row whose attribute the map does not name is read-only.
 - **Selecting from the tool.** Clicking a token's "uses", a component in the panel, or a
-  changeset entry sends `outline` to every build, so the person sees where it is on screen.
+  changeset entry sends each build an `outline` of its own sites, so the person sees where it
+  is on screen.
 
 
 ### D6 — The scope ladder
@@ -442,7 +537,7 @@ The tool hand-draws no control:
 - **The component panel**: the selected component's params, grouped by `group`, ordered by
   `priority` (3 behind "more"), each with its `control` and `options` (LLP 1121 D15). A
   pinned param shows LLP 1121 D14's mark.
-- **The workbench**: a preview screen (D4) for one component, with its params, its states
+- **The workbench**: a preview screen (D3) for one component, with its params, its states
   (D8) and its blast radius.
 
 A component with no params shows its rows (D5) and an offer to promote one to a param
@@ -463,9 +558,12 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
     to, the innermost with a `press` handler (LLP 1121 D8). `hover` and `focus-visible`
     hold those overlays on the named node, which needs no press handler. Each applies only
     that state's overlay, with the host's ease, under Reduce Motion as the real state would.
-  - **Keyed by site and `instance` path**, not a view id, which does not survive a reload.
-    After a reload (a `set-state` rebuild among them), the build re-applies its holds to the
-    mount with that site and path, and drops a hold whose mount is gone.
+    - **Keyed by site and `instance` path in the build's plan**, not a view id. A reload is a
+    new document, or a new plan, with nothing left to re-apply. So the **server** replays the
+    hold with the build's next hello, after a `set-state` rebuild among others. It replays it
+    only where it finds exactly one corresponding site in the new plan, through the old and
+    new maps, and otherwise clears it with a diagnostic (D4).
+  - **One hold per build**; a new one replaces the old. Several states at once wait for T7.
   - **Cleared** by an explicit clear and by real input on that node, which always wins.
   - **Disabled** nodes refuse all three.
   - **Unsupported** on a host that cannot hold that state, answered by name; iOS has no
@@ -559,9 +657,17 @@ is undone in one step.
   - A paired client reads, proposes or writes through `tamber/1` as its scope allows, and
     receives selections and outlines' sources like any client. Its access ends when its
     token is revoked or expires.
-  - **Seeing the app** remotely means reaching the developer's dev URL for the embed, over
-    the same encrypted transport. Without that, a remote client works on the design and
-    sees selections, but has no canvas.
+    - **Seeing the app** remotely goes through an **authenticated canvas gateway**: the Tamber
+    server proxies the app's dev URL, same-origin, under the paired client's token, over the
+    encrypted transport.
+    - A remote frame whose `src` was the developer's loopback URL would load the remote
+      browser's own loopback.
+    - The dev gate checks host, origin and peer, never a paired credential
+      (`scripts/install-page.mjs`).
+    - Revoking the token ends canvas access too.
+
+    Without the gateway, a remote client works on the design and sees selections, but has no
+    canvas.
   - Control messages (D4) need `write`: inspect, outline, hold and pin change what the
     developer's screens show.
 - **A team relay** for people who share no machine is open (§9 Q6).
@@ -569,19 +675,25 @@ is undone in one step.
 ### D13 — Security
 
 - **Development builds only.** Release builds have no protocol endpoint, no inspect mode, no
-  control messages, no live table and no held state; inspect is compiled out.
+  build channel, no live table and no held state; inspect is compiled out.
 - **One credential.** The project's token, in the server's memory, is given only to a
   verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens, only
   over an encrypted transport (D12).
 - **No driving.** The tool sends no taps, keystrokes or file answers into an app. Its only
-  control is D4's four messages, which need `write` and are journaled with their client.
-  Inspect mode takes input only while it is on, with a banner on the screen.
+  control is D4's four commands, which need `write`, are journaled with their client, and
+  are cleared when that client goes. Inspect mode takes input only while it is on, with a
+  banner and a local way out.
+- **Reports are bound to their build.** A `status` or `selected` POST must carry the nonce
+  from that build's stream hello. The dev loop accepts other POSTs with no token
+  (`host/web-js/dev.mjs`), so without it a page that can reach the dev server could forge a
+  selection.
 - **No images.** Nothing is captured or stored. A selection report carries node data and
   source locations, which only token holders receive.
 - **Writes only through the server**, under its digests, compile check and journal (D6, LLP
   1121 D13). `set-row` writes only files inside the project root that the map names.
-- **The embed is the dev URL.** The tool's `iframe` loads the app from the dev loop the same
-  way a browser tab does, under the dev gate as it is. It gains nothing a tab would not have.
+- **The embed.** Locally, the tool's `iframe` loads the app from the dev loop as a browser
+  tab does, under the dev gate as it is, cross-origin to the tool, which never scripts it.
+  Remotely it goes through the canvas gateway (D12).
 - **Prompts** stay local unless a remote model is named (D10).
 
 ### D14 — What it is not
@@ -605,11 +717,14 @@ is undone in one step.
 | `explain`, `uses`, token beside value | LLP 1121 D7, stage 2 | in progress |
 | params; state parts and `set-state`; importers; pairing | LLP 1121 stages 7, 8, 3a–3d, 10 | accepted, not built |
 | inspect mode in each host's development build, and the `selected` report | this RFC D5 → the hosts | proposed |
-| four control messages on the dev channel | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
+| the build channel: registration with a nonce, four commands down, `status`, `selected` and `unsupported` reports up | this RFC D4 → the dev loops, the hosts, the Tamber server | proposed |
+| devices launched connected to the dev URL, one `--wasm` loop for frame and devices | this RFC D3, D4 → `host/apple/build.mjs`, the dev loops | proposed |
+| the canvas gateway for paired clients | this RFC D12 → the Tamber server | proposed |
+| `iframe` embedding stated as a second document, not a second session | this RFC D3 → LLP 1121 D14 | proposed |
 | the held state, as `hold` and as a form of `tap` | this RFC D8 → the hosts, LLP 1012 | ruled yes (§9 Q4) |
 | a held state's overlay rows, and a `boundary` row source, in the node explanation | this RFC D5, D8 → LLP 1035.002, LLP 1121 D7 | proposed |
 | attribute spans and source digests in maps | this RFC D6 → the compiler | proposed |
-| each build's own plan and map pair; the JS runtime's token report | this RFC D5 → both dev loops, the web JS target | proposed |
+| each build's own plan and map pair; the JS runtime reporting tokens, origins and instance paths row for row | this RFC D5 → both dev loops, the web JS target | proposed |
 | `set-row`, `commit`, held proposals, scrub sessions, `propose`'s live-or-rebuild answer | this RFC D6, D9, D10 → LLP 1121 D13 | proposed (`set-row` ruled yes, §9 Q3) |
 | `iframe` | LLP 1020 | built |
 | source maps; `layout <id>` with sources | `contract build --map`; LLP 1035.002 D1 | built |
@@ -638,9 +753,10 @@ lands with or after the Tamber stage it needs.
 2. **T1a, import review** (with Tamber 3a–3d), D11. **Gate:** a shadcn theme reviews with
    overrides off until ticked, every unmapped value listed, and one transaction to accept.
 3. **T2, the live canvas** (with Tamber stage 4):
-   - the web build embedded (D3);
-   - connected simulators and devices listed;
-   - the `pin` message;
+      - the web build embedded (D3), on one `dev.mjs --wasm` loop serving the frame and the
+     devices (D4);
+   - devices launched connected to the dev URL, registration and `status` reports (D4);
+   - the `pin` command, with ownership, cleanup and replay;
    - the token and dial rungs, scrub sessions and the live-or-rebuild answer (D6).
 
    **Gate:**
@@ -649,7 +765,10 @@ lands with or after the Tamber stage it needs.
      server classified it `live`;
    - a structural edit hot-reloads all three and keeps their slots;
    - a cancelled scrub restores every copy;
-   - `pin` shows Dim on one copy, and the tool shows each copy's effective mode.
+      - `pin` shows Dim on one copy, and the tool shows each copy's effective mode;
+   - closing the tool clears its pins on every build, and a reloaded build gets its pins
+     back;
+   - a report without the current nonce is refused.
 4. **T2b, inspect on the web**:
    - inspect mode in the web hosts (wasm first);
    - the `selected` report and the server's join;
@@ -683,8 +802,8 @@ lands with or after the Tamber stage it needs.
    - promote to param and to token are each one transaction;
    - a `class:` row edits the style in its own file.
 9. **T6, remote** (with Tamber stage 10): D12. **Gate:**
-   - a paired `propose` client cannot write or send control messages;
-   - revocation cuts it off;
+      - a paired `propose` client cannot write or send commands;
+   - revocation cuts off its socket and, separately, its canvas through the gateway;
    - an unencrypted remote connection is refused.
 10. **T7, several live copies**: a grid of the app running in several frames at once, each
     pinned to one mode (Light, Dim and Black at two text sizes), plus the states side by
@@ -723,7 +842,8 @@ lands with or after the Tamber stage it needs.
 ## 7. Cost
 
 - **The tool:** one web JS-target app.
-- **The Tamber server:** the selection join, control messages, scrub sessions and the
+- **The Tamber server:** the selection join, the build channel, the canvas gateway, scrub
+  sessions and the
   live-or-rebuild answer, `set-row`, `commit`, held proposals.
 - **The hosts:** inspect mode (input, banner, outlines, the report) and holds, per host, in
   development builds.
@@ -758,10 +878,13 @@ lands with or after the Tamber stage it needs.
 6. **People who share no machine or network with the developer.** Today a remote designer
    pairs with the developer's machine over an encrypted connection (D12). Should we also run
    a hosted service that connects people who can't reach each other directly, so a designer
-   anywhere can work on the app with the developer? Recommended: not yet, until pairing has
-   been used.
-7. **How the tool controls running apps.** In r6 the tool never presses buttons or types
-   into an app. It sends four messages to development builds over the channel they already
-   hold: turn inspect on or off, outline these nodes, hold this state, pin this mode (D4).
-   Is that the right limit? Recommended: yes. Driving apps (taps, typing) stays with agents
-   through the agent API, where it is already scoped and journaled.
+      anywhere can work on the app with the developer? That service would carry the app's
+   design, its source locations and the live app itself. Recommended: not yet, until pairing
+   has been used.
+7. **How the tool controls running apps.** The tool never presses buttons or types into an
+   app. It sends development builds four commands: turn inspect on or off, outline these
+   nodes, hold this state, pin this mode (and text size). Builds send back three reports:
+   their status, what was tapped in inspect mode, and what they can't do (D4). Today's dev
+   channel only goes one way, so the reports and a registration step are new. Is that the
+   right limit? Recommended: yes. Driving apps (taps, typing) stays with agents, through the
+   agent API, where it is already scoped and journaled.
