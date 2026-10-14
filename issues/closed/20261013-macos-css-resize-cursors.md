@@ -32,10 +32,8 @@ outside the edge as inside it, before and after a move or a resize of the player
 
 The T3 Code clone's real-input session `realinput-1011c` (STATUS DP-4, B5) found that no zone of the floating
 player's resize frame shows the reference's cursor: on its eight zones, probed 2–4 points outside the player's
-edge, N, S, E and SE showed the arrow, W and NW `resizeLeftRight` (30×24) and NE and SW the crosshair (24×24)
-([DP-4-zones-clone.txt](https://raw.githubusercontent.com/ccheever/exact2/a5982ddaf650de6fb430525d69f3975e8cfcf000/realinput-1011c/b5-sidebar-device/DP-4-zones-clone.txt)).
-G4-16 (B2) found the browser panel's resize cursors' images differ in size from the reference's
-([G4-16-pair.png](https://raw.githubusercontent.com/ccheever/exact2/7f34eae2b1671e15926020b44cadef91b08146d6/realinput-1011c/b2-panels-browser/G4-16-pair.png)).
+edge, N, S, E and SE showed the arrow, W and NW `resizeLeftRight` (30×24) and NE and SW the crosshair (24×24).
+G4-16 (B2) found the browser panel's resize cursors' images differ in size from the reference's.
 
 ## Reproduction
 

@@ -57,11 +57,6 @@ handler of `AXUIElementPerformAction`, which refuses an action the element does 
 | B: the same steps on the web | Chrome (web agent) | row, paragraph, span and media menus run; nothing for `plain` | (the oracle) | record B |
 | C: `AXShowMenu` through AppKit's server on each element | macOS, in-process probe | `row-open`, `media-image`, `paragraph-link`, `span-link`: actions `[AXPress]`, show menu refused, counts unchanged; `reply-link` and `span`: `[AXPress, AXShowMenu]`, performed (`link 1`, `span 1`); `plain` `[AXPress]`, refused | each of the four offers `AXShowMenu` and runs its ancestor's handler; `plain` still offers none | record C |
 
-Record (the contract, the commands and their output, the code read):
-https://raw.githubusercontent.com/ccheever/exact2/a7ed12773ca1d5d55982a5beae310451be1fb7b7/fw/macos-show-menu-ancestor/macos-show-menu-ancestor-before.txt.
-The probe's source:
-https://raw.githubusercontent.com/ccheever/exact2/04bb615be2f912bc3f8ec933f3396b3c1830834e/fw/macos-show-menu-ancestor/showmenu-probe.m.txt.
-
 The reply link with its own handler works through the server (C): one `AXLink` with no children, and its show menu
 runs `linkMenu`. What VoiceOver did differently on the clone's link was not reproduced here.
 

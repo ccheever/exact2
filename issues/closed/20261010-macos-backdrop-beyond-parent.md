@@ -65,11 +65,6 @@ component X11app
 | A and B, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 400x180 "screenshot x11b.png window"` | macOS 26.6.2 (25G83), Apple Silicon | main `abc1eadff`; #327 head `14493d253` the same | A blurred; B sharp: across the stripe edge at x = 320 the pixels step `#56a0eb #56a0eb #ec6560 #ec6560 #ec6560` | B blurred as A: `#6795d1 #808bbc #9e7fa0 #bd7386 #d36972` (the web's) | image, record |
 | Same, web | `bun exact.mjs agent web --size 400x180 "screenshot x11b.png"` | Chrome 155 (the agent's) | main `abc1eadff` | A and B both blurred; A on macOS is within 4/255 of A on the web | (the reference) | image, record |
 
-![Backdrop case B: web, macOS main, macOS #327](https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x11b-web-macos-pr327.png)
-
-Record (contract, commands, pixels across a stripe edge in A and B on each host):
-https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x11b-record.txt
-
 Not tested: iOS and tvOS (a system material, declared separately), Linux.
 
 ## Constraints

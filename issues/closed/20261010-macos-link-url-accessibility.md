@@ -83,13 +83,6 @@ profile). For comparison, `bun exact.mjs agent <web|macos> "tree --ax"` reads th
 | Hand-written `<a href>` and `<p>Visit the <a href>site</a> today</p>` | Chrome 155 via CDP, and headed Chrome read through `AXUIElement` | — | `link` with `url` (CDP); `AXLink` with `AXURL` (AX) | — | record |
 | Hand-built: `NSTextView` with a `.link` run, SwiftUI `Link`, `WKWebView`, an `NSView` with an `NSAccessibilityElement` link child that is made fresh per call or kept | macOS 26.6.2, `swiftc` | — | `AXLink`/`AXTextLink` + `AXURL`; `AXLink` + `AXURL`; `AXLink` + `AXURL` (both, in `AXLinkUIElements`); fresh child -25202, kept child `AXLink` + `AXURL` | — | image (middle), record (oracle source beside it) |
 
-![X78: a link's URL in the accessibility tree, the Exact web in Chrome, a hand-built Mac app, and the macOS host](https://raw.githubusercontent.com/ccheever/exact2/fa666be7faeaf4560af70be1d83601bfe7b98ec4/fw-issues-20261010h/x78-link-url-ax-web-oracle-macos.png)
-
-Record (contract, commands, every tree, the oracles):
-https://raw.githubusercontent.com/ccheever/exact2/fa666be7faeaf4560af70be1d83601bfe7b98ec4/fw-issues-20261010h/x78-record.txt
-(the probe and oracle sources are `x78-axprobe.swift.txt`, `x78-axdetail.swift.txt`, `x78-cdp-ax.mjs.txt` and
-`x78-appkit-webkit-oracle.swift.txt` at the same commit).
-
 Not run: VoiceOver itself, #327's head, iOS (its `InlineAccessibility` is also made fresh per call), Linux,
 `AXLinkUIElements` (no Exact element is a web area), and a run inside a link that wraps across lines. Also seen,
 not filed: a hit test at the left edge of the `link` node returns an `AXStaticText` "Example link" that is not
