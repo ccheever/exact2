@@ -29,6 +29,15 @@ pub(super) fn before_prop(
             let mut before = vec![(slot, arena.default_context(slot))];
             if let Some(parent) = arena.parent(slot) {
                 before.push((parent, arena.default_context(parent)));
+                if arena.neutral_alert(parent) {
+                    before.extend(
+                        arena
+                            .children(parent)
+                            .iter()
+                            .copied()
+                            .map(|s| (s, arena.default_context(s))),
+                    );
+                }
             }
             if prop == PropId::AccessibilityRole {
                 before.extend(

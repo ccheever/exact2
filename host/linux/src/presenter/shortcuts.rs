@@ -111,6 +111,7 @@ impl<D: DataSource> Presenter<D> {
         });
         let declared: Vec<ViewId> = preorder
             .into_iter()
+            .filter(|&id| self.alert_allows(id))
             .filter(|&id| {
                 kernel.node(id).is_some_and(|n| {
                     n.props

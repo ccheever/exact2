@@ -934,9 +934,6 @@ impl<D: DataSource> Presenter<D> {
         for id in gone {
             self.scroll.remove(&id);
         }
-        if self.alert.is_some() {
-            return;
-        }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);
         let page = self.page;

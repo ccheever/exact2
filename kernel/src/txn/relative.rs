@@ -32,7 +32,7 @@ pub(crate) fn resolve(
             for slot in slots {
                 // Tab metrics use rem even when an authored local font stops
                 // inheritance. Refresh their minimum and cached host offers.
-                if arena.neutral_tab_root(slot).is_some() {
+                if arena.neutral_tab_root(slot).is_some() || arena.neutral_alert(slot) {
                     control_env_changed(arena, layout, slot);
                     receipt.layout_invalidated = true;
                     touched.push(arena.key(slot));

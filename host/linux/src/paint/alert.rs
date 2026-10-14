@@ -8,7 +8,7 @@ pub(crate) struct Picture {
     pub title: Option<(Rc<Paragraph>, Rect4, crate::text::RunPaint)>,
 }
 impl Painter {
-    fn paint_alert(&mut self, walk: &mut Walk<'_, '_>) {
+    pub(super) fn paint_alert(&mut self, walk: &mut Walk<'_, '_>) {
         let Some(alert) = self.alert.clone() else {
             return;
         };

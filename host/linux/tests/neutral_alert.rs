@@ -39,7 +39,16 @@ fn a_desktop_clear_confirmation_opens_by_invoker_and_action() {
         ),
     );
     std::env::set_var("EXACT_FONT", "DejaVu Sans");
-    let plan = contract::compile(APP).unwrap().encode();
+    let source = APP
+        .replace(
+            "button press=bump",
+            "button press=bump aria-keyshortcuts=\"Control+b\"",
+        )
+        .replace(
+            "      text `Count",
+            "      input value=\"Outside\" testId=\"field\"\n      text `Count",
+        );
+    let plan = contract::compile(&source).unwrap().encode();
     // Optional evidence for the proof lane, never an input to the assertion.
     let out = std::env::var_os("EXACT_ALERT_PROOF_OUT").map(PathBuf::from);
 
@@ -105,11 +114,13 @@ fn a_desktop_clear_confirmation_opens_by_invoker_and_action() {
                 assert!(title["rect"][2].as_f64().unwrap() > 0.);
                 assert_eq!(p.focus(), Some(clear));
                 assert!(p.tap(id(&p, "bump")).is_err());
-                assert!(p.type_text(id(&p, "bump"), "leak").is_err());
+                assert!(p.type_text(id(&p, "field"), "leak").is_err());
                 assert!(p.wheel(id(&p, "bump"), 0., 100.).is_err());
                 let old_page = p.page();
                 p.wheel_at(1., 1., 0., 100.);
                 assert_eq!(p.page(), old_page);
+                let chord = key(&mut p, "Control+b");
+                assert!(chord.get("error").is_none(), "{chord}");
                 assert_eq!(words(&p, "counts"), "Count 7");
                 p.tap(cancel).unwrap();
                 p.run_commands(|| ());
