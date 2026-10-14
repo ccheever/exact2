@@ -284,8 +284,8 @@ while the server starts, the window shows the connecting state (the host opens t
 before the server is ready, exact2 #117). The window keeps its frame across launches
 (the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
-first and then stops or starts the embedded server in place (the reference relaunches the app,
-which exact2 cannot, #122), and the Version row. Under it (20261005-this-machine-network-access,
+first, persists the setting, then requests a full app relaunch through Contract, and the Version
+row. Under it (20261005-this-machine-network-access,
 `connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
 binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
 exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
@@ -293,7 +293,9 @@ exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; 
 `T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
 expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
 `pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
-(`auth-access.ts`). Each change restarts the embedded server in place with the new envelope.
+(`auth-access.ts`). Changes that require a relaunch persist before Contract calls `relaunch()`;
+the existing module teardown stops the old embedded server. The connections/network task tracks
+the still-unverified normal-process relaunch qualification.
 The Local environment switch, Network access and Tailscale Serve (enabled, port) live where T3 Code
 keeps them, `<T3 home>/userdata/desktop-settings.json` (`T3DesktopSettings.swift`: read once at the
 first session, sparse compact writes through a temp file and a rename), so the clone and T3 Code

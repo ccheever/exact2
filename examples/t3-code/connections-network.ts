@@ -7,8 +7,7 @@
 //    (`localNetworkFacts`: interfaces, the cached `tailscale status`, the HTTPS probe). The native
 //    side answers at once from its caches and refreshes in the background, announcing `t3.local`;
 //    until the first complete read the rows say "Loading…", afterwards the last one stays.
-//  - A change restarts the embedded server in place through `applyLocalSetting` (this-machine.ts):
-//    the reference relaunches the app (decision U4), which exact2 cannot (issue X45, exact2 #122).
+//  - A changed setting persists before returning a relaunch request for Contract (decision U4).
 //  - Dialogs open on `connectionRemove` (`network:on:<serial>` …) and close when their serial moves:
 //    network access after any outcome (the reference closes it and shows the error in the row),
 //    Tailscale and Create link only after success (they stay open with a toast on failure).
@@ -25,7 +24,7 @@ import { access, createdCredentials, createPairingCredential, revokeClientSessio
   summarizeAuthorizedClients, watchAccess, type AuthClientSession, type AuthPairingLink } from './auth-access';
 import { qrCells, type QrCell } from './settings-qr';
 import { focusedOnPrimary, primary } from './local-primary';
-import { applyLocalSetting } from './this-machine';
+import type { ConnectionResult } from './connections';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
 import type { T3Client } from './client';
@@ -317,8 +316,7 @@ export async function networkPage(client: T3Client, native: Native, open: boolea
 
 // ── Commands ─────────────────────────────────────────────────────────────
 export const NETWORK_OPS = ['network-access', 'tailscale-serve', 'endpoint-default', 'pairing-create', 'pairing-revoke', 'client-revoke', 'clients-revoke-others', 'pairing-copy', 'pairing-reveal-close'];
-type Result = { status: Obj | null; generation: number };
-const none: Result = { status: null, generation: -1 };
+const none: ConnectionResult = { status: null, generation: -1 };
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
 /**
  * What the reference's renderer reads when a desktop bridge call rejects (audit-wave-followups-2 FV-5): Electron's
@@ -328,37 +326,17 @@ const messageOf = (error: unknown, fallback: string) => (error instanceof Error 
  */
 export const ipcFailure = (channel: string, error: unknown): Error => new Error(`Error invoking remote method '${channel}': ${String(error)}`);
 
-/** Restart the embedded server with the exposure's envelope (applyLocalSetting, the U4 stopgap), and read the facts afresh. */
-async function restart(client: T3Client, native: Native): Promise<Result> {
-  const config = exposure.backendConfig();
-  const result = await applyLocalSetting(client, native, { serverExposure: { host: config.bindHost, tailscaleServeEnabled: config.tailscaleServeEnabled, tailscaleServePort: config.tailscaleServePort } });
-  live.snapshot = null; live.port = 0; live.revalidating = true; // refreshDesktopNetworkAccessState()
-  await readNetwork(client, native, true);
-  return result;
-}
-
-export async function runNetworkOp(client: T3Client, native: Native, op: string, id: string, value: string): Promise<Result> {
+export async function runNetworkOp(client: T3Client, native: Native, op: string, id: string, value: string): Promise<ConnectionResult> {
   bind(client, native);
   if (op === 'network-access') {
     // handleDesktopServerExposureChange: the dialog closes either way; a failure is the row's red text and a toast.
     networkUi.exposureError = '';
-    let previous: DesktopServerExposureMode = 'local-only';
     try {
       if (live.port !== primary.status.port && primary.status.port) { await exposure.configureFromSettings({ port: primary.status.port }); live.port = primary.status.port; }
-      previous = exposure.getState().mode;
       // DesktopServerExposure.setMode's failures reach the renderer through the IPC (the setServerExposureMode method).
       const change = await exposure.setMode(value === 'on' ? 'network-accessible' : 'local-only').catch((error: unknown) => { throw letGo(error) ? error : ipcFailure('desktop:set-server-exposure-mode', error); });
       live.revalidating = true; // refreshDesktopNetworkAccessState() after the change
-      if (!change.requiresRelaunch) return none;
-      // The restart in place stands in for the reference's relaunch, which has no failure the renderer reads: its own message.
-      try { return await restart(client, native); }
-      catch (error) {
-        if (letGo(error)) throw error;
-        // The server could not come back with the new envelope: put the setting back and restart as it was.
-        await exposure.setMode(previous).catch(() => undefined);
-        await restart(client, native).catch(() => undefined);
-        throw error;
-      }
+      return change.requiresRelaunch ? { ...none, relaunch: true } : none;
     } catch (error) {
       if (letGo(error)) throw error;
       networkUi.exposureError = messageOf(error, 'Failed to update network exposure.');
@@ -376,9 +354,8 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
       // DesktopServerExposure.setTailscaleServeEnabled's failures reach the renderer through the IPC, as setMode's do.
       const change = await exposure.setTailscaleServeEnabled({ enabled, port }).catch((error: unknown) => { throw letGo(error) ? error : ipcFailure('desktop:set-tailscale-serve-enabled', error); });
       live.revalidating = true; // refreshDesktopNetworkAccessState()
-      const result = change.requiresRelaunch ? await restart(client, native) : none;
       networkUi.tailscaleSerial++;
-      return result;
+      return change.requiresRelaunch ? { ...none, relaunch: true } : none;
     } catch (error) {
       if (letGo(error)) throw error;
       networkUi.exposureError = messageOf(error, enabled ? 'Failed to configure Tailscale HTTPS.' : 'Failed to disable Tailscale HTTPS.');

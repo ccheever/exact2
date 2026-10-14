@@ -16,7 +16,7 @@ use CnSeparator from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use CnFolded from "./settings-b-kit.contract"
 use CnSelect from "./settings-b-kit.contract"
-use EnvRoute from "./connections-routes.contract" // lane environment-routes
+use EnvRoute, RouteKeyboard from "./connections-routes.contract" // lane environment-routes
 use RouteCount from "./connections-routes.contract"
 use RouteMenuItem from "./connections-routes.contract"
 use EnvironmentRoutes from "./connections-routes.contract"
@@ -135,12 +135,16 @@ shape ConnectionsPage
   thisMachine: ThisMachine
   network: NetworkView
 
+fn routeKeyboardSource(page: ConnectionsPage, environmentId: string, rowKey: string): EnvRoute[] = match first(page.environments.concat([page.thisMachine.environment]).filter((environment) => environment.environmentId == environmentId and environment.key == rowKey)) { case some(environment) => environment.routes, case none => [] }
+
 // Settings → Connections (ConnectionsSettings.tsx): "This machine" (the embedded
 // server, the primary environment: ThisMachineSection), every paired environment
 // as a saved row under Environments with its own switch and menu (lane
 // r9-connect), then Load balancing and GitHub sharing once two or more machines
 // are on (this machine first).
 component ConnectionsPanel
+  inject
+    routeKeyboard: RouteKeyboard
   props
     page: ConnectionsPage
     width: number
@@ -162,6 +166,7 @@ component ConnectionsPanel
   derive rowWide = width - 34 >= 512
   view
     column width="100%" gap="2rem" testId="connections-settings"
+      text routeKeyboard.announcement aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" testId="environment-route-announcement"
       ThisMachineSection(machine=page.thisMachine, net=page.network, wide=rowWide, busy=busy, op=op, ask=remove)
       // this-machine-network-access: shown while network access is on or Tailscale HTTPS answers.
       if page.network.visible and page.network.clientsVisible
@@ -289,6 +294,9 @@ component ThisMachineSection
           PvRow(title="Local server", description=machine.status, status="", policy="", wide=wide, divided=true)
 
 component EnvironmentRow
+  inject
+    routeKeyboard: RouteKeyboard
+    routeKeyboardInput: action
   props
     environment: SavedEnvironment
     busy: bool
@@ -301,7 +309,10 @@ component EnvironmentRow
   action hover(which: string, over: bool)
     tip = over ? which : (tip == which ? "" : tip)
   action toggleRoutes
+    let closing = routesOpen
     routesOpen = not routesOpen
+    if closing and routeKeyboard.environmentId == environment.environmentId
+      routeKeyboardInput(environment.environmentId, environment.key, routeKeyboard.routeId, "cancel", false)
   // fix-keyboard-focus: the row menu's keyboard (menu-keys.contract).
   state keyed = 0
   state keyArmed = false

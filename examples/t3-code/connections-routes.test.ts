@@ -10,13 +10,14 @@ import type { Obj } from './domain';
 
 const A = 'http://127.0.0.1:16120', B = 'http://localhost:16120';
 const route = (origin: string, extra: Obj = {}) => ({ id: origin, origin, kind: '', learned: false, credential: origin, ...extra });
-function store(saved: Obj[]) {
+function store(saved: Obj[], setRoutesError = '') {
   const calls: Obj[] = [];
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = input as Obj; calls.push(request);
     if (request.op === 'environments') return { ok: true, generation: 1, value: { saved } };
     if (request.op === 'status') return { ok: true, generation: 1, value: { activeRouteId: A } };
     if (request.op === 'setRoutes') {
+      if (setRoutesError) return { ok: false, generation: 1, error: { kind: 'Persistence', message: setRoutesError } };
       const entry = saved.find(item => item.environmentId === request.environmentId)!;
       entry.routes = request.routes;
       return { ok: true, generation: 1, value: { saved } };
@@ -71,6 +72,68 @@ describe('environment routes', () => {
     expect(dropBefore(['a', 'b', 'c'], 'a', '')).toEqual(['b', 'c', 'a']);
     expect(dropBefore(['a', 'b', 'c'], 'b', 'b')).toEqual(['a', 'b', 'c']);
     expect(routeRows('e', [], '', false)).toEqual([]);
+  });
+
+  test('a keyboard drop writes its final order once, preserving learned credentials, trust and the other environment', async () => {
+    const learned = route('http://192.168.1.10:16120', { id: `learned:env-a:http://192.168.1.10:16120@${A}`, learned: true, credential: A });
+    const first = route(A), second = route(B);
+    const target = { origin: A, environmentId: 'env-a', label: 'Desk', enabled: true, routes: [first, second, learned] };
+    const other = { origin: B, environmentId: 'env-b', label: 'Studio', enabled: false, routes: [route(B), route(A)] };
+    const saved: Obj[] = [other, target], before = structuredClone(saved);
+    const trust = gitHubRoutingConnectionKey({ ...target, routes: savedRoutes(target) });
+    const { native, calls } = store(saved);
+
+    await runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${learned.id}>${A}\n${A}\n${B}\n${learned.id}`, false);
+
+    const finalRoutes = [learned, first, second];
+    expect(calls.filter(call => call.op === 'setRoutes')).toEqual([{ op: 'setRoutes', environmentId: 'env-a', routes: finalRoutes }]);
+    expect(saved).toEqual([before[0], { ...before[1], routes: finalRoutes }]);
+    expect(trust).not.toBeNull();
+    expect(gitHubRoutingConnectionKey({ ...target, routes: savedRoutes(target) })).toBe(trust);
+  });
+
+  test('keyboard drops that leave the saved order unchanged make no writes', async () => {
+    const C = 'http://192.168.1.10:16120';
+    const saved: Obj[] = [{ origin: A, environmentId: 'env-a', label: 'Desk', routes: [route(A), route(B), route(C)] }];
+    const before = structuredClone(saved), { native, calls } = store(saved);
+    for (const drop of [`${A}>${B}`, `${B}>${B}`, `${C}>`]) {
+      await runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${drop}\n${A}\n${B}\n${C}`, false);
+      expect(calls.filter(call => call.op === 'setRoutes')).toEqual([]);
+      expect(saved).toEqual(before);
+    }
+  });
+
+  const C = 'http://192.168.1.10:16120', missing = 'https://removed.example.com';
+  for (const { name, baseline, drop } of [
+    { name: 'changed order', baseline: [B, A, C], drop: `${C}>${A}` },
+    { name: 'new route since pickup', baseline: [A, B], drop: `${B}>${A}` },
+    { name: 'removed route since pickup', baseline: [A, B, C, missing], drop: `${C}>${A}` },
+    { name: 'replaced route since pickup', baseline: [A, B, missing], drop: `${B}>${A}` },
+    { name: 'duplicate baseline ID', baseline: [A, A, C], drop: `${C}>${A}` },
+    { name: 'missing dragged ID', baseline: [A, B, C], drop: `${missing}>${A}` },
+    { name: 'missing destination ID', baseline: [A, B, C], drop: `${A}>${missing}` },
+  ]) test(`a keyboard drop rejects ${name} without writing`, async () => {
+    const saved: Obj[] = [{ origin: A, environmentId: 'env-a', label: 'Desk', routes: [route(A), route(B), route(C)] }];
+    const before = structuredClone(saved), { native, calls } = store(saved);
+
+    await expect(runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${drop}\n${baseline.join('\n')}`, false))
+      .rejects.toThrow('Routes changed while reordering. Try again with the current route order.');
+
+    expect(calls.filter(call => call.op === 'setRoutes')).toEqual([]);
+    expect(saved).toEqual(before);
+  });
+
+  test('a rejected keyboard reorder keeps the saved order and propagates the persistence error', async () => {
+    const first = route(A), second = route(B), third = route(C);
+    const saved: Obj[] = [{ origin: A, environmentId: 'env-a', label: 'Desk', routes: [first, second, third] }];
+    const before = structuredClone(saved), message = 'Route order could not be saved.';
+    const { native, calls } = store(saved, message);
+
+    await expect(runConnectionOp(native, 'environment-route-move', environmentKey(A, 'env-a'), `${C}>${A}\n${A}\n${B}\n${C}`, false))
+      .rejects.toMatchObject({ kind: 'Persistence', message });
+
+    expect(calls.filter(call => call.op === 'setRoutes')).toEqual([{ op: 'setRoutes', environmentId: 'env-a', routes: [third, first, second] }]);
+    expect(saved).toEqual(before);
   });
 
   test('a second address joins by kind, and learned routes borrow the route in use', async () => {

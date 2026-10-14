@@ -86,7 +86,7 @@ describe('NR-2: a closed network access dialog stays closed on every Settings pa
     const { native } = fakeNative(readOnlySettings);
     const remove = `network:on:${networkUi.networkSerial}`; // the switch asked: the root's connectionRemove
     expect(openDialogs(remove, (await connectionsPage(client, native, true, 0)).network)).toEqual(['NetworkAccessDialog']);
-    await runNetworkOp(client, native, 'network-access', '', 'on');
+    expect((await runNetworkOp(client, native, 'network-access', '', 'on')).relaunch).toBeUndefined();
     expect(toasts(client).map(toast => toast.title)).toEqual(['Could not update network access']);
     expect(networkUi.exposureError).toContain('Failed to persist desktop server exposure mode network-accessible.');
     // The Connections page, still open: the serial moved, so the dialog closed (the reference closes it after any outcome).
@@ -99,6 +99,23 @@ describe('NR-2: a closed network access dialog stays closed on every Settings pa
     // Without the native module (or before it answers) too.
     const bare = connectionsProjection({ connection: 'disconnected', origin: '', environmentId: '', statusMessage: '', scopes: [], config: {} }, []);
     expect([bare.network.visible, openDialogs(remove, bare.network)]).toEqual([false, []]);
+  });
+
+  it.each([
+    { op: 'network-access', value: 'on', remove: 'network:on:0' },
+    { op: 'tailscale-serve', value: 'on:443', remove: 'tailscale:setup:0' },
+    { op: 'tailscale-serve', value: 'off', remove: 'tailscale:disable:0' },
+  ])('an accepted $op $value relaunch request keeps its completed dialog closed', async ({ op, value, remove }) => {
+    primary.update(ready(), true);
+    const client = new T3Client();
+    const { native } = fakeNative(request => request.op === 'localNetworkFacts' ? facts
+      : request.op === 'desktopSettingsSet' ? { ok: true, generation: 1, value: { changed: true, settings: { ...client.localBackend.settings,
+        ...(op === 'network-access' ? { serverExposureMode: 'network-accessible' } : { tailscaleServeEnabled: value !== 'off', tailscaleServePort: 443 }) } } } : undefined);
+    expect(openDialogs(remove, (await connectionsPage(client, native, true, 0)).network)).toHaveLength(1);
+    expect((await runNetworkOp(client, native, op, '', value)).relaunch).toBe(true);
+    expect(openDialogs(remove, closedNetworkView())).toEqual([]);
+    expect(openDialogs(remove, (await connectionsPage(client, native, false, 0)).network)).toEqual([]);
+    expect(openDialogs(remove, (await connectionsPage(client, native, true, 0)).network)).toEqual([]);
   });
 
   it('the same for Create pairing link after it created the link', async () => {

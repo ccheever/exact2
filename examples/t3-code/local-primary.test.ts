@@ -19,7 +19,7 @@ import { applyLifecycle, migrationDescription, migrationToast, primaryLifecycle,
 import { toasts } from './toast';
 import { T3Client } from './client';
 import { obj, type Obj } from './domain';
-import type { Native } from './protocol';
+import type { Files, Native } from './protocol';
 
 afterEach(() => { resetPrimary(); primaryLifecycle.environmentId = ''; primaryLifecycle.welcome = null; primaryLifecycle.migration = null; });
 
@@ -92,14 +92,16 @@ class Fake implements Native {
   /** desktop-settings.json as the native side keeps it (T3DesktopSettings.swift); `settingsFailure` fails the next write. */
   settings: Obj = { localEnvironmentEnabled: true, serverExposureMode: 'local-only', tailscaleServeEnabled: false, tailscaleServePort: 443 };
   settingsFailure = '';
+  settingsWrite: () => Promise<void> = async () => {};
   constructor(public saved: Obj[] = [], public answers: Record<string, (request: Obj) => unknown> = {}) {}
   watch() {}
   async later(input: unknown): Promise<unknown> {
     const request = obj(input); this.calls.push(request);
     const answer = this.answers[String(request.op)];
-    if (answer) { const value = answer(request); return value instanceof Error ? { ok: false, generation: 1, error: { kind: 'LocalEnvironment', message: value.message, uncertain: false } } : { ok: true, generation: 1, value }; }
+    if (answer) { const value = await answer(request); return value instanceof Error ? { ok: false, generation: 1, error: { kind: 'LocalEnvironment', message: value.message, uncertain: false } } : { ok: true, generation: 1, value }; }
     if (request.op === 'environments') return { ok: true, generation: 0, value: { saved: this.saved } };
     if (request.op === 'desktopSettingsSet') {
+      await this.settingsWrite();
       if (this.settingsFailure) { const message = this.settingsFailure; this.settingsFailure = ''; return { ok: false, generation: 0, error: { kind: 'DesktopSettings', message } }; }
       const { op: _op, ...patch } = request, next = { ...this.settings, ...patch }, changed = JSON.stringify(next) !== JSON.stringify(this.settings);
       this.settings = next;
@@ -216,61 +218,113 @@ function switchClient(focusPrimary: boolean): T3Client {
   return client;
 }
 
-describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () => {
-  test('turning off hands the focus to a saved environment, then stops the server; the setting persists', async () => {
+describe('the Local environment switch persists before requesting app relaunch', () => {
+  test.each([{ enabled: false }, { enabled: true }])('Local enabled=$enabled requests relaunch only after a changed successful write', async ({ enabled }) => {
+    const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
+    for (const outcome of ['changed', 'unchanged', 'rejected']) {
+      const before = outcome === 'unchanged' ? enabled : !enabled;
+      primary.update(ready({ enabled: before, desktopSettings: { localEnvironmentEnabled: before } }), before);
+      const client = switchClient(before), native = new Fake([remote]);
+      client.localBackend = primary.status;
+      native.settings.localEnvironmentEnabled = before;
+      if (outcome === 'rejected') native.settingsFailure = 'Desktop settings write failed.';
+      let release = () => {}, entered = () => {};
+      const writing = new Promise<void>(resolve => { entered = resolve; });
+      const persisted = new Promise<void>(resolve => { release = resolve; });
+      native.settingsWrite = async () => { entered(); await persisted; };
+      const completed: Awaited<ReturnType<T3Client['command']>>[] = [];
+      const command = client.command('local-environment', '', enabled ? 'on' : 'off', 0, native, files).then(result => { completed.push(result); return result; });
+      await writing;
+      expect(completed).toEqual([]);
+      expect(native.settings.localEnvironmentEnabled).toBe(before);
+      expect(native.calls.filter(call => call.op === 'desktopSettingsSet')).toEqual([{ op: 'desktopSettingsSet', localEnvironmentEnabled: enabled }]);
+      release();
+      const result = await command;
+      expect(result.relaunch).toBe(outcome === 'changed');
+      expect(completed.filter(result => result.relaunch)).toHaveLength(outcome === 'changed' ? 1 : 0);
+      expect(native.settings.localEnvironmentEnabled).toBe(outcome === 'rejected' ? before : enabled);
+      expect(native.calls.filter(call => ['disconnect', 'connect', 'fleetStop', 'localBackendSetEnabled', 'localBackendRestart'].includes(String(call.op)))).toEqual([]);
+      expect(primary.disabled).toBe(!before); // This process keeps its running server until orderly quit.
+      if (outcome === 'rejected') expect(thisMachine(undefined, null).error).toBe('Desktop settings write failed.');
+      expect(client.local).not.toHaveProperty('localEnvironmentEnabled');
+    }
+  });
+
+  test.each([{ outcome: 'changed' }, { outcome: 'unchanged' }, { outcome: 'rejected' }])('a superseded Local write keeps only its accepted relaunch request: $outcome', async ({ outcome }) => {
+    const before = outcome !== 'unchanged';
+    primary.update(ready({ enabled: before, desktopSettings: { localEnvironmentEnabled: before } }), before);
+    const client = switchClient(before), native = new Fake();
+    client.localBackend = primary.status;
+    native.settings.localEnvironmentEnabled = before;
+    if (outcome === 'rejected') native.settingsFailure = 'Desktop settings write failed.';
+    let release = () => {}, entered = () => {}, preferenceWrites = 0;
+    const writing = new Promise<void>(resolve => { entered = resolve; });
+    const persisted = new Promise<void>(resolve => { release = resolve; });
+    native.settingsWrite = async () => { entered(); await persisted; };
+    const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() { preferenceWrites++; } } };
+    const completed: Awaited<ReturnType<T3Client['command']>>[] = [];
+    const local = client.command('local-environment', '', 'off', 0, native, files).then(result => { completed.push(result); return result; });
+    await writing;
+    expect(completed).toEqual([]);
+    const newer = await client.command('endpoint-default', '', 'tailscale:ip:http', 0, native, files);
+    expect(newer.relaunch).toBe(false);
+    client.error = 'The newer command owns this message.';
+    release();
+    const accepted = await local;
+    expect(accepted.relaunch).toBe(outcome === 'changed');
+    expect([accepted, newer].filter(result => result.relaunch)).toHaveLength(outcome === 'changed' ? 1 : 0);
+    expect(native.settings.localEnvironmentEnabled).toBe(outcome === 'rejected' ? before : false);
+    expect(client.localBackend.settings.localEnvironmentEnabled).toBe(before); // A stale handler cannot adopt its reply.
+    expect(client.error).toBe('The newer command owns this message.');
+    expect(preferenceWrites).toBe(1); // Only the current command runs its follow-up preference save.
+    expect(native.calls.filter(call => call.op === 'desktopSettingsSet')).toHaveLength(1);
+    expect(native.calls.filter(call => ['disconnect', 'connect', 'fleetStop', 'localBackendSetEnabled', 'localBackendRestart'].includes(String(call.op)))).toEqual([]);
+  });
+
+  test('a stale connection reply is still refused without a relaunch request or state adoption', async () => {
+    const client = switchClient(false);
+    let release = () => {}, entered = () => {};
+    const connecting = new Promise<void>(resolve => { entered = resolve; });
+    const connected = new Promise<void>(resolve => { release = resolve; });
+    const native = new Fake([], { connect: async () => { entered(); await connected; return { state: 'connected', origin: remote.origin, environmentId: remote.environmentId, message: '' }; } });
+    const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
+    const old = client.command('connect', remote.origin, '', 0, native, files);
+    await connecting;
+    const newer = await client.command('endpoint-default', '', 'tailscale:ip:http', 0, native, files);
+    client.error = 'The newer command owns this message.';
+    release();
+    expect((await old).relaunch).toBe(false);
+    expect(newer.relaunch).toBe(false);
+    expect([client.environmentId, client.connection, client.error]).toEqual(['', 'disconnected', 'The newer command owns this message.']);
+  });
+
+  test('route correlation belongs only to a keyboard move request, including a refused command', async () => {
+    const client = switchClient(false);
+    const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {} } };
+    expect((await client.command('environment-route-move', 'env', 'route-a>route-b\nroute-a,route-b', 42, null, files)).routeReorder).toBe(42);
+    expect((await client.command('environment-route-move', 'env', 'route-a>route-b', 42, null, files)).routeReorder).toBe(0);
+    expect((await client.command('endpoint-default', '', 'line1\nline2', 42, null, files)).routeReorder).toBe(0);
+  });
+
+  test.each(['preferences', 'snapshot cleanup'])('an accepted desktop write keeps its relaunch request when later %s fails', async failedStep => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
-    const fleet = (await import('./settings-b-fleet')).fleet;
-    fleet.saved = [remote];
-    const client = switchClient(true);
-    const native = new Fake([remote], {
-      disconnect: () => ({ state: 'disconnected', origin: '', environmentId: '', message: 'Disconnected.' }),
-      connect: request => ({ state: 'connecting', origin: request.origin, environmentId: '', message: '' }),
-      localBackendSetEnabled: request => ({ state: 'stopped', enabled: request.enabled }),
-    });
-    const result = await applyLocalSetting(client, native, { localEnvironmentEnabled: false });
-    // DesktopAppSettings.setLocalEnvironmentEnabled persists to desktop-settings.json first (decision U7).
-    expect(native.calls.map(call => call.op)).toEqual(['desktopSettingsSet', 'disconnect', 'fleetStop', 'connect', 'fleetStop', 'localBackendSetEnabled']);
-    expect(native.calls[0]).toEqual({ op: 'desktopSettingsSet', localEnvironmentEnabled: false });
-    expect(native.calls.find(call => call.op === 'connect')).toMatchObject({ origin: 'https://box.example.com', credential: '' });
-    expect(native.calls.find(call => call.op === 'localBackendSetEnabled')).toEqual({ op: 'localBackendSetEnabled', enabled: false });
-    expect(result.status).toMatchObject({ origin: 'https://box.example.com', state: 'connecting' });
+    const client = switchClient(true), native = new Fake();
+    client.localBackend = primary.status;
+    let preferenceWrites = 0;
+    const files: Files = { fs: { async mkdir() {}, async readFile() { throw new Error('missing'); }, async atomicWriteFile() {
+      preferenceWrites++;
+      if (failedStep === 'preferences') throw new Error('preferences disk full');
+    } } };
+    if (failedStep === 'snapshot cleanup') client.flushSnapshotReleases = async () => { throw new Error('snapshot cleanup failed'); };
+    const result = await client.command('local-environment', '', 'off', 0, native, files);
+    expect(result.relaunch).toBe(true);
     expect(native.settings.localEnvironmentEnabled).toBe(false);
-    expect(client.local).not.toHaveProperty('localEnvironmentEnabled'); // t3-code.json no longer holds it
-    expect([primary.disabled, primary.target]).toEqual([true, null]);
-    fleet.saved = [];
-  });
-
-  test('turning on starts the server and, with nothing focused, connects to it', async () => {
-    primaryOff();
-    const client = switchClient(false);
-    client.localBackend = parseLocalBackendStatus({ state: 'stopped', enabled: false, desktopSettings: { localEnvironmentEnabled: false } });
-    const native = new Fake([], {
-      localBackendSetEnabled: () => ({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:16437', wsBaseUrl: 'ws://127.0.0.1:16437', bearerReady: true, environmentId: 'env-local', label: 'Lane Mac',
-        desktopSettings: { localEnvironmentEnabled: true } }),
-      connect: request => ({ state: 'connected', origin: request.origin, environmentId: 'env-local', message: '' }),
-    });
-    native.settings.localEnvironmentEnabled = false;
-    const result = await applyLocalSetting(client, native, { localEnvironmentEnabled: true });
-    expect(native.calls.filter(call => call.op !== 'fleetStop')).toEqual([{ op: 'desktopSettingsSet', localEnvironmentEnabled: true }, { op: 'localBackendSetEnabled', enabled: true },
-      { op: 'connect', origin: 'http://127.0.0.1:16437/', primary: true }]);
-    expect([native.settings.localEnvironmentEnabled, client.localBackend.settings.localEnvironmentEnabled]).toEqual([true, true]);
-    expect(result.status).toMatchObject({ environmentId: 'env-local', state: 'connected' });
-    expect(primary.target?.environmentId).toBe('env-local');
-  });
-
-  test('a failure puts the setting back and answers its reason (shown under the dialog\'s description)', async () => {
-    primaryOff();
-    const client = switchClient(false);
-    client.localBackend = parseLocalBackendStatus({ state: 'stopped', enabled: false, desktopSettings: { localEnvironmentEnabled: false } });
-    const native = new Fake([], { localBackendSetEnabled: () => new Error('The local server stopped before it was ready (code=1).') });
-    native.settings.localEnvironmentEnabled = false;
-    expect(await applyLocalSetting(client, native, { localEnvironmentEnabled: true })).toEqual({ status: null, generation: -1 });
-    // Persisted on, then written back off when the server could not start.
-    expect(native.calls.filter(call => call.op === 'desktopSettingsSet').map(call => call.localEnvironmentEnabled)).toEqual([true, false]);
-    expect([native.settings.localEnvironmentEnabled, client.localBackend.settings.localEnvironmentEnabled]).toEqual([false, false]);
-    expect(primary.disabled).toBe(true);
-    // The dialog's inline error (the view's), not the command's; the next change clears it.
-    expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, error: 'The local server stopped before it was ready (code=1).' });
+    expect(native.calls.filter(call => call.op === 'desktopSettingsSet')).toHaveLength(1);
+    expect(preferenceWrites).toBe(1);
+    if (failedStep === 'preferences') expect(client.error).toBe('Could not save local drafts and preferences. Keep a copy before closing.');
+    else expect(result.message).toBe('snapshot cleanup failed');
+    // A repeated confirmation is a no-op and must not manufacture another request.
+    expect((await client.command('local-environment', '', 'off', 0, native, files)).relaunch).toBe(false);
   });
 
   test('a desktop-settings.json write failure changes nothing and shows the reference\'s DesktopSettingsWriteError text', async () => {
@@ -286,22 +340,19 @@ describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () 
     expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, error: 'Desktop settings write failed during replace-settings-file at /lane/t3-home/userdata/desktop-settings.json.' });
   });
 
-  test('the section holds still while a change runs ("Restarting…"), then shows the new value', async () => {
+  test('the section holds still while persistence is pending', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local', 'Lane Mac');
     const host = { connection: 'connected', origin: 'http://127.0.0.1:16437', environmentId: 'env-local', statusMessage: '', scopes: [], config: { environment: { label: 'Lane Mac' } } };
     expect(connectionsProjection(host, []).thisMachine).toMatchObject({ title: 'Lane Mac', enabled: true });
-    let release: () => void = () => {};
-    const stopped = new Promise<void>(resolve => { release = resolve; });
-    const native = new Fake([], { disconnect: () => ({ state: 'disconnected', origin: '', environmentId: '', message: '' }) });
-    const later = native.later.bind(native);
-    native.later = async (input: unknown) => {
-      if (obj(input).op === 'localBackendSetEnabled') { await stopped; return { ok: true, generation: 1, value: { state: 'stopped', enabled: false } }; }
-      return later(input);
-    };
+    let release = () => {}, entered = () => {};
+    const writing = new Promise<void>(resolve => { entered = resolve; });
+    const persisted = new Promise<void>(resolve => { release = resolve; });
+    const native = new Fake();
+    native.settingsWrite = async () => { entered(); await persisted; };
     const client = switchClient(true);
     const change = applyLocalSetting(client, native, { localEnvironmentEnabled: false });
-    await new Promise(resolve => setTimeout(resolve, 5));
-    primary.update(parseLocalBackendStatus({ state: 'stopped', enabled: false }), false); // a refresh while the server stops
+    await writing;
+    primary.update(parseLocalBackendStatus({ state: 'stopped', enabled: false }), false); // An independent status refresh while persistence is pending.
     expect(connectionsProjection({ ...host, connection: 'disconnected', environmentId: '' }, []).thisMachine).toMatchObject({ title: 'Lane Mac', enabled: true });
     release(); await change;
     expect(connectionsProjection({ ...host, connection: 'disconnected', environmentId: '' }, []).thisMachine).toMatchObject({ title: 'This machine', enabled: false });

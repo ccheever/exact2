@@ -6,8 +6,9 @@
 // The settings are desktop-settings.json's `serverExposureMode`, `tailscaleServeEnabled` and
 // `tailscaleServePort` (decision U7: the original app's file; the native side reads and writes it,
 // T3DesktopSettings.swift). Facts come from the native module (interfaces, the MagicDNS name, the
-// HTTPS probe); the restart is `applyLocalSetting` (this-machine.ts).
+// HTTPS probe); connections-network.ts returns the relaunch decision to Contract.
 import { createAdvertisedEndpoint, type AdvertisedEndpoint, type AdvertisedEndpointProvider, type CreateAdvertisedEndpointInput } from './advertised-endpoint';
+import { letGo } from './let-go';
 import { DEFAULT_TAILSCALE_SERVE_PORT, isTailscaleIpv4Address, resolveTailscaleAdvertisedEndpoints, type NetworkInterfaces } from './tailscale';
 
 export type DesktopServerExposureMode = 'local-only' | 'network-accessible';
@@ -201,14 +202,14 @@ export class DesktopServerExposure {
       ...(this.override ? { advertisedHostOverride: this.override } : {}) });
     if (resolved.unavailable) throw new DesktopServerExposureNoNetworkAddressError(previous.port);
     let change: { changed: boolean };
-    try { change = await this.deps.settings.setServerExposureMode(mode); } catch (cause) { throw new DesktopServerExposureModePersistenceError(mode, cause); }
+    try { change = await this.deps.settings.setServerExposureMode(mode); } catch (cause) { if (letGo(cause)) throw cause; throw new DesktopServerExposureModePersistenceError(mode, cause); }
     this.state = resolved.state;
     return { state: toContractState(resolved.state), requiresRelaunch: change.changed || requiresBackendRelaunch(previous, resolved.state) };
   }
 
   async setTailscaleServeEnabled(input: { enabled: boolean; port?: number }): Promise<DesktopServerExposureChange> {
     let result: { settings: ExposureSettings; changed: boolean };
-    try { result = await this.deps.settings.setTailscaleServe(input); } catch (cause) { throw new DesktopTailscaleServePersistenceError(input.enabled, input.port ?? null, cause); }
+    try { result = await this.deps.settings.setTailscaleServe(input); } catch (cause) { if (letGo(cause)) throw cause; throw new DesktopTailscaleServePersistenceError(input.enabled, input.port ?? null, cause); }
     this.state = { ...this.state, tailscaleServeEnabled: result.settings.tailscaleServeEnabled, tailscaleServePort: result.settings.tailscaleServePort };
     return { state: toContractState(this.state), requiresRelaunch: result.changed };
   }

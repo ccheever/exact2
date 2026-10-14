@@ -22,7 +22,12 @@ fn host(rename: &str, message: &str) -> exact_apple::Host<Replies> {
     // carries its destination, so neither its timing nor an older route can win.
     replies.0.insert(
         "command".to_owned(),
-        Value::record(vec![Value::Number(2.0), Value::str(message)]),
+        Value::record(vec![
+            Value::Number(2.0),
+            Value::str(message),
+            Value::Bool(false),
+            Value::Number(0.0),
+        ]),
     );
     let measurer = CallbackMeasurer::new(measure, std::ptr::null_mut(), None);
     let (mut host, _) =

@@ -26,3 +26,6 @@ mod composer_accessibility_tests;
 
 #[cfg(test)]
 mod legacy_sidebar_tests;
+
+#[cfg(test)]
+mod connections_settings_tests;

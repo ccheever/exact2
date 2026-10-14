@@ -1,0 +1,134 @@
+{
+  "at": "2026-10-14T09:29:33.859779+00:00",
+  "fixtureProcesses": [
+    {
+      "role": "proxy",
+      "pid": 22714,
+      "identityChecked": true,
+      "signal": "SIGTERM"
+    },
+    {
+      "role": "backend",
+      "pid": 22713,
+      "identityChecked": true,
+      "signal": "SIGTERM"
+    }
+  ],
+  "recordedPidsExited": true,
+  "portsFree": {
+    "16570": true,
+    "16571": true,
+    "16572": true
+  },
+  "normalRestoration": {
+    "at": "2026-10-14T09:29:05.582954+00:00",
+    "appsExited": [
+      42318,
+      43033,
+      48471,
+      50728,
+      51700
+    ],
+    "embeddedPort16570Free": true,
+    "domains": {
+      "com.exact.t3code.macos": {
+        "typedEqual": true,
+        "keyCount": 0,
+        "changedKeysRestored": 2,
+        "noExtraKeys": true,
+        "typedCanonicalSHA256": "9261ecceda608ef174256e5fdc774c1e6e3dcf533409c1bc393d490d01c713f1"
+      },
+      "T3 Code (Exact)": {
+        "typedEqual": true,
+        "keyCount": 7,
+        "changedKeysRestored": 0,
+        "noExtraKeys": true,
+        "typedCanonicalSHA256": "40b7d2e38d16b8e4190a3a3d597aa8912e14f5508a6bf36a488c886cb9b3ee5b"
+      }
+    },
+    "roots": {
+      "data": {
+        "entries": 8,
+        "inventoryExactlyEqual": true,
+        "mode": 493,
+        "fileHashesTypesModesOwnersMtimesRestored": true
+      },
+      "cache": {
+        "entries": 1,
+        "inventoryExactlyEqual": true,
+        "mode": 493,
+        "fileHashesTypesModesOwnersMtimesRestored": true
+      },
+      "temporary": {
+        "entries": 1,
+        "inventoryExactlyEqual": true,
+        "mode": 493,
+        "fileHashesTypesModesOwnersMtimesRestored": true
+      },
+      "kv": {
+        "entries": 45,
+        "inventoryExactlyEqual": true,
+        "mode": 448,
+        "fileHashesTypesModesOwnersMtimesRestored": true
+      }
+    },
+    "keychain": [
+      {
+        "origin": "http://127.0.0.1:16572",
+        "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+        "status": 44,
+        "absentBeforeAndAfter": true,
+        "deletionNeeded": false
+      },
+      {
+        "origin": "http://127.0.0.1:16571",
+        "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+        "status": 44,
+        "absentBeforeAndAfter": true,
+        "deletionNeeded": false
+      },
+      {
+        "origin": "http://localhost:16571",
+        "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+        "status": 44,
+        "absentBeforeAndAfter": true,
+        "deletionNeeded": false
+      }
+    ]
+  },
+  "normalQualification": "blocked before pairing and public relaunch by desktop-tool activation selecting older checkout",
+  "noPairingOrPublicRelaunchAttempted": true,
+  "keepAwakeOwner": "coordinator; not touched",
+  "finalFocusRepair": {
+    "at": "2026-10-14T09:55:13.415177+00:00",
+    "appPidsExited": [
+      82736,
+      92473
+    ],
+    "fixtureProcesses": [
+      {
+        "role": "proxy",
+        "pid": 65782,
+        "identityChecked": true,
+        "signal": "SIGTERM"
+      },
+      {
+        "role": "backend",
+        "pid": 65781,
+        "identityChecked": true,
+        "signal": "SIGTERM"
+      }
+    ],
+    "recordedPidsExited": true,
+    "portsFree": {
+      "16570": true,
+      "16571": true,
+      "16572": true
+    },
+    "keepAwakeOwner": "coordinator; not touched"
+  },
+  "finalIndependentVerification": {
+    "receipt": "cleanup-final-focus-independent.json",
+    "sha256": "9a2d8655f2242cb94ebe9c20136c35636b460d701c969cf3935ee58046d06dc3"
+  }
+}

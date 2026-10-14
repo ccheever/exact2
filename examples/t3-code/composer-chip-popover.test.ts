@@ -109,7 +109,8 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClose(false)');
     expect(window).not.toContain('dismiss=chipClose(false), escape=');
     const settings = await source('app-settings.contract');
-    expect(settings).toContain('derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or ');
+    const escapeOwners = (settings.match(/derive escapeOwned = ([^\n]+)/)?.[1] ?? '').split(' or ');
+    for (const owner of ['settingsMenu != ""', 'modelsOpen', 'paletteOpen', 'chipOpen', 'routeKeyboard.phase != ""']) expect(escapeOwners).toContain(owner);
     expect(await source('app-window.contract')).toContain('paletteOpen=paletteOpen, chipOpen=chipShown, ');
   });
   test('Settings or a page over the composer\'s chip hides it at once and closes the native press; the palette does not', async () => {

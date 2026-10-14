@@ -12,8 +12,8 @@ use QrCell from "./settings-core.contract"
 // connections-network.ts projects every value). After T3 Code ConnectionsSettings.tsx
 // (renderNetworkAccessRow, NetworkAccessDescription, AdvertisedEndpointListRow "endpoint-rail",
 // renderTailscaleRow, FoldedSettingsSection, AuthorizedClientsHeaderAction, PairingLinkListRow,
-// ConnectedClientListRow, AccessScopeSummary). A change restarts the embedded server in place
-// (the reference relaunches the app: decision U4, issue X45). Dialogs open on the root's
+// ConnectedClientListRow, AccessScopeSummary). Changes persist before requesting an app
+// relaunch through Contract (decision U4). Dialogs open on the root's
 // `connectionRemove` with their serial (`network:on:3`) and close when the serial moves.
 
 keyframes netFadeIn
