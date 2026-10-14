@@ -39,7 +39,7 @@ enum T3TerminalKeys {
     enum Composing: Equatable {
         /// A ⌘ chord: the app's, as without a composition.
         case chord
-        /// A ⌃ chord: the composition is committed first.
+        /// A ⌃ chord: offer it to the input context, then commit only if it declines.
         case commitFirst
         /// ⌥Return (the Korean input method's Hanja list): the input context's, before WebKit's keyDown.
         case inputContextFirst
