@@ -3,7 +3,7 @@ name: 20261014-adopt-main-fixes-r14
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r14
@@ -139,7 +139,7 @@ scrolling, real IME, pointer cursors or VoiceOver speech.
 | Final Contract plan | Pass: 28,103,415 bytes, 15.6% below the original feature baseline |
 | Native bundle/smoke | Build passed in 309.85 seconds; all ten connected smoke captures completed, with inspected screenshots and unchanged dirty Git state |
 | Remote first-wave merge | All eleven PRs confirmed merged by GitHub; feature checkpoint `1e3152209` |
-| Remote adoption merge | Published as draft [#549](https://github.com/ccheever/exact2/pull/549); merge pending |
+| Remote adoption merge | [#549](https://github.com/ccheever/exact2/pull/549) confirmed merged at 03:08:53 UTC, feature `3710af842bc54521c298124156989950b6f2e68c` |
 
 ## Attempts and evidence
 
@@ -160,9 +160,9 @@ branch. Durable proof is published in the [combined packet](https://github.com/c
 
 ## Next action
 
-Merge verified adoption PR [#549](https://github.com/ccheever/exact2/pull/549) against the first-wave feature checkpoint.
-Merge by fast-forward or a real merge so main remains an ancestor. Keep the separate
-real-input parity rows open while the desktop is locked.
+Adoption is merged. Start `dialog-focus-return-and-traps`, then the seven remaining
+application follow-ups, serially from the refreshed feature branch. Keep the separate
+real-input parity rows open until the attended verification can run.
 
 ## Final verification and independent review
 

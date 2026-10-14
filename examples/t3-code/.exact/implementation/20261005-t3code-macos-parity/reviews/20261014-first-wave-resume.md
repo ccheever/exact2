@@ -1,6 +1,6 @@
 # First-wave continuation, 2026-10-14
 
-The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. All eleven repair PRs are now merged into the remote feature branch at checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a` (GitHub readback, 03:04 UTC). The bounded main adoption has passed repository and native verification; its draft PR [#549](https://github.com/ccheever/exact2/pull/549) is published, with merge pending. The broader real-input qualifications remain open.
+The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. All eleven repair PRs are now merged into the remote feature branch at checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a` (GitHub readback, 03:04 UTC). The bounded main adoption has passed repository and native verification; PR [#549](https://github.com/ccheever/exact2/pull/549) is confirmed merged at feature `3710af842bc54521c298124156989950b6f2e68c` (03:08:53 UTC), preserving main's ancestry. The broader real-input qualifications remain open.
 
 ## Published revisions
 
@@ -38,4 +38,9 @@ Main adoption is tracked in [round 14](../tasks/closed/20261014-adopt-main-fixes
 
 ## Next action
 
-Merge verified main adoption PR [#549](https://github.com/ccheever/exact2/pull/549) with its ancestry preserved. All eleven first-wave PRs are already merged; required repository checks and the combined native drive have passed. Keep final real-input rows open while the desktop is locked. PR #541's size/functionality choice is no longer needed after the measured reduction. Start dependent application tasks only after the feature branch contains the adopted main.
+All eleven first-wave PRs and adoption [#549](https://github.com/ccheever/exact2/pull/549) are merged. Required repository checks and the combined native drive have passed. Keep final real-input rows open while the desktop is locked. PR #541's size/functionality choice is no longer needed after the measured reduction. The merge prerequisites are now satisfied. Start the next task from the refreshed feature branch.
+
+Follow-up order (one task PR at a time): `dialog-focus-return-and-traps`,
+`legacy-sidebar-parity`, `connections-network-settings`, `menu-keys-popover-commands`,
+`browser-panel-parity`, `css-workaround-retirements`, `timeline-and-window-hooks`, then
+`contract-keys-and-menu-bar`.
