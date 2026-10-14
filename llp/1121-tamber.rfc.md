@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–5 and 9 are on main; commit 6 (the web) is next. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–6 and 9 are on main; commits 7 (the CLI and docs) and 8 (the Bluesky port) remain, and then stage 2's gate. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -1814,3 +1814,41 @@ one table, which `tamber-role-axis` guarantees.
 Driven on the Mac and the iOS simulator (`~/x2p2/tf-shots/`). Everything changes to Dim, the
 previews keep their own pins (a Black preview on a Dim page and the reverse), the card
 transitions between the two dark values, and light is unchanged.
+
+### Stage 2, commit 6: the web (`644818d98`..`42abcd182`; core `0addea0dc`)
+
+Built as D7's "The web" says, with these as-built details:
+- **Only tokens that vary by an app axis become custom properties** (`--x-<name>`, synthetic
+  ones `--x-s<n>`, suffixed until unique). Every other token stays folded inline, which
+  resolves the same at the using element. That is D11's pay-for-what-you-use applied to
+  D7.
+- **Finding a row's `var()`.** The rows are the template kernel's, projected twice: once as
+  the plan says, and once with each varying token bound to a sentinel colour no row writes.
+  The sentinel's position is each token's `var()`.
+- **One rule per full tuple**, `[data-x-modes="axis=value,…"]`; the default tuple's rule is
+  also `:root`'s, so the first paint is right.
+- **Boundaries carry `data-x-b`:** an `-exact-mode`, a `color-scheme`, or an `accent-color`
+  where a varying token names the accent. `modes.js` gives each its full tuple and writes
+  every inherited colour row it doesn't set from the nearest ancestor's row text when that
+  row read a token. The rows are `color`, `caret-color`, `fill`, `stroke`, `accent-color`,
+  `text-shadow` and `-webkit-text-stroke-color`; `-exact-symbol-palette` has no CSS. An
+  accent-only boundary redeclares tokens and writes no inherited rows, as the wasm host
+  does.
+- **An element whose own accent names an accent-naming varying token** takes its
+  `--exact-accent` from per-tuple `[data-x-accent]` rules on pin and scheme boundaries,
+  avoiding the self-reference `css.rs` also avoids.
+- **Modes are on** with axes, and also for a theme plus any bound `color-scheme`, since a
+  scheme boundary is a boundary.
+- **It sits beside stage 1's `--exact-scheme-color`.** That rule covers unsaid text under a
+  `CanvasText` override; `modes.js` covers rows that read a token. The two are disjoint:
+  `tamber-modes` has dark cards under a light section holding unsaid text, token text, text
+  inherited from a token-coloured ancestor and a Dim pin, each taking its own side on both
+  web targets (`42abcd182`).
+- **`setMode` and `prefer mode` work on the JS target.**
+- **Pages rendered ahead:** `render.mjs` resolves boundaries on its DOM, and a Rust-rendered
+  page's baked token values give way to the class's `var()` on adoption. Known gap:
+  `render.mjs` has no `CSS.supports`, so a bound value the property refuses counts as
+  setting the row until the page runs.
+- **Evidence:** conformance `tamber-modes` covers Black in Dim, inherited text, a Light card
+  on a dark page, five accent cases, a bound pin and a cleared pin colour, over two axes,
+  with no failures against the wasm host in Chrome and in WebKit.
