@@ -335,36 +335,36 @@ component MobileRouteContent
   action editGitWorktree(value: string)
     gitField("worktree", value)
   view
-    when routeName == "home" and workspace.emptyWorkspaceDetail
+    if routeName == "home" and workspace.emptyWorkspaceDetail
       header id="workspace-home-header"
         button press=openNewTask aria-label="New task"
           t3-symbol symbol-name="square.and.pencil" point-size=20 symbol-tint=homeLook.foreground width=20 height=20
         text "" role="heading" aria-level=2
-    else when routeName == "newTask"
+    else if routeName == "newTask"
       header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
         button id="back" press=back aria-label="Back" testId="back-newTask"
           image "symbol:back" width=20 height=20
         text newTaskFlow.title id="route-title" role="heading" aria-level=2 font-size=18 font-weight=800
         input id="new-task-project-search" type="search" value=newTaskQuery input=editNewQuery placeholder="Search projects" aria-label="Search projects" testId="new-task-project-search"
-        when newTaskData.canAddProject
+        if newTaskData.canAddProject
           button press=openAddProject aria-label="Add project" testId="new-task-add-project"
             image "symbol:add" width=20 height=20
-    else when routeName == "threadModel" or routeName == "newTaskModel"
+    else if routeName == "threadModel" or routeName == "newTaskModel"
       header height=44 flex-shrink=0 display="flex" align-items="center" justify-content="space-between"
         button id="model-settings-cancel" press=modelAction("cancel", "", "") disabled=modelChangedPending aria-label="Cancel thread settings"
           text "Cancel"
         text "Thread settings" id="model-settings-title" role="heading" aria-level=2 font-size=17 font-weight=700
         button id="model-settings-save" press=modelAction("save", "", "") disabled=(not modelData.canSave or modelChangedPending) aria-label=(modelData.pending ? "Save thread settings" : "Done")
           text modelData.saveLabel
-    else when routeName != "notfound" and routeName != "homeArrange" and routeName != "threadModel" and routeName != "newTaskModel" and routeName != "threadDevices" and routeName != "settingsAuth" and routeName != "settingsWaitlist" and routeName != "connectOnboarding"
-      MobileRootHeader(routeName=(routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "" ? "thread" : routeName), title=(startsWith(routeName, "addProject") ? (match first(filter(addProjectData.screens, screen => screen.id == routeId)) { case some(screen) => screen.title, case none => "Add project" }) : routeName == "threadQueue" ? "Queued" : routeName == "gitOverview" ? gitData.branchLabel : routeName == "gitCommit" ? "Commit changes" : routeName == "gitConfirm" ? "Confirm Git action" : routeName == "gitBranches" ? "Branches & worktrees" : routeName == "settingsThreads" ? "Thread behavior" : routeName == "settingsProjectOverview" ? "Project overview" : routeName == "settingsNotifications" ? "Notifications" : routeName == "settingsAbout" ? "About T3 Code" : routeName == "settingsClientStorage" ? "Client Storage" : routeName == "settingsDiagnostics" ? "Diagnostics" : routeName == "settingsOpenSourceLicenses" ? "Open source licenses" : routeName == "settingsOpenSourceLicense" ? "License notice" : routeName == "settingsLegal" ? "Legal" : routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? mediaData.name : routeName == "connect" ? "Add environment" : routeName == "home" ? "T3 Code" : routeName == "environmentDetail" ? detail.title : routeName == "threadBrowser" ? browserData.title : routeName == "threadDevices" ? devicesData.title : routeName == "threadTerminal" ? "Terminal" : routeName == "threadTerminalCapture" ? "Visible terminal output" : routeName == "threadReview" ? "Review changes" : routeName == "threadReviewComment" ? "Leave a comment" : routeName == "threadFiles" ? (workspace.fileInspectorSupported and filesData.error == "" ? threadData.title : filesData.title) : (routeName == "threadFile" or routeName == "newTaskFile") ? fileData.title : routeName == "thread" ? threadData.title : routeName == "settingsScheduledTasks" ? "Scheduled Tasks" : routeName == "settingsScheduledNew" ? "New scheduled task" : routeName == "settingsScheduledEdit" ? "Edit scheduled task" : routeName == "settingsScheduledModel" ? "Model" : routeName == "settingsScheduledBranch" ? "Base branch" : routeName == "settingsUsage" ? "Usage" : routeName == "settingsUsageAccount" ? automationData.account.label : routeName == "settings" ? "Settings" : routeName == "settingsServer" ? serverSettings.title : routeName == "settingsProviders" ? "Provider accounts" : routeName == "settingsAppearance" ? "Appearance" : routeName == "settingsChoice" ? (settingsChoice.key == "composerEnterBehavior" ? "Keyboard" : settingsChoice.key == "followUpBehavior" ? "Follow-ups" : settingsChoice.key == "projectGroupingMode" ? "Organization" : settingsChoice.title) : routeName == "archive" ? "Archived threads" : routeName == "threadAgents" ? "Agents" : routeName == "newTaskEnvironments" ? "Environment" : routeName == "newTaskBranches" ? "Branch" : routeName == "threadModel" or routeName == "newTaskModel" ? "Model" : routeName == "threadRuntime" or routeName == "newTaskRuntime" ? "Runtime" : routeName == "threadModelOption" or routeName == "newTaskModelOption" ? modelOptionTitle : routeName == "newTaskDraft" ? "" : "Environments"), subtitle=(routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? documentData.subtitle : ""), scannerOpen=scannerOpen, automationBusy=automationChangedPending, scheduledCanCreate=automationData.scheduled.canCreate, browserMenuConfiguration=browserMenus.selection, iconColor=threadLook.foreground, sidebarAvailable=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, back=back, closeNewTask=closeNewTask, scan=scan, addEnvironment=addEnvironment, automationAction=automationAction, browserMenu=browserMenu, toggleSidebar=toggleSidebar, inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible, toggleInspector=toggleInspector)
-    when focused and (routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia")
+    else if routeName != "notfound" and routeName != "homeArrange" and routeName != "threadModel" and routeName != "newTaskModel" and routeName != "threadDevices" and routeName != "settingsAuth" and routeName != "settingsWaitlist" and routeName != "connectOnboarding"
+      MobileRootHeader(routeName=(routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "" ? "thread" : routeName), title=(routeName.startsWith("addProject") ? (match first(addProjectData.screens.filter(screen => screen.id == routeId)) { case some(screen) => screen.title, case none => "Add project" }) : routeName == "threadQueue" ? "Queued" : routeName == "gitOverview" ? gitData.branchLabel : routeName == "gitCommit" ? "Commit changes" : routeName == "gitConfirm" ? "Confirm Git action" : routeName == "gitBranches" ? "Branches & worktrees" : routeName == "settingsThreads" ? "Thread behavior" : routeName == "settingsProjectOverview" ? "Project overview" : routeName == "settingsNotifications" ? "Notifications" : routeName == "settingsAbout" ? "About T3 Code" : routeName == "settingsClientStorage" ? "Client Storage" : routeName == "settingsDiagnostics" ? "Diagnostics" : routeName == "settingsOpenSourceLicenses" ? "Open source licenses" : routeName == "settingsOpenSourceLicense" ? "License notice" : routeName == "settingsLegal" ? "Legal" : routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? mediaData.name : routeName == "connect" ? "Add environment" : routeName == "home" ? "T3 Code" : routeName == "environmentDetail" ? detail.title : routeName == "threadBrowser" ? browserData.title : routeName == "threadDevices" ? devicesData.title : routeName == "threadTerminal" ? "Terminal" : routeName == "threadTerminalCapture" ? "Visible terminal output" : routeName == "threadReview" ? "Review changes" : routeName == "threadReviewComment" ? "Leave a comment" : routeName == "threadFiles" ? (workspace.fileInspectorSupported and filesData.error == "" ? threadData.title : filesData.title) : (routeName == "threadFile" or routeName == "newTaskFile") ? fileData.title : routeName == "thread" ? threadData.title : routeName == "settingsScheduledTasks" ? "Scheduled Tasks" : routeName == "settingsScheduledNew" ? "New scheduled task" : routeName == "settingsScheduledEdit" ? "Edit scheduled task" : routeName == "settingsScheduledModel" ? "Model" : routeName == "settingsScheduledBranch" ? "Base branch" : routeName == "settingsUsage" ? "Usage" : routeName == "settingsUsageAccount" ? automationData.account.label : routeName == "settings" ? "Settings" : routeName == "settingsServer" ? serverSettings.title : routeName == "settingsProviders" ? "Provider accounts" : routeName == "settingsAppearance" ? "Appearance" : routeName == "settingsChoice" ? (settingsChoice.key == "composerEnterBehavior" ? "Keyboard" : settingsChoice.key == "followUpBehavior" ? "Follow-ups" : settingsChoice.key == "projectGroupingMode" ? "Organization" : settingsChoice.title) : routeName == "archive" ? "Archived threads" : routeName == "threadAgents" ? "Agents" : routeName == "newTaskEnvironments" ? "Environment" : routeName == "newTaskBranches" ? "Branch" : routeName == "threadModel" or routeName == "newTaskModel" ? "Model" : routeName == "threadRuntime" or routeName == "newTaskRuntime" ? "Runtime" : routeName == "threadModelOption" or routeName == "newTaskModelOption" ? modelOptionTitle : routeName == "newTaskDraft" ? "" : "Environments"), subtitle=(routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? documentData.subtitle : ""), scannerOpen=scannerOpen, automationBusy=automationChangedPending, scheduledCanCreate=automationData.scheduled.canCreate, browserMenuConfiguration=browserMenus.selection, iconColor=threadLook.foreground, sidebarAvailable=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, back=back, closeNewTask=closeNewTask, scan=scan, addEnvironment=addEnvironment, automationAction=automationAction, browserMenu=browserMenu, toggleSidebar=toggleSidebar, inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible, toggleInspector=toggleInspector)
+    if focused and (routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia")
       t3-document-menu document-menu=documentMenu.configuration route-key=routeId document-tint=threadLook.foreground change=documentAction width=0 height=0 aria-hidden=true
-    when focused and routeName == "threadTerminal"
+    if focused and routeName == "threadTerminal"
       t3-terminal-menu terminal-source=terminalMenuConfiguration route-key=routeId menu-tint=threadLook.foreground change=terminalMenuEvent width=0 height=0 aria-hidden=true
-    when focused and not threadData.queued and threadHeaderConfiguration != "" and (routeName == "thread" or routeName == "threadReview" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))
+    if focused and not threadData.queued and threadHeaderConfiguration != "" and (routeName == "thread" or routeName == "threadReview" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))
       t3-thread-header configuration=threadHeaderConfiguration change=threadHeaderAction width=0 height=0 aria-hidden=true
-    when routeName == "home" and workspace.emptyWorkspaceDetail
+    if routeName == "home" and workspace.emptyWorkspaceDetail
       column position=(layout.liquidGlass ? "absolute" : "relative") top=0 left=0 right=0 height=(layout.liquidGlass ? (layout.windowHeight > 0 ? layout.windowHeight : viewport.height) : "auto") flex=1 align-items="center" justify-content="center" padding-left=35 padding-right=35 box-sizing="border-box"
         column flex="none" max-width=360 align-items="center" gap=10.5
           image "symbol:sf/sidebar.left" font-size=17 font-weight=400 object-fit="contain" -exact-symbol-rendering="hierarchical" -exact-tint-color=homeLook.iconSubtle width=34 height=34 aria-hidden=true
@@ -372,31 +372,31 @@ component MobileRouteContent
           text "Choose a thread from the sidebar or start a new task." text-align="center" color=homeLook.muted font-size=16 line-height="23px"
           button press=openNewTask border-radius=9999 margin-top=7 padding-left=17.5 padding-right=17.5 padding-top=10.5 padding-bottom=10.5 background-color=homeLook.primary
             text "New Task" color=homeLook.primaryForeground font-size=16 line-height="23px" font-weight=700
-    else when routeName == "notfound"
+    else if routeName == "notfound"
       scroll id=`scroll-${routeId}` flex=1 min-height=0 background-color=look.screen
         column min-height="100%" box-sizing="border-box" align-items="center" justify-content="center" gap=16 padding-left=24 padding-right=24 padding-top=32 padding-bottom=32
           text "Route not found" font-size=30 line-height="36px" font-weight=700 color=look.foreground
           button id="not-found-return-home" press=returnHome border-radius=999 padding-left=20 padding-right=20 padding-top=14 padding-bottom=14 background-color=look.colors.primary
             text "Return home" font-size=16 line-height="23px" font-weight=700 color=look.colors.primaryForeground
-    else when routeName == "homeArrange"
+    else if routeName == "homeArrange"
       HomeArrangement(requestRoute=routeId, data=home.arrangement, colors=HomeArrangementColors(screen=look.screen, foreground=homeLook.foreground, muted=homeLook.muted, primaryText=homeLook.primaryText, borderSubtle=homeLook.borderSubtle), safeTop=0, safeBottom=0, drop=homeArrangeDrop, close=back)
-    else when routeName == "home"
+    else if routeName == "home"
       Home(routeId=routeId, active=focused, refreshAt=home.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=viewport.prefersReducedMotion, listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
       HomeChrome(routeKey=routeId, configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
-    else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
+    else if routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
       // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.
-      each geometryOwner in [threadGeometryKey] key=geometryOwner
+      for geometryOwner in [threadGeometryKey] key=geometryOwner
         view id=`thread-route-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(geometryOwner)
       column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" pointer-events="none"
         view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
         column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
           ThreadFeed(data=threadData, active=focused, workWidth=(workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2), horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, colors=threadLook)
-      when threadData.queuedFailed
+      if threadData.queuedFailed
         column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 padding-left=14 padding-right=14 padding-bottom=threadBottomInset pointer-events="none"
           view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
           column width="100%" max-width=workspace.chatContentMaxWidth align-self="center" pointer-events="auto"
             ThreadCreationFailedCard(data=threadData, action=threadAction, colors=threadLook)
-      else when not threadData.queued
+      else if not threadData.queued
         column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 pointer-events="none"
           view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
           MobileWorkingControl(data=workingControl, colors=threadLook, maxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, reconnect=workingReconnect)
@@ -407,67 +407,67 @@ component MobileRouteContent
               ThreadLocalFeedback(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, command=threadLocalCommand)
               ThreadSubmissionRecoveryNotice(data=threadSubmission.recovery, colors=threadLook, card=threadLocalLook.card, busy=threadSubmission.busy or changedPending, command=threadLocalCommand)
               ThreadLocalUsage(data=threadSubmission.dock, colors=threadLook, card=threadLocalLook.card, tertiary=threadLocalLook.tertiary, subtleStrong=threadLocalLook.subtleStrong, dark=appearance.scheme == "dark", command=threadLocalCommand)
-            when threadData.pendingInput.active
-              each requestOwner in [threadData.pendingInput.cardId] key=requestOwner
+            if threadData.pendingInput.active
+              for requestOwner in [threadData.pendingInput.cardId] key=requestOwner
                 column width="100%" max-width=workspace.chatContentMaxWidth align-self="center" padding-left=14 padding-right=14 padding-bottom=threadBottomInset box-sizing="border-box"
                   PendingInputCard(data=threadData.pendingInput, colors=threadData.pendingInput.colors, maxHeight=max(160, min(560, viewport.height - 336 - 44 - threadBottomInset - 12)), act=pendingInputAct, coverage=pendingInputMeasured)
             column display=(threadData.pendingInput.active ? "none" : "flex")
               ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
               ThreadComposer(attachments=composerAttachments, attachmentBusy=(data.busy or changedPending or taskChangedPending), liquidGlass=layout.liquidGlass, displayScale=layout.displayScale, submission=threadSubmission, rich=richComposer, richAction=richComposerAction, richEvent=richComposerEvent, richMessage=richComposerMessage, editorId=`thread-composer-${routeId}`, showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
-    else when routeName == "threadQueue"
+    else if routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
-    else when routeName == "gitOverview"
+    else if routeName == "gitOverview"
       MobileGitOverview(data=gitData, inspector=false, bottomInset=(max(layout.safeBottom, 18) + 18), action=gitAction, refresh=refreshGit, colors=gitLook)
-    else when routeName == "gitCommit"
+    else if routeName == "gitCommit"
       MobileGitCommit(data=gitData, bottomInset=(max(layout.safeBottom, 18) + 18), message=gitCommitMessage, editMessage=editGitMessage, action=gitAction, colors=gitLook)
-    else when routeName == "gitConfirm"
+    else if routeName == "gitConfirm"
       MobileGitConfirm(data=gitData, bottomInset=(max(layout.safeBottom, 18) + 8), action=gitAction, colors=gitLook)
-    else when routeName == "gitBranches"
+    else if routeName == "gitBranches"
       MobileGitBranches(data=gitBranchesData, newBranch=gitNewBranch, worktreeBase=gitWorktreeBase, worktreeBranch=gitWorktreeBranch, editBranch=editGitBranch, editBase=editGitBase, editWorktree=editGitWorktree, action=gitBranchAction, bottomInset=(max(layout.safeBottom, 18) + 18), colors=gitLook)
-    else when routeName == "threadBrowser" and focused
+    else if routeName == "threadBrowser" and focused
       MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu)
-    else when routeName == "threadDevices" and focused
+    else if routeName == "threadDevices" and focused
       MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
-    else when routeName == "threadTerminal"
-      when focused
+    else if routeName == "threadTerminal"
+      if focused
         MobileTerminal(mountReady=terminalMountReady, data=terminalData, event=terminalEvent, action=terminalAction)
-    else when routeName == "threadTerminalCapture"
+    else if routeName == "threadTerminalCapture"
       MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
-    else when routeName == "threadReview"
+    else if routeName == "threadReview"
       ReviewView(data=reviewData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles, routeId=routeId, focused=focused)
-    else when routeName == "threadReviewComment"
+    else if routeName == "threadReviewComment"
       ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
-    else when routeName == "threadFiles"
+    else if routeName == "threadFiles"
       input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
       MobileFileTree(listId="workspace-files", data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
-    else when routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
+    else if routeName == "threadFile" or (routeName == "newTaskFile" and newTaskFlow.fileReady)
       row gap=14 padding=14
         text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
         t3-document-menu document-menu=fileMenu document-tint=reviewLook.icon change=fileMenuAction width=32 height=32
       MobileFileView(data=fileData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, fontSize=settingsAppearance.codeFontSize, rowHeight=settingsAppearance.codeLine, numberSize=settingsAppearance.codeNumber, preview=filePreview, refresh=refreshFile, action=fileMenuAction)
-    else when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
-      when focused
-        when mediaData.ready
-          when mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
+    else if routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
+      if focused
+        if mediaData.ready
+          if mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
             MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, htmlEvent=threadAction("html-render", htmlRenderContext.key), htmlKey=htmlRenderContext.key, nativeError=mediaNativeError)
-            when mediaNativeOpen
+            if mediaNativeOpen
               MediaPreview(data=mediaViewerData, completed=mediaComplete)
-          else when documentData.kind == "audio"
+          else if documentData.kind == "audio"
             MobileAttachmentAudio(data=audioData, source=documentData.sourceJSON, active=(not mediaNativeOpen), colors=reviewLook, command=audioControl, status=audioStatusChanged, retry=retryDocument)
-            when mediaNativeOpen
+            if mediaNativeOpen
               MediaPreview(data=mediaViewerData, completed=mediaComplete)
-          else when mediaNativeError != ""
+          else if mediaNativeError != ""
             column flex=1 align-items="center" justify-content="center" padding=21 gap=7
               text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
               text mediaNativeError font-size=14 text-align="center" color=threadLook.muted
               button appearance="none" press=retryDocument min-height=44
                 text "Try again" color=threadLook.foreground
-          else when mediaData.kind != "file" or documentData.ready
+          else if mediaData.kind != "file" or documentData.ready
             MediaPreview(data=mediaData, completed=mediaComplete)
           else
             text "Loading file..." padding=21 color=threadLook.muted
-        else when mediaData.error != ""
-          when htmlRenderContext.full
+        else if mediaData.error != ""
+          if htmlRenderContext.full
             column flex=1 align-items="center" justify-content="center" padding=21 gap=7
               text mediaData.error color=look.colors.dangerForeground
               button appearance="none" press=retryDocument min-height=44
@@ -476,62 +476,62 @@ component MobileRouteContent
             text mediaData.error padding=21 color=look.colors.dangerForeground
         else
           text "Loading preview…" padding=21 color=look.colors.muted
-    else when (focused and informationRoute.active) or informationListCovered
+    else if (focused and informationRoute.active) or informationListCovered
       SettingsInformation(data=informationData, route=routeName, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
-    else when routeName == "settings"
+    else if routeName == "settings"
       SettingsRoot(data=settingsData.root, navigate=openSetting)
-      when focused
+      if focused
         SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
-    else when startsWith(routeName, "settingsScheduled") or routeName == "settingsUsage" or routeName == "settingsUsageAccount"
-      when focused
+    else if routeName.startsWith("settingsScheduled") or routeName == "settingsUsage" or routeName == "settingsUsageAccount"
+      if focused
         SettingsAutomation(data=automationData, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, dark=(appearance.scheme == "dark"), command=automationAction)
-        when routeName == "settingsScheduledTasks"
+        if routeName == "settingsScheduledTasks"
           SettingsHeader(configuration=scheduledHeader.configuration, event=settingsHeaderEvent)
-    else when routeName == "settingsThreads"
+    else if routeName == "settingsThreads"
       SettingsThreadPreferences(data=threadPreferences, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=threadPreferencesChangedPending, change=threadPreferenceChange, preference=changePreference)
-      when focused
+      if focused
         SettingsHeader(configuration=settingsData.projectHeader, event=settingsHeaderEvent)
-    else when routeName == "settingsProjectOverview"
+    else if routeName == "settingsProjectOverview"
       SettingsProjectOverview(data=projectOverview, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=projectRenamedPending, savedRevision=projectSavedRevision, save=renameProject)
-      when focused
+      if focused
         SettingsHeader(configuration=settingsData.projectHeader, event=settingsHeaderEvent)
-    else when routeName == "settingsServer"
+    else if routeName == "settingsServer"
       SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
-    else when routeName == "settingsProviders"
+    else if routeName == "settingsProviders"
       SettingsProviderAccounts(data=providerAccounts, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, action=providerAction, field=providerField, signOut=providerSignOut)
-    else when routeName == "settingsAppearance"
+    else if routeName == "settingsAppearance"
       SettingsAppearance(data=settingsAppearance, change=changePreference)
-    else when routeName == "settingsNotifications"
+    else if routeName == "settingsNotifications"
       SettingsNotifications(data=notificationSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom)
-    else when routeName == "settingsChoice"
+    else if routeName == "settingsChoice"
       SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
-    else when routeName == "archive"
+    else if routeName == "archive"
       Archive(data=archiveData, colors=archiveLook, pending=archivedPending, loading=archiveDataPending, width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
       ArchiveChrome(data=archiveChrome, routeKey=routeId, focused=focused, event=archiveChromeEvent)
-    else when routeName == "threadAgents"
+    else if routeName == "threadAgents"
       AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
-    else when startsWith(routeName, "addProject")
-      each screen in filter(addProjectData.screens, screen => screen.id == routeId) key=screen.id
+    else if routeName.startsWith("addProject")
+      for screen in addProjectData.screens.filter(screen => screen.id == routeId) key=screen.id
         MobileAddProject(owner=addProjectData.owner, data=screen, colors=addProjectLook, safeBottom=layout.safeBottom, edit=editAddProject, browse=browseAddProject, action=actAddProject)
-    else when routeName == "newTaskDraft" and newTaskData.draft and (newTaskFlow.ready or (not focused and newTaskFlow.draftOwner != "" and newTaskFlow.draftOwner == newTaskData.composer.contentOwner))
+    else if routeName == "newTaskDraft" and newTaskData.draft and (newTaskFlow.ready or (not focused and newTaskFlow.draftOwner != "" and newTaskFlow.draftOwner == newTaskData.composer.contentOwner))
       NewTaskDraft(routeId=routeId, editorId=`thread-composer-${routeId}`, data=newTaskData, recovery=newTaskFlow.recovery, clone=newTaskClone, cloneColors=newTaskCloneLook, colors=composerLook, threadColors=threadLook, attachments=composerAttachments, safeBottom=layout.safeBottom, keyboardDocked=layout.keyboardDocked, underHeader=layout.liquidGlass, dark=(appearance.scheme == "dark"), enterBehavior=appearance.enterBehavior, voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceDisabled=(data.busy or changedPending or taskChangedPending), voiceAction=voiceAction, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, chooseBranch=chooseNewBranch, editDraft=editNewDraft, focusChanged=composerFocus, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, openAttachment=openDraftMedia, removeAttachment=removeAttachment)
-    else when startsWith(routeName, "newTask") and routeName != "newTask" and not newTaskFlow.ready
+    else if routeName.startsWith("newTask") and routeName != "newTask" and not newTaskFlow.ready
       column flex=1 align-items="center" justify-content="center" padding=28 gap=14
         text (newTaskFlow.message != "" ? newTaskFlow.message : newTaskFlow.title) color=composerLook.muted text-align="center"
-        when newTaskFlow.pendingEditor
+        if newTaskFlow.pendingEditor
           button press=taskAction("pending-refresh", "", "") disabled=newTaskFlow.busy
             text "Reopen saved edits"
           button press=taskAction("pending-recover", "", "") disabled=newTaskFlow.busy
             text "Recover draft"
-        else when newTaskFlow.status == "error"
+        else if newTaskFlow.status == "error"
           button press=chooseNewProject
             text "Choose project"
-    else when routeName == "threadModel" or routeName == "newTaskModel"
-      when layout.liquidGlass
+    else if routeName == "threadModel" or routeName == "newTaskModel"
+      if layout.liquidGlass
         // The port owns only a 48pt UIKit toolbar in this route's public controller.
         // This zero-height configuration anchor never covers the list or lifted controls.
-        when focused
-          each menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
+        if focused
+          for menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
             t3-model-search route-key=routeId owner=menuOwner visible=focused query=modelQuery configuration=modelData.searchConfiguration
               search-foreground=composerLook.foreground search-muted=composerLook.muted
               change=editModelQuery(menuOwner) message=chooseModelFilter(menuOwner) press=toggleLegacy(menuOwner, not modelLegacy)
@@ -539,36 +539,36 @@ component MobileRouteContent
       else
         row gap=14 padding=14
           input value=modelQuery input=editModelQuery(`${routeId}:${modelFilterOwner}`) placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
-          each menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
+          for menuOwner in [`${routeId}:${modelFilterOwner}`] key=menuOwner
             button popovertarget=`${menuOwner}:filters` aria-label="filter"
               t3-symbol symbol-name=(modelData.filter != "" or modelLegacy ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease") point-size=20 symbol-tint=composerLook.icon width=20 height=20
             column id=`${menuOwner}:filters` popover="auto" role="menu" aria-label="Model filters" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
               button popovertarget=`${menuOwner}:providers` role="menuitem" padding=10.5 display="flex" gap=10.5 align-items="center" text-align="left"
                 text "Provider" flex=1 font-size=16 line-height="22px" color=composerLook.foreground
                 text "›" aria-hidden=true color=composerLook.muted
-              when modelData.hasLegacy
+              if modelData.hasLegacy
                 button press=toggleLegacy(menuOwner, not modelLegacy) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemcheckbox" aria-checked=modelLegacy padding=10.5 text-align="left"
                   text "Show legacy models" font-size=16 line-height="22px" color=composerLook.foreground
               column id=`${menuOwner}:providers` popover="auto" role="menu" position="absolute" top=0 left=0 position-area="right span-bottom" min-width=240 padding=7 border-radius=12 background-color=composerLook.groupedCard
-                each choice in modelData.filters key=choice.id
+                for choice in modelData.filters key=choice.id
                   button press=chooseModelFilter(menuOwner, choice.id) popovertarget=`${menuOwner}:filters` popovertargetaction="hide" role="menuitemradio" aria-checked=choice.selected disabled=choice.disabled padding=10.5 text-align="left"
                     text choice.label font-size=16 line-height="22px" color=composerLook.foreground
       ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook, bottomClearance=(layout.liquidGlass ? layout.safeBottom + 68 : 7))
-    else when routeName == "threadModelOption" or routeName == "newTaskModelOption"
-      match first(filter(modelData.options, option => option.id == modelOption))
+    else if routeName == "threadModelOption" or routeName == "newTaskModelOption"
+      match first(modelData.options.filter(option => option.id == modelOption))
         case some(option)
           ComposerChoices(rows=option.choices, choose=chooseModelOption, colors=composerLook)
         case none
           text "This model option is no longer available."
-    else when routeName == "threadRuntime" or routeName == "newTaskRuntime"
+    else if routeName == "threadRuntime" or routeName == "newTaskRuntime"
       ComposerChoices(rows=modelData.runtimes, choose=chooseRuntime, colors=composerLook)
-    else when routeName == "newTask"
+    else if routeName == "newTask"
       NewTaskProjects(subtitle=newTaskFlow.subtitle, reservedProject=newTaskFlow.reservedProject, addProject=openAddProject, addEnvironment=addEnvironment, primaryForeground=addProjectLook.primaryForeground, data=newTaskData, action=taskAction, colors=composerLook)
-    else when routeName == "newTaskEnvironments"
+    else if routeName == "newTaskEnvironments"
       NewTaskEnvironments(data=newTaskData, action=taskAction, colors=composerLook)
-    else when routeName == "newTaskBranches"
+    else if routeName == "newTaskBranches"
       input value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches"
-      NewTaskBranches(data=newTaskData, action=taskAction, colors=composerLook)
+      NewTaskBranches(data=newTaskData, ready=(focused and newTaskFlow.ready and newTaskFlow.requestRoute == routeId), action=taskAction, colors=composerLook)
     else
       scroll id=`scroll-${routeId}` flex=1 min-height=0 keyboardDismissMode="interactive"
         column padding-left=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 17.5 : 20)
@@ -576,12 +576,12 @@ component MobileRouteContent
           padding-top=(routeName == "environmentDetail" ? 0 : routeName == "environments" ? 14 : 16)
           padding-bottom=36
           gap=(routeName == "connections" or routeName == "environments" ? 0 : 14)
-          when routeName == "connect"
-            when scannerOpen
+          if routeName == "connect"
+            if scannerOpen
               Scanner(permission=cameraStatus, active=scannerOpen, request=scan, received=receiveScan, permissionChanged=permissionChanged, colors=look.colors, secondary=look.secondary, secondaryForeground=look.secondaryForeground)
             else
               Connect(host=host, code=code, error=formError, submitting=changedPending, changeHost=editHost, changeCode=editCode, submit=connect, colors=look.colors)
-          when routeName == "connections" or routeName == "environments"
+          if routeName == "connections" or routeName == "environments"
             Environments(
               items=data.environments,
               expandedId=expanded,
@@ -599,10 +599,10 @@ component MobileRouteContent
               change=changeRouting,
               colors=look.colors
             )
-            when formError != ""
+            if formError != ""
               text formError color=look.colors.dangerForeground testId="environment-error"
-          when routeName == "environmentDetail"
-            match first(filter(data.environments, item => item.id == detail.key))
+          if routeName == "environmentDetail"
+            match first(data.environments.filter(item => item.id == detail.key))
               case some(connection)
                 EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=appearance.scheme == "dark", pending=detailChangedPending, toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
               case none

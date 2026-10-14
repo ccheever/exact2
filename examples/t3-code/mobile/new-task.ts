@@ -20,7 +20,7 @@ import { letGo, letGoAware } from './shared/let-go';
 import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
 import { mobileNewTaskEnvironmentMatch, mobileNewTaskEnvironmentSources } from './new-task-selection';
 import { draftContext, composerBranches, patchDraftContext } from './shared/composer-controls-branch';
-import { branchState, cardBranchView, startFromOrigin } from './shared/r4-git-branch';
+import { branchState, cardBranchView, includeRef, startFromOrigin } from './shared/r4-git-branch';
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
@@ -33,7 +33,7 @@ import { refBadge } from './shared/composer-controls-branch';
 export interface NewTaskProjectIcon { faviconTarget: MobileProjectFaviconTarget; favicon: string; iconKind: string; iconText: string; iconColor: string; iconSurface: string; iconSize: number }
 export interface NewTaskProject extends NewTaskProjectIcon { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskEnvironment { id: string; label: string; machine: string; selected: boolean; disabled: boolean; last: boolean }
-export interface NewTaskBranch { id: string; label: string; badge: string; selected: boolean; disabled: boolean; last: boolean }
+export interface NewTaskBranch { key: string; id: string; label: string; badge: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskSnapshot { pendingEditor: boolean; revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
   projects: NewTaskProject[]; environments: NewTaskEnvironment[]; branches: NewTaskBranch[]; query: string; branchQuery: string;
   emptyTitle: string; emptyDetail: string; branchEmpty: string; error: string; busy: boolean; branchLoaded: boolean; branchHasMore: boolean;
@@ -54,6 +54,7 @@ function stateFor(client: T3Client) {
   return state;
 }
 function projectKey(environmentId: string, projectId: string) { return JSON.stringify([environmentId, projectId]); }
+function branchCollectionKey(ref: Obj) { return `branch:${ref.remoteName ?? 'local'}:${str(ref.name)}:${ref.worktreePath ?? ''}`; }
 const machineSymbols: Record<string, string> = { server: 'server.rack', cloud: 'cloud', linux: 'terminal', desktop: 'desktopcomputer', laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio' };
 /** Source-derived project chooser. Each action key contains both identities, never a bare cross-environment project id. */
 export function mobileNewTask(query = '', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
@@ -182,7 +183,7 @@ export async function mobileNewTaskCachedPrepare(branchQuery: string, nativeInpu
     const cacheOwner = mobileVcsDisplayOwner(scope, input); if (!cacheOwner) return { revision: request, loaded: false };
     state.branchQuery = ''; state.branchLoaded = true; state.branchHasMore = false; state.canWriteGit = false; state.error = '';
     const refs = result.refs.isRepo ? result.refs.refs : [];
-    state.branches = refs.map((ref, index) => ({ id: str(ref.name), label: str(ref.name), badge: refBadge(ref, input.cwd),
+    state.branches = refs.map((ref, index) => ({ key: branchCollectionKey(ref), id: str(ref.name), label: str(ref.name), badge: refBadge(ref, input.cwd),
       selected: context.branch === ref.name, disabled: true, last: index === refs.length - 1 }));
     state.branchCache = { owner: cacheOwner, input, context: contextKey };
     return { revision: request, loaded: true };
@@ -212,12 +213,19 @@ export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Nat
     // The shared pager first marks loading; this awaited mobile resource owns the ensuing read.
     if (branch.refs?.loadingMore) view = await cardBranchView(client, native, cwd, root, strip.show, current);
     if (!current()) return { revision: client.revision, loaded: false };
+    const raw = view.show ? (branch.refs?.refs ?? []).filter(ref => includeRef(str(ref.name), branch.query.trim())) : [];
+    if (raw.length !== view.refs.length) throw new ClientError('The branch list changed before it could be displayed.');
+    const isBase = context.envMode === 'worktree' && !context.worktreePath;
+    const rows = view.refs.map((ref, index, all) => {
+      const source = raw[index];
+      if (!source || str(source.name) !== ref.name) throw new ClientError('The branch list changed before it could be displayed.');
+      return { key: branchCollectionKey(source), id: ref.name, label: ref.name, badge: ref.badge, selected: ref.selected,
+        disabled: state.busy || (!isBase && !state.canWriteGit && !['current', 'worktree'].includes(ref.badge)), last: index === all.length - 1 };
+    });
     state.branchCache = undefined;
     state.branchQuery = branchQuery; state.branchLoaded = !view.disabled; state.error = view.disabled && strip.show ? 'Could not load branches.' : '';
     state.branchHasMore = branch.refs?.nextCursor != null;
-    const isBase = context.envMode === 'worktree' && !context.worktreePath;
-    state.branches = view.refs.map((ref, index, all) => ({ id: ref.name, label: ref.name, badge: ref.badge, selected: ref.selected,
-      disabled: state.busy || (!isBase && !state.canWriteGit && !['current', 'worktree'].includes(ref.badge)), last: index === all.length - 1 }));
+    state.branches = rows;
     // A guarded shared read never writes into the live draft. Adopt its automatic
     // fallback only after the request and captured workspace still match.
     const draft = mobileNewTaskDraftPresentation(client, client.draftKey);

@@ -64,12 +64,12 @@ shape ArchiveReceipt
 
 shape ArchiveRead
   serial: number
-  receipts: list<ArchiveReceipt>
+  receipts: ArchiveReceipt[]
   error: string
 
 shape ArchiveData
-  items: list<ArchiveItem>
-  environments: list<ArchiveEnvironment>
+  items: ArchiveItem[]
+  environments: ArchiveEnvironment[]
   error: string
   loading: bool
   emptyTitle: string
@@ -120,7 +120,7 @@ component Archive
     offset = 0
     refresh()
   view
-    when length(data.items) == 0
+    if data.items.length == 0
       scroll flex=1 min-height=0 refresh=reload testId="archive-empty-scroll"
         column padding-left=16
           padding-right=16
@@ -128,7 +128,7 @@ component Archive
           padding-bottom=32
           font-family="DM Sans"
           ArchiveError(message=data.error, colors=colors, refresh=reload)
-          when (loading or data.loading) and length(data.error) == 0
+          if (loading or data.loading) and data.error.length == 0
             column align-items="center" padding-top=56 padding-bottom=56
               t3-archive-spinner spinner-tint=colors.icon width=20 height=20
               text "Loading archive..." margin-top=10.5
@@ -160,15 +160,15 @@ component Archive
         refresh=reload
         scroll=close
         testId="archive-list"
-        each item in data.items key = item.key
+        for item in data.items key = item.key
           column padding-left=16
             padding-right=16
             padding-top=(item.initial ? 4 : 0)
             padding-bottom=(item.final ? 32 : 0)
             font-family="DM Sans"
-            when item.initial
+            if item.initial
               ArchiveError(message=data.error, colors=colors, refresh=reload)
-            when item.kind == "project"
+            if item.kind == "project"
               row align-items="center"
                 gap=8.75
                 padding-left=3.5
@@ -204,7 +204,7 @@ component Archive
                 border-top-right-radius=(item.first ? 20 : 0)
                 border-bottom-left-radius=(item.last ? 20 : 0)
                 border-bottom-right-radius=(item.last ? 20 : 0)
-                when item.canOperate and (openKey == item.key or dragKey == item.key)
+                if item.canOperate and (openKey == item.key or dragKey == item.key)
                   row position="absolute" top=0 right=0 bottom=0 width=116 align-items="center"
                     ArchiveSwipeAction(
                       kind="unarchive",
@@ -278,7 +278,7 @@ component Archive
                           line-height="16px"
                           color=colors.tertiary
                           line-clamp=1
-                  when not item.last
+                  if not item.last
                     box height=1 background-color=colors.separator
 
 component ArchiveSwipeAction
@@ -319,7 +319,7 @@ component ArchiveError
     colors: ArchiveColors
     refresh: action
   view
-    when length(message) > 0
+    if message.length > 0
       column padding=14
         border-radius=20
         border-width=1
@@ -349,9 +349,9 @@ component ArchiveProjectIcon
       align-items="center"
       justify-content="center"
       overflow="hidden"
-      when item.iconKind == "emoji"
+      if item.iconKind == "emoji"
         text item.iconText font-size=16 line-height="18px"
-      else when item.iconKind == "monogram"
+      else if item.iconKind == "monogram"
         box width=18
           height=18
           border-radius=4

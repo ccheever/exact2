@@ -26,7 +26,7 @@ keyframes connectionPulse
 
 component Environments
   props
-    items: list<EnvironmentRow>
+    items: EnvironmentRow[]
     expandedId: string
     opensDetails: bool
     toggle: action
@@ -41,7 +41,7 @@ component Environments
       overflow="hidden"
       font-family="DM Sans"
       testId="environments-list"
-      when length(items) == 0
+      if items.length == 0
         column align-items="center"
           gap=10.5
           padding-left=21
@@ -69,7 +69,7 @@ component Environments
             text "+" font-weight=700 color=colors.foreground
             text " to add one."
       else
-        each environment in items key = environment.id
+        for environment in items key = environment.id
           EnvironmentItem(
             environment=environment,
             expanded=expandedId == environment.id,
@@ -123,7 +123,7 @@ component EnvironmentItem
                 align-items="center"
                 justify-content="center"
                 flex-shrink=0
-                when environment.retrying and enabled
+                if environment.retrying and enabled
                   view position="absolute"
                     width=12
                     height=12
@@ -146,13 +146,13 @@ component EnvironmentItem
                 flex-shrink=1
                 line-clamp=1
                 text-overflow="ellipsis"
-            when not environment.relayManaged and length(trim(environment.url)) > 0
+            if not environment.relayManaged and environment.url.trim().length > 0
               text environment.url font-size=13
                 line-height="17px"
                 color=colors.muted
                 line-clamp=1
                 text-overflow="ellipsis"
-            when length(environment.status) > 0
+            if environment.status.length > 0
               text environment.status font-size=13
                 line-height="17px"
                 color=(environment.hasError ? colors.dangerForeground : colors.muted)
@@ -176,9 +176,9 @@ component EnvironmentItem
             width=12
             height=12
             rotate=(expanded ? 180 : 0)
-      when expanded
+      if expanded
         column gap=10.5 padding-left=14 padding-right=14 padding-bottom=14
-          when environment.relayManaged
+          if environment.relayManaged
             text "Managed by T3 Connect. Tunnel details update automatically." font-size=14
               line-height="19px"
               color=colors.muted
@@ -202,8 +202,8 @@ component EnvironmentItem
               fieldId=`environment-url-${environment.id}`
             )
           row justify-content="flex-end" gap=7
-            when not environment.relayManaged
-              button press=save(environment.id, trim(editedLabel), trim(editedUrl))
+            if not environment.relayManaged
+              button press=save(environment.id, editedLabel.trim(), editedUrl.trim())
                 min-height=42
                 flex=1
                 border-radius=14
@@ -274,7 +274,7 @@ fn routingLabel(permission: string): string = permission == "read-write" ? "Read
 
 component GitHubRoutingSettings
   props
-    items: list<GitHubRoutingRow>
+    items: GitHubRoutingRow[]
     saving: bool
     change: action
     colors: ConnectionColors
@@ -283,7 +283,7 @@ component GitHubRoutingSettings
     expandedId = expandedId == id ? "" : id
   view
     column font-family="DM Sans" testId="github-routing"
-      when length(items) > 0
+      if items.length > 0
         column margin-top=17.5 gap=10.5
           column gap=7
             text "GitHub routing" padding-left=7
@@ -293,7 +293,7 @@ component GitHubRoutingSettings
               font-weight=500
               color=colors.muted
             column border-radius=24 background-color=colors.groupedCard overflow="hidden"
-              each entry in items key = entry.id
+              for entry in items key = entry.id
                 column
                   button press=toggleRow(entry.id)
                     padding=14
@@ -320,7 +320,7 @@ component GitHubRoutingSettings
                         symbol-tint=colors.iconMuted
                         width=12
                         height=12
-                  when expandedId == entry.id
+                  if expandedId == entry.id
                     RoutingOption(
                       id=entry.id,
                       value="off",
@@ -382,7 +382,7 @@ component RoutingOption
         column flex=1 min-width=0 gap=3.5
           text label font-size=16 line-height="23px" color=colors.foreground
           text description font-size=14 line-height="21px" color=colors.muted
-        when selected
+        if selected
           t3-symbol symbol-name="checkmark"
             point-size=18
             symbol-weight="semibold"

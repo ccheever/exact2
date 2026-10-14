@@ -74,17 +74,17 @@ component SettingsAutomation
     command("usage-redeem", environment, key, "")
   view
     column flex=1 min-height=0
-      when length(data.error) > 0
+      if data.error.length > 0
         text data.error color=danger role="alert" padding=14 font-family="DM Sans" font-size=roles.body.size
-      when data.route == "settingsScheduledTasks"
+      if data.route == "settingsScheduledTasks"
         SettingsScheduledTasks(data=data.scheduled, colors=colors, roles=roles, danger=danger, bottom=bottom, open=open, menu=taskMenu)
-      else when data.route == "settingsScheduledNew" or data.route == "settingsScheduledEdit"
+      else if data.route == "settingsScheduledNew" or data.route == "settingsScheduledEdit"
         SettingsScheduledEditor(data=data.editor, colors=colors, roles=roles, danger=danger, bottom=bottom, field=field, menu=menu, navigate=navigate, save=save, copyWebhook=copy, rotateWebhook=rotate)
-      else when data.route == "settingsScheduledModel"
+      else if data.route == "settingsScheduledModel"
         SettingsScheduledModel(data=data.editor, colors=colors, roles=roles, bottom=bottom, field=field, menu=menu)
-      else when data.route == "settingsScheduledBranch"
+      else if data.route == "settingsScheduledBranch"
         SettingsScheduledBranch(data=data.editor, colors=colors, roles=roles, danger=danger, bottom=bottom, field=field, search=search, more=more)
-      else when data.route == "settingsUsage"
+      else if data.route == "settingsUsage"
         SettingsUsage(data=data.usage, colors=colors, roles=roles, danger=danger, bottom=bottom, dark=dark, days=data.days, local=local, command=usage, account=account, refresh=refreshUsage)
-      else when data.route == "settingsUsageAccount"
+      else if data.route == "settingsUsageAccount"
         SettingsUsageAccount(data=data.account, colors=colors, roles=roles, danger=danger, bottom=bottom, reveal=reveal, redeem=redeem)

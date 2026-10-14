@@ -33,10 +33,10 @@ shape SettingsScopeEvent
   requestRoute: string
   kind: string
   value: string
-  availableEnvironmentIds: list<string>
+  availableEnvironmentIds: string[]
 shape SettingsSelection
   allEnvironments: bool
-  environmentIds: list<string>
+  environmentIds: string[]
   projectKey: string
 shape MobileLayout
   displayScale: number
@@ -64,7 +64,7 @@ shape ThreadSelection
 shape HomeView
   nextSwipeRefreshAt: number
   arrangement: HomeArrangementData
-  items: list<HomeItem>
+  items: HomeItem[]
   emptyTitle: string
   emptyDetail: string
   loading: bool
@@ -114,8 +114,8 @@ shape Snapshot
   status: string
   projectCount: number
   threadCount: number
-  environments: list<EnvironmentRow>
-  routing: list<GitHubRoutingRow>
+  environments: EnvironmentRow[]
+  routing: GitHubRoutingRow[]
 shape ScheduledHeader
   configuration: string
 shape AutomationChange

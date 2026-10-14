@@ -31,7 +31,7 @@ component Connect
     changeCode: action
     submit: action
     colors: ConnectionColors
-  derive connectDisabled = submitting or length(trim(host)) == 0
+  derive connectDisabled = submitting or host.trim().length == 0
   view
     column padding=14
       gap=14
@@ -58,7 +58,7 @@ component Connect
         colors=colors,
         fieldId="pairing-code"
       )
-      when length(error) > 0
+      if error.length > 0
         column border-radius=14
           border-width=1
           border-style="solid"

@@ -11,7 +11,7 @@ shape ThreadBlock
   kind: string
   text: string
   language: string
-  tokens: list<ThreadCodeToken>
+  tokens: ThreadCodeToken[]
 shape ThreadMedia
   id: string
   name: string
@@ -26,7 +26,7 @@ shape ThreadAnswerHistory
   id: string
   question: string
   answer: string
-  files: list<ThreadAnswerFile>
+  files: ThreadAnswerFile[]
 shape ThreadActivity
   id: string
   label: string
@@ -47,10 +47,10 @@ shape ThreadActivity
   retryRunId: string
   retryDisabled: bool
   iconURL: string
-  reasoningBlocks: list<ThreadBlock>
+  reasoningBlocks: ThreadBlock[]
   answerPreview: string
   hasAnswer: bool
-  answerHistory: list<ThreadAnswerHistory>
+  answerHistory: ThreadAnswerHistory[]
   nativeWorkRow: string
   nativeWorkImage: bool
   nativeWorkDetail: bool
@@ -61,7 +61,7 @@ shape ThreadRow
   kind: string
   title: string
   body: string
-  blocks: list<ThreadBlock>
+  blocks: ThreadBlock[]
   user: bool
   timestamp: string
   showMeta: bool
@@ -74,9 +74,9 @@ shape ThreadRow
   toggleId: string
   failed: bool
   live: bool
-  activities: list<ThreadActivity>
+  activities: ThreadActivity[]
   htmlRender: HtmlRenderSnapshot
-  media: list<ThreadMedia>
+  media: ThreadMedia[]
   first: bool
   last: bool
   canFork: bool
@@ -94,7 +94,7 @@ shape ThreadApproval
   warning: string
   disabled: bool
   reason: string
-  options: list<ThreadApprovalOption>
+  options: ThreadApprovalOption[]
 shape ThreadComposerState
   editing: bool
   saving: bool
@@ -137,7 +137,7 @@ shape ThreadSnapshot
   title: string
   loaded: bool
   loading: bool
-  rows: list<ThreadRow>
+  rows: ThreadRow[]
   emptyTitle: string
   emptyDetail: string
   error: string
@@ -148,7 +148,7 @@ shape ThreadSnapshot
   readsNeeded: bool
   answerFilesOwner: string
   answerFilesRequest: string
-  approvals: list<ThreadApproval>
+  approvals: ThreadApproval[]
   composer: ThreadComposerState
 shape ThreadPreparation
   revision: number

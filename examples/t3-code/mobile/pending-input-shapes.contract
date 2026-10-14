@@ -17,13 +17,13 @@ shape PendingInputQuestion
   multiSelect: bool
   customAllowed: bool
   answer: string
-  options: list<PendingInputOption>
+  options: PendingInputOption[]
 shape PendingInputView
   cardId: string
   owner: string
   active: bool
   requestId: string
-  questions: list<PendingInputQuestion>
+  questions: PendingInputQuestion[]
   count: number
   editable: bool
   complete: bool

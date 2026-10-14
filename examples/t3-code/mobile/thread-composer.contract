@@ -65,29 +65,29 @@ component ThreadComposer
         action("send-alternate", data.contentOwner, "")
   view
     column position="relative" padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
-      when showBackdrop
+      if showBackdrop
         view position="absolute" inset=0 background-image=colors.composerBackdrop pointer-events="none" aria-hidden=true
       column position="relative" width="100%" max-width=contentMaxWidth align-self="center"
-        when showQueue and data.queueCount > 0
+        if showQueue and data.queueCount > 0
           MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
           view height=8
-        when data.editing
+        if data.editing
           row align-items="center" gap=7 padding-left=14 padding-right=14 padding-bottom=7
             t3-symbol symbol-name="pencil" point-size=12 symbol-tint=colors.muted width=12 height=12
             text "Editing queued message" flex=1 min-width=0 line-clamp=1 font-size=12 color=colors.muted
             button appearance="none" press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
               text "Cancel" font-size=12 font-weight=500 color=colors.primary
-        when data.editNotice != ""
+        if data.editNotice != ""
           column padding-left=14 padding-right=14 padding-bottom=10.5
             row align-items="start" gap=10.5 border-radius=20 corner-shape="-exact-continuous" background-color=colors.card padding=14
               t3-symbol symbol-name="exclamationmark.circle" point-size=16 symbol-tint=colors.dangerForeground width=16 height=16
               text data.editNotice aria-live="polite" flex=1 min-width=0 font-size=14 color=colors.foreground
-              when data.editNoticeDismissKey != ""
+              if data.editNoticeDismissKey != ""
                 ThreadComposerNoticeDismiss(noticeKey=data.editNoticeDismissKey, icon=colors.iconMuted, action=action)
-        when data.editPendingId != ""
+        if data.editPendingId != ""
           button appearance="none" press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
             text "Retry queued message save" font-size=13 color=colors.primary
-        when data.modelUnavailable
+        if data.modelUnavailable
           button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
             text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
         column position="relative" border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
@@ -97,11 +97,11 @@ component ThreadComposer
             material-appearance=(dark ? "dark" : "light") material-radius=(expanded ? 26 : 27)
             material-surface=colors.composerSurface material-border=colors.composerBorder
           row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
-            when not expanded and not voicePresented
+            if not expanded and not voicePresented
               t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=colors.iconSubtle
                 button-disabled=(attachmentBusy or (data.editing and not data.canCancel)) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
             // Keep the native editor at one plan site while the compact toolbar covers it.
-            when richHere
+            if richHere
               t3-composer-editor id=editorId configuration=rich.configuration change=richEvent message=richMessage
                 opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto") aria-hidden=(voicePresented and not expanded)
                 height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? "none" : "1") min-width=0
@@ -117,9 +117,9 @@ component ThreadComposer
                 padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
                 box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
                 border-width=0 background-color="transparent" testId="thread-composer"
-            when expanded
+            if expanded
               view height=3.5
-              when not voicePresented
+              if not voicePresented
                 row align-items="center" gap=0 retainFocus=true
                   t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=colors.iconSubtle
                     button-disabled=(attachmentBusy or (data.editing and not data.canCancel)) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
@@ -130,32 +130,32 @@ component ThreadComposer
                       t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
                   ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
-            else when not voicePresented
+            else if not voicePresented
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
               ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
-            when voicePresented
+            if voicePresented
               row position=(expanded ? "relative" : "absolute") left=0 right=0 bottom=0 height=44 align-items="center"
-                when dictating
+                if dictating
                   column flex=1 min-width=0
                     VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
-                  when showStop
+                  if showStop
                     ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
                 else
                   column flex=1 min-width=0
                     VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
                   VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
                   ThreadSendButton(data=data, sendLabel=sendLabel, sendSymbol=sendSymbol, canSend=canSend, showStop=showStop, blockedReason=blockedReason, action=action, colors=colors)
-        when richHere
+        if richHere
           ComposerCommandPopover(data=rich.menu, colors=rich.colors, dark=dark, liquidGlass=liquidGlass, hairline=1 / max(1, displayScale), pick=pickCommand)
-          when rich.files.message != ""
+          if rich.files.message != ""
             button appearance="none" press=richAction("retry", rich.admission, "files", "") padding=7
               text rich.files.message font-size=13 color=colors.muted
-          when rich.message != ""
+          if rich.message != ""
             text rich.message padding=7 font-size=13 color=colors.muted
-          when rich.pendingCommandKey != ""
+          if rich.pendingCommandKey != ""
             button appearance="none" press=richAction("retry", rich.admission, rich.pendingCommandKey, "") padding=7
               text "Retry editor action" font-size=13 color=colors.primary
-        when data.showReadOnlyNotice
+        if data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
 
 component ThreadComposerNoticeDismiss
@@ -186,7 +186,7 @@ component ThreadSendButton
   view
     button press=action((showStop ? "stop" : "send"), data.contentOwner, "")
       disabled=disabled width=44 height=44 padding=0 flex-shrink=0
-      aria-label=(showStop ? "Stop agent" : length(blockedReason) > 0 ? blockedReason : sendLabel)
+      aria-label=(showStop ? "Stop agent" : blockedReason.length > 0 ? blockedReason : sendLabel)
       testId="thread-send"
       column width=44 height=44 align-items="center" justify-content="center"
         column width=30 height=30 border-radius=15 align-items="center" justify-content="center"
@@ -202,5 +202,5 @@ shape ComposerFocusReturn
   phase: string
   attempts: number
 // GAP 010: source dismissal fallback 300ms, then at most 20 focus attempts 50ms apart.
-fn composerReturnValid(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool): bool = capture.editorId != "" and capture.owner != "" and capture.owner == owner and includes(routeIds, capture.editorId) and (editorId == capture.editorId or (settings and includes(routeIds, capture.sheetId)))
-fn composerReturnPhase(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool, focused: bool): string = not composerReturnValid(capture, editorId, owner, routeIds, settings) ? "" : editorId != capture.editorId ? capture.phase : focused or capture.phase == "expanded" ? "" : capture.phase == "pending" ? "restoring" : capture.phase
+fn composerReturnValid(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: string[], settings: bool): bool = capture.editorId != "" and capture.owner != "" and capture.owner == owner and routeIds.includes(capture.editorId) and (editorId == capture.editorId or (settings and routeIds.includes(capture.sheetId)))
+fn composerReturnPhase(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: string[], settings: bool, focused: bool): string = not composerReturnValid(capture, editorId, owner, routeIds, settings) ? "" : editorId != capture.editorId ? capture.phase : focused or capture.phase == "expanded" ? "" : capture.phase == "pending" ? "restoring" : capture.phase

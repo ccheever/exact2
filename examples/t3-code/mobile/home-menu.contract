@@ -15,7 +15,7 @@ shape HomeMenuItem
 component HomeMenu
   props
     menuId: string
-    items: list<HomeMenuItem>
+    items: HomeMenuItem[]
     environmentId: string
     threadId: string
     action: action
@@ -25,20 +25,20 @@ component HomeMenu
     background: string
   view
     column id=menuId popover="auto" role="menu" position="absolute" top=0 left=0 min-width=240 padding=7 border-radius=12 background-color=background
-      each entry in items key=entry.id
-        when entry.parentId == ""
-          when entry.operation == ""
+      for entry in items key=entry.id
+        if entry.parentId == ""
+          if entry.operation == ""
             button popovertarget=`${menuId}-${entry.id}` disabled=entry.disabled role="menuitem" aria-label=entry.label
               testId=`${menuId}-${entry.id}-open` padding=10.5 gap=10.5 display="flex" flex-direction="row" align-items="center" text-align="left"
               HomeMenuLabel(entry=entry, foreground=foreground, muted=muted, danger=danger)
               text "›" aria-hidden=true color=muted
           else
             HomeMenuChoice(menuId=menuId, entry=entry, environmentId=environmentId, threadId=threadId, action=action, foreground=foreground, muted=muted, danger=danger)
-      each parent in items key=parent.id
-        when parent.parentId == "" and parent.operation == ""
+      for parent in items key=parent.id
+        if parent.parentId == "" and parent.operation == ""
           column id=`${menuId}-${parent.id}` popover="auto" role="menu" position="absolute" top=0 left=0 position-area="right span-bottom" min-width=240 padding=7 border-radius=12 background-color=background
-            each entry in items key=entry.id
-              when entry.parentId == parent.id
+            for entry in items key=entry.id
+              if entry.parentId == parent.id
                 HomeMenuChoice(menuId=menuId, entry=entry, environmentId=environmentId, threadId=threadId, action=action, foreground=foreground, muted=muted, danger=danger)
 
 component HomeMenuChoice
@@ -66,10 +66,10 @@ component HomeMenuLabel
     muted: string
     danger: string
   view
-    when entry.symbol != ""
+    if entry.symbol != ""
       image `symbol:sf/${entry.symbol}` width=19 height=19 color=(entry.destructive ? danger : foreground) aria-hidden=true
     column flex=1 align-items="flex-start"
       text entry.label font-size=16 line-height="22px" color=(entry.destructive ? danger : foreground)
-      when entry.subtitle != ""
+      if entry.subtitle != ""
         // Native UIMenu currently extracts titles only; do not merge the subtitle into its title.
         text entry.subtitle aria-hidden=true font-size=13 line-height="17px" color=muted

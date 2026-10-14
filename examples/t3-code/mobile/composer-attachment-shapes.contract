@@ -12,7 +12,7 @@ shape ComposerAttachmentsSnapshot
   menuConfiguration: string
   previewRequest: string
   contentOwner: string
-  items: list<ComposerAttachment>
+  items: ComposerAttachment[]
   canPick: bool
   supportsFiles: bool
   remaining: number

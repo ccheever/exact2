@@ -9,13 +9,13 @@ component ComposerAttachmentStrip
     open: action
     colors: ThreadColors
   view
-    when length(data.items) > 0
+    if data.items.length > 0
       scroll overflow-x="auto" overflow-y="hidden" flex-shrink=0 padding-left=14 padding-right=14 padding-bottom=8.75
         row gap=8.75
-          each item in data.items key=item.id
-            when item.removeOperation == "remove-retained"
+          for item in data.items key=item.id
+            if item.removeOperation == "remove-retained"
               row max-width=180 align-items="center" gap=7 border-radius=10.5 border-width=1 border-style="solid" border-color=colors.border background-color=colors.composerSurface padding-top=3.5 padding-bottom=3.5 padding-left=3.5 padding-right=7
-                when item.preview != ""
+                if item.preview != ""
                   image item.preview width=24 height=24 object-fit="cover" border-radius=6
                 else
                   column width=24 height=24 border-radius=5.25 background-color=colors.subtle align-items="center" justify-content="center"
@@ -26,7 +26,7 @@ component ComposerAttachmentStrip
             else
               column position="relative" width=72 height=72 border-radius=16 overflow="hidden" background-color=colors.subtle aria-label=`${item.name}, ${item.size}`
                 button press=open(item.id, data.contentOwner) aria-label=`Open ${item.name}` width=72 height=72 padding=0
-                  when item.preview != ""
+                  if item.preview != ""
                     image item.preview width=72 height=72 object-fit="cover"
                   else
                     column width=72 height=72 justify-content="center" align-items="center" padding=7 box-sizing="border-box" gap=3.5

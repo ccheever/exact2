@@ -34,7 +34,7 @@ shape ComposerOption
   value: string
   boolean: bool
   on: bool
-  choices: list<ComposerChoice>
+  choices: ComposerChoice[]
 shape ComposerSettingsSnapshot
   revision: number
   open: bool
@@ -49,10 +49,10 @@ shape ComposerSettingsSnapshot
   searchConfiguration: string
   empty: string
   pending: bool
-  models: list<ComposerCatalogRow>
-  filters: list<ComposerChoice>
-  options: list<ComposerOption>
-  runtimes: list<ComposerChoice>
+  models: ComposerCatalogRow[]
+  filters: ComposerChoice[]
+  options: ComposerOption[]
+  runtimes: ComposerChoice[]
   runtimeLabel: string
   error: string
   environmentId: string
@@ -89,6 +89,7 @@ shape NewTaskEnvironment
   disabled: bool
   last: bool
 shape NewTaskBranch
+  key: string
   id: string
   label: string
   badge: string
@@ -103,9 +104,9 @@ shape NewTaskSnapshot
   threadId: string
   projectTitle: string
   environmentLabel: string
-  projects: list<NewTaskProject>
-  environments: list<NewTaskEnvironment>
-  branches: list<NewTaskBranch>
+  projects: NewTaskProject[]
+  environments: NewTaskEnvironment[]
+  branches: NewTaskBranch[]
   query: string
   branchQuery: string
   emptyTitle: string

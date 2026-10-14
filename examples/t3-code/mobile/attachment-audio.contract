@@ -27,7 +27,7 @@ component MobileAttachmentAudio
           text (not data.loaded ? "Loading…" : data.playing ? "Pause" : "Play") font-size=14 color=colors.foreground
         button appearance="none" aria-label="Forward 15 seconds" disabled=(not data.loaded) press=command("forward") padding=14
           text "+15s" font-size=14 color=colors.foreground
-      when data.error != ""
+      if data.error != ""
         column align-items="center" gap=10.5
           text "This audio could not be played. Try again or save it to open in another app." font-size=14 text-align="center" color=colors.foreground
           button appearance="none" press=retry padding=10.5

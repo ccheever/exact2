@@ -29,7 +29,7 @@ shape ThreadLocalLimitAccount
   detail: string
   notice: string
   externalURL: string
-  windows: list<ThreadLocalLimitWindow>
+  windows: ThreadLocalLimitWindow[]
   creditsVisible: bool
   creditsSummary: string
   resetKey: string
@@ -47,9 +47,9 @@ shape MobileThreadLocalDockData
   hasUsage: bool
   usageKey: string
   maxHeight: number
-  feedback: list<ThreadLocalFeedbackRow>
-  accounts: list<ThreadLocalLimitAccount>
-  notices: list<ThreadLocalLimitNotice>
+  feedback: ThreadLocalFeedbackRow[]
+  accounts: ThreadLocalLimitAccount[]
+  notices: ThreadLocalLimitNotice[]
 component ThreadLocalDock
   props
     data: MobileThreadLocalDockData
@@ -69,17 +69,17 @@ component ThreadLocalFeedback
     card: string
     command: action
   view
-    each item in data.feedback key=item.id
+    for item in data.feedback key=item.id
       column padding-left=14 padding-right=14 padding-bottom=10.5 flex-shrink=0 font-family="DM Sans"
         column gap=7 border-radius=20 corner-shape="-exact-continuous" background-color=card padding=14
           row align-items="center" gap=10.5
             text item.title flex=1 min-width=0 font-size=14 line-height="19px" color=colors.foreground aria-live="polite"
-            when item.dismissible
+            if item.dismissible
               button press=command("feedback-dismiss", item.id, "") padding=3.5 aria-label="Dismiss feedback notice" retainFocus=true
                 t3-symbol symbol-name="xmark" point-size=14 symbol-tint=colors.iconMuted width=14 height=14
-          when length(item.description) > 0
+          if item.description.length > 0
             text item.description font-size=13 line-height="17px" color=colors.muted
-          when item.status == "sent"
+          if item.status == "sent"
             button press=command("feedback-copy", item.id, item.feedbackId) align-self="flex-start" padding-top=3.5 padding-bottom=3.5 retainFocus=true
               text "Copy ID" font-size=14 line-height="19px" color=colors.foreground
 component ThreadLocalUsage
@@ -92,17 +92,17 @@ component ThreadLocalUsage
     dark: bool
     command: action
   view
-    when data.hasUsage
+    if data.hasUsage
       column padding-left=14 padding-right=14 padding-bottom=10.5 flex-shrink=0 font-family="DM Sans"
         column border-radius=20 corner-shape="-exact-continuous" overflow="hidden" background-color=card
           scroll max-height=data.maxHeight min-height=0 scrollbar-width="none" overscroll-behavior="none" retainFocus=true
-            each account in data.accounts key=account.key
+            for account in data.accounts key=account.key
               ThreadLocalAccount(account=account, usageKey=data.usageKey, colors=colors, tertiary=tertiary, subtleStrong=subtleStrong, dark=dark, command=command)
-            when length(data.accounts) == 0
+            if data.accounts.length == 0
               row align-items="center" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5
                 text "Usage limits" flex=1 min-width=0 font-size=16 line-height="23px" color=colors.foreground
                 ThreadLocalClose(usageKey=data.usageKey, color=colors.iconMuted, command=command)
-            each notice in data.notices key=notice.id
+            for notice in data.notices key=notice.id
               text notice.text padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5
                 font-size=13 line-height="17px" color=colors.muted border-width=0 border-top-width=(notice.border ? 1 : 0) border-style="solid" border-color=colors.borderSubtle
 component ThreadLocalClose
@@ -132,45 +132,45 @@ component ThreadLocalAccount
         ProviderIcon(driver=account.driver, size=16, dark=dark, iconUrl="")
         row flex=1 min-width=0 align-items="baseline" gap=7
           text account.label font-size=16 line-height="23px" font-weight=500 color=colors.foreground
-          when length(account.instanceLabel) > 0
-            when includes(account.instanceLabel, "@")
+          if account.instanceLabel.length > 0
+            if account.instanceLabel.includes("@")
               button press=toggleAccount min-width=0 flex-shrink=1 padding=0 retainFocus=true aria-label=(revealed ? "Hide account label" : "Reveal account label")
                 text `· ${revealed ? account.instanceLabel : "••••••@••••••"}` font-size=13 line-height="17px" color=tertiary line-clamp=1
             else
               text `· ${account.instanceLabel}` min-width=0 flex-shrink=1 font-size=13 line-height="17px" color=tertiary line-clamp=1
-          when length(account.detail) > 0
+          if account.detail.length > 0
             text `· ${account.detail}` min-width=0 flex-shrink=1 font-size=14 line-height="19px" color=colors.muted line-clamp=1
-        when account.first
+        if account.first
           ThreadLocalClose(usageKey=usageKey, color=colors.iconMuted, command=command)
-      when length(account.notice) > 0
+      if account.notice.length > 0
         text account.notice font-size=14 line-height="19px" color=colors.muted
       else
         column gap=10.5
-          each window in account.windows key=window.id
+          for window in account.windows key=window.id
             column gap=3.5
               row align-items="baseline" justify-content="space-between" gap=10.5
                 text window.label font-size=14 line-height="19px" color=colors.foreground
                 text `${window.remaining}% left` font-variant-numeric="tabular-nums" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
               column height=10.5 justify-content="center" position="relative"
                 row height=5.25 overflow="hidden" border-radius=999 background-color=colors.subtle
-                  view height="100%" width=`${window.remaining}%` border-radius=999 background-color=(length(window.color) > 0 ? window.color : colors.foreground)
-                when window.hasTime
+                  view height="100%" width=`${window.remaining}%` border-radius=999 background-color=(window.color.length > 0 ? window.color : colors.foreground)
+                if window.hasTime
                   view position="absolute" top=0 bottom=0 width=1 left=`${window.timeLeft}%` background-color=colors.foreground opacity=0.6
-              when length(window.pace) > 0 or length(window.resets) > 0
+              if window.pace.length > 0 or window.resets.length > 0
                 row justify-content="space-between" gap=10.5
                   text window.pace font-size=13 line-height="17px" color=tertiary
                   text window.resets font-variant-numeric="tabular-nums" font-size=13 line-height="17px" color=tertiary
-      when length(account.externalURL) > 0
+      if account.externalURL.length > 0
         button press=command("open-link", account.key, account.externalURL) min-height=38.5 justify-content="center" align-items="flex-start" role="link" retainFocus=true
           text "Manage usage" font-size=14 line-height="19px" font-weight=500 color=colors.primary
-      when account.creditsVisible
+      if account.creditsVisible
         row flex-wrap="wrap" align-items="center" column-gap=10.5 row-gap=3.5
           text account.creditsSummary font-variant-numeric="tabular-nums" font-size=13 line-height="17px" color=tertiary
-          when account.resetVisible
+          if account.resetVisible
             button press=command("reset-credit", account.resetKey, account.resetInput) disabled=account.resetDisabled opacity=(account.resetDisabled ? 0.45 : 1)
               border-radius=999 background-color=subtleStrong padding-left=8.75 padding-right=8.75 padding-top=3.5 padding-bottom=3.5 retainFocus=true
               text account.resetLabel font-size=13 line-height="17px" font-weight=500 color=colors.foreground
-          when length(account.permissionMessage) > 0
+          if account.permissionMessage.length > 0
             text account.permissionMessage font-size=13 line-height="17px" color=tertiary
-          when length(account.resetStatus) > 0
+          if account.resetStatus.length > 0
             text account.resetStatus font-size=14 line-height="19px" color=colors.foreground

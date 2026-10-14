@@ -29,7 +29,7 @@ component MobileSidebarPanel
       column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll="sidebar-list" background-color=homeLook.drawer
         header
           text "T3 Code" role="heading" aria-level=2
-        when workspace.sidebarMounted
+        if workspace.sidebarMounted
           Home(routeId=routeId, active=workspace.sidebarVisible, refreshAt=sidebarHome.nextSwipeRefreshAt, epochAtZero=homeEpochAtZero, refreshClock=refreshHomeClock, reducedMotion=reducedMotion, listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, menuAction=homeMenuAction, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
           HomeChrome(routeKey=workspace.sidebarRouteKey, configuration=sidebarChrome.configuration, event=sidebarChromeEvent, height=0)
 component MobileInspectorPanel

@@ -15,7 +15,7 @@ component Scanner
     secondaryForeground: string
   view
     column font-family="DM Sans" testId="pairing-scanner"
-      when permission == "granted"
+      if permission == "granted"
         column width="100%" aspect-ratio=1 border-radius=24 overflow="hidden"
           t3-qr-scanner active=active
             message=received

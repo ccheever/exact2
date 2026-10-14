@@ -47,7 +47,7 @@ shape HomeSwipeData
   token: string
   snoozable: bool
   gateExpiry: number
-  snoozeItems: list<HomeMenuItem>
+  snoozeItems: HomeMenuItem[]
 
 shape HomeProviderPrevious
   key: string
@@ -57,7 +57,7 @@ shape HomeProvider
   visible: bool
   driver: string
   iconUrl: string
-  previous: list<HomeProviderPrevious>
+  previous: HomeProviderPrevious[]
   showBadge: bool
   badge: string
   badgeColor: string
@@ -101,7 +101,7 @@ shape HomeItem
   iconSize: number
   provider: HomeProvider
   searchExcerpt: string
-  menuItems: list<HomeMenuItem>
+  menuItems: HomeMenuItem[]
   nativeMenu: string
   swipe: HomeSwipeData
 
@@ -114,7 +114,7 @@ component Home
     epochAtZero: number
     refreshClock: action
     reducedMotion: bool
-    items: list<HomeItem>
+    items: HomeItem[]
     emptyTitle: string
     emptyDetail: string
     loading: bool
@@ -153,15 +153,15 @@ component Home
     dragOffset = 0
     menuAction(environmentId, threadId, kind, value)
   action chooseSwipe(token: string, environmentId: string, threadId: string, kind: string, value: string)
-    if active and stateOwner == swipeOwner and openToken == token and length(filter(items, item => item.swipe.token == token and item.environmentId == environmentId and item.threadId == threadId and item.swipe.snoozable)) == 1
+    if active and stateOwner == swipeOwner and openToken == token and items.filter(item => item.swipe.token == token and item.environmentId == environmentId and item.threadId == threadId and item.swipe.snoozable).length == 1
       openToken = ""
       dragToken = ""
       dragOffset = 0
       menuAction(environmentId, threadId, kind, value)
   action swipeEvent(message: string)
-    let parts = split(message, "|")
+    let parts = message.split("|")
     if homeSwipeField(parts, 0) == "1" and homeSwipeField(parts, 1) == swipeOwner
-      if length(parts) == 4
+      if parts.length == 4
         let phase = homeSwipeField(parts, 3)
         let serial = homeSwipeNumber(parts, 2)
         if homeSwipeInteger(parts, 2) and serial >= 0
@@ -170,7 +170,7 @@ component Home
               tickOwner = swipeOwner
               tickDeadline = serial
               refreshClock()
-          else if includes(["scroll-begin", "scroll-gated", "scroll-clear"], phase) and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
+          else if ["scroll-begin", "scroll-gated", "scroll-clear"].includes(phase) and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
             surfaceOwner = swipeOwner
             surfaceSequence = serial
             scrollGated = phase == "scroll-gated" ? true : phase == "scroll-clear" ? false : scrollGated
@@ -179,7 +179,7 @@ component Home
             if phase == "scroll-gated"
               dragToken = ""
               dragOffset = 0
-      else if length(parts) == 5 and homeSwipeField(parts, 3) == "retired" and homeSwipeInteger(parts, 2)
+      else if parts.length == 5 and homeSwipeField(parts, 3) == "retired" and homeSwipeInteger(parts, 2)
         let serial = homeSwipeNumber(parts, 2)
         let token = homeSwipeField(parts, 4)
         if serial > 0 and (surfaceOwner != swipeOwner or serial > surfaceSequence) and (stateOwner != swipeOwner or serial > gestureSerial)
@@ -189,19 +189,19 @@ component Home
             openToken = ""
             dragToken = ""
             dragOffset = 0
-      else if length(parts) == 12
+      else if parts.length == 12
         let token = homeSwipeField(parts, 2)
         let gesture = homeSwipeNumber(parts, 3)
         let sequence = homeSwipeNumber(parts, 4)
         let phase = homeSwipeField(parts, 5)
-        if homeSwipeInteger(parts, 3) and gesture > 0 and homeSwipeInteger(parts, 4) and sequence >= 0 and includes(["begin", "change", "end", "cancel"], phase) and homeSwipeFinite(parts, 6) and homeSwipeFinite(parts, 7) and homeSwipeFinite(parts, 8) and homeSwipeFinite(parts, 9) and homeSwipeFinite(parts, 10) and homeSwipeNumber(parts, 10) > 0 and homeSwipeFinite(parts, 11) and homeSwipeNumber(parts, 11) > 0
+        if homeSwipeInteger(parts, 3) and gesture > 0 and homeSwipeInteger(parts, 4) and sequence >= 0 and ["begin", "change", "end", "cancel"].includes(phase) and homeSwipeFinite(parts, 6) and homeSwipeFinite(parts, 7) and homeSwipeFinite(parts, 8) and homeSwipeFinite(parts, 9) and homeSwipeFinite(parts, 10) and homeSwipeNumber(parts, 10) > 0 and homeSwipeFinite(parts, 11) and homeSwipeNumber(parts, 11) > 0
           if phase == "cancel" and stateOwner == swipeOwner and gesture == gestureSerial and sequence > gestureSequence and (dragToken == token or openToken == token)
             gestureSequence = sequence
             openToken = ""
             dragToken = ""
             dragOffset = 0
           else
-            match first(filter(items, item => item.kind == "thread" and item.swipe.token == token and item.swipe.primary != ""))
+            match first(items.filter(item => item.kind == "thread" and item.swipe.token == token and item.swipe.primary != ""))
               case some(item)
                 let strip = item.swipe.secondary == "" ? 58 : 116
                 let x = homeSwipeNumber(parts, 6)
@@ -233,10 +233,10 @@ component Home
                 dragToken = dragToken
   view
     t3-home-swipe-events swipe-owner=swipeOwner swipe-active=active swipe-route-key=(listId == "sidebar-list" ? "t3-workspace-sidebar" : routeId) swipe-refresh-at=`${refreshAt}` swipe-epoch-at-zero=`${epochAtZero}` width=0 height=0 change=swipeEvent testId=`home-swipe-events-${listId}`
-    when length(items) == 0 and listId == "sidebar-list"
+    if items.length == 0 and listId == "sidebar-list"
       list id=listId flex=1 min-height=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=bottomClearance
         text emptyTitle padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 font-size=14 line-height="19px" color=colors.drawerMuted translate="0px 0.5px" testId="sidebar-empty-title"
-    else when length(items) == 0
+    else if items.length == 0
       column flex=1
         align-items="center"
         justify-content="center"
@@ -259,7 +259,7 @@ component Home
             color=colors.muted
             text-align="center"
             testId="home-empty-detail"
-          when addEnvironment
+          if addEnvironment
             button press=addConnection
               margin-top=17.5
               border-radius=9999
@@ -275,12 +275,12 @@ component Home
         virtualized=true
         estimated-item-height=72
         testId="home-thread-list"
-        each item in items key=item.key
+        for item in items key=item.key
           HomeListItem(surface=listId, owner=swipeOwner, active=active, openToken=(active and stateOwner == swipeOwner ? openToken : ""), dragToken=(active and stateOwner == swipeOwner ? dragToken : ""), dragOffset=dragOffset, reducedMotion=reducedMotion, item=item, bottomClearance=bottomClearance, selectThread=chooseThread, menuAction=chooseMenu, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
-      each item in items key=item.key
-        when length(item.menuItems) > 0
+      for item in items key=item.key
+        if item.menuItems.length > 0
           HomeMenu(menuId=`home-menu-${listId}-${item.key}`, items=item.menuItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseMenu, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
-        when length(item.swipe.snoozeItems) > 0
+        if item.swipe.snoozeItems.length > 0
           HomeSwipeMenu(token=item.swipe.token, menuId=`home-snooze-${listId}-${item.key}`, items=item.swipe.snoozeItems, environmentId=item.environmentId, threadId=item.threadId, action=chooseSwipe, foreground=colors.foreground, muted=colors.muted, danger=colors.dangerForeground, background=colors.menuBackground)
 
 component HomeListItem
@@ -309,11 +309,11 @@ component HomeListItem
   derive rowForeground = selectedRow ? colors.selectedForeground : sidebar ? colors.drawerForeground : colors.foreground
   derive rowMuted = selectedRow ? colors.selectedMuted : idleMuted
   derive rowTertiary = selectedRow ? colors.selectedMuted : sidebar ? colors.drawerMuted : colors.tertiary
-  derive rowStatusColor = length(item.status) > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
+  derive rowStatusColor = item.status.length > 0 ? statusColor : selectedRow ? colors.selectedForeground : rowTertiary
   derive queuedColor = selectedRow ? colors.selectedQueued : colors.muted
   view
     column padding-bottom=(item.last ? bottomClearance : 0)
-      when item.kind == "shelf"
+      if item.kind == "shelf"
         button press=toggleShelf(item.section)
           disabled=item.disabled
           margin-top=14
@@ -328,7 +328,7 @@ component HomeListItem
             text item.title font-size=13 line-height="17px" font-weight=500 color=(item.section == "snoozed" ? colors.secondary : colors.tertiary)
             view flex=1 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
             t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") point-size=10 symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
-      else when item.kind == "more"
+      else if item.kind == "more"
         button press=showMore
           position="relative"
           margin-left=14
@@ -342,8 +342,8 @@ component HomeListItem
           svg position="absolute" top=0 left=0 width="100%" height="100%" pointer-events="none"
             rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
           text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
-      else when item.kind == "draft" or item.kind == "pending"
-        when item.showPendingDivider
+      else if item.kind == "draft" or item.kind == "pending"
+        if item.showPendingDivider
           row margin-top=14 margin-bottom=5.25 padding-left=(surface == "sidebar-list" ? 10.5 : 17.5) padding-right=(surface == "sidebar-list" ? 10.5 : 17.5) align-items="center" gap=8.75
             text "Unsent" font-size=13 line-height="17px" font-weight=500 color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
             view flex=1 height=1 background-color=colors.border
@@ -356,7 +356,7 @@ component HomeListItem
           data-mobile-home-danger=colors.dangerForeground
           data-mobile-home-background=colors.card
           data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
-          contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+          contextPopover=(surface != "sidebar-list" and item.menuItems.length > 0 ? menuId : "")
           padding=0
           border-radius=(surface == "sidebar-list" ? 12 : 0)
           background-color=(surface == "sidebar-list" ? colors.drawer : colors.screen)
@@ -366,28 +366,28 @@ component HomeListItem
           testId=(item.kind == "draft" ? `home-draft-${item.draftKey}` : `home-pending-${item.threadId}`)
           column padding-left=(surface == "sidebar-list" ? 12 : 17.5) padding-right=(surface == "sidebar-list" ? 12 : 17.5) padding-top=(surface == "sidebar-list" ? 10 : 8.75) padding-bottom=(surface == "sidebar-list" ? 10 : 8.75)
             row align-items="center" gap=5.25
-              when item.projectPresent
+              if item.projectPresent
                 HomeProjectIcon(item=item, colors=colors)
               text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.muted
               row align-items="center" gap=3.5
-                when item.kind == "draft"
+                if item.kind == "draft"
                   t3-symbol symbol-name="square.and.pencil" point-size=10 symbol-weight="regular" symbol-tint=colors.draft width=10 height=10
                 text item.status font-size=13 line-height="17px" color=(item.kind == "draft" ? colors.draft : colors.muted)
             text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=1 text-overflow="ellipsis"
-            when length(item.branch) > 0 or length(item.environmentLabel) > 0
+            if item.branch.length > 0 or item.environmentLabel.length > 0
               row margin-top=3.5 align-items="center" gap=3.5
                 text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
                   text item.branch font-family="Menlo" color=colors.muted
-                  when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                  if item.branch.length > 0 and item.environmentLabel.length > 0
                     text "  ·  " color=colors.muted
                   text item.environmentLabel color=(surface == "sidebar-list" ? colors.muted : colors.tertiary)
-                when length(item.environmentLabel) > 0 and length(item.machineSymbol) > 0
+                if item.environmentLabel.length > 0 and item.machineSymbol.length > 0
                   t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=(surface == "sidebar-list" ? colors.muted : colors.tertiary) width=11 height=11 flex-shrink=0
-          when item.trailingDivider and surface != "sidebar-list"
+          if item.trailingDivider and surface != "sidebar-list"
             view height=1 margin-left=17.5 background-color=colors.borderSubtle
       else
         box position="relative" overflow="hidden" border-radius=(sidebar ? 12 : 0) background-color=(sidebar ? colors.drawer : colors.screen)
-          when item.swipe.primary != ""
+          if item.swipe.primary != ""
             HomeSwipeControls(surface=surface, owner=owner, token=item.swipe.token, menuId=`home-snooze-${surface}-${item.key}`, context=item.nativeMenu, enabled=active and item.swipe.snoozable, open=openToken == item.swipe.token, card=item.card, offset=swipeOffset, secondary=item.swipe.secondary != "", primaryLabel=item.swipe.primaryLabel, primarySymbol=item.swipe.primarySymbol, primaryAccessibilityLabel=item.swipe.primaryAccessibilityLabel, secondaryAccessibilityLabel=item.swipe.secondaryAccessibilityLabel, foreground=colors.foreground, muted=colors.muted, primary=colors.primary, primaryForeground=colors.primaryForeground, secondaryFill=colors.secondaryFill, secondaryForeground=colors.secondaryForeground)
           column translate=`${swipeOffset}px 0px` transition=(dragToken == item.swipe.token or reducedMotion ? "none" : "translate -exact-spring(330, 26, 0.7)") background-color=rowBackground border-radius=(sidebar ? 12 : 0) overflow=(sidebar ? "hidden" : "visible") testId=`home-swipe-content-${item.key}`
             button press=selectThread(item.id)
@@ -403,44 +403,44 @@ component HomeListItem
               data-mobile-home-danger=colors.dangerForeground
               data-mobile-home-background=colors.card
               data-mobile-home-menu-id=(surface == "sidebar-list" ? menuId : "")
-              contextPopover=(surface != "sidebar-list" and length(item.menuItems) > 0 ? menuId : "")
+              contextPopover=(surface != "sidebar-list" and item.menuItems.length > 0 ? menuId : "")
               padding=0
               text-align="left"
               aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
               aria-selected=selectedRow
               testId=`home-thread-${item.key}`
-              when item.card
+              if item.card
                 column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
                   row align-items="center" gap=5.25
-                    when item.projectPresent
+                    if item.projectPresent
                       HomeProjectIcon(item=item, colors=colors)
                     text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
                       font-size=14 line-height="19px" font-weight=500 color=rowMuted
-                    when item.queued
+                    if item.queued
                       t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
-                    when item.pinned
+                    if item.pinned
                       t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=idleMuted width=11 height=11
-                    text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=rowStatusColor
+                    text (item.status.length > 0 ? item.status : item.time) font-size=13 line-height="17px" color=rowStatusColor
                   text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=rowForeground line-clamp=2 text-overflow="ellipsis"
-                  when length(item.searchExcerpt) > 0
+                  if item.searchExcerpt.length > 0
                     text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
                   row margin-top=3.5 align-items="center" gap=7
-                    when length(item.error) > 0
+                    if item.error.length > 0
                       text item.error flex=1 min-width=0 white-space="nowrap" overflow="hidden" font-size=13 line-height="17px" color=(selectedRow ? colors.selectedMuted : statusColor) text-overflow="ellipsis"
-                    else when length(item.branch) > 0 or length(item.environmentLabel) > 0
+                    else if item.branch.length > 0 or item.environmentLabel.length > 0
                       row flex=1 min-width=0 align-items="center" gap=3.5
                         text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
                           text item.branch font-family="Menlo" color=rowMuted
-                          when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                          if item.branch.length > 0 and item.environmentLabel.length > 0
                             text "  ·  " color=rowMuted
                           text item.environmentLabel color=rowTertiary
-                        when length(item.environmentLabel) > 0
+                        if item.environmentLabel.length > 0
                           t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=rowTertiary width=11 height=11 flex-shrink=0
                     else
                       view flex=1 min-width=0
-                    when item.provider.visible
+                    if item.provider.visible
                       HomeProviderStack(provider=item.provider, surfaceColor=rowBackground, colors=colors)
-                when item.trailingDivider
+                if item.trailingDivider
                   view height=1 margin-left=17.5 background-color=colors.borderSubtle
               else
                 row min-height=44
@@ -451,14 +451,14 @@ component HomeListItem
                   padding-right=17.5
                   padding-top=7
                   padding-bottom=7
-                  when item.projectPresent
+                  if item.projectPresent
                     column opacity=0.4
                       HomeProjectIcon(item=item, colors=colors)
                   column flex=1 min-width=0
                     text item.title font-size=16 line-height="23px" color=(selectedRow ? colors.selectedForeground : idleMuted) line-clamp=1 text-overflow="ellipsis"
-                    when length(item.searchExcerpt) > 0
+                    if item.searchExcerpt.length > 0
                       text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-                  when item.queued
+                  if item.queued
                     t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=queuedColor width=12 height=12
                   text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? rowMuted : rowTertiary)
 
@@ -471,9 +471,9 @@ component HomeProjectIcon
     colors: HomeColors
   view
     column width=15 height=15 flex-shrink=0 align-items="center" justify-content="center"
-      when item.iconKind == "emoji"
+      if item.iconKind == "emoji"
         text item.iconText font-size=12 line-height="15px" text-align="center"
-      else when item.iconKind == "monogram"
+      else if item.iconKind == "monogram"
         column width=15 height=15 border-radius=3.75 background-color=item.iconSurface align-items="center" justify-content="center"
           text item.iconText font-family="Menlo" font-size=item.iconSize line-height="15px" font-weight=700 color=item.iconColor text-align="center" line-clamp=1
       else
@@ -487,13 +487,13 @@ component HomeProviderStack
     colors: HomeColors
   view
     row align-items="center" flex-shrink=0 aria-hidden=true
-      each previous in provider.previous key=previous.key
+      for previous in provider.previous key=previous.key
         box margin-right=-3.5 opacity=0.3 width=12 height=12 flex-shrink=0
           ProviderIcon(driver=previous.driver, size=12, dark=false, iconUrl="")
       box position="relative" width=14 height=14 flex-shrink=0
         box opacity=0.6 width=14 height=14
           ProviderIcon(driver=provider.driver, size=14, dark=false, iconUrl=provider.iconUrl)
-        when provider.showBadge
+        if provider.showBadge
           box position="absolute" right=-3 bottom=-3 height=12 min-width=12 box-sizing="border-box"
             padding-left=2 padding-right=2 border-radius=999 border-width=1 border-style="solid" border-color=surfaceColor
             background-color=(provider.badgeColor != "" ? provider.badgeColor : colors.card)

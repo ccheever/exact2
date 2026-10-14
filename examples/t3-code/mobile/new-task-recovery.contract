@@ -7,7 +7,7 @@ shape NewTaskRecovery
   visible: bool
   blocked: bool
   message: string
-  actions: list<NewTaskRecoveryAction>
+  actions: NewTaskRecoveryAction[]
 component NewTaskRecoveryNotice
   props
     data: NewTaskRecovery
@@ -15,11 +15,11 @@ component NewTaskRecoveryNotice
     busy: bool
     action: action
   view
-    when data.visible
+    if data.visible
       column padding=10.5 gap=7
         text "Saved task needs attention" font-size=14 font-weight=600 color=colors.foreground
         text data.message font-size=13 line-height="17px" color=colors.muted
-        each item in data.actions key=item.key
+        for item in data.actions key=item.key
           button appearance="none" press=action("transfer-recovery", item.key, "") disabled=busy padding=7 text-align="left"
             text item.label font-size=14 color=colors.foreground
         button appearance="none" press=action("transfer-recovery-refresh", "", "") disabled=busy padding=7 text-align="left"

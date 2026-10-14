@@ -30,11 +30,11 @@ component FileTypeIcon
   derive f3 = "currentColor"
   view
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox=box color=tint fill="none" flex-shrink=0 aria-hidden=true
-      when d0 != ""
+      if d0 != ""
         path d=d0 fill=f0 fill-opacity=o0 fill-rule=r0
-      when d1 != ""
+      if d1 != ""
         path d=d1 fill=f1 fill-opacity=o1 fill-rule=r1
-      when d2 != ""
+      if d2 != ""
         path d=d2 fill=f2 fill-opacity=o2 fill-rule=r2
-      when d3 != ""
+      if d3 != ""
         path d=d3 fill=f3 fill-opacity=o3 fill-rule=r3

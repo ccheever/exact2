@@ -30,7 +30,7 @@ shape MobileTerminalSnapshot
   error: string
   emptyTitle: string
   emptyDetail: string
-  tabs: list<MobileTerminalTab>
+  tabs: MobileTerminalTab[]
   hostPlatform: string
   colors: MobileTerminalColors
 shape MobileTerminalResult
@@ -52,7 +52,7 @@ shape MobileTerminalLine
   text: string
   selected: bool
 shape MobileTerminalCapture
-  lines: list<MobileTerminalLine>
+  lines: MobileTerminalLine[]
   start: number
   end: number
   text: string
@@ -66,9 +66,9 @@ component MobileTerminal
     action: action
   view
     column flex=1 min-height=0 background-color=data.colors.background color=data.colors.foreground
-      when data.subtitle != ""
+      if data.subtitle != ""
         text data.subtitle padding-left=16 padding-bottom=8 font-size=13 color=data.colors.mutedForeground
-      when data.ready and mountReady
+      if data.ready and mountReady
         t3-mobile-terminal terminal-source=data.sourceJSON change=event flex=1 min-height=0 aria-label="Terminal" testId="terminal-surface"
       else
         column flex=1 align-items="center" justify-content="center" padding=24 gap=8
@@ -85,10 +85,10 @@ component MobileTerminalCaptureView
       text "Tap the first and last line to select a range." padding-left=16 padding-right=16 padding-bottom=12 color=colors.mutedForeground
       scroll flex=1 min-height=0 id="terminal-capture-lines"
         column padding=16
-          each line in data.lines key=line.id
+          for line in data.lines key=line.id
             button press=select(line.id) aria-label=`Line ${line.text}` aria-pressed=line.selected background-color=(line.selected ? colors.sheetSubtle : "transparent") padding-top=4 padding-bottom=4
               text line.text font-family="monospace" font-size=14 white-space="pre-wrap"
-      when data.tooLarge
+      if data.tooLarge
         text "Select fewer lines to fit the context limit." padding-left=16 padding-right=16 color=colors.mutedForeground
       button press=attach disabled=not data.canAttach margin=16 margin-bottom=40 padding=16 border-radius=12 background-color=colors.sheetSubtle aria-label="Attach selected output"
         text "Attach selected output" text-align="center"

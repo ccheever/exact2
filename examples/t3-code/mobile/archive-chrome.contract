@@ -15,7 +15,7 @@ component ArchiveChrome
     focused: bool
     event: action
   view
-    when focused and data.routeKey == routeKey and routeKey != ""
+    if focused and data.routeKey == routeKey and routeKey != ""
       t3-archive-chrome configuration=data.configuration change=event
         position="absolute" height=data.toolbarHeight right=0 bottom=0 left=0
         testId="archive-chrome"

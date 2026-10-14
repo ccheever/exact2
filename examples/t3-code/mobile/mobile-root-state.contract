@@ -37,33 +37,33 @@ shape SettingsVisit
   visitToken: string
   selection: SettingsSelection
 shape SettingsVisitPlan
-  records: list<SettingsVisit>
+  records: SettingsVisit[]
   close: bool
-fn settingsContentRoute(name: string): bool = includes(["settingsNotifications", "settingsThreads", "settingsProjectOverview", "settingsServer", "settingsProviders", "settingsAppearance", "settingsChoice", "settingsScheduledTasks", "settingsScheduledNew", "settingsScheduledEdit", "settingsScheduledModel", "settingsScheduledBranch", "settingsAbout", "settingsClientStorage", "settingsDiagnostics", "settingsOpenSourceLicenses", "settingsOpenSourceLicense", "settingsUsage", "settingsUsageAccount", "archive", "environments", "environmentDetail"], name)
-fn settingsRootOwner(roots: list<WorkspaceEntry>, content: list<WorkspaceEntry>): SettingsVisitOwner = match first(slice(roots, length(roots) - 1, length(roots))) {
+fn settingsContentRoute(name: string): bool = ["settingsNotifications", "settingsThreads", "settingsProjectOverview", "settingsServer", "settingsProviders", "settingsAppearance", "settingsChoice", "settingsScheduledTasks", "settingsScheduledNew", "settingsScheduledEdit", "settingsScheduledModel", "settingsScheduledBranch", "settingsAbout", "settingsClientStorage", "settingsDiagnostics", "settingsOpenSourceLicenses", "settingsOpenSourceLicense", "settingsUsage", "settingsUsageAccount", "archive", "environments", "environmentDetail"].includes(name)
+fn settingsRootOwner(roots: WorkspaceEntry[], content: WorkspaceEntry[]): SettingsVisitOwner = match first(roots.slice(roots.length - 1, roots.length)) {
   case some(root) => SettingsVisitOwner(visitToken=`root:${root.id}`, routeKey=root.id),
   case none => match first(content) { case some(child) => SettingsVisitOwner(visitToken=`content:${child.id}`, routeKey=child.id), case none => SettingsVisitOwner(visitToken="", routeKey="") }
 }
-fn settingsPrefixOwner(entries: list<WorkspaceEntry>): SettingsVisitOwner = settingsRootOwner(filter(entries, entry => entry.name == "settings"), filter(entries, entry => settingsContentRoute(entry.name)))
-fn settingsVisitOwner(entries: list<WorkspaceEntry>, routeKey: string): SettingsVisitOwner = settingsPrefixOwner(slice(entries, 0, indexOf(map(entries, entry => entry.id), routeKey) + 1))
-fn settingsLiveTokens(entries: list<WorkspaceEntry>): list<string> = map(filter(entries, entry => entry.name == "settings" or settingsContentRoute(entry.name)), entry => settingsVisitOwner(entries, entry.id).visitToken)
-fn settingsDefaultSelection(): SettingsSelection = SettingsSelection(allEnvironments=true, environmentIds=slice([""], 0, 0), projectKey="")
-fn settingsVisitSelection(records: list<SettingsVisit>, token: string): SettingsSelection = match first(filter(records, record => record.visitToken == token)) { case some(record) => record.selection, case none => settingsDefaultSelection() }
-fn settingsLiveRecords(records: list<SettingsVisit>, entries: list<WorkspaceEntry>): list<SettingsVisit> = filter(records, record => includes(settingsLiveTokens(entries), record.visitToken))
-fn settingsEnvironmentSelection(previous: SettingsSelection, available: list<string>, selected: list<string>): SettingsSelection = SettingsSelection(previous, allEnvironments=length(filter(available, id => not includes(selected, id))) == 0, environmentIds=selected)
-fn settingsToggledIds(selected: list<string>, id: string): list<string> = includes(selected, id) ? filter(selected, candidate => candidate != id) : concat(selected, [id])
+fn settingsPrefixOwner(entries: WorkspaceEntry[]): SettingsVisitOwner = settingsRootOwner(entries.filter(entry => entry.name == "settings"), entries.filter(entry => settingsContentRoute(entry.name)))
+fn settingsVisitOwner(entries: WorkspaceEntry[], routeKey: string): SettingsVisitOwner = settingsPrefixOwner(entries.slice(0, entries.map(entry => entry.id).indexOf(routeKey) + 1))
+fn settingsLiveTokens(entries: WorkspaceEntry[]): string[] = entries.filter(entry => entry.name == "settings" or settingsContentRoute(entry.name)).map(entry => settingsVisitOwner(entries, entry.id).visitToken)
+fn settingsDefaultSelection(): SettingsSelection = SettingsSelection(allEnvironments=true, environmentIds=[""].slice(0, 0), projectKey="")
+fn settingsVisitSelection(records: SettingsVisit[], token: string): SettingsSelection = match first(records.filter(record => record.visitToken == token)) { case some(record) => record.selection, case none => settingsDefaultSelection() }
+fn settingsLiveRecords(records: SettingsVisit[], entries: WorkspaceEntry[]): SettingsVisit[] = records.filter(record => settingsLiveTokens(entries).includes(record.visitToken))
+fn settingsEnvironmentSelection(previous: SettingsSelection, available: string[], selected: string[]): SettingsSelection = SettingsSelection(previous, allEnvironments=available.filter(id => not selected.includes(id)).length == 0, environmentIds=selected)
+fn settingsToggledIds(selected: string[], id: string): string[] = selected.includes(id) ? selected.filter(candidate => candidate != id) : selected.concat([id])
 fn settingsApplyOperation(previous: SettingsSelection, event: SettingsScopeEvent): SettingsSelection = (
-  event.kind == "all" ? SettingsSelection(previous, allEnvironments=true, environmentIds=slice([""], 0, 0)) :
+  event.kind == "all" ? SettingsSelection(previous, allEnvironments=true, environmentIds=[""].slice(0, 0)) :
   event.kind == "project" ? SettingsSelection(previous, projectKey=event.value) :
-  event.kind == "environment" and includes(event.availableEnvironmentIds, event.value) ? settingsEnvironmentSelection(previous, event.availableEnvironmentIds, settingsToggledIds(filter(event.availableEnvironmentIds, id => previous.allEnvironments or includes(previous.environmentIds, id)), event.value)) : previous
+  event.kind == "environment" and event.availableEnvironmentIds.includes(event.value) ? settingsEnvironmentSelection(previous, event.availableEnvironmentIds, settingsToggledIds(event.availableEnvironmentIds.filter(id => previous.allEnvironments or previous.environmentIds.includes(id)), event.value)) : previous
 )
-fn settingsOperationRecords(previous: list<SettingsVisit>, entries: list<WorkspaceEntry>, event: SettingsScopeEvent): list<SettingsVisit> = (
-  includes(settingsLiveTokens(entries), event.visitToken) and includes(["all", "environment", "project"], event.kind)
-    ? concat(filter(settingsLiveRecords(previous, entries), record => record.visitToken != event.visitToken), [SettingsVisit(visitToken=event.visitToken, selection=settingsApplyOperation(settingsVisitSelection(previous, event.visitToken), event))])
+fn settingsOperationRecords(previous: SettingsVisit[], entries: WorkspaceEntry[], event: SettingsScopeEvent): SettingsVisit[] = (
+  settingsLiveTokens(entries).includes(event.visitToken) and ["all", "environment", "project"].includes(event.kind)
+    ? settingsLiveRecords(previous, entries).filter(record => record.visitToken != event.visitToken).concat([SettingsVisit(visitToken=event.visitToken, selection=settingsApplyOperation(settingsVisitSelection(previous, event.visitToken), event))])
     : settingsLiveRecords(previous, entries)
 )
-fn settingsEventPlan(previous: list<SettingsVisit>, reply: option<SettingsScopeEvent>, entries: list<WorkspaceEntry>, routeKey: string): SettingsVisitPlan = match reply {
-  case some(event) => SettingsVisitPlan(records=settingsOperationRecords(previous, entries, event), close=includes(settingsLiveTokens(entries), event.visitToken) and event.requestRoute == routeKey and (event.kind == "close" or event.kind == "back")),
+fn settingsEventPlan(previous: SettingsVisit[], reply: option<SettingsScopeEvent>, entries: WorkspaceEntry[], routeKey: string): SettingsVisitPlan = match reply {
+  case some(event) => SettingsVisitPlan(records=settingsOperationRecords(previous, entries, event), close=settingsLiveTokens(entries).includes(event.visitToken) and event.requestRoute == routeKey and (event.kind == "close" or event.kind == "back")),
   case none => SettingsVisitPlan(records=settingsLiveRecords(previous, entries), close=false)
 }
 shape PairingCameraPlan

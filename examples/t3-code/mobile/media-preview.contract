@@ -13,5 +13,5 @@ component MediaPreview
     completed: action
   view
     column width=1 height=1
-      when data.ready
+      if data.ready
         t3-media-presenter media-source=data.sourceJSON change=completed width=1 height=1 aria-hidden=true

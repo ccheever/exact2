@@ -53,8 +53,8 @@ shape EnvironmentDetailData
   showUpdate: bool
   manualUpdate: string
   routesHeight: number
-  routes: list<EnvironmentDetailRoute>
-  providers: list<EnvironmentDetailProvider>
+  routes: EnvironmentDetailRoute[]
+  providers: EnvironmentDetailProvider[]
 
 component EnvironmentDetail
   props
@@ -88,7 +88,7 @@ component EnvironmentDetail
       padding-top=14
       font-family="DM Sans"
       testId="environment-detail"
-      when not data.found
+      if not data.found
         text "This environment is no longer saved on this device." font-size=16 color=colors.muted
       else
         column gap=7
@@ -108,7 +108,7 @@ component EnvironmentDetail
         column gap=7
           row align-items="center" justify-content="space-between"
             DetailSectionTitle(label="Routes", colors=colors)
-            when length(data.routes) > 1
+            if data.routes.length > 1
               button press=editRoutes
                 padding-left=7
                 padding-right=7
@@ -127,13 +127,13 @@ component EnvironmentDetail
               estimated-item-height=71.75
               width="100%"
               overflow-x="hidden"
-              each route in data.routes key = route.id
+              for route in data.routes key = route.id
                 row gap=14
                   padding-left=14
                   align-items="center"
                   testId=`environment-route-${route.id}`
-                  when editingRoutes
-                    when route.removable
+                  if editingRoutes
+                    if route.removable
                       button press=action("route-remove", data.key, route.id)
                         disabled=pending
                         padding=0
@@ -167,7 +167,7 @@ component EnvironmentDetail
                           line-clamp=1
                           text-overflow="ellipsis"
                           flex-shrink=1
-                        when route.active
+                        if route.active
                           text "In use" font-size=12
                             line-height="16px"
                             font-weight=700
@@ -178,13 +178,13 @@ component EnvironmentDetail
                             padding-right=8.75
                             padding-top=3.5
                             padding-bottom=3.5
-                      when length(route.address) > 0
+                      if route.address.length > 0
                         text (route.learned ? `${route.address} · found automatically` : route.address) font-size=14
                           line-height="19px"
                           color=colors.muted
                           line-clamp=1
                           text-overflow="ellipsis"
-                  when editingRoutes
+                  if editingRoutes
                     box reorderFor="mobile-environment-routes"
                       disabled=pending
                       touch-action="none"
@@ -208,13 +208,13 @@ component EnvironmentDetail
               colors=colors,
               rowId="environment-route-add"
             )
-        when length(data.permissionNote) > 0
+        if data.permissionNote.length > 0
           DetailMessage(message=data.permissionNote, error=false, colors=colors)
-        when length(data.error) > 0
+        if data.error.length > 0
           DetailMessage(message=data.error, error=true, colors=colors)
-        when length(data.notice) > 0
+        if data.notice.length > 0
           DetailMessage(message=data.notice, error=false, colors=colors)
-        when data.configPresent
+        if data.configPresent
           column gap=7
             DetailSectionTitle(label="T3 Code", colors=colors)
             column border-radius=24 background-color=colors.groupedCard overflow="hidden"
@@ -222,13 +222,13 @@ component EnvironmentDetail
                 text `Version ${data.version}` font-size=16
                   line-height="23px"
                   color=colors.foreground
-                when length(data.updateMessage) > 0
+                if data.updateMessage.length > 0
                   text data.updateMessage font-size=14
                     line-height="19px"
                     color=(data.updateFailed ? colors.dangerForeground : colors.muted)
-                when length(data.releaseMessage) > 0
+                if data.releaseMessage.length > 0
                   text data.releaseMessage font-size=14 line-height="19px" color=colors.muted
-                when length(data.manualUpdate) > 0
+                if data.manualUpdate.length > 0
                   text data.manualUpdate font-size=14 line-height="19px" color=colors.muted
               DetailActionRow(
                 label="Check for updates",
@@ -238,7 +238,7 @@ component EnvironmentDetail
                 colors=colors,
                 rowId="environment-check-updates"
               )
-              when data.showUpdate
+              if data.showUpdate
                 DetailActionRow(
                   label=`Update to ${data.targetVersion}`,
                   icon="arrow.up.circle",
@@ -258,7 +258,7 @@ component EnvironmentDetail
                 colors=colors,
                 rowId="environment-refresh-providers"
               )
-              each provider in data.providers key = provider.id
+              for provider in data.providers key = provider.id
                 column
                   column padding=14 gap=3.5
                     row align-items="center" gap=7
@@ -268,19 +268,19 @@ component EnvironmentDetail
                         font-weight=500
                         color=colors.foreground
                     text provider.version font-size=14 line-height="19px" color=colors.muted
-                    when length(provider.updateMessage) > 0
+                    if provider.updateMessage.length > 0
                       text provider.updateMessage font-size=14
                         line-height="19px"
                         color=(provider.updateFailed ? colors.dangerForeground : colors.muted)
-                    when length(provider.compatibility) > 0
+                    if provider.compatibility.length > 0
                       text provider.compatibility font-size=14 line-height="19px" color=colors.muted
-                    when length(provider.message) > 0
+                    if provider.message.length > 0
                       text provider.message font-size=14 line-height="19px" color=colors.muted
-                    when provider.manualUpdate
+                    if provider.manualUpdate
                       text "Update this provider on the environment's machine." font-size=14
                         line-height="19px"
                         color=colors.muted
-                  when provider.canUpdate
+                  if provider.canUpdate
                     DetailActionRow(
                       label=`Update ${provider.label}`,
                       icon="arrow.up.circle",

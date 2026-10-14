@@ -72,7 +72,7 @@ component NewTaskDraft
         action("send-alternate", data.composer.contentOwner, "")
   view
     view position="absolute" inset=0 background-color=colors.sheet pointer-events="none" aria-hidden=true
-    each expected in [owner] key=expected
+    for expected in [owner] key=expected
       view id=`new-task-route-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=geometryChanged(expected)
     column id=`new-task-flow-${routeId}` position="relative" flex=1 min-height=0 pointer-events="none"
       view id=`new-task-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=geometryChanged(owner)
@@ -81,13 +81,13 @@ component NewTaskDraft
           column min-height="100%" box-sizing="border-box" align-items="center" padding-top=72 padding-bottom=236 font-family="DM Sans"
             NewTaskHero(data=data, chooseProject=chooseProject, chooseEnvironment=chooseEnvironment, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
     column id=`new-task-dock-${routeId}` position="absolute" left=0 right=0 bottom=(keyboardDocked ? -max(bottomPadding - 8, 0) : 0) padding-left=12 padding-right=12 padding-top=3.5 padding-bottom=bottomPadding background-color=colors.sheet font-family="DM Sans" pointer-events="auto"
-      when not data.pendingEditor
+      if not data.pendingEditor
         MobileNewTaskClone(data=clone, colors=cloneColors, action=action)
       NewTaskRecoveryNotice(data=recovery, colors=colors, busy=voiceDisabled, action=action)
       NewTaskWorkspace(data=data, action=action, chooseBranch=chooseBranch, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
-      when data.composer.showReadOnlyNotice
+      if data.composer.showReadOnlyNotice
         text "This connection cannot start tasks." padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-size=13 line-height="17px" color=colors.muted
-      when data.composer.modelUnavailable
+      if data.composer.modelUnavailable
         button press=openModelSettings disabled=(not data.canSelect) padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
           text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
       column id=`new-task-card-${routeId}` position="relative" border-radius=26 min-height=140 overflow="hidden" box-sizing="border-box" padding-top=14 padding-bottom=6
@@ -102,7 +102,7 @@ component NewTaskDraft
             box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
           view height=3.5
           row align-items="center" gap=0 retainFocus=true
-            when not voicePresented
+            if not voicePresented
               t3-composer-attachment-button configuration=attachments.menuConfiguration change=pickAttachments button-tint=threadColors.iconSubtle
                 button-disabled=(not data.canSelect or voiceDisabled) width=44 height=44 flex-shrink=0 aria-label="Add attachment"
               column flex=1 min-width=0 align-items="flex-end"
@@ -112,12 +112,12 @@ component NewTaskDraft
                     text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
                     t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
               VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
-              when recovery.blocked
+              if recovery.blocked
                 button disabled=true width=44 height=44 padding=0 aria-label="Resolve saved task before sending"
                   t3-symbol symbol-name="arrow.up" point-size=18 symbol-weight="semibold" symbol-tint=colors.muted width=44 height=44
               else
                 ThreadSendButton(data=data.composer, sendLabel=data.composer.sendLabel, sendSymbol=data.composer.sendSymbol, canSend=data.composer.canSend, showStop=data.composer.showStop, blockedReason=data.composer.blockedReason, action=action, colors=threadColors)
-            else when dictating
+            else if dictating
               column flex=1 min-width=0
                 VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
             else
