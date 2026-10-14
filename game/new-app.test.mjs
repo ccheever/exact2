@@ -502,7 +502,10 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     assert.match(ts, /const origin = 'http:\/\/127\.0\.0\.1:4410';[^]*net\.fetch \$\{origin\}\\nsqlite\.open app:\/data/);
     assert.ok(ts.includes(`export const appId = '${manifest().app.id}'`));
     assert.match(tests, /^fresh\nepoch now$[^]*fail fetch "http:\/\/127\.0\.0\.1:4410"/m);
-    assert.match(readFileSync(resolve(dir, 'app.contract'), 'utf8'), /failure\(board\)[^]*f\.reason/);
+    const view = readFileSync(resolve(dir, 'app.contract'), 'utf8');
+    assert.match(view, /failure\(board\)[^]*f\.reason/);
+    assert.match(view, /resource board = notes\(persona, time.epochAtZero \+ sampledAt\)/);
+    assert.match(view, /action refreshBoard\n    sampledAt = performanceNow\(\)\n    refresh board/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/assets\/snapback4\.wasm$/m);
     assert.match(readFileSync(resolve(dir, 'AGENTS.md'), 'utf8'), /this app's data is Snapback 4's[^]*bun exact\.mjs snapback/);
     // With the server installed above, `snapback` generates the operations once and mounts them; a schema stays the author's.

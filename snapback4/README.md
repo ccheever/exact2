@@ -218,7 +218,11 @@ shape Clock
   epochAtZero: number
 
   resource time = exactTime() as shape Clock
-  resource inbox = inbox(time.epochAtZero + performanceNow()) as list<Message>
+  state sampledAt = 0
+  resource inbox = inbox(time.epochAtZero + sampledAt) as list<Message>
+  action reloadInbox
+    sampledAt = performanceNow()
+    refresh inbox
 ```
 
 `exactTime()` is a reserved source, not a function to call inside an
@@ -293,8 +297,9 @@ component Guestbook
   state persona = "alice"
   state draft = ""
   state notice = ""
+  state sampledAt = 0
   resource time = exactTime() as shape Clock
-  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
+  resource board = notes(persona, time.epochAtZero + sampledAt) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
     case some(f) => (f.code == "offline" || f.code == "E_OFFLINE") ? "You're offline" : f.reason != "" ? `Couldn't load notes (${f.reason})` : `Couldn't load notes (${f.message})`,
@@ -303,6 +308,7 @@ component Guestbook
   task live mount
     every(5000, refreshBoard)
   action refreshBoard
+    sampledAt = performanceNow()
     refresh board
   action choosePersona(value: string)
     persona = value
@@ -498,8 +504,10 @@ component App
   view
     column gap=8 padding=16
       select value=persona change=choosePersona testId="persona" aria-label="Persona"
-        option value="alice" label="Alice"
-        option value="bob" label="Bob"
+        option value="alice"
+          text "Alice"
+        option value="bob"
+          text "Bob"
       input value=draft input=edit submit=post testId="draft" aria-label="Note"
       button press=post disabled=(trim(draft) == "" or pending(posted)) testId="post"
         text "Post"

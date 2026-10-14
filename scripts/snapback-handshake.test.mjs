@@ -7,11 +7,11 @@ import { resolve, join } from 'node:path';
 import { createServer } from 'node:net';
 import { listenOn } from './agent-launch.mjs';
 const sdk = resolve(import.meta.dirname, '..');
-const binary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
+const installedBinary = process.env.SNAPBACK4_BIN ?? resolve(sdk, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
 const packageDir = process.env.SNAPBACK4_PACKAGE ?? resolve(sdk, 'node_modules/snapback4');
 for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`npm Exact ${online ? 'online write' : 'guestbook syncs, writes offline and reconnects'} against ${mode}`, async () => {
   const project = mkdtempSync(join(sdk, 'target/hs-guestbook-'));
-  const app = join(project, 'app'); let server;
+  const app = join(project, 'app'); let server, binary = installedBinary;
   const env = {...process.env, SNAPBACK4_BIN: binary, CARGO_INCREMENTAL: '0', CARGO_PROFILE_DEV_DEBUG: '0', CARGO_PROFILE_TEST_DEBUG: '0'};
   const run = (command, args, cwd = project) => {
     const result = spawnSync(command, args, {cwd, env, encoding: 'utf8', timeout: 300_000});
@@ -31,6 +31,11 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
       const tarball = join(project, packed[0].filename);
       writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: `file:${tarball}`}}));
       run('npm', ['install', '--ignore-scripts', '--omit=optional', '--no-audit', '--no-fund']);
+    }
+    if (process.env.SNAPBACK4_REGISTRY) {
+      binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
+      env.SNAPBACK4_BIN = binary;
+      assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.27');
     }
     assert.ok(readFileSync(join(project, 'node_modules/snapback4/dist/contract.d.ts')).length);
     if (online) {

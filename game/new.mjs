@@ -201,8 +201,9 @@ component ${title.replaceAll(' ', '')}
   state persona = "alice"
   state draft = ""
   state notice = ""
+  state sampledAt = 0
   resource time = exactTime() as shape Clock
-  resource board = notes(persona, time.epochAtZero + performanceNow()) as shape Board else empty(message="Connecting…")
+  resource board = notes(persona, time.epochAtZero + sampledAt) as shape Board else empty(message="Connecting…")
   mutation posted as shape Ack queue refreshes board then afterPost
   derive banner = match failure(board) {
     case some(f) => (f.code == "offline" || f.code == "E_OFFLINE") ? "You're offline" : f.reason != "" ? \`Couldn't load notes (\${f.reason})\` : \`Couldn't load notes (\${f.message})\`,
@@ -211,6 +212,7 @@ component ${title.replaceAll(' ', '')}
   task live mount
     every(5000, refreshBoard)
   action refreshBoard
+    sampledAt = performanceNow()
     refresh board
   action choosePersona(value: string)
     persona = value
