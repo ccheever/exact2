@@ -1876,3 +1876,28 @@ Built as D7's "The web" says, with these as-built details:
   `tamber` fence is checked, by the crate only.
 - **Left open:** `contract tamber` doesn't resolve a profile colour (`color(--…)`), which
   needs the app's Contract declarations; `contract build` checks it.
+
+### Stage 2's gate (2026-10-14; the Bluesky clone at `7166baf` on exact2 `774575681`, build b40)
+
+The evidence is in `~/.tuft/projects/bluesky-clone-builds/b40/gate/SUMMARY.md`; the port is
+bsky5's.
+
+| Gate line (§5 stage 2) | Result |
+|---|---|
+| The clone's colour literals become names | **Met.** 1,808 replaced (1,587 pairs, 176 hex, 31 `rgba`, 14 palette reads); 0 left outside `app.tamber` (no-tells and grep). |
+| Light, Dim and Black from the root, no palette threaded | **Met.** `setMode("dark-style", …)` from Appearance and at launch; the root-provided palette and 213 `inject pal` lines are gone. The design has 70 tokens and the axis `dark-style = dim \| black under scheme=dark`, Dim being Bluesky's default. |
+| Every compared screen identical on the web, iOS and the Mac in all three | **Met.** Web: 45 captures pixel-identical apart from live data. iOS: SSIM 0.997–0.999 on thread, profile, settings and notifications, differing only in the status-bar clock and live counts; headers and bars 1.000. Mac: 1.000 on appearance, settings and the home header (0.999994 for Black's appearance). |
+| Three previews, a Black pin inside Dim with inherited text, a token naming the accent under a child `accent-color` | **Met by fixture**, since Bluesky has none of these screens: `apps/theme-fixture` on iOS and the Mac (commit 5) and conformance `tamber-modes` on both web targets (commit 6). In the clone itself, the video feed's Black pin inside Dim measures (0,0,0) over the page's (21,29,40). |
+| A Dim switch on a 1,000-row list does not relayout | **Met.** The test of `44a19d999`; in the clone, a Dim → Black switch on Home journals no node added or removed and no resize. |
+| Expose and the readers unchanged; an app without a design unchanged, with no design payload | **Met.** Stage 1's ports (22/22 and 104/104) and every unthemed app's tests. |
+| `tamber-dial-inert` live; golden IR and folded tables | **Met** (commit 1). |
+| The clone's design adds under 4 KB to its plan | **Met:** the plan shrank by 19,116 bytes (3,888,684 → 3,869,568); `app.tamber` is 6,881 bytes. |
+| First frame unchanged within noise | **Open.** It needs a quiet simulator window, which the lead is scheduling. |
+| `setRootFontSize("125%")`: the font-size setting scales Dynamic Type at two sizes | **Met.** The clone's Smaller and Larger use `93.75%` and `106.25%`. |
+
+**One gap the port found**, fixed as a stage 2 follow-up: deliberately one-colour tokens
+(white on a primary fill, media grounds) drew a `lower-colour-one-scheme` warning at each of
+168 uses. A token line now takes `scheme=fixed`, and an unmarked one-scheme token is reported
+once, at its declaration (see that follow-up's note).
+
+Stage 2 closes when the first-frame measurement is in.
