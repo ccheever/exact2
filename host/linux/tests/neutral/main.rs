@@ -295,4 +295,239 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
         p.pointer_cancel(0.0).unwrap();
     }
     route_headers_keep_the_page_tree_and_take_the_neutral_defaults();
+    route_header_classes_restore_defaults();
+    route_header_context_changes_invalidate_retained_nodes();
+}
+
+fn route_header_classes_restore_defaults() {
+    use exact_kernel::StyleId;
+    let source = r##"style Authored
+  color="#aa00cc"
+  background-color="#abcdef"
+  border-bottom="2px solid #654321"
+style Plain
+  opacity=1
+component Header
+  props
+    on: bool
+  view
+    header class=(on ? Authored : Plain) height=20 min-height=0 padding=0 testId="head"
+      text "Ink" testId="label"
+component App
+  state on = false
+  action toggle
+    on = !on
+  view
+    column navigationKey="route" color="#aa00cc" width=320
+      if true
+        Header(on=on)
+      button press=toggle testId="toggle"
+        text "Toggle"
+"##;
+    let plan = contract::compile(&source).unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (320.0, 150.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    for authored in [false, true, false, true, false] {
+        assert_eq!(size(&mut p, "head").1, if authored { 22.0 } else { 21.0 });
+        assert_eq!(
+            pixel(&mut p, "head", 310.0, 2.0),
+            if authored {
+                [0xab, 0xcd, 0xef]
+            } else {
+                [255; 3]
+            }
+        );
+        let k = p.host().kernel();
+        for name in ["head", "label"] {
+            let node = k.node(id(&p, name)).unwrap();
+            assert_eq!(node.says(StyleId::TextColor), authored);
+            assert_eq!(
+                node.source_of(StyleId::TextColor),
+                authored.then(|| id(&p, "head"))
+            );
+        }
+        assert!(!k
+            .node(id(&p, "label"))
+            .unwrap()
+            .style
+            .written
+            .has(StyleId::TextColor));
+        p.tap(id(&p, "toggle")).unwrap();
+    }
+}
+
+// Kernel transactions isolate live topology/prop intent from Contract's
+// route restrictions. The compiled fixture above covers normal expansion.
+fn route_header_context_changes_invalidate_retained_nodes() {
+    use exact_kernel::{
+        Kernel, NodeType, Offer, Op, PropId, PropValue, StyleId, StyleMask, StyleProps, StyleValue,
+    };
+    let style = |rows: &[(StyleId, StyleValue)]| {
+        let mut s = StyleProps::default();
+        for (id, value) in rows {
+            s.set_dynamic(*id, value).unwrap();
+            s.written.set(*id);
+        }
+        s
+    };
+    let prop = |id, prop, text: &str| Op::SetProp {
+        id,
+        prop,
+        value: PropValue::Str(text.into()),
+    };
+    let mut k = Kernel::with_monospace();
+    let mut ops: Vec<_> = (1..=6)
+        .map(|id| Op::CreateView {
+            id,
+            node_type: if id == 3 {
+                NodeType::Text
+            } else {
+                NodeType::View
+            },
+        })
+        .collect();
+    ops.extend([
+        prop(1, PropId::NavigationKey, ""),
+        prop(2, PropId::SemanticTag, "header"),
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(style(&[(
+                StyleId::TextColor,
+                StyleValue::Text("#aa00cc".into()),
+            )])),
+        },
+        Op::SetStyle {
+            id: 2,
+            patch: Box::new(style(&[(StyleId::Height, StyleValue::Number(20.0))])),
+        },
+        Op::SetChildren {
+            id: 2,
+            children: vec![3, 5],
+        },
+        Op::SetChildren {
+            id: 5,
+            children: vec![6],
+        },
+        Op::SetChildren {
+            id: 1,
+            children: vec![2, 4],
+        },
+        Op::AttachRoot { id: 1 },
+    ]);
+    k.apply(0, 1, &ops).unwrap();
+    let check = |k: &mut Kernel, height, says, source| {
+        k.compute_layout(1, Offer::definite(320.0, 150.0)).unwrap();
+        assert_eq!(k.node(2).unwrap().frame.height, height);
+        let n = k.node(3).unwrap();
+        assert_eq!(n.says(StyleId::TextColor), says);
+        assert_eq!(n.source_of(StyleId::TextColor), source);
+    };
+    check(&mut k, 21.0, false, None);
+    let header = k.node(2).unwrap().key;
+    let leaf = k.node(3).unwrap().key;
+    let button = k.node(6).unwrap().key;
+    // An explicit inherited clear keeps the parent as its value source,
+    // including after its parent's actual color changes.
+    for written in [true, false, true, false] {
+        let r = k
+            .apply(
+                0,
+                1,
+                &[Op::ClearStyle {
+                    id: 2,
+                    mask: StyleMask::of(StyleId::TextColor),
+                    written,
+                }],
+            )
+            .unwrap();
+        assert!(r.touched.contains(&header) && r.touched.contains(&leaf));
+        check(&mut k, 21.0, written, written.then_some(1));
+    }
+    for present in [false, true] {
+        let op = if present {
+            prop(1, PropId::NavigationKey, "")
+        } else {
+            Op::ClearProp {
+                id: 1,
+                prop: PropId::NavigationKey,
+            }
+        };
+        let r = k.apply(0, 1, &[op]).unwrap();
+        assert!(r.layout_invalidated);
+        assert!(
+            r.touched.contains(&header) && r.touched.contains(&leaf) && r.touched.contains(&button)
+        );
+        check(
+            &mut k,
+            if present { 21.0 } else { 20.0 },
+            !present,
+            (!present).then_some(1),
+        );
+    }
+    for tag in ["section", "header"] {
+        let r = k.apply(0, 1, &[prop(2, PropId::SemanticTag, tag)]).unwrap();
+        assert!(r.layout_invalidated && r.touched.contains(&button));
+        check(
+            &mut k,
+            if tag == "header" { 21.0 } else { 20.0 },
+            tag != "header",
+            (tag != "header").then_some(1),
+        );
+    }
+    for parent in [4, 1] {
+        let children = if parent == 1 { vec![2, 4] } else { vec![2] };
+        let r = k
+            .apply(
+                0,
+                1,
+                &[Op::SetChildren {
+                    id: parent,
+                    children,
+                }],
+            )
+            .unwrap();
+        assert!(r.layout_invalidated && r.touched.contains(&header) && r.touched.contains(&button));
+        check(
+            &mut k,
+            if parent == 1 { 21.0 } else { 20.0 },
+            parent != 1,
+            (parent != 1).then_some(1),
+        );
+    }
+    // A wrapper's move changes only its descendants' bar-edge context;
+    // equal authored ink must not hide the required paint notification.
+    k.apply(
+        0,
+        1,
+        &[Op::SetStyle {
+            id: 5,
+            patch: Box::new(style(&[(
+                StyleId::TextColor,
+                StyleValue::Text("#aa00cc".into()),
+            )])),
+        }],
+    )
+    .unwrap();
+    for parent in [4, 2] {
+        let r = k
+            .apply(
+                0,
+                1,
+                &[Op::SetChildren {
+                    id: parent,
+                    children: if parent == 2 { vec![3, 5] } else { vec![5] },
+                }],
+            )
+            .unwrap();
+        assert!(r.touched.contains(&button));
+        assert_eq!(k.node(6).unwrap().source_of(StyleId::TextColor), Some(5));
+    }
 }
