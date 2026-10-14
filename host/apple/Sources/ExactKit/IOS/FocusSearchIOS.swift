@@ -56,5 +56,29 @@ final class Viewport: ScrollView {
     #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
     #endif
+    // A viewport its content fits does not scroll or bounce, so its scroll
+    // bars never show; the system still listed them to VoiceOver ("Vertical
+    // scroll bar, 1 page") over every screen, where a UIKit app with no
+    // scroll view there lists none. A bar shows only on an axis that scrolls.
+    override var contentSize: CGSize { didSet { showBars() } }
+    override var contentInset: UIEdgeInsets { didSet { showBars() } }
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        showBars()
+    }
+    private func showBars() {
+        let inset = adjustedContentInset
+        let y = contentSize.height + inset.top + inset.bottom > bounds.height + 0.5
+        let x = contentSize.width + inset.left + inset.right > bounds.width + 0.5
+        if showsVerticalScrollIndicator != y { showsVerticalScrollIndicator = y }
+        if showsHorizontalScrollIndicator != x { showsHorizontalScrollIndicator = x }
+        // Nor an edge effect (iOS 26): its soft top edge blurred the
+        // viewport's own white canvas into a grey band under the status bar
+        // of a dark screen, where a UIKit app with no scroll view there
+        // draws none (LLP 1084 §6.5).
+        guard #available(iOS 26.0, tvOS 26.0, *) else { return }
+        for (edge, scrolls) in [(topEdgeEffect, y), (bottomEdgeEffect, y), (leftEdgeEffect, x), (rightEdgeEffect, x)]
+        where edge.isHidden == scrolls { edge.isHidden = !scrolls }
+    }
 }
 #endif

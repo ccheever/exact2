@@ -117,6 +117,7 @@ extension Agent {
     /// Native transitions, keyboard work and an agent-issued caret reveal
     /// must finish before `clock settle` returns (LLP 1035.003 D5).
     func nativeInFlight() -> Bool {
+        if presenter.views.values.contains(where: { $0.extras?.scrollWriteQueued == true }) { return true }
         if presenter.navigation.inTransition || presenter.modals.inTransition || presenter.menus.inTransition || presenter.hasPendingKeyboardResize || nativeGeometryInFlight() { return true }
         // A smooth correction (a list following its end, a smooth
         // `scrollIntoView`) is UIKit's scroll animation under platform timing

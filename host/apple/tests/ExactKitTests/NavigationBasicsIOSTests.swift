@@ -697,7 +697,9 @@ final class NavigationBasicsIOSTests: XCTestCase {
         list.pendingScrollTop = 100_000
         list.applyPendingScroll()
         until("the physical end and its scroll event have settled") {
-            metrics != nil && abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
+            guard let event = metrics else { return false }
+            return abs(event[3] - event[1] - event[5]) < 0.5 &&
+                abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
         }
         let event = try XCTUnwrap(metrics), room = list.scrollPortInsets(sv)
         XCTAssertEqual(event[5], Double(sv.bounds.height - room.top - room.bottom), accuracy: 0.5)
@@ -706,19 +708,43 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(end, route.view.bounds.maxY - sv.adjustedContentInset.bottom, accuracy: 0.5)
     }
 
+    func testALaterPlainScrollWriteWinsWhileTheTitleInsetSettles() throws {
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animations) }
+        let session = try fixture("plain-write-replaced")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try tapNode(session, "tab-second")
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let node = try node(session, "list-second"), scroll = try XCTUnwrap(node.scroll)
+        until("the scroller has its content") { scroll.window != nil && scroll.contentSize.height > scroll.bounds.height + 100 }
+        node.pendingScrollTop = 100_000
+        node.applyPendingScroll()
+        node.pendingScrollTop = 120
+        node.applyPendingScroll()
+        let agent = Agent(session: session)
+        until("the later logical position settled") {
+            !agent.nativeInFlight() && abs(scroll.contentOffset.y + node.scrollTopInset(scroll) - 120) < 0.5
+        }
+        XCTAssertEqual(scroll.contentOffset.y + node.scrollTopInset(scroll), 120, accuracy: 0.5)
+    }
+
     func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
         let session = try fixture("bottom-plain-short")
         let (_, nav, route) = try chat(session)
         let list = try node(session, "list-chat"), sv = try XCTUnwrap(list.scroll)
         try tapNode(session, "toggle-short-chat")
         until("the tall content is gone") { !session.presenter.views.values.contains { $0.props["testId"] == "tall-chat" } }
-        bottomToolbar(nav, route, shown: true)
         func automaticBottom() -> CGFloat { max(0, sv.adjustedContentInset.bottom - sv.contentInset.bottom) }
+        let tabBarOnly = automaticBottom()
+        bottomToolbar(nav, route, shown: true)
         func fits() -> Bool {
             abs(sv.contentSize.height + sv.adjustedContentInset.top + sv.adjustedContentInset.bottom - sv.bounds.height) < 0.5
         }
         until("short content fits above the toolbar") { automaticBottom() > self.window!.safeAreaInsets.bottom + 1 && fits() }
         let shown = automaticBottom(), manual = sv.contentInset.bottom, height = sv.contentSize.height
+        // On iOS 27 the toolbar can share the tab bar's room without adding an inset.
+        let toolbarRoom = shown > tabBarOnly + 0.5
         let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
         sv.contentInset.bottom += 180 // the keyboard toolbar's manual inset basis
         sv.layoutIfNeeded()
@@ -728,10 +754,10 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height, end + 180, accuracy: 0.5)
         sv.contentInset.bottom = manual
         bottomToolbar(nav, route, shown: false)
-        until("hiding the toolbar refits short content") { automaticBottom() < shown - 1 && fits() }
+        until("hiding the toolbar refits short content") { (!toolbarRoom || automaticBottom() < shown - 1) && fits() }
         let hidden = automaticBottom()
         bottomToolbar(nav, route, shown: true)
-        until("showing the toolbar refits short content") { automaticBottom() > hidden + 1 && fits() }
+        until("showing the toolbar refits short content") { (!toolbarRoom || automaticBottom() > hidden + 1) && fits() }
         XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
     }
 

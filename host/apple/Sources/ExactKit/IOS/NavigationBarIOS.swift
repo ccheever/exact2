@@ -752,19 +752,20 @@ extension NavigationHost {
         }
         c.collapseScroll = target
         c.collapseScrollView = physical
-        // A scroller at its start (CSS scrollTop 0) stays there as UIKit
-        // begins to inset it: UIKit keeps the offset it had, a new
-        // scroller's 0, which left its content's top under the bar.
-        let shown = shownScroll(target)
-        let atStart = shown.map { $0.contentOffset.y <= 0.5 - $0.adjustedContentInset.top } ?? false
-        shown?.contentInsetAdjustmentBehavior = .always
-        // …and is there before UIKit is handed it: a bar handed a
-        // scroller that far from its top closes an open large title.
-        if atStart, let sv = shown, sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
-        let left = c.contentScrollView(for: .top)
-        c.setContentScrollView(shown, for: .top)
-        if let left, left !== shown, left.window != nil { retitle(c) }
-        if atStart, let sv = shown { rest(sv, in: c) }
+        if let physical, let target {
+            // A scroller put under the bar keeps its CSS position as the bar's
+            // room is added above it, so a new one starts at its start, as a
+            // browser's does at `scrollTop` 0 (a scroller replaced under a
+            // shown route rested 168 points down, its title collapsed, LLP
+            // 1084 §6.5). A pending authored write still lands after this.
+            let logical = physical.contentOffset.y + target.scrollTopInset(physical)
+            physical.contentInsetAdjustmentBehavior = .always
+            if !(physical.isTracking || physical.isDecelerating) {
+                physical.contentOffset.y = logical - physical.adjustedContentInset.top
+            }
+        }
+        physical?.contentInsetAdjustmentBehavior = .always
+        c.track(physical)
         let under = shape?.level == 1 ? "collapses its title with its scroller" : "scrolls its content under the bar"
         presenter.session?.log("navigation: route \(c.key) \(target == nil ? "keeps its title still" : under)")
     }
@@ -792,7 +793,7 @@ extension NavigationHost {
     /// The title made again goes where UIKit now looks, the new scroller or
     /// the bar itself. One turn, unanimated: no frame shows the inline title
     /// between, and the covers it moves are reported once, after.
-    private func retitle(_ c: RouteController) {
+    func retitle(_ c: RouteController) {
         // tvOS has no large titles.
         #if !os(tvOS)
         let item = c.navigationItem
@@ -1034,7 +1035,17 @@ extension NavigationHost {
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
-            guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A route a pop takes away: UIKit takes it off its stack (its
+            // `navigationController` is nil) as the pop begins and keeps its
+            // layout to the pop's end. Uncovered, its header moved its list
+            // under a bar that did not move, and after a cancelled swipe that
+            // bar showed no title (iPad, LLP 1084 §6.5).
+            let leaving = allNavigations.first { !$0.viewControllers.contains(c) && $0.transitionCoordinator?.viewController(forKey: .from) === c }
+            // A held push's route (`holdsPush`): its header goes into the bar
+            // before the push, so its list is laid out under it.
+            let held = heldPush?.route === c ? heldPush?.nav : nil
+            guard let nav = held ?? leaving ?? c.navigationController,
+                  held != nil || leaving != nil || nav.viewControllers.contains(c) else { continue }
             let shows = barShows(nav)
             guard shows || whole else { continue }
             let edges: HostCover.Edges
@@ -1182,8 +1193,8 @@ extension NavigationHost {
             if nav.transitionCoordinator == nil, !searching(nav.topViewController as? RouteController), nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
             #if !os(tvOS)
-            if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
-            if #available(iOS 26.0, tvOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
+            if let pop = nav.interactivePopGestureRecognizer, (pop.delegate as? PopGestureDelegate)?.host !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
+            if #available(iOS 26.0, tvOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, (pop.delegate as? PopGestureDelegate)?.host !== self {
                 say("navigation \(stack.label)", "the content pop gesture's delegate")
             }
             #endif

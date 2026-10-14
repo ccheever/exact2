@@ -683,6 +683,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
+        extras?.scrollWriteGeneration &+= 1
+        extras?.scrollWriteQueued = false
     }
 
     /// A scroll under a canvas repaints it (LLP 1014 D4 c).

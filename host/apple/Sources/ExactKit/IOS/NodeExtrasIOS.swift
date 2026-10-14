@@ -110,6 +110,8 @@ final class NodeExtras {
     var pendingScrollLeft: Double?
     var pendingScrollTop: Double?
     var pendingScrollTransfer = false
+    var scrollWriteGeneration: UInt64 = 0
+    var scrollWriteQueued = false
     /// A collapsing title's scroller (LLP 1075.003 Stage 3): its expanded
     /// title's inset, where `scrollTop` 0 rests; 0 for every other scroller.
     var scrollOrigin: CGFloat = 0

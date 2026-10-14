@@ -67,10 +67,13 @@ extension NodeView {
     @objc package func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
+        // A focus UIKit gives back, UIKit scrolls into view (`FocusReturn`).
+        let returned = (textField as? TextField)?.focusReturn.returning == true
+        presenter?.focusReturned = returned ? self : nil
         // The keyboard is already up (another field had it): it will not
         // move, so this field is revealed here, as a browser scrolls a
         // newly focused field into view.
-        if let p = presenter, p.keyboardInset > 0 {
+        if let p = presenter, p.keyboardInset > 0, !returned {
             if ExactEnv.agentFreezes {
                 p.reveal(self)
             } else {
@@ -85,6 +88,7 @@ extension NodeView {
     @objc package func textFieldDidEndEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         if presenter?.editing === self { presenter?.editing = nil }
+        if presenter?.focusReturned === self { presenter?.focusReturned = nil }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
         presenter?.blur(id)
     }
