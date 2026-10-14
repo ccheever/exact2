@@ -47,8 +47,7 @@ Two shapes reach it:
 Round 12's agent drive on main `46f300937` (T3 clone gap X87): `tap transcript down` (the timeline scroller's empty
 area below the reply), then ⌘1 and ⌘2 (`thread.jump`). The app aborts at ⌘1's batch, before the up. The same with
 `MouseChainMac.swift` from before #519, and on the merge commit with no clone change, so neither #519 nor the clone
-([readouts](https://raw.githubusercontent.com/ccheever/exact2/d3c50deffc9d03407c6d3282e4e48f4bf9275513/adopt-main-fixes-r12/readouts.txt),
-RT-1 session 2).
+(RT-1 session 2).
 
 ## Reproduction
 

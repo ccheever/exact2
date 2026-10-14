@@ -59,9 +59,6 @@ built binary directly, and from another process with the accessibility grant and
 | Hand-built AppKit: an `NSButton` whose action sets an `NSTextField`'s string | macOS 26.6.2, `swiftc` | — | 0 | — | record, "button-oracle" |
 | Hand-built AppKit: the same, and the action also reads `accessibilitySubrole()` from an `NSView` that overrides the legacy `accessibilityAttributeValue` | same | — | -25205, the press lands | — | same |
 
-Record: https://raw.githubusercontent.com/ccheever/exact2/b0b9bf0528149298f87b29d669252bd2bd363a0a/fw/macos-axpress-inline-run/axpress-oop-record.txt
-(the probe and the oracle sources `axpress-oop.swift.txt`, `urlcount.m.txt` and `button-oracle.swift.txt` are beside it).
-
 Not run: VoiceOver itself; iOS.
 
 ## Constraints

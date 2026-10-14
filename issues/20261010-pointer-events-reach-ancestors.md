@@ -104,11 +104,6 @@ Every row's own `press` runs on every host; the `pointermove` handlers fire. Pla
 (25G83), Apple Silicon; Chrome 155.0.8059.39 (the agent's, and a headless Chrome driven over CDP with the
 same page as plain HTML for the reference column).
 
-![X71: the end state in Chrome, Exact web and Exact macOS](https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x71-end-chrome-web-macos.png)
-
-Record (contract, the HTML page, the count after every step on each host):
-https://raw.githubusercontent.com/ccheever/exact2/d4109d63e545054c04bda13fea11338245556553/fw-issues-20261010/x71-record.txt
-
 ## Constraints
 
 - The rule is decided and the same on every host: LLP 1005 §Events

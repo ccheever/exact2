@@ -26,8 +26,7 @@ button is exposed as usual.
 
 T3 Code's Settings › General ends with "Legacy features", a Base UI `CollapsibleTrigger` (a button) that holds
 `<h2>Legacy features</h2>` and a chevron (`LegacyFeaturesSection`, `SettingsPanels.tsx`). Playwright's ARIA
-snapshot of the running reference shows button "Legacy features" › heading "Legacy features" [level=2]
-([ref-legacy-aria.txt](https://raw.githubusercontent.com/ccheever/exact2/98e34bd659cfadd18ece51a01a5f85fc61828137/settings-headings/ref-legacy-aria.txt)). The
+snapshot of the running reference shows button "Legacy features" › heading "Legacy features" [level=2]. The
 clone's task `settings-headings` (T3 PR #404, merged `917ddd341`) found that it could not put the heading inside
 the button on the Mac. It puts an sr-only level-2 heading right before the button instead (`SettingsSrHeading`,
 `examples/t3-code/settings-kit.contract`; `settings-rows.contract` `CoreSections`, on the T3 branch). The
@@ -62,11 +61,6 @@ Run `bun exact.mjs mac`, then `bun exact.mjs agent <web|macos> --json --size 420
 | `tree --ax`, before and after `tap trigger` | macOS 26.6.2 (25G83), Apple Silicon | main `d413487a8` | button "Legacy features" (view 3) has no children. The heading (view 4, `trigger-heading`) is not in the tree. "Settings" and "Plain heading" are `AXHeading` | the heading under the button, as on the web | image (right), record M |
 | Same, web | Exact web (JS target) in Chrome 155.0.8059.39 | main `d413487a8` | button "Legacy features" › heading "Legacy features" [level=2] (view 4, a `span role="heading"`) | (the reference) | image (left), record W |
 | Hand-written HTML: `button > h2`, `button > span[role=heading]`, `div[role=button] > h2` | headless Chrome 155 (CDP `Accessibility.getFullAXTree`) | — | each: button › heading [level=2] | — | record |
-
-![X74: a heading inside a button, on the Exact web and on macOS](https://raw.githubusercontent.com/ccheever/exact2/5dcf1f60e9b0c24fea18103b894a6ce5f0f5e40d/fw-issues-20261010f/x74-heading-in-button-web-macos.png)
-
-Record (contract, commands, both trees, the HTML oracle):
-https://raw.githubusercontent.com/ccheever/exact2/5dcf1f60e9b0c24fea18103b894a6ce5f0f5e40d/fw-issues-20261010f/x74-record.txt
 
 Not run: #327's head, iOS (UIKit also hides an accessibility element's children), Linux, and VoiceOver itself.
 A hand-built AppKit `NSButton` is a leaf `AXButton` with a title and no children, so AppKit has no button with a

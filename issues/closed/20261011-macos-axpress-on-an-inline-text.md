@@ -59,9 +59,6 @@ find the element whose `AXIdentifier` is `pressrun` in its window, then call
 | `AXPress` on an Exact `button` node | macOS | #455 head | 0 | — | record, "Also seen" |
 | Hand-built: a view's kept `NSAccessibilityElement` child, `accessibilityPerformPress()` → `true`, plain, with the legacy `accessibilityAttributeNames`/`accessibilityAttributeValue` overrides `InlineAccessibility` has (`AXLanguage` set or nil), and with a computed `accessibilityFrame` | macOS 26.6.2, `swiftc` | — | 0 in all four | — | record, "Also seen"; `x78-press-oracle.swift.txt` |
 
-Record: https://raw.githubusercontent.com/ccheever/exact2/93a19817407ea9a13d865da23346d8236dfb16ae/fw/x78-link-url-accessibility/x78-record.txt
-(the probe sources `x78-axpress.swift.txt` and `x78-press-oracle.swift.txt` are beside it).
-
 Not run: VoiceOver itself; an `href` run's `AXPress` result (it opens a URL); iOS. An attempt to narrow it down while #455's review
 was addressed could not read the app from outside: while the session's screen is locked, macOS answers
 `AXWindows`, `AXFocusedWindow`, `AXChildren` and hit tests with the application element itself, even to the app's
