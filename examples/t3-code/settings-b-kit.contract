@@ -53,9 +53,11 @@ component CnGlyph
 // invoker's width so the popup's right edge meets the invoker's (align="end").
 component CnMenu
   inject
+    dialogMenuEntered: action
     rem: number
   props
     menuId: string
+    invoker: string
     label: string
     width: number
     endAlign: number
@@ -67,7 +69,7 @@ component CnMenu
     keyed: number
   slot
   view
-    column id=menuId popover="auto" position-try-fallbacks="none" position="absolute" margin-top=(0.25 * rem + offsetY) width=width margin-left=(endAlign > 0 ? endAlign - width + offsetX : offsetX)
+    column id=menuId data-dialog-return="menu" focusin=dialogMenuEntered(menuId, invoker) popover="auto" position-try-fallbacks="none" position="absolute" margin-top=(0.25 * rem + offsetY) width=width margin-left=(endAlign > 0 ? endAlign - width + offsetX : offsetX)
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=label testId=menuId
         KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)
           children
@@ -175,10 +177,10 @@ component CnSelect
       keyed = kmBump(keyed, false)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`${selectId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label=label disabled=disabled testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="9rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
+      button popovertarget=`${selectId}-menu` id=selectId key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label=label disabled=disabled testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="9rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
         text valueLabel font-size="0.75rem" line-height="1rem" flex=1 min-width=0 line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
-      CnMenu(menuId=`${selectId}-menu`, label=label, width=144, endAlign=144, offsetX=0, offsetY=0, items=options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
+      CnMenu(menuId=`${selectId}-menu`, invoker=selectId, label=label, width=144, endAlign=144, offsetX=0, offsetY=0, items=options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         for option in options key=option.value
           CnMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, destructive=false, disabled=false, radio=false, highlighted=option.selected, note="", icon="", submenu="", choose=choose(option.value))

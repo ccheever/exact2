@@ -127,7 +127,7 @@ component ScheduledPanel
     column width="100%" gap="0.625rem" testId="scheduled-settings"
       row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
         text "Scheduled tasks" font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
-        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1)
+        button press=open("task", "", "") disabled=(busy or not data.available or not data.writable) id="new-scheduled-task" testId="new-scheduled-task" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(busy or not data.available or not data.writable ? 0.64 : 1) data-focus-stop=((busy or not data.available or not data.writable) ? "" : "enabled")
           LucidePlus(size=12, color="light-dark(#71717b, #818181)")
           text "New task" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
       if error != ""
@@ -196,10 +196,10 @@ component TaskRow
       row flex-shrink=0 align-items="center" gap="0.5rem"
         SettingsSwitch(checked=item.enabled, label=`Enable ${item.title}`, disabled=(busy or not data.writable), switchId=`task-enabled-${item.id}`, toggle=rest("task", `action=toggle&${target}&enabled=${item.enabled ? "false" : "true"}`))
         box position="relative" flex-shrink=0
-          button id=`task-actions-${item.environmentId}|${item.id}` popovertarget=`task-menu-${item.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+          button id=`task-actions-${item.environmentId}|${item.id}` popovertarget=`task-menu-${item.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=(busy or not data.writable) aria-label=`Actions for ${item.title}` testId=`task-actions-${item.id}` width="1.75rem" height="1.75rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop=((busy or not data.writable) ? "" : "enabled")
             LucideEllipsis(size=16, color="light-dark(#27272a, #f5f5f5)")
           KeyMenuOpen(menuId=`task-menu-${item.id}`, armed=keyArmed, opened=keyOpened)
-          SkPopup(menuId=`task-menu-${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
+          SkPopup(menuId=`task-menu-${item.id}`, invoker=`task-actions-${item.environmentId}|${item.id}`, label=`Actions for ${item.title}`, width=160, list=false, endAlign=28, items=[KmItem(id=`task-edit-${item.id}`, label="Edit"), KmItem(id=`task-run-${item.id}`, label="Run now"), KmItem(id=`task-delete-${item.id}`, label="Delete")], keyed=keyed)
             TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Edit", icon="edit", menuId=`task-menu-${item.id}`, itemId=`task-edit-${item.id}`, destructive=false, choose=open("task", `${item.environmentId}|${item.id}`, item.title))
             TaskMenuItem(keysId=`task-menu-${item.id}-keys`, label="Run now", icon="run", menuId=`task-menu-${item.id}`, itemId=`task-run-${item.id}`, destructive=false, choose=rest("task", `action=run&${target}`))
             box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color="light-dark(#e4e4e7, #ffffff0f)"
@@ -225,7 +225,7 @@ component TaskMenuItem
   action focused(on: bool)
     lit = on
   view
-    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000")
+    button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") data-focus-stop="enabled"
       if icon == "edit"
         LucidePencil(size=16, color="light-dark(#71717b, #818181)")
       if icon == "run"
@@ -262,6 +262,8 @@ component ScheduledEditor
   // model-picker-parity S2-4: Model is the provider picker (ProviderModelPicker, no setup and no disabled reasons), opened by the
   // root's `pickModel`; its pick is the root's `taskModelPick` until this editor closes.
   inject
+    dialogEntered: action
+    dialogFallback: action
     pickModel: action
     taskModelPick: string
   props
@@ -372,11 +374,12 @@ component ScheduledEditor
   action environmentKey(k: string)
     if kmOpenKey(k)
       environmentOpens = kmBump(environmentOpens, false)
+  derive dialogTargets = [(draft.id == "" and not busy ? "task-environment" : "task-title"), "close-scheduled-task"]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="scheduled-task-overlay"
-      column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog"
+      column position="relative" width="100%" max-width="36rem" max-height="100%" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=(draft.id == "" ? "New task" : "Edit task") testId="scheduled-task-dialog" id="scheduled-task-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("scheduled-task-dialog") key=dialogFallback("scheduled-task-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract): from Runs on (a new task's) or Name to the X.
-        FocusGuard(guardId="scheduled-task-guard-start", target="close-scheduled-task")
+        FocusGuard(guardId="scheduled-task-guard-start", targets=dialogTargets, popup="scheduled-task-dialog")
         DialogOpenFocus(target=(draft.id == "" and not busy ? "task-environment" : "task-title"))
         row padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" align-items="flex-start" gap="0.5rem" box-sizing="border-box" position="relative"
           column flex=1 min-width=0 gap="0.5rem"
@@ -391,17 +394,17 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Runs on" class=TkLabel
               box position="relative"
-                button popovertarget="task-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1) title=""
+                button popovertarget="task-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1) title="" data-focus-stop=((draft.id != "" or busy) ? "" : "enabled")
                   LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
                   text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-environment-label"
                   LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
                 KeyMenuOpen(menuId="task-environment-menu", armed=environmentArmed, opened=environmentOpened)
-                SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0, items=data.environments.map((option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
+                SkPopup(menuId="task-environment-menu", invoker="task-environment", label="Runs on", width=526, list=true, endAlign=0, items=data.environments.map((option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
                   for option in data.environments key=option.value
                     SkMenuItem(keysId="task-environment-menu-keys", label=option.label, menuId="task-environment-menu", itemId=`task-environment-option-${option.value}`, selected=option.selected, check=true, destructive=false, disabled=false, choose=choose("environment", option.value))
             column gap="0.375rem"
               text "Name" class=TkLabel
-              input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off"
+              input id="task-title" value=title input=setText("title") placeholder="e.g. Check for Sentry issues" aria-label="Name" class=TkField disabled=busy testId="task-title" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
@@ -494,12 +497,12 @@ component ScheduledEditor
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
+          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1) data-focus-stop=((busy or draft.missing or not data.available) ? "" : "enabled")
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X, after the footer (Base UI renders it last; it is placed at the top right).
-        button id="close-scheduled-task" press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title=""
+        button id="close-scheduled-task" press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title="" data-focus-stop=(busy ? "" : "enabled")
           LucideX(size=16, color="light-dark(#71717b, #818181)")
-        FocusGuard(guardId="scheduled-task-guard-end", target=(draft.id == "" and not busy ? "task-environment" : "task-title"))
+        FocusGuard(guardId="scheduled-task-guard-end", targets=dialogTargets, popup="scheduled-task-dialog")
 
 fn projectLabel(options: SelectOption[], value: string): string = options.filter(option => option.value == value).map(option => option.label).join("")
 fn markField(marks: TaskModelMark[], value: string, field: string): string = marks.filter(mark => mark.value == value).map(mark => field == "driver" ? mark.driver : (field == "badge" ? mark.badge : (field == "accent" ? mark.accent : mark.name))).join("")

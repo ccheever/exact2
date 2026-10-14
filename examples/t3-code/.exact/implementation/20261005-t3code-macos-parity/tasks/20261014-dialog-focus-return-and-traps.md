@@ -1,7 +1,7 @@
 ---
 name: 20261014-dialog-focus-return-and-traps
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -33,8 +33,9 @@ reference's return behavior. Complete these seven rows in one application PR:
 
 Prepared base: `a218ee78fec42b1a4590b199297f30667876de67`, the refreshed remote feature
 branch after all eleven first-wave PRs and main adoption #549 merged. The dedicated
-Orca-managed task branch is created from that exact base. Implementation, runtime
-verification and task publication have not begun.
+Orca-managed task branch was created from that exact base. The application changes
+are implemented and independently source-reviewed. Native qualification is
+partial, as recorded below; task publication and full verification remain open.
 
 ## Scope and exclusions
 
@@ -255,10 +256,12 @@ prefix and avoiding duplicate credential IDs. Use enabled footer/X controls befo
 popup. Preserve the nested sign-out confirm's return into the wizard.
 
 SbToggle already owns `project-icon-mode-Icons`, `project-icon-mode-Emoji`, and
-`project-icon-mode-Monogram` in `settings-b-icons.contract`. Only the selected item gets
-`tabindex=0`; the others get `-1`. Left/Right update both mode and focus with the
-reference's order. Initial focus and the forward guard follow the selected mode. Keep
-selection semantics and accessible names; no visual restyling is required.
+`project-icon-mode-Monogram` in `settings-b-icons.contract`. AppKit projects these radio
+members into a native segmented control and hides their authored NodeViews. The
+implementation therefore gives the visible `project-icon-mode` group the one
+`tabindex=0`, initial focus, key handler, and guard target. Left/Right change the selected
+radio in reference order while retaining actual focus on that visible group. Member
+selection semantics and accessible names remain intact; no visual restyling was made.
 
 ## Acceptance and reproduction
 
@@ -286,7 +289,7 @@ view syntax; do not add a second interpreter or obsolete method shims.
 | G2-12 | From Cancel and Confirm, Tab and Shift+Tab each prevent default and land on the other eligible control. No background control is reached. Busy disabled buttons are never invoked. |
 | BUSY-GUARD | First candidate disabled, last candidate disabled, candidate unmounted, one survivor, and all-disabled cases. Popup fallback keeps both Tab directions and returns to newly enabled controls when busy ends. |
 | ADDPROV-TAB | Post-created discovery, signed-out, active-auth, signed-in, docs-only and no-account states. Forward wrap reaches the first enabled rendered control; reverse wrap reaches the correct last control. Nested sign-out is retained. |
-| ICON-TOGGLE | Exactly one mode Tab stop. Left/Right change selected mode and focused ID in both directions; next Tab leaves the group once. |
+| ICON-TOGGLE | Exactly one visible mode-group Tab stop. Left/Right change selected mode in both directions while keeping actual focus in the group; next Tab leaves the group once. |
 | G2-16 | Open, Escape, reopen, trigger close, outside dismissal, no-copy-action and disabled-copy cases. Opening focuses the actual first eligible copy control. |
 | First-wave regressions | Checkout select-all and device rename remain intact; Markdown image keyboard return, Cite Tab/Escape, hover dismissal, terminal confirm return, and live appearance changes still behave as before. |
 
@@ -354,9 +357,12 @@ inferences from the Bun model. No iOS, web or Linux parity is claimed.
 | Prepared ticket | Promoted into the portable task record from the ignored preparation draft. |
 | Actual remote first-wave/main merges | Confirmed merged; prepared feature base `a218ee78f`. |
 | Implementation checkout/branch | Created through Orca from the exact prepared base; branch recorded in frontmatter. |
-| Code/test changes | None. |
-| Runtime/native/global-input checks for this ticket | Not run. |
-| Independent implementation review | Not yet applicable. |
+| Code/test changes | Shared dialog lifetime and enabled-target guards wired across the 16 mapped owners; menu return ownership, confirm traversal, provider wrapping, icon-group focus, and Machines trigger return implemented. |
+| Source/model checks | Final source aggregate `46868b6a9d63983cccaafb92fd704050630c92d094601507ae56ef1e3620fb15`: 270 focused tests pass; full app 5,053 pass, one skip, zero failures; strict app TypeScript, direct Contract compile, and staged caps pass. |
+| Repository gates | Final workspace check passes on `46868…` (212.34 seconds). Build/test/clippy/fmt/boot retain passing receipts with unchanged framework inputs. Prior Contract sweep passed 94 roots/195 imports; direct final app compilation covers the changed owner. |
+| Native checks | Four authored cases pass on aggregate `033965…`; OS provider/icon/server-confirm observations retained on that source. Final `46868…` build proves Machines Copy focus, Escape/trigger return, deliberate outside focus, and no-copy popup fallback. Full native acceptance remains incomplete. |
+| Independent implementation review | All 70 runtime/test file hashes independently checked. Full/menu-owner source and both later owner-specific increments approved; final source review found no remaining confirmed source issue. |
+| Delivery | Local implementation only. Coordinator owns evidence publication, PR, and merge. Frontmatter remains `in-progress` / `unverified` / `none`. |
 
 ## Attempts and evidence
 
@@ -375,20 +381,62 @@ field-selection fix `48755525c`, PR-list/helper commit
 delivery evidence. Existing code retains root 1,498 lines, T3Window 804 lines, and the
 first-wave FieldOpenSelect component.
 
-No implementation attempt, build, test execution, app launch, native input, tracked-file
-write, branch creation or remote mutation was performed for this draft. Record future
-attempts with source/framework SHA, fixture/reset, command, actual assertions, result,
-artifact locations and unresolved limitations. Preserve failed attempts. Follow the
-repository's three-round fix-loop limit; creating a new worker does not reset it.
+Implementation used the existing action fixture and audit driver, without framework
+changes, new fixture-server code, native focus hooks, or debug endpoints. The native
+repair loop reached its third round: explicit menu-owner returns, the visible AppKit
+icon group, then the Machines invoker. No further source repair round was started.
+
+The prepared baseline failed the final typed-search assertion for pointer-opened Add
+provider, New task, and Add host; Model prices already passed. The same four authored
+cases pass after the shared lifecycle repair. Native OS input on macOS 26.6.2 (25G83),
+Apple Silicon, with Keyboard Navigation off (`AppleKeyboardUIMode=0`) established:
+
+| Row | Observed native result | Remaining qualification |
+| --- | --- | --- |
+| KD-dialog-focus-return / KD-pointer-opened-dialog | Add provider restores the previously focused Settings search after pointer opening and Escape; an OS `x` edits that search. Authored New task/Add host returns and Model prices menu-owner fallback pass. Server-update confirmation cancellation restores the composer. | All 16 owners, automatic openings, and every nested/handoff variant have not received a complete native pass. |
+| G2-12 | Server-update AppConfirm passes Tab and Shift+Tab from both Cancel and Confirm, then Escape returns to the composer. The actual NodeView first responder was read after every key. No update was confirmed. | Every distinct confirm caller and native all-disabled confirmation remain open. |
+| G2-16 | Final source: Copy receives focus; Escape and trigger-toggle close return to the trigger; reopening focuses Copy again; an outside composer click keeps composer focus. With the existing Laptop fixture changed temporarily to desktop-managed/no desktop-update capability, no Copy is rendered, the popup itself receives focus, and Escape returns to the trigger. | Disabled-copy/busy native state remains unverified. |
+| BUSY-GUARD | Ordered candidate eligibility, empty-list popup fallback, both Tab directions, and renewed eligibility pass source/action tests. | Native all-disabled transitions are unverified. |
+| ADDPROV-TAB | Existing isolated ACP stand-in reaches the created signed-out step: Account → Tab → Sign in → Shift+Tab → Close → Tab → Sign in. Escape restores Settings search. Temporary provider settings were restored byte-for-byte. | Active auth, signed-in/nested sign-out, and remaining alternate account states are model-tested only. |
+| ICON-TOGGLE | Group initially focused; Right cycles Emoji/Monogram/Icons, Left reverses to Monogram; Tab enters Letters and Shift+Tab returns to the group. Escape returns to Settings search. Dark 840×620 layout inspected. | Separate saved Emoji/Monogram openings and the full first-wave/appearance regression matrix were not repeated. |
+
+OS input was synthetic through Orca, with independent presenter first-responder and
+accessibility readbacks where exposed. No human typing or VoiceOver qualification is
+claimed. AppConfirm's accessibility snapshot omitted its modal subtree; its presenter
+state and inspected screenshot supplied the recorded evidence.
+
+Evidence is prepared under ignored `target/dialog-focus/publish/`: a README, compact
+focus records, source manifest, check provenance, independent reviews, and selected
+screenshots. The coordinator publishes that sanitized packet; raw state, pairing
+links, private paths, and personal machine labels are excluded. Retained icon/provider,
+server-confirm, and authored-after observations belong to aggregate
+`033965250143898b664d45f6fdc581d19e7544edba7fcc127db0047ee7a572d0`.
+The final increment changes only `auto-balance.contract` and `dialog-focus.test.ts`;
+the final Machines proof and native build belong to `46868…`.
+
+Preserved local failures include `native-before-authored-final.log`, the earlier icon
+hidden-member observation, `g2-os-snapshot-51.json` (Machines Escape incorrectly returned
+to the composer on `033965…`), and the focused `machines-return-red.log`. The first
+no-copy opening attempts did not establish an open popup and are not counted; retry
+snapshots `g2-final-snapshot-23.json` and `-24.json` prove open/focus and Escape/close.
+Carrier/setup failures are retained separately from product outcomes.
+
+The existing three G2 fixtures were copied into isolated homes and paired through the
+normal Connections UI. Their matching `example.invalid` Git origin was temporarily
+added to the isolated audit project, then removed with exact config-byte restoration.
+The temporary stub capability was restored. All owned app/server/proxy processes were
+stopped. Stub counters confirm zero update RPCs and zero prepared desktop updates.
+No provider message, real authentication, GitHub write, update, force-kill, or user-data
+deletion was used.
 
 ## Next action
 
-Implement the complete one-PR unit in this dedicated worktree, preserving all 16 owner
-cases and all seven acceptance rows. Read the relevant current guidance and reference
-code first. Run the existing focused and full app checks, capture one bounded native
-pass using the real pinned runtime, and obtain independent source review. Keep real
-keyboard/VoiceOver/pointer rows unverified while the desktop is locked. The coordinator
-owns publication and merge under the user's existing authorization.
+The coordinator must publish the sanitized evidence with a concrete URL and prepare
+the application PR. Keep this ticket unverified
+until the remaining native states above are qualified or explicitly resolved in the
+parent plan. The third repair round is complete; do not restart a new worker to evade
+the fix-loop limit. Publication and merge remain coordinator-owned under the user's
+existing authorization.
 
 Preparation completion, 2026-10-14: the coordinator verified remote first-wave and R14
 merge evidence, refreshed the feature head, searched for duplicate work, created the

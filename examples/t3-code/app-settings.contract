@@ -341,10 +341,15 @@ component SettingsWindow
           row position="absolute" left=(sidebarWidth - 14 * rem) width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
             TipCard(label="Check for updates", shown=updateTipHover)
     // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=(settingsThemeDialog == "background-activity" or settingsThemeDialog == "import" or settingsThemeDialog == "remove"), target=(settingsThemeDialog == "background-activity" ? "setting-background-activity" : (settingsThemeDialog == "import" ? "add-theme" : `theme-remove-${settingsThemeSubject}`)))
-    DialogFinalFocus(open=settingsCore.hostEditor.open, target=(settingsCore.hostEditor.title == "Add device host" ? "device-hosts-add" : `device-host-options-${settingsCore.hostEditor.id}`))
-    DialogFinalFocus(open=settingsRestoreOpen, target="settings-restore-defaults")
-    DialogFinalFocus(open=settingsCore.updateConfirm, target="setting-version-update")
+    DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "background-activity"), owner="background-activity-dialog")
+    DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "import"), owner="add-theme-dialog")
+    DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "remove" and settingsCore.themes.filter(card => card.id == settingsThemeSubject and card.collection).length > 0), owner="theme-remove-collection")
+    DialogFinalFocus(open=(settingsOpen and settingsThemeDialog == "remove" and settingsCore.themes.filter(card => card.id == settingsThemeSubject and not card.collection).length > 0), owner="theme-remove")
+    DialogFinalFocus(open=(settingsOpen and settingsCore.hostEditor.open), owner="device-host-dialog")
+    DialogFinalFocus(open=(settingsOpen and settingsRestoreOpen), owner="restore-defaults-dialog")
+    DialogFinalFocus(open=(settingsOpen and settingsCore.updateConfirm), owner="update-install")
+    DialogFinalFocus(open=(settingsOpen and settingsCore.killConfirm.pid != ""), owner="signal-kill")
+    DialogFinalFocus(open=(settingsOpen and settingsCore.archiveConfirm.id != ""), owner="archive-context-delete")
     if settingsOpen and (settingsThemeDialog != "" or settingsCore.archiveConfirm.id != "" or settingsCore.saOpen)
       SettingsADialogs(core=settingsCore, kind=settingsThemeDialog, subject=settingsThemeSubject, viewportHeight=viewport.height, busy=commandPending, error=modalError, menu=settingsMenu, openMenu=coreMenu, close=coreThemeDialog("", ""), commit=coreChange, change=coreThemeChange, raw=restRaw, rest=rest, local=restLocal)
     if settingsOpen and settingsRestoreOpen
@@ -381,7 +386,13 @@ component ProjectDialogs
     cardScripts: bool
   view
     // Each editor gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=(restEditor == "task" or restEditor == "project-remove" or restEditor == "project-remove-member" or restEditor == "project-action" or restEditor == "card-action" or restEditor == "project-icon" or restEditor == "project-favicon"), target=(restEditor == "task" ? (restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`) : (restEditor == "project-remove" ? "remove-project" : (restEditor == "project-remove-member" ? `remove-checkout-${restSubject}` : (restEditor == "project-action" ? (restSubject == "" ? "add-project-action" : `edit-project-action-${restSubject}`) : (restEditor == "card-action" ? (cardScripts ? "details-script-actions" : "details-add-script") : (restEditor == "project-icon" ? "project-choose-icon" : "project-choose-file")))))))
+    DialogFinalFocus(open=(restEditor == "task"), owner="scheduled-task-dialog")
+    DialogFinalFocus(open=(restEditor == "project-remove"), owner="project-remove")
+    DialogFinalFocus(open=(restEditor == "project-remove-member"), owner="project-remove-member")
+    DialogFinalFocus(open=(restEditor == "archive-delete"), owner="archive-delete")
+    DialogFinalFocus(open=(restEditor == "project-action" or restEditor == "card-action"), owner="project-action-dialog")
+    DialogFinalFocus(open=(restEditor == "project-icon"), owner="project-icon-dialog")
+    DialogFinalFocus(open=(restEditor == "project-favicon"), owner="project-favicon-picker")
     SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, open=restOpen, taskBase=taskBase)
     if restEditor == "project-action"
       ProjectActionDialog(data=projectsSettings, subject=restSubject, busy=commandPending, error=modalError, raw=restRaw, close=restClose)
@@ -448,8 +459,11 @@ component SettingsModals
     localCommand: action
   view
     // Each dialog gives the focus back to the control that opened it as it closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=snapshotSetupOpen, target=snapshotSetupFrom)
-    DialogFinalFocus(open=(providerDialog == "add" or providerDialog == "chatgpt" or providerDialog == "hub" or providerDialog == "hub-remove"), target=(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider")))
+    DialogFinalFocus(open=snapshotSetupOpen, owner="snapshot-setup-dialog")
+    DialogFinalFocus(open=(providerDialog == "add"), owner="add-provider-dialog")
+    DialogFinalFocus(open=(providerDialog == "chatgpt"), owner="chatgpt-account-dialog")
+    DialogFinalFocus(open=(providerDialog == "hub"), owner="usage-hub-dialog")
+    DialogFinalFocus(open=(providerDialog == "hub-remove"), owner="usage-hub-remove-dialog")
     if snapshotSetupOpen
       SnapshotSetup(data=snapshotSettings, busy=commandPending, error=modalError, wasEnabled=snapshotSetupWasEnabled, close=showSnapshotSetup(false), toggle=toggleSnapshots, change=changeSnapshot, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
     if connecting
@@ -494,10 +508,8 @@ component SettingsModals
       LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
     // Network access, Tailscale HTTPS, Create pairing link and the reveal dialog (connections-network-dialogs.contract).
     NetworkDialogs(net=connectionsPage.network, remove=connectionRemove, ask=connectionAskRemove, command=localCommand, busy=commandPending, still=viewport.prefersReducedMotion)
-    for environment in connectionsPage.environments key=environment.key
-      DialogFinalFocus(open=(connectionRemove == environment.key), target=`environment-menu-${environment.environmentId}`)
-      for route in environment.routes key=route.id
-        DialogFinalFocus(open=(connectionRemove != "" and route.target == connectionRemove), target=`environment-route-remove-${environment.environmentId}-${route.id}`)
+    DialogFinalFocus(open=(connectionsPage.environments.filter(environment => connectionRemove == environment.key).length > 0), owner="environment-remove-dialog")
+    DialogFinalFocus(open=(connectionRemove != "" and connectionsPage.environments.filter(environment => environment.routes.filter(route => route.target == connectionRemove).length > 0).length > 0), owner="route-remove-dialog")
     if connectionRemove != ""
       for environment in connectionsPage.environments key=environment.key
         if environment.key == connectionRemove
@@ -507,5 +519,6 @@ component SettingsModals
           if route.target == connectionRemove
             RouteRemoveDialog(route=route, busy=commandPending, cancel=connectionAskRemove(""), confirm=connectionOp("environment-route-remove", environment.key, route.id))
     // managed-codex-chatgpt: ChatGptWelcomeCoordinator's "Your ChatGPT plan is connected", once per profile.
+    DialogFinalFocus(open=(data.chatgptPlan.length > 0), owner="chatgpt-plan-dialog")
     for notice in data.chatgptPlan key=notice.key
       ChatGptPlanDialog(notice=notice, busy=setupBusy, op=providerOp)

@@ -123,7 +123,7 @@ component BdViewportSelect
         text label font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
         LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId="browser-default-viewport-menu", armed=keyArmed, opened=keyOpened)
-      SkPopup(menuId="browser-default-viewport-menu", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=options.map((option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label)), keyed=keyed)
+      SkPopup(menuId="browser-default-viewport-menu", invoker="browser-default-viewport", label="Default browser viewport", width=(278 * width / 176), list=true, endAlign=width, items=options.map((option) => KmItem(id=`browser-default-viewport-option-${option.value}`, label=option.label)), keyed=keyed)
         for option in options key=option.value
           if option.heading != ""
             text option.heading padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" role="presentation" testId="browser-default-viewport-group"

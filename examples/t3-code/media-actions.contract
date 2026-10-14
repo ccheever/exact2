@@ -51,7 +51,7 @@ component MediaActions
       local("media-menu", source, "key")
   slot
   view
-    box id=elementId tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position="relative" max-width="100%" testId=testId
+    box id=elementId data-focus-stop="enabled" tabindex=0 title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions" position="relative" max-width="100%" testId=testId
       children
       MediaTip(label=tip, shown=over)
 

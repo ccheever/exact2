@@ -127,8 +127,8 @@ describe('ST-1: Runs on switches a new task to another environment', () => {
     expect(await source('settings-rest-dialogs.contract')).toContain('ScheduledEditor(data=scheduled, draft=draft, busy=busy, error=error, close=close, rest=rest, lookupBase=taskBase, runsOn=open("task"))');
     const dialogs = await component('app-settings.contract', 'ProjectDialogs');
     expect(dialogs).toContain('SettingsRestDialogs(editor=restEditor, subject=restSubject, label=restLabel, scheduled=scheduled, projects=projectsSettings, busy=commandPending, error=modalError, rest=rest, raw=restRaw, close=restClose, open=restOpen, taskBase=taskBase)');
-    // A new task closing after a Runs on change gives the focus back to New task.
-    expect(dialogs).toContain('target=(restEditor == "task" ? (restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)');
+    // The task observer survives a Runs on change, retaining its original keyboard or pointer focus.
+    expect(dialogs).toContain('DialogFinalFocus(open=(restEditor == "task"), owner="scheduled-task-dialog")');
     expect(await source('app-window.contract')).toContain('restClose=restClose, restOpen=restOpen, sbPicker=sbPicker,');
   });
   test('the labels a Runs on change rewrites are plain texts the host repaints (X64 #327 and X82 #494, fixed on main; round 11)', async () => {

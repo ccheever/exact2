@@ -150,7 +150,9 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     expect(source('hover-layer.contract')).toContain('kind == "tooltip" or kind == "code" ? 600 : 0');
     expect(source('app-window.contract')).toContain('else if hoverTip.kind == "code"\n              HoverCode(tip=hoverTip)');
     expect(component('hover-layer.contract', 'HoverCode')).toContain('font-family="ui-monospace" font-size="0.6875rem"');
-    expect(component('timeline-attachments.contract', 'ImagePreviewDialog')).toMatch(/action closePreview\n\s+local\("image-close", "", ""\)\n\s+if returnFocus != ""\n\s+focus\(returnFocus\)/);
+    expect(component('timeline-attachments.contract', 'ImagePreviewDialog')).toMatch(/action closePreview\n\s+local\("image-close", "", ""\)/);
+    expect(component('timeline-attachments.contract', 'ImagePreviewDialog')).not.toContain('focus(returnFocus)');
+    expect(source('app-overlays.contract')).toContain('DialogFinalFocus(open=(data.imagePreviewId != ""), owner="image-preview")');
     for (const part of ['button id=nodeId press=press', 'contextmenu=pointerMenu', 'key=menuKey', 'tabindex=0', 'aria-label=label', 'cursor="zoom-in"', 'hatch="t3-media" data-media-kind="actions"'])
       expect(button).toContain(part);
     expect(button).toContain('k == "ContextMenu" or (e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey and k == "F10")');

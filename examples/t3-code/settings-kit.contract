@@ -123,7 +123,7 @@ component SettingsSelect
         text valueLabel font-size="0.875rem" line-height="1.25rem" class=SkInk flex=1 min-width=0 line-clamp=1 text-align="left"
         LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId=`${selectId}-menu`, armed=keyArmed, opened=keyOpened)
-      SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=0, items=options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
+      SkPopup(menuId=`${selectId}-menu`, invoker=selectId, label=label, width=width, list=true, endAlign=0, items=options.map((option) => KmItem(id=`${selectId}-option-${option.value}`, label=option.label)), keyed=keyed)
         for option in options key=option.value
           SkMenuItem(keysId=`${selectId}-menu-keys`, label=option.label, menuId=`${selectId}-menu`, itemId=`${selectId}-option-${option.value}`, selected=(value == "" ? option.selected : option.value == value), check=true, destructive=false, disabled=false, choose=choose(option.value))
 
@@ -134,8 +134,11 @@ component SettingsSelect
 // margins place it only under a position-area (LLP 1021 "Placement"): without
 // one the painted layer puts the popup's top-left at the invoker's bottom-left.
 component SkPopup
+  inject
+    dialogMenuEntered: action
   props
     menuId: string
+    invoker: string
     label: string
     width: number
     list: bool
@@ -146,7 +149,7 @@ component SkPopup
     keyed: number
   slot
   view
-    column id=menuId popover="auto" position-try-fallbacks="none" position="absolute" position-area="bottom span-right" margin-top="0.25rem" min-width=(width > 0 ? width : 160) width=(endAlign > 0 ? width : "auto") margin-left=(endAlign > 0 ? endAlign - width : 0)
+    column id=menuId data-dialog-return="menu" focusin=dialogMenuEntered(menuId, invoker) popover="auto" position-try-fallbacks="none" position="absolute" position-area="bottom span-right" margin-top="0.25rem" min-width=(width > 0 ? width : 160) width=(endAlign > 0 ? width : "auto") margin-left=(endAlign > 0 ? endAlign - width : 0)
       scroll width="100%" max-height="22.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727271a, #ffffff1a)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role=(list ? "listbox" : "menu") aria-label=label testId=menuId
         column width="100%" padding="0.25rem" box-sizing="border-box"
           KeyMenu(menuId=`${menuId}-keys`, items=items, keyed=keyed, gap="0px", modal=true)

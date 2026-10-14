@@ -144,7 +144,7 @@ component NetXs
     test: string
     press: action
   view
-    button press=press disabled=disabled testId=test display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" flex-shrink=0 opacity=(disabled ? 0.64 : 1) border-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : tone == "ghost" ? "#00000000" : "light-dark(#ffffff, #ffffff07)") box-shadow=(tone == "ghost" or tone == "default" ? "none" : "0 1px 2px #0000000d")
+    button id=test press=press disabled=disabled testId=test display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" flex-shrink=0 opacity=(disabled ? 0.64 : 1) border-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : tone == "ghost" ? "#00000000" : "light-dark(#ffffff, #ffffff07)") box-shadow=(tone == "ghost" or tone == "default" ? "none" : "0 1px 2px #0000000d")
       text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(tone == "destructive" ? "light-dark(#e7000b, #ff6467)" : tone == "default" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
 
 // Lucide QrCodeIcon.
@@ -398,7 +398,7 @@ component PairingLinkRow
                 row gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="light-dark(#f4f4f54d, #ffffff08)"
                   box position="relative" hover=hover("url", option.url) flex=1 min-width=0
                     text option.url id=`pairing-link-url-${row.id}` font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId=`pairing-link-url-${row.id}`
-                  NetXs(label="Copy link", tone="ghost", disabled=false, test=`pairing-link-copy-${row.id}`, press=op("pairing-copy", row.id, option.id))
+                  NetXs(label="Copy link", tone="ghost", disabled=false, test=`pairing-link-copy-${row.id}-${option.id}`, press=op("pairing-copy", row.id, option.id))
                 row
                   NetXs(label="Copy code only", tone="ghost", disabled=false, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))
               if option.qr

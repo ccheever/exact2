@@ -229,8 +229,8 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
     // adopt-main-fixes-r11 RT-5: the popup's own `popupKeys` (X79's workaround) is gone; main #490 carries Tab on from it,
     // and the trap's guards lie before and after it (dialog-trap.test.ts), as Base UI's do.
     expect(profiles).not.toContain('popupKeys');
-    expect(profiles).toContain('      FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)\n      column id="browser-import-popup" ');
-    expect(profiles).toContain('\n      FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)\n');
+    expect(profiles).toContain('      FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")\n      column id="browser-import-popup" ');
+    expect(profiles).toContain('\n      FocusGuard(guardId="browser-import-guard-end", targets=dialogTargets, popup="browser-import-popup")\n');
   });
   test('no button autofocuses: the focus moves only where the reference moves it', async () => {
     const profiles = await source('browser-profiles.contract');
