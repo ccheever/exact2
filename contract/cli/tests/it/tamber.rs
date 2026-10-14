@@ -713,3 +713,21 @@ fn a_token_edit_skips_retired_rows_refuses_roles_and_stays_its_plans() {
     let other = booted(plan);
     assert_eq!(row(&other, "kept", StyleId::TextColor), parsed("#111111"));
 }
+
+#[test]
+fn a_boundarys_own_colour_going_restores_its_implied_row() {
+    let path = app(
+        "own-colour",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  state loud = false\n  action flip\n    loud = not loud\n  view\n    column color=\"ink\"\n      button press=flip testId=\"flip\"\n        text \"flip\"\n      column -exact-mode=\"dark-style=dim\" color=(loud ? \"#ff0000\" : none)\n        text \"a\" testId=\"text\"\n"),
+        ],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let dim = parsed("light-dark(#111111, #cccccc)");
+    assert_eq!(row(&r, "text", StyleId::TextColor), dim);
+    press(&mut r, "flip");
+    assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#ff0000"));
+    press(&mut r, "flip");
+    assert_eq!(row(&r, "text", StyleId::TextColor), dim);
+}

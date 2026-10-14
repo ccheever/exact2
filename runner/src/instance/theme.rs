@@ -207,7 +207,8 @@ impl super::NodeInst {
         let saved = u.theme.clone();
         // A pin that moved, or a colour its descendants inherit, which a
         // boundary below sets again in its own tuple.
-        u.theme.retheme |= self.tuple != before || std::mem::take(&mut self.colour_moved);
+        let moved = std::mem::take(&mut self.colour_moved);
+        u.theme.retheme |= self.tuple != before || moved;
         u.theme.tuple = self.tuple;
         u.theme.inherited = inherited;
         saved
@@ -264,7 +265,11 @@ impl super::NodeInst {
         let plan = u.env.plan;
         let row = plan.node(self.node);
         for (k, style) in INHERITED.into_iter().enumerate() {
+            // Its own row stands: an implied one is set again when it goes.
             if binding_of(plan, row, style).is_some_and(|b| self.themed.sets(b)) {
+                if let Some(implied) = self.implied.as_mut() {
+                    implied[k] = None;
+                }
                 continue;
             }
             let want = u.theme.inherited[k].clone();
