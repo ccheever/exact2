@@ -72,6 +72,60 @@ the reference T3 Code.
   refreshed every 60 s), `pullRequestDetailToVcsStatus`; `apps/web/src/components/Sidebar.logic.ts`
   `useSidebarRowSubscriptionLease` (a row near the viewport).
 
+## Scope and exclusions
+
+Application changes stay under `examples/t3-code`. No framework edits, provider messages, real/global input,
+GitHub mutations, publication or merge occur in this lane. SW-3b remains the existing X80 platform decision.
+The specification's latest continuation replaces repeated pixel matrices with practical behavior checks.
+
+## Context and guidance
+
+Parent specification: [spec.md](../spec.md). Reference checkout rechecked at
+`1e2ecbd9758830669684b494d4398f626b0576e0`, read-only. The implementation uses the existing sidebar hover actions,
+archive undo, archive panel and pull-request RPC router. Knowledge library `20261005-platforms-v3` topics:
+foundations, layout/interaction, state/data, accessibility and testing. Checkout source takes precedence over
+that source-reviewed library, as the specification's U1 requires.
+
+## Dependencies
+
+- Recorded decision: the 2026-10-14 fix wave authorizes these five rows.
+- Integration base: `609f392d5`, plus task-record commit `a2def63d0`. Framework behavior already adopted there
+  includes ancestor-path hover from main #327. No new framework dependency is introduced.
+- Historical implementation: `dd2de793c`. The resume preserves that implementation and its local before/after drives.
+- Runtime fixture: the isolated GitHub lane's Studio branch and PR #113. Reads use the already paired lane;
+  no pull request is changed.
+
+## Implementation notes
+
+- The window remembers the host-hovered row while an inner tooltip temporarily owns the overlay. Leaving the
+  control returns the row's hover and card. Pressing an action hides the card and tooltip while retaining row hover.
+- Archive menu choices blur the composer. The existing global undo then restores the archived thread.
+- Archived delete confirmation resolves its title from live threads and falls back to `this thread`.
+  The Unarchive button uses its visible text as its name.
+- Both sidebars read a missing link from the branch summary. Reads deduplicate by environment/reference and
+  refresh after 60 seconds. A cancelled read preserves the prior summary and permits retry.
+- The first native drive drew PR #113 but reported `Cannot set property 'reading' of undefined`.
+  The unfinished repair gives each asynchronous summary its own function arguments, avoiding capture of a loop entry.
+- The resume's full Bun suite caught a second regression: the four new row `pointerdown` handlers bypassed
+  the window's outside-press dismissal. They now call `sidebarPressDown`, which hides the tip and forwards
+  the existing outside-press handler. The window still counts a primary press when it ends. This preserves
+  Usage popover, skill-chip and thread-details dismissal.
+
+## Progress
+
+Development checks pass, including 4,876 Bun tests with one existing skip, strict TypeScript, Contract compile,
+caps, boot, the final native build and the connected agent drive. The coordinator reviewed the source diff and
+reported no blocking findings. Delivery remains none.
+Real-input parity is reserved for the coordinator's final input session.
+
+## Attempts and evidence
+
+[Resume evidence](../evidence/20261014-sidebar-hover-archive-and-glyph/20261014-resume/README.md) preserves the earlier
+native failure, before/after focus and row facts, hover captures, the full-suite failure and the repaired checks.
+The historical full raw drives remain locally under `target/shag/drive-before` and `target/shag/drive-after`.
+The committed extracts contain no pairing credentials.
+
 ## Next action
 
-Build every row, prove it, run the checks, open the draft PR.
+Independent review of the final implementation, then the coordinated real-input checks for SW-2, SW-3a,
+R11-X63, G4-14b and B12. The coordinator owns publication, integration and the broad repository Cargo checks.
