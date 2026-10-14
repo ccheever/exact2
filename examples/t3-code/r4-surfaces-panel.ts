@@ -39,7 +39,7 @@ import { letGo } from './let-go';
 import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from './browser-automation-recording';
 import { browserMiniPlayerSource } from './previewMiniPlayerStore';
-import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, type BrowserView } from './browser-surface';
+import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from './browser-surface';
 import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // browser-surface part 5: Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
@@ -216,6 +216,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     state.active = id; state.visible = true;
     if (surface.kind === 'terminal') focusPanelTerminal(client);
     if (surface.kind === 'device') selectDeviceTarget(client, panelKey(client), surface.device);
+    selectBrowserTab(client, surface); // setActivePreviewTab: ⇧⌘J shows this tab again (G4-18)
     if (surface.kind === 'diff') await showDiff(client, native);
     else { client.diffOpen = false; if (surface.kind === 'file') await ensureFile(client, native, surface.path, false); if (surface.kind === 'files') await ensureTree(client, native); }
     return '';
@@ -238,6 +239,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     if (next?.kind === 'diff' && state.visible && !client.diffOpen) await showDiff(client, native);
     else if (next && next.kind !== 'diff') client.diffOpen = false;
     if (next?.kind === 'device') selectDeviceTarget(client, panelKey(client), next.device);
+    selectBrowserTab(client, next); // syncActivePreviewSurface
     if (next?.kind === 'terminal') focusPanelTerminal(client);
     return hadTerminal && !state.surfaces.length ? 'terminal:focus-composer' : '';
   }

@@ -32,7 +32,7 @@ const helpers = (async () => {
   return { first, kmIndex, kmTarget, kmOpenKey, kmArrow, kmTriggerKey, kmTriggerTarget, kmEnd, kmKeyEnd, kmOpenTarget, kmEndKeyed };
 })();
 function effects(calls: unknown[][]): Env {
-  return Object.fromEntries(['preventDefault', 'stopPropagation', 'focus', 'blur', 'showPopover', 'place', 'local', 'control', 'hoverCard', 'openMenu', 'leave']
+  return Object.fromEntries(['preventDefault', 'stopPropagation', 'focus', 'blur', 'showPopover', 'hidePopover', 'place', 'local', 'control', 'hoverCard', 'openMenu', 'leave']
     .map(name => [name, (...args: unknown[]) => calls.push([name, ...args])]));
 }
 /** The lines of `component name` in `file`, up to the next top-level declaration. */
@@ -552,7 +552,9 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect(hover).toBeDefined();
     expect(line).toContain('focus=focused(true) blur=focused(false)');
     row.call(hover!, state, scope, [true]);
-    expect(calls).toEqual([['focus', realId]]);
+    // The More menu's rows close its Appearance submenu on entry, and Appearance opens it (browser-panel-parity G4-19).
+    expect(calls).toEqual(name === 'BsMenuItem' ? [['hidePopover', 'browser-appearance-menu'], ['focus', realId]]
+      : name === 'BrowserAppearanceItem' ? [['focus', realId], ['showPopover', 'browser-appearance-menu', { source: realId }]] : [['focus', realId]]);
     row.call('focused', state, scope, [true]);
     expect(state.lit).toBe(true);
     const menu = contractComponent('menu-keys.contract', 'KeyMenu'), menuState = menu.state();
@@ -667,5 +669,50 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
       });
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+// browser-panel-parity G4-19: More › Appearance is MenuSubTrigger + MenuSubPopup (PreviewMoreMenu.tsx, ui/menu.tsx):
+// hover opens it beside its row through the public popover command, the pointer can travel into it, and a sibling
+// row (or the Zoom row) closes only it, so Zoom − is never covered.
+describe('G4-19: the Browser More menu\'s Appearance submenu', () => {
+  const child = 'browser-appearance-menu';
+  const run = (component: string, action: string, scope: Env, args: unknown[]) => {
+    const calls: unknown[][] = [], row = contractComponent('browser-surface.contract', component), state = row.state();
+    row.call(action, state, { ...effects(calls), ...scope }, args);
+    return calls;
+  };
+  test('hovering Appearance opens the submenu from its row; leaving the row toward it does not close it; a disabled row opens nothing', () => {
+    const live = { keysId: 'browser-more-keys', view: { hasWebContents: true } };
+    expect(run('BrowserAppearanceItem', 'hover', live, [true])).toEqual([['focus', 'browser-more-appearance'], ['showPopover', child, { source: 'browser-more-appearance' }]]);
+    const appearance = contractComponent('browser-surface.contract', 'BrowserAppearanceItem'), state = appearance.state(), calls: unknown[][] = [];
+    appearance.call('focused', state, { ...effects(calls), ...live }, [true]);
+    appearance.call('hover', state, { ...effects(calls), ...live }, [false]); // the pointer leaves the row for the submenu
+    expect(calls).toEqual([['focus', 'browser-more-keys']]);
+    expect(run('BrowserAppearanceItem', 'hover', { ...live, view: { hasWebContents: false } }, [true])).toEqual([]);
+  });
+  test('entering a sibling row or the Zoom row closes only the submenu, never the More menu', () => {
+    for (const disabled of [false, true]) {
+      const calls = run('BsMenuItem', 'hover', { keysId: 'browser-more-keys', id: 'browser-more-hard-reload', disabled }, [true]);
+      expect(calls[0]).toEqual(['hidePopover', child]);
+      expect(calls.filter(call => call[0] === 'hidePopover')).toEqual([['hidePopover', child]]);
+    }
+    expect(run('BsMenuItem', 'hover', { keysId: 'browser-more-keys', id: 'browser-more-hard-reload', disabled: false }, [false])).toEqual([]);
+    expect(run('BrowserMore', 'zoomRowHover', {}, [true])).toEqual([['hidePopover', child]]);
+    expect(run('BrowserMore', 'zoomRowHover', {}, [false])).toEqual([]);
+  });
+  test('the submenu is nested in the More menu, beside its row (right, flipping left), its first item level with the row', async () => {
+    const more = await component('browser-surface.contract', 'BrowserMore');
+    expect(more).toContain('BrowserAppearanceItem(keysId="browser-more-keys", view=view, local=local)');
+    expect(more.indexOf('column id="browser-more-menu" popover="auto"')).toBeLessThan(more.indexOf('BrowserAppearanceItem('));
+    expect(more).toMatch(/row hover=zoomRowHover [^\n]*testId="browser-more-zoom"/);
+    const item = await component('browser-surface.contract', 'BrowserAppearanceItem');
+    const popup = item.split('\n').find(line => line.includes(`column id="${child}"`))!;
+    expect(popup).toContain('popover="auto" position-area="right span-bottom" position-try-fallbacks="flip-inline"');
+    expect(popup).toContain('margin-top="-0.3125rem"'); // MenuSubPopup's align offset: -5 px, its 4 px padding and 1 px border
+    expect(popup).not.toMatch(/margin-left|margin-right|position-try-fallbacks="none"/);
+    // A press or Enter on the row still toggles it; its radio items keep both menus open (no hide).
+    expect(item).toMatch(/button id="browser-more-appearance" popovertarget="browser-appearance-menu" hover=hover /);
+    expect(await component('browser-surface.contract', 'BrowserRadioItem')).not.toContain('popovertargetaction');
   });
 });
