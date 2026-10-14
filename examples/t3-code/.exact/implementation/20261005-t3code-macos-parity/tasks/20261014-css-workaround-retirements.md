@@ -1,7 +1,7 @@
 ---
 name: 20261014-css-workaround-retirements
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: complete
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -443,11 +443,12 @@ an original required row or attended proof is blocked.
 - [x] Inventory 62 popover declarations, 108 placeholder-bearing lines and the four
   exact alignment candidates; distinguish actual fields from forwarding/display uses.
 - [x] Preserve every original acceptance row and record unsupported assumptions.
-- [ ] Verify all five serial predecessor PRs merged and refresh the feature base.
-- [ ] Reconcile existing lanes, attended desktop and task-owned native execution.
-- [ ] Create isolated implementation checkout, record base/branch, mark prepared.
-- [ ] Implement all five KW rows, verify, obtain independent review and publish the
-  authorized task record/PR at its later workflow checkpoint.
+- [x] Verify all five serial predecessor PRs merged and refresh the feature base (prepared base `b98eee019`).
+- [x] Reconcile existing lanes: the real-GitHub lane works; the pooled-limits fixture is missing (below).
+- [x] Create isolated implementation checkout, record base/branch, mark prepared.
+- [x] Implement all five KW rows (2026-10-14).
+- [x] Focused and full checks, one native AFTER drive, independent review.
+- [ ] Attended real-input rows, the KW-4 pooled dismissal and the unresolved chip: unverified.
 
 ## Attempts and evidence
 
@@ -461,11 +462,110 @@ There have been zero implementation or repair attempts for this task in this
 preparation. No current runtime verification is claimed. Historical issue tests
 establish capability availability, not this application's acceptance.
 
+## Implementation and verification, 2026-10-14
+
+Base `b98eee019` (feature head `233ab29bc` plus this ticket), branch
+`feat(example)/t3-code-css-workaround-retirements`. macOS 26.6.2, Apple Silicon, development bundle from
+`EXACT_APP_DIR="$PWD/examples/t3-code" bun host/apple/build.mjs t3-code-macos --bundle`. Reference pin
+`1e2ecbd975` (read only). Base UI's package is not installed in the reference checkout, so "Base UI flips side and
+alignment near an edge" comes from this ticket and the app's records, not from reading Base UI source.
+
+### Per-row changes
+
+| Row | Change | Files |
+| --- | --- | --- |
+| KW-1 balance | `text-wrap="balance"` on 16 shared owners: `TipCard` (all `Tip`/`TimelineTip`/`TipBubble` users), `HoverText`, `HoverCode`, `HoverScopes`, `MediaTip`, `CnTooltip`, the PR links error tip, the Git publish hint, `StatInfo`, the context-window details and the Usage unpriced popup (tooltipStyle), and the empty states `PagesLanding`, `PrEmptyState`, `BrowserNothingYet`, `environments-empty` and the source-control scan card. Not balanced, as the reference: `EmptyThread` (DraftHeroHeadline has no `text-balance`), the freshness card (not tooltipStyle), the stacked toasts (only the anchored toast balances; the clone's anchored "Copied!" toast cannot wrap), `nowrap`/`pre` text. | `shell-tip`, `hover-layer`, `media-actions`, `settings-b-kit`, `pages-pr-links`, `r4-git-publish`, `settings-diagnostics`, `composer-controls`, `pages-usage`, `pages-hero`, `r5-shell-prs`, `browser-surface`, `connections`, `settings-source-control` |
+| KW-1 placeholders | Recount: 108 lines = 79 fields (67 `input`, 12 `textarea`) + 29 forwarding/display uses. `::placeholder` in `PvField` (27), `SbField` (2), `TkField` (3); `AeField` cannot hold a part (`lower-attr-tag`: it also styles a row and a button), so its 2 inputs hold their own. New placeholder-only style `FieldPlaceholder` (`field-placeholder.contract`, 27 fields). Field parts: PR pages and the device field (7, each file's muted ink), themed settings (6, `pal.muted`), theme JSON (`pal.muted`), citation (muted), Git publish path (muted /60). Forwarded: `CodexPathRow` 3, `PrdWords` 4, `UsagePriceInput` 3, `R7DevField` 6, `CoreField` 1, `ScopedTextField` 1, `ScopedTextArea` 2 (their owning field covers all callers). Painted text kept: `ApprovalComposer` 1, `RedactedText` 4, `CodexSignedIn` 2, `UsageRedacted` 1, `PoolEmail` 1, and the sidebar inputs' painted labels (2). `SettingsSelect` takes `empty` and colours an empty value muted, as `ui/select.tsx`'s `data-placeholder`. | 40+ contracts, `field-placeholder.contract` |
+| KW-2 | The four overrides removed. Freshness `text base` and the tab title are sized by their words. The filter value is the reference's `min-w-0 max-w-32 truncate` (nowrap, ellipsis, shrinkable) and its label keeps its words' width (the reference's `flex-1`, min-width auto; repair round 1). The palette row button lost `text-align="left"`; its match line is no longer 100% wide, so every text in the row is word-sized in a start-aligned column. The code-search line's own left stays. | `pages-pr-actions`, `pages-prs`, `r4-surfaces`, `palette` |
+| KW-4 | `usage-ground` removed; `usage-content` is the scroll's own child (same width, padding, centring). The page root keeps its one `pointerdown`/`pointerup` pair; the window's `outsidePresses` path is unchanged. | `pages-usage.contract` |
+| KW-6 | All 62 popovers keep `popover="auto"` and an authored row (painted layer). 59 now name the reference caller's area (`bottom span-right`/`bottom span-left`/`top span-right`/`top span-left`/`bottom`/`top`/`right span-bottom`) with `flip-block, flip-inline, flip-block flip-inline` (edge-aligned), `flip-block` (centred) or `flip-inline` (submenus, as #571's Appearance submenu). Transparent padding tails became the 0.25rem margin on the invoker side; fake geometry removed: `-16rem`, `-12.5rem`, `-11rem`, `-18.75rem`/`-18.5rem`, `(narrow ? -362 : -299)`, `endAlign - width`, `tool.offset`, `top="100%" right=0`, `left/top=0` insets, the profiles submenu's `-1.75rem`/`11.75rem`, and the colour picker's own `above` flip (with its `vh` prop). `CnMenu` and `UpkeepSelect` take an `area` prop per caller. Kept `none`: the native thread, draft and tab context menus, item-aligned Selects (3 ACP selects, `providers-setup`), the sign-in method menu. `hoverFlip` unchanged. Menu-keys sources and Appearance placement unchanged. | 39 contracts, `pages-prs.ts`, `settings-a-integrations.ts`, `app-main`, `app-window`, `legacy-sidebar` |
+| KW-7 | The unresolved chip and the pending card have `border-width=1 border-style="dashed"` in the border-box (the chip `light-dark(#e4e4e7, #ffffff12)`, the card `ptBorder()`); both SVG overlays and the chip's `position="relative"` are gone. Outer size follows the other chips and the thread card (the reference's border is in layout too). | `markdown.contract`, `pages-pr-threads.contract` |
+
+Tests: the obsolete AD-1 "every popover says `none`" became a reviewed per-site table (area and fallbacks, with
+the reference caller), checks that the fake geometry is gone and that `hoverFlip` stays
+(`adopt-main-fixes-r12.test.ts`); a KW-1 block there checks every placeholder field's colour source, the role
+colours and the balance owners. Updated into real assertions: `usage-pooled` (no ground, one handler pair),
+`pages-prs` (word-sized texts need no alignment; the two KW-2 lines and the label width), `browser-surface`,
+`sidebar-palette-keys`, `realinput-1010f-followups` (RF-4: a border, no overlay), `usage-pr-pages`,
+`adopt-main-fixes-r11`, `menu-keys`, `settings-a`, `view-depth`, `scheduled-tasks-followups`.
+
+### Checks (final source)
+
+| Check | Result |
+| --- | --- |
+| Full app Bun suite, 335 tracked files (explicit `./` paths) | 5,201 pass, 1 skip, 0 fail (base 5,175 / 1 / 0). One run under a concurrent `cargo check` timed out the 2 subprocess tests in `tools/github-lane/lane.test.ts` (5 s limit); that file alone then passed 15/15, and the final full run passed. |
+| Strict TypeScript (`app.ts`) | exit 0 |
+| `contract build examples/t3-code/app.contract` | exit 0; 254 warnings, the same set as the base (no new warning) |
+| `cargo test -p t3-code-macos --lib --no-fail-fast` | 44 passed, 0 failed |
+| `git add -A examples/t3-code && bun scripts/caps.mjs` | all budgets within cap; no file over 1,500 lines |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo check --workspace --all-targets --keep-going` | exit 0 |
+| Native bundle | built twice (before and after repair round 1), exit 0 |
+
+### Native AFTER drive
+
+Agent mode (`scripts/agent.mjs macos --size 1280x840 --storage css-retire-a`), light then dark, on the existing
+real-GitHub lane (primary server pid 42586 on 16520, `lane.mjs` start/project/pair/stop; isolated homes; telemetry
+off; only reads from GitHub, the pending comment stays local). Evidence is local under `target/css-retire/drive/after/`
+(segment logs `seg-a.log`, `seg-a2.log`, `seg-c.log`, `seg-d.log`). Segment A first stopped twice on setup taps
+(a toast that does not always show, then a collapsed file); segment C stopped once on a navigation tap; segment D
+was the one retry after repair round 1.
+
+| Row | Result | Evidence |
+| --- | --- | --- |
+| KW-1 long tooltip balance | PASS (agent): Git fetch interval tip, 320×74, four even lines, light and dark | `C05-long-tooltip-light.png`, `C06-long-tooltip-dark.png`; layout `git-fetch-policy-tooltip` 311.61,404 320×74 |
+| KW-1 placeholders | PASS (agent) for generic Input (welcome pairing link, PR search), palette search, composer painted text unchanged, light and dark | `A01-welcome-placeholder-light.png`, `A02-prs-search-placeholder-light.png`, `D04-palette-dark.png`, `C01-thread-light.png` |
+| KW-2 filter submenu value | PASS after repair 1: short "All"; long "Changes requested" keeps its start and ends in an ellipsis; the label is not overdrawn (before repair the label was drawn under the value) | `A04-filters-short-light.png`, `C02-filter-long-value-light.png` (fault), `D01-filter-long-value-light.png` |
+| KW-2 freshness mark | PASS short ("main", 47.67×16); long value UNVERIFIED (no seeded long base) | `A06-pr113-freshness-light.png` |
+| KW-2 palette option rows | PASS short rows start-aligned; long project path UNVERIFIED (not searched) | `D04-palette-dark.png` |
+| KW-2 right panel tab title | UNVERIFIED (no tab was opened in the drive) | `D02-right-panel-light.png` |
+| KW-6 right edge | PASS: provider menu (`bottom span-right`) flips inline: invoker 1148.27–1210, popover 1050–1210 at y 113 (4 pt gap); Filters and More end-aligned (`pr-filters-layer` right 1140.27 = invoker right; `pr-more-layer` 884–1264 = invoker right 1264) | `A03-provider-right-edge-light.png`, `A04`, `A08`, `A10-more-right-edge-dark.png` |
+| KW-6 bottom edge | PASS (agent): #112 row checks popover flips above: invoker y 800–814, popover 718–796 (4 pt gap); #148 fits below (760–838) and stays | `B01-checks-bottom-edge-flip-light.png`, `A05-checks-bottom-edge-light.png` |
+| KW-6 freshness popover | PASS: below the mark, start-aligned, 657,174 | `A07-freshness-popover-light.png` |
+| KW-7 pending card | PASS (agent): 1 px dashed border, body wraps, Discard 24×24 at 1231,348, Discard removes the card, light and dark | `B02-pending-card-light.png`, `B03-pending-card-dark.png`, `B04-pending-discarded-dark.png` |
+| KW-7 unresolved chip | UNVERIFIED: no thread holds a message with an unresolved reference without sending a provider message | source and tests only |
+| KW-4 pooled Limits dismissal | UNVERIFIED: the pooled fixture is missing (fix-hover-cards' uncommitted `usage-lane` is gone; the lane's Codex reads no limits). A press on the empty Limits port was delivered (`tap usage-scroll at 600 600`) without error | `C08-limits-dark.png`, `seg-d.log` |
+| Attended: bottom-edge popup by physical input; pending card Discard by real click | UNVERIFIED: batched for the final real-input session | — |
+
+PR images (local): `target/css-retire/pr-images/01-popup-flips-right-and-bottom-edge.png`,
+`02-pending-card-dashed-border-light-dark.png`, `03-filter-value-short-long.png`,
+`04-long-tooltip-balance-light-dark.png`.
+
+### Gaps (framework, recorded; no caller dropped)
+
+- `browser-surface.contract` profiles submenu (`r4-browser-profiles`): a flipped submenu meets the chevron's start,
+  not the row's; it needs an anchor other than the invoker (`position-anchor` is not admitted, #112).
+- Item-aligned Select placement (`alignItemWithTrigger`) has no `position-area`: the three ACP selects in
+  `providers-upkeep.contract` and `providers-setup.contract` keep the invoker's bottom-left and no flip.
+- `max-w-(--available-width)` (area-dependent size) is not admitted; popovers keep their fixed widths.
+- `AeField` (`settings-b-actions.contract`) cannot hold a `::placeholder` part because the style also applies to
+  non-field elements (`lower-attr-tag`); its fields hold their own parts.
+
+### Known differences
+
+- The filters menu (184 pt wide) cuts "All projects" to "All proje…" now that the label keeps its words' width, as
+  the reference's flex rules do; the reference menu's width was not measured.
+- Textareas use the muted placeholder role; the reference `Textarea` writes no placeholder colour (its effective
+  colour comes from its reset, not inspected here).
+- Themed fields use `pal.muted` at full strength: `CorePalette` carries no custom-theme placeholder role, and the
+  prompt preview has no 75% token.
+- With an authored area there is no window clamp (CSS): a popover that fits no candidate runs past the window
+  edge. Large ones (When editor 34rem, `task-branch-menu`, the checkout menu) were not checked at 840x620.
+- The `Pages` hero heading wraps its "?" alone beside an open right panel (seen in `D02`); `EmptyThread` is not
+  balanced, as its reference.
+
+### Independent review
+
+A fresh general-purpose reviewer read this ticket and the full diff on 2026-10-14: **no blocking defects**. It
+checked about 50 popover callers' areas against the reference, the #568 and #571 interfaces, the balance owners,
+the placeholder roles, KW-4's single handler pair and both KW-7 borders, and reran the suite (5,201 / 0 / 1), `tsc`
+and the Contract build. Non-blocking notes and handling: the alignment guard's exemption was narrowed to exactly the
+two KW-2 lines (`pages-prs.test.ts`); the textarea colour, the missing clamp and the prompt-preview alpha are
+recorded above as known differences; the runtime rows stay as the drive table says.
+
 ## Next action
 
-Prepared on 2026-10-14 from feature head `233ab29bc` in the isolated checkout
-`t3-code-css-workaround-retirements` (branch `feat(example)/t3-code-css-workaround-retirements`).
-Implement all five rows as one bounded application task, verify with one agent drive at the
-end, and obtain an independent review. No repeated pixel-polish matrices: one before/after
-comparison per site is enough. Evidence stays local in `target/`; PR images are GitHub
-attachments. Follow-up 7, `timeline-and-window-hooks`, waits for this task's merge.
+Implemented, checked and driven once on 2026-10-14 (above); verification stays unverified. The final real-input
+session takes the bottom-edge popup by physical input and the pending card's Discard by a real click. The KW-4
+ground dismissal needs a pooled-limits fixture again, and the unresolved chip needs a thread that already holds an
+unresolved reference. Follow-up 7, `timeline-and-window-hooks`, waits for this task's merge.

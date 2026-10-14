@@ -392,6 +392,11 @@ describe('the chrome row as a hand finds it', () => {
   });
   it('a More row cuts its label before its part note, and a tab title keeps its start (X57)', async () => {
     expect(await component('browser-surface.contract', 'BsMenuItem')).toContain('text label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left"');
-    expect(await component('r4-surfaces.contract', 'R4TabChip')).toContain('text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left"');
+    // css-workaround-retirements KW-2: RightPanelTabs.tsx's `<span className="truncate">` in a `flex min-w-0` button. The
+    // title is sized by its text, so a short one has no spare width to align, and a long one is start-aligned by main
+    // 24083b9b9 (X57): the override is gone.
+    const chip = await component('r4-surfaces.contract', 'R4TabChip');
+    expect(chip).toContain('text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=');
+    expect(chip.split('\n').find(line => line.includes('text tab.title'))).not.toMatch(/flex=1|(?<![-\w])width=|text-align=/);
   });
 });

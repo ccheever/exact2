@@ -185,7 +185,8 @@ component ThreadRow
                     CnMachineIcon(kind=t.remoteMachine, size=14, color="light-dark(#71717bb3, #818181b3)")
                 SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
           if t.canSnooze
-            column id=`snooze-${t.id}` popover="auto" toggle=snoozeChanged position-try-fallbacks="none" role="menu" aria-label="Snooze thread" position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
+            // Sidebar.tsx: MenuPopup side="bottom" align="end", its right edge under the clock's, flipping near an edge.
+            column id=`snooze-${t.id}` popover="auto" toggle=snoozeChanged position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" role="menu" aria-label="Snooze thread" position="absolute" margin-top="0.25rem" min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
               // MenuPopup sizes to its content from one minimum (min-w-[min(10rem,…)]): "Next week" and its "Mon 9:00 AM" fit
               // (realinput-1010d RD-5; a fixed 10.8rem cut the time at the menu's edge). The glass's blur does not reach the
               // popover layer: a denser tint stands in for it.
@@ -517,6 +518,8 @@ style SidebarMenuItem
 // the row's `contextmenu` and opens this popover at the row's centre, as Chromium's keyboard
 // contextmenu does. Shift+F10 opens nothing on a thread row (Chromium on macOS). A draft row
 // (DraftCard) and a legacy row prevent that default and open their own menus.
+// Placement (KW-6): the menu keeps `position-try-fallbacks="none"`, as it opens at the pointer with no invoker and the
+// reference's is the system's context menu; a painted submenu sits beside its row and flips to the row's start side.
 component ThreadMenu
   props
     threads: Thread[]
@@ -544,7 +547,7 @@ component ThreadMenu
       for t in threads key=t.id
         if t.id == owner
           for p in t.menu.filter((e) => e.sub) key=p.id
-            column id=`thread-menu-sub-${p.id}` popover="auto" position-try-fallbacks="none" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`thread-menu-sub-${p.id}`
+            column id=`thread-menu-sub-${p.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`thread-menu-sub-${p.id}`
               for e in t.menu.filter((c) => c.parent == p.id) key=e.id
                 if e.separated
                   hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
@@ -581,7 +584,7 @@ component DraftMenu
       for d in drafts key=d.id
         if d.id == owner
           for p in d.menu.filter((e) => e.sub) key=p.id
-            column id=`draft-menu-sub-${p.id}` popover="auto" position-try-fallbacks="none" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`draft-menu-sub-${p.id}`
+            column id=`draft-menu-sub-${p.id}` popover="auto" position-try-fallbacks="flip-inline" role="menu" position-area="right span-bottom" class=SidebarMenuCard testId=`draft-menu-sub-${p.id}`
               for e in d.menu.filter((c) => c.parent == p.id) key=e.id
                 if e.separated
                   hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"

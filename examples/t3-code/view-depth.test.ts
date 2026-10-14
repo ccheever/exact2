@@ -270,6 +270,9 @@ function measure(dir: string) {
         chain = depth + 1;
       } else if (text === 'children') {
         if (fill) block(fill.lines, fill.file, depth, fill.env, fill.fill);
+      } else if (text === '::placeholder') {
+        // A field's `::placeholder` part (KW-1): its declarations are the field's own values, at the field's site.
+        for (const line of body) site(depth, exprs(line.at, () => lineExprs(`part ${line.text}`)), env, line.at);
       } else if (/^[A-Z]/.test(text)) {
         const name = /^\w+/.exec(text)![0];
         const used = resolve(file, name);

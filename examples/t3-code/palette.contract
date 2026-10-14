@@ -208,7 +208,7 @@ component PaletteText
           else
             text row.title font-size="0.875rem" line-height="1.25rem" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
       if row.matchLabel != ""
-        text width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text min-width=0 max-width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
           text `${row.matchLabel} ` color=(row.matchLabel == "You:" ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#007a55, #00d492)")
           for part in row.matchParts key=part.id
             text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717bd9, #818181d9)")
@@ -289,7 +289,7 @@ component PaletteRowView
               button press=run("settings", row.badgeOp, "") aria-label=row.badge testId=`palette-setup-${row.key}` opacity=0.64 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a0052, #fe9a0052)" background-color="light-dark(#ff9a0029, #ff9a0029)" display="flex" flex-direction="row" align-items="center" flex-shrink=0
                 text row.badge font-size="0.6875rem" line-height="0.98125rem" font-weight=500 color="light-dark(#bb4d00, #ffb900)"
         else
-          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy tabindex=-1 role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" text-align="left" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
+          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy tabindex=-1 role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
             PaletteGlyph(name=row.icon, project=row.project, ink=row.projectInk, surface=row.projectSurface, dark=dark)
             PaletteText(row=row, highlighted=highlighted, dark=dark)
             if row.trailing == "Current"

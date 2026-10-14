@@ -203,7 +203,8 @@ component PrdCodeToolbar
               text code.scopeLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=pcInk() white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 text-align="left"
               box opacity=0.7 flex-shrink=0 display="flex"
                 PgIcon(name="chevron-down", size=14, color=pcInk())
-            column id=menuId popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" testId="pull-request-code-scope-layer"
+            // DropdownMenuContent align="start" (PullRequestCodeTab.tsx): 4 pt below the trigger's start, flipping near an edge.
+            column id=menuId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="pull-request-code-scope-layer"
               // MenuPopup's glass blurs what is under it (backdrop-blur); the macOS presenter draws no backdrop blur, so the
               // glass sits on the popover colour itself, or the list's rows would read through the menu (live drive 1).
               column border-radius="0.625rem" backdrop-filter="blur(12px)" background-color="light-dark(#ffffff, #111111)"

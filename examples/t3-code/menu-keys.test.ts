@@ -229,8 +229,8 @@ describe('public popover triggers execute one ordered command sequence', () => {
     expect(trigger).toContain(` popovertarget=${command[1]} `);
     // The same eligible rows drive the public opening and the menu's subsequent navigation.
     expect(body).toContain(`items=${itemName},`);
-    const prep: unknown[][] = name === 'LegacyOptions' ? [['place']]
-      : name === 'BrowserProfilesSetting' ? [['local', 'browser-profiles-sources', '']]
+    // LegacyOptions measures nothing first (KW-6: its menu is end-aligned by `position-area`, not a measured tail).
+    const prep: unknown[][] = name === 'BrowserProfilesSetting' ? [['local', 'browser-profiles-sources', '']]
       : name === 'PrFiltersMenu' ? [['openMenu']]
       : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
       : name === 'ThreadRow' ? [['hoverCard', '', false]]
@@ -394,7 +394,8 @@ describe('realinput-1010d RD-5: the snooze menu sizes to its rows', () => {
     // A fixed 10.8rem cut the widest time at the menu's edge; the reference's menu is 192 px wide on a weekday.
     const row = await component('sidebar-row.contract', 'ThreadRow');
     const menu = row.split('\n').find(line => line.includes('aria-label="Snooze thread" position="absolute"')) ?? '';
-    expect(menu).toContain('position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem"');
+    // KW-6: placed by `position-area` (MenuPopup side="bottom" align="end", flipping), no inset.
+    expect(menu).toContain('position="absolute" margin-top="0.25rem" min-width="10rem" padding="0.25rem"');
     expect(menu).not.toMatch(/\swidth=/);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0');

@@ -124,7 +124,8 @@ component HeroPicker
         box position="absolute" left=0 right=0 top=(small ? "1.125rem" : "2.0625rem") height=(small ? "1px" : "2px") overflow="hidden"
           svg width="125rem" height=(small ? "1px" : "2px") viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
             path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#27272a" : "#27272a4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
-      column id="hero-project-menu" popover="auto" position-try-fallbacks="none" position="absolute" left=0 right=0 top=0 padding-top="0.25rem" align-items="center" testId="hero-project-menu-layer"
+      // MenuPopup align="center" (DraftHeroHeadline.tsx): centred 4 pt below the project name, above it when the bottom does not fit.
+      column id="hero-project-menu" popover="auto" position-area="bottom" position-try-fallbacks="flip-block" position="absolute" margin-top="0.25rem" testId="hero-project-menu-layer"
         HeroMenu(home=home, scheme=scheme, items=menuItems, command=command, addProject=addProject)
 
 // MenuPopup (dropdown-glass, rounded-lg, max-h-80) with MenuRadioItem rows,
@@ -193,7 +194,8 @@ component PagesLanding
         // composer-fidelity G15: NoActiveThreadState's desktop header.
         if home.landing == "no-thread"
           text "No active thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" testId="no-active-thread-header"
-      column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center"
+      // Each landing is ui/empty.tsx's Empty (NoProjectsHero, NoActiveThreadState, _chat.index's two): `text-balance` (KW-1).
+      column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" text-wrap="balance"
         if home.landing == "no-projects"
           column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center"
             text "What should we work on?" font-size="1.875rem" line-height="2.25rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1

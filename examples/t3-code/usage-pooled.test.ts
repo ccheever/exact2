@@ -454,11 +454,15 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
 
   test('a primary press that starts outside the pinned popover and both its triggers closes it as it ends', async () => {
     const page = await component('pages-usage.contract', 'UsagePage');
-    // The page's root takes every press on the page but a segment's (below); the scroll's content fills
-    // its port, since on macOS a press on a scroll view's empty area reaches no node.
+    // The page's root takes every press on the page but a segment's (below), the scroll port's empty ground
+    // included: main 3998e650e (X65) passes it on to the scroll node and its ancestors, so the centred content is
+    // the scroll's own child, with no full-height ground under it (css-workaround-retirements KW-4), and nothing
+    // between the root and the scroll hears the press twice.
     expect(page).toMatch(/\n {4}column [^\n]*pointerdown=pressDown pointerup=pressUp testId="usage-page"/);
-    expect(page).toContain('scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n');
-    expect(page).toMatch(/\n {8}column width="100%" min-height="100%" testId="usage-ground"\n {10}column id="usage-content" position="relative" width="100%" max-width="64rem"/);
+    expect(page).toMatch(/\n {6}scroll flex=1 min-height=0 width="100%" testId="usage-scroll"\n( {8}\/\/[^\n]*\n)* {8}column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto"/);
+    expect(page).not.toContain('usage-ground');
+    expect(page.match(/pointerdown=/g)).toHaveLength(1);
+    expect(page.match(/pointerup=/g)).toHaveLength(1);
     // Down: outside the card and both handles of the popover on show, by the primary button only (a
     // right-click is no click, so Base UI's intentional dismissal ignores it).
     expect(page).toContain('action pressDown(e: PointerEvent)\n'

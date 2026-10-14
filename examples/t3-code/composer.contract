@@ -101,8 +101,8 @@ component ComposerCard
           row width="100%" gap="0.5rem" flex-wrap="wrap" align-items="center" testId="queued-edit-attachments"
             for item in data.composer.queueEditAttachments key=item.id
               QueuedEditChip(item=item, urls=urls, disabled=busy, remove=command("cclocal:queued-attachment-remove", item.id, "", 0))
-        // The web's ::placeholder colour (muted at 75%) is not a row: the text
-        // sits behind the transparent field, which still takes every press.
+        // The reference paints this placeholder as its own element (ComposerPromptEditorTiptap, text-placeholder/75),
+        // so it stays text, not a ::placeholder part (KW-1): it sits behind the transparent field, which still takes every press.
         // The field checks spelling, as the reference's editor does (its spellCheck={false} is on the chips only), so a
         // misspelled word is underlined and the shell's menu suggests (T3TextContextMenu.swift, shell-context-menu).
         // The reference editor is focus:outline-none (ComposerPromptEditorTiptap.tsx), so no ring shows while it has the

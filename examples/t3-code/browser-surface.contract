@@ -10,6 +10,7 @@
 // The reference's "Open DevTools" item is absent: Safari's Web Inspector attaches to the page in a
 // development build instead, and cannot be opened from code (EXACT2-GAPS.md X1, X2).
 use TipBubble from "./shell-tip.contract"
+use FieldPlaceholder from "./field-placeholder.contract"
 use KmItem from "./menu-keys.contract"
 use kmTriggerKey from "./menu-keys.contract"
 use kmTriggerTarget from "./menu-keys.contract"
@@ -138,7 +139,7 @@ component BrowserChrome
           BsProfileBadge(name=view.profileName)
         // InputGroup ghost (h-7): transparent until hovered (muted/40) or focused (the background and a ring).
         row flex=1 min-width=0 height="1.75rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(focused ? "light-dark(#a1a1aa, #71717a)" : "#00000000") box-shadow=(focused ? "0 0 0 3px light-dark(#a1a1aa3d, #71717a3d)" : "none") background-color=(focused ? "light-dark(#ffffff, #0a0a0a)" : addressOver ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000") hover=addressHover role="group" testId="browser-address"
-          input id="browser-url" value=(focused or touched ? draft : view.url) input=edit submit=go key=fieldKey focus=focusField(true) blur=focusField(false) placeholder="Search or enter URL" aria-label="Search or enter URL" autocorrect="off" spellcheck="false" testId="browser-url" flex=1 min-width=0 height="1.625rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+          input id="browser-url" value=(focused or touched ? draft : view.url) input=edit submit=go key=fieldKey focus=focusField(true) blur=focusField(false) placeholder="Search or enter URL" class=FieldPlaceholder aria-label="Search or enter URL" autocorrect="off" spellcheck="false" testId="browser-url" flex=1 min-width=0 height="1.625rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
           // Revealed on hover, so a resting address bar reads as plain text, and while it has the focus.
           if not focused
             BsRevealButton(shown=addressOver, press=local("surface-browser-external", view.tabId, ""))
@@ -226,7 +227,8 @@ component BrowserMore
       button id="browser-more" popovertarget="browser-more-menu" key=triggerKey aria-label="Preview menu" testId="browser-more" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
         BsIcon(name="ellipsis-vertical", size=14, color="light-dark(#71717b, #a1a1aa)")
       TipBubble(label="More", side="bottom", align="end", offset=28, inset=0, shown=over)
-      column id="browser-more-menu" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.375rem" width="17.5rem" margin-left="-16rem"
+      // PreviewMoreMenu: MenuPopup align="end" sideOffset 6, its right edge under the trigger's, flipping near an edge.
+      column id="browser-more-menu" popover="auto" position-area="bottom span-left" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.375rem" width="17.5rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Preview menu" testId="browser-more-popup"
           KeyMenu(menuId="browser-more-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             BsMenuItem(keysId="browser-more-keys", id="browser-more-hard-reload", label="Hard reload", note="", chevron=false, disabled=(not view.hasWebContents), press=local("surface-browser-hard-reload", view.tabId, ""))
@@ -416,7 +418,7 @@ component BrowserServerRow
 
 component BrowserNothingYet
   view
-    column flex=1 width="100%" height="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" testId="browser-empty"
+    column flex=1 width="100%" height="100%" min-height=0 padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" text-wrap="balance" testId="browser-empty"
       box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem" flex-shrink=0
         box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
         box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
@@ -523,7 +525,11 @@ component BrowserAddItem
         text surface.shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.075rem" color="light-dark(#71717b, #818181)"
       button popovertarget="r4-browser-profiles" hover=chevronHover aria-label="Open browser in a profile" tabindex=-1 testId="add-surface-browser-profiles" position="absolute" right="0.125rem" top="0.125rem" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(chevronOver ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
         BsIcon(name="chevron-right", size=14, color="light-dark(#71717b, #818181)")
-      column id="r4-browser-profiles" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="-1.75rem" margin-left="11.75rem" width="10rem"
+      // MenuSubPopup (RightPanelTabs.tsx): beside the row at its inline end, its first item level with the row (-5 px
+      // align offset), flipping to the start side when the end does not fit. The invoker is the chevron, 2 pt inside the
+      // row's top and end, so the margins carry the row's edge; a flipped submenu meets the chevron's start, not the row's
+      // (the reference anchors at the whole row: no `position-anchor` here).
+      column id="r4-browser-profiles" popover="auto" position-area="right span-bottom" position-try-fallbacks="flip-inline" position="absolute" margin-top="-0.4375rem" margin-left="0.125rem" width="10rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="browser-profile-menu"
           for profile in profiles key=profile.id
             BrowserProfileItem(profile=profile, open=local("surface-browser-open", "", profile.id))
@@ -578,7 +584,8 @@ component BrowserLauncherProfiles
       button id="surface-browser-profiles" popovertarget="launcher-browser-profiles" key=triggerKey hover=hover aria-label="Open browser in a profile" aria-haspopup="menu" testId="surface-browser-profiles" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over ? "light-dark(#27272914, #f5f5f514)" : "#00000000") title=""
         svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#71717b, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="m6 9 6 6 6-6"
-      column id="launcher-browser-profiles" popover="auto" position-try-fallbacks="none" key=listKey position="absolute" position-area="bottom span-right" margin-top="0.375rem" margin-left="-12.5rem" width="14rem"
+      // MenuPopup align="end" side="bottom" sideOffset 6 (RightPanelTabs.tsx): its right edge under the chevron's.
+      column id="launcher-browser-profiles" popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=listKey position="absolute" position-area="bottom span-left" margin-top="0.375rem" width="14rem"
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Browser profiles" testId="launcher-browser-profile-menu"
           KeyMenu(menuId="launcher-browser-profiles-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             for profile in profiles key=profile.id

@@ -1,5 +1,6 @@
 // Source Control → Bitbucket credentials (lane settings-a; settings-a-bitbucket.ts),
 // the body of the Bitbucket row's details (BitbucketCredentialsSettings.tsx).
+use FieldPlaceholder from "./field-placeholder.contract"
 
 shape BitbucketView
   key: string
@@ -41,13 +42,13 @@ component BitbucketForm
       if (choice != "" ? choice : (form.saved != "" ? form.saved : "access-token")) == "access-token"
         BbInfo(description="Scoped to one repository, project, or workspace. Create it in that item's Bitbucket settings.", link="https://support.atlassian.com/bitbucket-cloud/docs/access-tokens/", linkLabel="Learn more")
         BbField(label="Access token")
-          input value=accessDraft input=editAccess placeholder=(form.saved == "access-token" ? "Stored secret, enter a new value to replace" : "Not set") type="password" disabled=busy aria-label="Access token" spellcheck="false" autocorrect="off" testId="bitbucket-access-token" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+          input value=accessDraft input=editAccess placeholder=(form.saved == "access-token" ? "Stored secret, enter a new value to replace" : "Not set") class=FieldPlaceholder type="password" disabled=busy aria-label="Access token" spellcheck="false" autocorrect="off" testId="bitbucket-access-token" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
       else
         BbInfo(description="Uses your Atlassian account, so it reaches every repository you can. Give it read and write access to repositories and pull requests, and read:user:bitbucket.", link="https://id.atlassian.com/manage-profile/security/api-tokens", linkLabel="Create an API token")
         BbField(label="Atlassian account email")
-          input value=(emailEdited ? emailDraft : form.email) input=editEmail placeholder="you@example.com" type="email" disabled=busy aria-label="Atlassian account email" spellcheck="false" autocorrect="off" testId="bitbucket-email" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+          input value=(emailEdited ? emailDraft : form.email) input=editEmail placeholder="you@example.com" class=FieldPlaceholder type="email" disabled=busy aria-label="Atlassian account email" spellcheck="false" autocorrect="off" testId="bitbucket-email" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
         BbField(label="API token")
-          input value=apiDraft input=editApi placeholder=(form.saved == "api-token" ? "Stored secret, enter a new value to replace" : "Not set") type="password" disabled=busy aria-label="API token" spellcheck="false" autocorrect="off" testId="bitbucket-api-token" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
+          input value=apiDraft input=editApi placeholder=(form.saved == "api-token" ? "Stored secret, enter a new value to replace" : "Not set") class=FieldPlaceholder type="password" disabled=busy aria-label="API token" spellcheck="false" autocorrect="off" testId="bitbucket-api-token" flex=1 min-width=0 height="1.625rem" padding=0 position="relative" top="0.28125rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)"
       row width="100%" align-items="center" justify-content="space-between" gap="0.75rem"
         text (form.saved == "" ? "Without a saved token, the server falls back to its T3CODE_BITBUCKET_* environment variables." : (form.saved == (choice != "" ? choice : form.saved) ? "" : `Saving replaces your ${form.savedLabel}.`)) font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex=1 min-width=0 testId="bitbucket-note"
         row flex-shrink=0 gap="0.5rem"

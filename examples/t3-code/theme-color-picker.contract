@@ -57,14 +57,12 @@ component ThemeColorSwatch
     select: action
     session: string
     pal: CorePalette
-    vh: number
     live: action
     // popover-escape-parity: the window's outside-press count (T3Window), which this control's own
     // pointer handlers take from it (the innermost pointer node hears a press).
     outsideDown: action
     outsideUp: action
   state touched = false
-  state above = false
   state h = 0
   state s = 0
   state v = 0
@@ -94,15 +92,11 @@ component ThemeColorSwatch
   derive hueRing = not mouse and focusPart == "hue"
   // The trigger: each opening starts from the row's current value. The popover's first stop
   // (saturation) takes the focus as it opens (Base UI's initial focus), with the ring only when the
-  // trigger was pressed from the keyboard. It opens below the swatch, 10 apart (side="bottom",
-  // sideOffset 10), or above it when the window has no room below, as Base UI's collision flip
-  // does: the host clamps a popover into the window but has no `position-try` flip and no
-  // end alignment (`span-left`), EXACT2-GAPS X17 (#112), so the flip is computed here and the
-  // popover's left edge is the swatch's, pulled back into the window by the host's clamp.
+  // trigger was pressed from the keyboard. It opens below the swatch, 10 apart, its right edge
+  // at the swatch's (side="bottom" align="end" sideOffset 10), and flips above or to the start
+  // near the window's edge, as Base UI's collision avoidance does (`position-try-fallbacks`).
   action open
     select()
-    let at = frame(`theme-editor-swatch-${row.id}`)
-    above = at.y + at.height + 0.625 * rem + 19.5 * rem > vh - 0.3125 * rem and at.y > vh / 2
     touched = false
     drag = ""
     hexEditing = false
@@ -256,7 +250,7 @@ component ThemeColorSwatch
       Tip(label=`Choose ${row.label} color`, side="top", align="center", offset=28)
         button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}` title=""
           box width="1.25rem" height="1.25rem" border-radius="0.625rem" background-color=row.value
-      column id=`theme-color-${row.id}` popover="auto" position-try-fallbacks="none" key=popKey tabindex=-1 position="absolute" position-area=(above ? "top span-right" : "bottom span-right") margin-top=(above ? "0px" : "0.625rem") margin-bottom=(above ? "0.625rem" : "0px") user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
+      column id=`theme-color-${row.id}` popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=popKey tabindex=-1 position="absolute" position-area="bottom span-left" margin-top="0.625rem" user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
         row align-items="center" justify-content="space-between" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider
           column flex=1 min-width=0
             text row.label font-size="0.75rem" font-weight=600 line-height="1rem" color=pal.text line-clamp=1

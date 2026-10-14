@@ -2,6 +2,7 @@
 // and its delete confirmation, mounted at the window root so the overlay takes
 // hits above the settings scroll view.
 use ProjectsPage from "./settings-projects.contract"
+use FieldPlaceholder from "./field-placeholder.contract"
 use ProjectAction from "./settings-projects.contract"
 use CnScriptIcon from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
@@ -106,7 +107,8 @@ component ProjectActionEditor
               box position="relative"
                 button id="action-choose-icon" popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title="" data-focus-stop=(busy ? "" : "enabled")
                   CnScriptIcon(icon=icon, size=18, color="light-dark(#27272a, #f5f5f5)")
-                column id="action-icon-picker" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.5rem" width="17rem"
+                // projectScriptEditor's PopoverPopup align="start" (sideOffset 4), flipping near an edge.
+                column id="action-icon-picker" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="17rem"
                   row flex-wrap="wrap" gap="0.5rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" testId="action-icon-grid"
                     ScriptIconChoice(id="play", label="Play", selected=(icon == "play"), choose=chooseIcon)
                     ScriptIconChoice(id="test", label="Test", selected=(icon == "test"), choose=chooseIcon)
@@ -115,6 +117,9 @@ component ProjectActionEditor
                     ScriptIconChoice(id="build", label="Build", selected=(icon == "build"), choose=chooseIcon)
                     ScriptIconChoice(id="debug", label="Debug", selected=(icon == "debug"), choose=chooseIcon)
               input id="action-name" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
+                // ui/input.tsx placeholder:text-placeholder (KW-1); AeField also styles the keybinding row and button.
+                ::placeholder
+                  color="light-dark(#71717b, #818181)"
           column gap="0.5rem"
             text "Keybinding" class=AeLabel
             if recording
@@ -130,10 +135,12 @@ component ProjectActionEditor
           column gap="0.5rem"
             text "Command" class=AeLabel
             // r6-polish: a shell command is typed verbatim: `autocorrect="off"` keeps every typed byte (exact2 #111).
-            textarea value=command input=editCommand placeholder="bun test" aria-label="Command" disabled=busy box-sizing="border-box" width="100%" height="4.5rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" testId="action-command"
+            textarea value=command input=editCommand placeholder="bun test" class=FieldPlaceholder aria-label="Command" disabled=busy box-sizing="border-box" width="100%" height="4.5rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" testId="action-command"
           column gap="0.5rem"
             text "Preview URL (optional)" class=AeLabel
             input value=previewUrl input=editPreview placeholder="http://localhost:5173" aria-label="Preview URL (optional)" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" autocorrect="off" spellcheck="false" testId="action-preview-url"
+              ::placeholder
+                color="light-dark(#71717b, #818181)"
             text "Open this URL in the in-app preview when this action runs." class=AeHint
           ActionSwitchRow(label="Run automatically on worktree creation", checked=setup, enabled=true, busy=busy, rowId="action-setup", flip=flipSetup)
           ActionSwitchRow(label="Wait for it to finish before the agent starts", checked=wait, enabled=setup, busy=busy, rowId="action-wait", flip=flipWait)

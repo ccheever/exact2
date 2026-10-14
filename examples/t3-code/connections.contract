@@ -182,7 +182,7 @@ component ConnectionsPanel
               text "Add environment" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
         PvGroupOpen()
           if page.environments.length == 0
-            column width="100%" min-height="13rem" box-sizing="border-box" padding="3rem" gap="1.5rem" align-items="center" justify-content="center" testId="environments-empty"
+            column width="100%" min-height="13rem" box-sizing="border-box" padding="3rem" gap="1.5rem" align-items="center" justify-content="center" text-wrap="balance" testId="environments-empty"
               box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem"
                 // EmptyMedia variant="icon": two cards behind, scale-84 and rotated ±10° about their bottom corners
                 // (the host draws a box's rotate/translate/scale about its centre, so the corner origin is folded into translate).
@@ -258,7 +258,7 @@ component ThisMachineSection
             box position="relative"
               button popovertarget="this-machine-menu-popup" id="this-machine-menu" key=triggerKey class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu" title=""
                 PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
-              CnMenu(menuId="this-machine-menu-popup", invoker="this-machine-menu", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=0)
+              CnMenu(menuId="this-machine-menu-popup", invoker="this-machine-menu", label="More actions for this machine", width=196, area="bottom span-left", items=menuItems, keyed=0)
                 EnvironmentIconMenu(keysId="this-machine-menu-popup-keys", environment=machine.environment, op=op)
       PvGroupOpen()
         PvRow(title="Local environment", description=machine.description, status="", policy="", wide=wide, divided=false)
@@ -366,7 +366,7 @@ component EnvironmentRow
           box position="relative"
             button id=`environment-menu-${environment.environmentId}` popovertarget=`environment-menu-${environment.environmentId}-popup` key=triggerKey class=PvIconButton aria-label=`More actions for ${environment.label}` disabled=busy testId=`environment-menu-${environment.environmentId}` title="" data-focus-stop=(busy ? "" : "enabled")
               PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
-            CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, invoker=`environment-menu-${environment.environmentId}`, label=`More actions for ${environment.label}`, width=196, endAlign=24, offsetX=0, offsetY=0, items=menuItems, keyed=0)
+            CnMenu(menuId=`environment-menu-${environment.environmentId}-popup`, invoker=`environment-menu-${environment.environmentId}`, label=`More actions for ${environment.label}`, width=196, area="bottom span-left", items=menuItems, keyed=0)
               EnvironmentIconMenu(keysId=`environment-menu-${environment.environmentId}-popup-keys`, environment=environment, op=op)
               RouteMenuItem(keysId=`environment-menu-${environment.environmentId}-popup-keys`, label=(routesOpen ? "Hide routes" : "Routes"), menuId=`environment-menu-${environment.environmentId}-popup`, itemId=`environment-routes-item-${environment.environmentId}`, disabled=busy, choose=toggleRoutes)
               if environment.traceId != ""
@@ -380,6 +380,8 @@ component EnvironmentRow
 
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.
+// Its MenuSubPopup sits beside the row and flips to the row's start side when
+// the end does not fit (the menu is end-aligned near the window's right edge).
 component EnvironmentIconMenu
   inject
     rem: number
@@ -412,7 +414,7 @@ component EnvironmentIconMenu
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#27272a, #f5f5f5)")
         text "Icon" font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 text-align="left" color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
-      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, invoker=`environment-icon-${environment.environmentId}`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37, items=menuItems, keyed=0)
+      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, invoker=`environment-icon-${environment.environmentId}`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), area="right span-bottom", items=menuItems, keyed=0)
         if environment.iconLock != ""
           text environment.iconLock font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
           CnSeparator()

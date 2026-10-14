@@ -118,10 +118,10 @@ component PrdComposer
       PrdComposerTrigger(popId=popId, count=writes.pendingCount, label=(writes.pendingCount > 0 ? `Review pull request, ${writes.pendingCount} ${writes.pendingCount == 1 ? "comment" : "comments"} pending` : (reviewStarted or not writes.canComment ? "Review pull request" : "Comment on pull request")), press=opening)
       // Rebuilt (so closed) once a comment is posted or a review submitted.
       for closeKey in [writes.closeSerial] key=closeKey
-        // PopoverPopup side="top" align="end" sideOffset=8 width="lg": the transparent tail lets the
-        // window's edge push the card back over the trigger's right edge (X17: no `span-left` area).
+        // PopoverPopup side="top" align="end" sideOffset=8 width="lg": its right edge over the trigger's, 8 pt above,
+        // flipping near an edge.
         // aria-modal: while it shows, its Escape closes it, not the Pull Requests page (usage-and-pr-pages PG-7).
-        row id=popId popover="auto" position-try-fallbacks="none" aria-modal=true position="absolute" position-area="top span-right" padding-bottom="0.5rem" align-items="flex-end" testId=`${scope}-composer-layer`
+        row id=popId popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" position-area="top span-left" margin-bottom="0.5rem" testId=`${scope}-composer-layer`
           column width="24rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Pull request composer" testId="pull-request-composer"
             row width="100%" margin-bottom="0.75rem" align-items="center" justify-content="space-between" gap="0.5rem"
               if both
@@ -138,6 +138,8 @@ component PrdComposer
             if writes.verdicts.length > 0
               column width="100%" display=(shownMode == "review" ? "flex" : "none") testId="pull-request-review-form"
                 textarea value=summary input=editSummary change=keepSummary autofocus=(shownMode == "review") rows=3 placeholder=(writes.summaryRequired and writes.verdicts.includes("request-changes") ? "Summarize your review (required to request changes)" : "Summarize your review (optional)") aria-label="Review summary" autocorrect="off" spellcheck="false" testId="pull-request-review-summary" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk()
+                  ::placeholder
+                    color=prcMuted()
                 row width="100%" margin-top="0.5rem" justify-content="space-between" align-items="center" gap="0.5rem"
                   select value=chosen change=chooseVerdict disabled=writes.reviewPending aria-label="Review verdict" testId="pull-request-review-verdict" height="1.5rem" font-size="0.75rem"
                     for choice in writes.verdicts key=choice
@@ -147,6 +149,8 @@ component PrdComposer
               column width="100%" gap="0.5rem" display=(shownMode == "comment" ? "flex" : "none") testId="pull-request-comment-form"
                 // Locked while posting: the box is cleared on success, which would throw away words typed meanwhile.
                 textarea value=comment input=editComment change=keepComment key=commentKeys autofocus=(shownMode == "comment") disabled=locked rows=3 placeholder="Leave a comment" aria-label="Comment on this pull request" autocorrect="off" spellcheck="false" testId="pull-request-comment-text" width="100%" min-height="4.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=prcInk() opacity=(locked ? 0.64 : 1)
+                  ::placeholder
+                    color=prcMuted()
                 row width="100%" flex-wrap="wrap" justify-content="flex-end" gap="0.5rem"
                   if writes.followUp == "close"
                     PrdSmallButton(label=(writes.submitting == "close" ? "Closing..." : "Close with comment"), icon="git-pull-request-closed", tone="destructive", disabled=(comment.trim() == "" or locked), press=post("close"), testId="pull-request-comment-close")

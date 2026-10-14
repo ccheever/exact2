@@ -176,6 +176,8 @@ component PrdWords
           PrdModeSegment(label="Preview", pressed=previewing, disabled=saving, press=preview(true), focusing=part, testId=`${testId}-preview`)
         if not previewing
           textarea value=draft input=typed focus=part(true) blur=part(false) autofocus=true disabled=saving rows=6 placeholder=placeholder aria-label=label autocorrect="off" spellcheck="false" testId=`${testId}-text` width="100%" min-height="8.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=preField() background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color=preInk() opacity=(saving ? 0.64 : 1)
+            ::placeholder
+              color=preMuted()
       if not open or previewing
         row width="100%" align-items="flex-start" gap="0.25rem"
           column flex=1 min-width=0
