@@ -29,8 +29,7 @@ final class T3MobileWorkspace {
               let workspace = contents.tabs.first(where: { $0.name == "workspace-panel" }),
               let inspector = contents.tabs.first(where: { $0.name == "inspector-panel" }),
               contents.tabs.indices.contains(contents.selected), contents.tabs[contents.selected].name == "workspace-panel",
-              Set(contents.tabs.map { ObjectIdentifier($0.controller) }).count == 3,
-              contents.tabs.allSatisfy({ $0.controller.parent == nil }) else { return nil }
+              Set(contents.tabs.map { ObjectIdentifier($0.controller) }).count == 3 else { return nil }
         holder?.retire()
         let container = T3WorkspaceContainer(contents: contents, sidebar: sidebar.controller, workspace: workspace.controller, inspector: inspector.controller,
             configuration: configuration, hideSidebar: { [weak self] key in self?.homeChrome?.hideSidebar(key: key) },
@@ -207,7 +206,7 @@ private final class T3WorkspaceContainer: UIViewController {
         sidebarClip.clipsToBounds = true; workspaceClip.clipsToBounds = true; inspectorClip.clipsToBounds = true
         view.addSubview(sidebarClip); view.addSubview(workspaceClip); view.addSubview(inspectorClip); view.addSubview(divider)
         divider.resize = { [weak self] phase, translation in self?.resize(phase: phase, translation: translation) }
-        // Exact vends these controllers detached; only this public container owns placement.
+        // The public tabContainer handoff lets this container take the offered stacks in place.
         for (controller, clip) in [(sidebar, sidebarClip), (workspace, workspaceClip), (inspector, inspectorClip)] {
             addChild(controller); clip.addSubview(controller.view); controller.didMove(toParent: self)
         }
