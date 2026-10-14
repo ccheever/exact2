@@ -1,7 +1,7 @@
 // The theme fixture's design (LLP 1121 stage 2): an app axis beside the
 // scheme, the tokens a page reads (its ground, a card, text, a hairline, a
 // gradient, a shadow, an SVG's paint) and a role override, to be driven with
-// `prefer mode dark-style:dim` and seen on every host.
+// `prefer mode dark-style=dim` and seen on every host.
 tamber fixture
 
 axes
