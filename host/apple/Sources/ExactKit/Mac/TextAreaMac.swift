@@ -311,7 +311,9 @@ extension NodeView {
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
+        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", or: .controlBackgroundColor)
         f.drawsBackground = native
+        f.backgroundColor = ThemeRoles.color("Field", or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero

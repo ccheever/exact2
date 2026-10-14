@@ -142,7 +142,23 @@ pub fn of(id: StyleId, value: &StyleValue) -> Option<Option<StyleValue<'static>>
         return None;
     };
     let metric = named(text)?;
-    Some(as_written(id, self::value(metric, column())))
+    let column = column();
+    let mut value = self::value(metric, column);
+    if column == Column::Mac {
+        // These measured AppKit surfaces differ from the roles' defaults;
+        // a theme replaces them without changing an unthemed form.
+        let role = match metric.name {
+            "grouped-card-fill" => Some("-exact-secondary-grouped-background"),
+            "grouped-separator" => Some("-exact-separator"),
+            _ => None,
+        };
+        if let Some(role) =
+            role.filter(|name| roles::role(name).and_then(roles::overridden).is_some())
+        {
+            value = MetricValue::Text(role);
+        }
+    }
+    Some(as_written(id, value))
 }
 
 /// A `style` metric's value as the value a producer hands a row (the
