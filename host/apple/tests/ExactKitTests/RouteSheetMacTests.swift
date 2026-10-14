@@ -328,7 +328,7 @@ final class RouteSheetMacTests: XCTestCase {
             screen = "sized"
           action cancel
             screen = "home"
-          action size(n: int)
+          action size(n: number)
             mode = n
           view
             column navigationKey=screen navigationBack="back" width="100%" height="100%" position="relative"
