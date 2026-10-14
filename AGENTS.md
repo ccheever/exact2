@@ -95,9 +95,9 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
   `scripts/async-inputs.mjs`), then `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
   the platforms that ride on another host's code: tvOS on the UIKit presenter
   (installed on an Apple TV simulator, which that machine must have),
-  plus cross-target Cargo checks of the Linux host with Caltrain and the Windows
-  host with Windows Desk. Other Linux apps are not yet selected. Tier 2 needs
-  both Rust cross targets and Zig on this Mac. These checks qualify
+  plus cross-target Cargo checks of the Linux host with every Linux app (`-p '*-linux'`)
+  and the Windows host with Windows Desk. Tier 2 needs both Rust cross targets,
+  Zig (C and C++) and the pinned Linux Hermes bundle on this Mac. These checks qualify
   compilation, not native window, KMS, or input behavior. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple

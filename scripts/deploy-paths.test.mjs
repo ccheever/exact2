@@ -2,7 +2,7 @@
 // Only Contract compiler discovery below runs Cargo; no install, signing, publication or host process is needed here.
 import { afterAll, expect, test } from 'bun:test';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -91,8 +91,23 @@ test('tier 2 checks platform host and app crates for their actual target', () =>
   for (const name of ['linux', 'windows']) expect(checks.find(([step]) => step === name)?.[2]).toContain('CRATE_CC_NO_DEFAULTS=1');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('x86_64-unknown-linux-gnu');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('--keep-going');
-  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('caltrain-linux');
   expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu');
+  // Hermes's JSI bindings (ibex2, exact-js) are C++: a Mac has no x86_64-linux-gnu-g++.
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu');
+  // Every Linux app crate, by Cargo's package glob, which matches workspace members only:
+  // each `apps/<app>/linux` is a listed member named `<app>-linux`.
+  expect(checks.find(([name]) => name === 'linux')?.[2]).toContain('*-linux');
+  const root = resolve(import.meta.dir, '..');
+  const [, list = ''] = /^members = \[([^\]]*)\]/m.exec(readFileSync(join(root, 'Cargo.toml'), 'utf8')) ?? [];
+  const members = new Set([...list.matchAll(/"([^"]+)"/g)].map(([, path]) => path));
+  const apps = [...new Bun.Glob('apps/*/linux/Cargo.toml').scanSync({ cwd: root })];
+  expect(apps.length).toBeGreaterThan(1);
+  for (const manifest of apps) {
+    const dir = dirname(manifest);
+    expect(members.has(dir) ? dir : `${dir} (not a workspace member)`).toBe(dir);
+    const [, name] = /^name = "([^"]+)"$/m.exec(readFileSync(join(root, manifest), 'utf8')) ?? [];
+    expect(`${manifest}: ${name}`).toMatch(/: [\w-]+-linux$/);
+  }
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('x86_64-pc-windows-gnu');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('--keep-going');
   expect(checks.find(([name]) => name === 'windows')?.[2]).toContain('windows-desk');

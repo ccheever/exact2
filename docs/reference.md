@@ -1259,13 +1259,17 @@ iOS simulator tests, touch smoke and the tvOS compile
 bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
-host and Caltrain and for the Windows host and Windows Desk. Install
+host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
 `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
-and provide `zig` for C dependencies on the Mac. Other Linux apps remain
-outside this check until their shared JavaScript host's target C++ build
-inputs are qualified. These cross checks cover compilation; native window
-presentation, KMS, and input devices
-remain unqualified until run on their platforms.
+and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
+(Hermes's JSI bindings). The check runs offline, so install the pinned Linux
+Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
+--manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml --
+--target x86_64-unknown-linux-gnu`. Until then the step fails, and the
+`hermes-lean-sys` build error in its log names that command. These cross checks
+cover compilation; native window presentation, KMS, and input devices remain
+unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development
