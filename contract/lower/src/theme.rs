@@ -344,6 +344,22 @@ impl Lowerer<'_> {
                         || t.whens.is_empty() && out.iter().any(|p| same(&p.name, text)))
             });
             let Some(i) = found else { break };
+            // A `when` that holds at the default modes would be the default's.
+            let axes = &design.axes;
+            let defaults = |w: &tamber::When| {
+                w.conds.iter().all(|(a, v)| {
+                    axes.iter()
+                        .any(|x| x.name.value == *a && x.values.first() == Some(v))
+                })
+            };
+            if let Some(w) = design.tokens[i].whens.iter().find(|w| defaults(w)) {
+                let span = self.token_span(origin, w.line, w.col);
+                self.push(LowerError {
+                    id: "lower-theme-value",
+                    message: format!("`{}`: this `when` holds at the default modes, where the token is a profile's colour (`color(--…)`): the plan carries the default modes' value, which a profile's colour must be", design.tokens[i].name.value),
+                    span,
+                });
+            }
             let t = &mut design.tokens[i];
             let text = t.value.value.trim().to_string();
             let value = match out.iter().find(|p| same(&p.name, &text)) {

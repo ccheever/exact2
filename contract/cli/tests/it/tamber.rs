@@ -396,3 +396,17 @@ fn a_profile_role_is_aliased_in_any_spelling_and_may_vary_by_an_axis() {
     );
     assert!(rows.iter().any(|(n, ..)| n == "other"), "{rows:?}");
 }
+
+#[test]
+fn a_when_at_the_default_modes_cannot_replace_a_profile_colour() {
+    let path = app(
+        "profile-default-when",
+        &[
+            ("app.tamber", "tamber shelf\n\naxes\n  mode = first | second\n\ntheme\n  ink = color(--brand 0.1 0.2 0.3 0.4)\n    when mode=first: #112233\n"),
+            ("app.contract", "color-profile --brand src=\"assets/brand.icc\"\n\ncomponent App\n  view\n    text \"a\" color=\"ink\"\n"),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "lower-theme-value", "{e:?}");
+    assert_eq!(e.span.line, 8, "{e:?}");
+}
