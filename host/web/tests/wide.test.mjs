@@ -367,10 +367,15 @@ check('retained visit URLs restore href selection after adoption, replace and sa
   });
 }, 30000);
 
-check('an inner nonrouter press cannot associate its outer row with unrelated navigation', () => {
-  const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div></div>';
+check('only an ordinary outer press associates its row with navigation', () => {
+  const body = '<div data-exact-list><div id="owner" data-exact-router-press="true"><button id="star" data-exact-router-press="false">Star</button></div><a id="action-link" href="/item/b" data-exact-router-press="true">Linked action</a></div>';
   const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
   return inChrome(page(html), async evaluate => {
+    // The host leaves these link clicks to the browser, so a later router change owns no row.
+    for (const modifier of ['ctrlKey', 'metaKey', 'shiftKey', 'altKey']) {
+      await evaluate(`push(2, '/item/a'); const link = document.getElementById('action-link'); link.addEventListener('click', e => e.preventDefault(), {once:true}); link.dispatchEvent(new MouseEvent('click', {bubbles:true,cancelable:true,${modifier}:true})); push(3, '/edit')`);
+      expect(await evaluate(`[document.getElementById('action-link').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
+    }
     await evaluate(`push(2, '/item/a'); document.getElementById('star').click(); push(3, '/edit')`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
     await evaluate(`document.getElementById('owner').click(); push(3, '/item/b')`);

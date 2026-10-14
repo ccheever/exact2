@@ -74,10 +74,12 @@ function splitOf([route]) {
 }
 function captureRow(event) {
   pressedRow = null;
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   const route = event.target.closest?.('[data-exact-split="list"]'), list = route && splitLists.get(route);
   if (!list || !root.contains(route)) return;
   let owner = event.target;
   while (owner && owner !== list && rowPress(owner) === null && !rowHref(owner)) owner = owner.parentElement;
+  if (owner?.matches("a[href]") && (owner.target && owner.target !== "_self" || owner.hasAttribute("download"))) return;
   if (listRows(list).some(r => r.el === owner && r.press === "true"))
     pressedRow = { row: owner, list, route, at: performance.now(), from: last?.url };
 }
