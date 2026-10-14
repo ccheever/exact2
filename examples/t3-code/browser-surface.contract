@@ -45,7 +45,7 @@ component BsIcon
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d=bsPath(name)
 
-// The surface, rebuilt per scheme so its SVG glyphs resolve light-dark().
+// The surface; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
 component BrowserSurface
   props
     view: BrowserPanel
@@ -54,10 +54,7 @@ component BrowserSurface
     urlFocus: action
     urlFocused: bool
   view
-    when scheme == "dark"
-      BrowserBody(view=view, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
-    else
-      BrowserBody(view=view, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
+    BrowserBody(view=view, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
 
 // PreviewView: the chrome row, then the page (or the empty state, or the load-failed page) below it.
 component BrowserBody

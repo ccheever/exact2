@@ -126,25 +126,25 @@ final class R9InputTests: XCTestCase {
         XCTAssertEqual(f.editor.string, "한")
     }
 
-    func testRemountedFieldKeepsItsCaret() {
+    func testReopenedFieldKeepsExplicitSelectAll() {
         let f = ComposerFixture()
         let old = NSTextField(frame: NSRect(x: 100, y: 200, width: 200, height: 22)); old.stringValue = "set"
         f.window.contentView?.addSubview(old)
         f.window.makeFirstResponder(old); tick()
         (old.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 3, length: 0)); tick()
-        // The appearance flips: the old subtree goes, the new one's field takes the focus on mount.
+        // Reopen checkout/rename with the same value. FieldOpenSelect focuses and selects its text;
+        // the removed scheme-remount workaround must not restore the previous field's caret.
         old.removeFromSuperview()
         let new = NSTextField(frame: NSRect(x: 100, y: 200, width: 200, height: 22)); new.stringValue = "set"
         f.window.contentView?.addSubview(new)
-        f.window.makeFirstResponder(new); tick(); tick()
-        XCTAssertEqual((new.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 3, length: 0), "the caret, not a select-all")
-        XCTAssertEqual(f.r9.carried, 1)
+        f.window.makeFirstResponder(new)
+        (new.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 0, length: 3)); tick(); tick()
+        XCTAssertEqual((new.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 3), "select-on-open stays selected")
         // A field focused afresh (another text, or the old one still in the window) keeps AppKit's select-all.
         let other = NSTextField(frame: NSRect(x: 100, y: 170, width: 200, height: 22)); other.stringValue = "else"
         f.window.contentView?.addSubview(other)
         f.window.makeFirstResponder(other); tick(); tick()
         XCTAssertEqual((other.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 4))
-        XCTAssertEqual(f.r9.carried, 1)
     }
 
     // MARK: Transcript position
