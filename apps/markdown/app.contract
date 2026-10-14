@@ -11,7 +11,35 @@
 // followed inside a document, a name in the folder beside this one. They are all a value arriving at
 // `open-file`, which is why there is one code path and not five.
 
-use Theme, Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
+// The readers' palette (LLP 1095 D4), one `light-dark()` pair an entry; a
+// row names an entry (`color="ink"`). The dark half is warm rather than
+// blue-black, so the same documents read as the same documents, and its text
+// sits below white-on-black contrast, which is what makes a long document
+// comfortable at night. `apps/llp`, `apps/markdown` and
+// `apps/markdown-stress` say the same palette: a theme is the root's.
+theme
+  page="light-dark(#ffffff, #17181b)" // behind the document
+  chrome="light-dark(#f6f5f1, #1e1f23)" // header, index, outline
+  edge="light-dark(#e2e1d9, #2f3138)" // the hairlines between them
+  ink="light-dark(#22221b, #d4d1c9)" // running prose
+  strongInk="light-dark(#16160f, #f1eee7)" // headings
+  softInk="light-dark(#8a8a80, #8b8c92)" // metadata, markers, captions
+  faintInk="light-dark(#b0b0a2, #63656d)" // the quietest text there is
+  accent="light-dark(#4a5a3a, #a2b585)" // the brand mark, a number
+  code="light-dark(#8a3020, #e0a189)" // a code span's text
+  codeBg="light-dark(#f4f4f0, #23252b)" // behind a code block
+  fieldBg="light-dark(#ffffff, #212329)" // inside a text field
+  fieldEdge="light-dark(#d5d4cc, #3a3d45)" // its border
+  pill="light-dark(#e5e8dc, #2f3a28)" // a chosen row
+  pillInk="light-dark(#2c3520, #d6e4c4)" // text on a pill
+  control="light-dark(#e8e7e0, #2a2c32)" // a button that is not a pill
+  quoteEdge="light-dark(#d3d3c8, #3b3e46)" // the rule on a quote
+  quoteInk="light-dark(#55554a, #a6a39b)" // a quote's text
+  warnBg="light-dark(#fdecea, #3a1e1b)" // behind a refusal
+  warnEdge="light-dark(#f5c6c0, #5d302a)" // its border
+  warnInk="light-dark(#8a1c12, #f0a89c)" // its text
+
+use Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
 
 shape Entry
   id: string
@@ -39,13 +67,6 @@ component Markdown
   state folder = true
   // Which appearance the reader asked for; `system` follows the OS.
   state scheme = "system"
-  // The palette, as tokens rather than as literals scattered through the
-  // view: exact1 called this Facet and made it a signal-backed capability;
-  // here the tokens are data and `provide` carries them, the same idea in
-  // the language's own terms (LLP 1033 D6). Since LLP 1034 each token is a
-  // CSS `light-dark()` pair the host resolves, so this record is one
-  // constant and is never re-asked when the appearance changes.
-  resource theme = theme() as shape Theme
   // What the system is set to. Only read when `scheme` is `system`.
   resource media = exactViewport() as shape SystemMedia
   resource doc = open(asked) as shape Document
@@ -76,24 +97,22 @@ component Markdown
   // D6); the welcome document's name is the app's.
   derive title = doc.name != "" ? doc.name : "Markdown"
 
-  provide
-    theme
   view
-    main testId="markdown-main" width="100%" height="100%" background-color=theme.page
+    main testId="markdown-main" width="100%" height="100%" background-color="page"
       head title=title
       column width="100%" height="100%"
-        header width="100%" padding=10 gap=8 background-color=theme.chrome border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge box-sizing="border-box"
+        header width="100%" padding=10 gap=8 background-color="chrome" border-bottom-style="solid" border-bottom-width=1 border-color="edge" box-sizing="border-box"
           row gap=8 align-items="center" width="100%"
-            button press=toggleFolder aria-label="Show the folder" testId="folder-toggle" padding=6 border-radius=6 background-color=theme.control
-              text "Files" font-size=12 font-weight=600 color=theme.ink
+            button press=toggleFolder aria-label="Show the folder" testId="folder-toggle" padding=6 border-radius=6 background-color="control"
+              text "Files" font-size=12 font-weight=600 color="ink"
             // The one node every open route ends at. A path typed here and
             // a path delivered by Launch Services are the same event.
-            input appearance="none" id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
-            button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
-              text "Open…" font-size=12 font-weight=600 color=theme.ink
-            button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control
-              text "Folder…" font-size=12 font-weight=600 color=theme.ink
-            text doc.name font-size=12 font-weight=600 color=theme.softInk testId="document-name"
+            input appearance="none" id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color="fieldEdge" background-color="fieldBg" font-size=13 color="ink"
+            button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color="control"
+              text "Open…" font-size=12 font-weight=600 color="ink"
+            button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color="control"
+              text "Folder…" font-size=12 font-weight=600 color="ink"
+            text doc.name font-size=12 font-weight=600 color="softInk" testId="document-name"
             // Appearance: system, light, dark — the icons exact1's blog used
             // (`js/src/blog/lib/icons.ts`: monitor, sun, moon), rasterised
             // to PNG because an Exact `image` is a raster asset (LLP 1011)
@@ -106,16 +125,16 @@ component Markdown
         // A file that would not open never replaces the one being read: the
         // reader says so and keeps the page (LLP 1033's milestone).
         if doc.failed
-          row width="100%" padding=10 gap=8 background-color=theme.warnBg border-bottom-style="solid" border-bottom-width=1 border-color=theme.warnEdge box-sizing="border-box" testId="open-failed"
-            text "Could not open" font-size=12 font-weight=700 color=theme.warnInk
-            text doc.message font-size=12 color=theme.warnInk testId="open-message"
+          row width="100%" padding=10 gap=8 background-color="warnBg" border-bottom-style="solid" border-bottom-width=1 border-color="warnEdge" box-sizing="border-box" testId="open-failed"
+            text "Could not open" font-size=12 font-weight=700 color="warnInk"
+            text doc.message font-size=12 color="warnInk" testId="open-message"
         // `min-height: 0` is what lets the panes below scroll rather than
         // grow: a flex item's default `min-height: auto` is its content, so
         // a row holding a 4,000-point document is 4,000 points tall and the
         // window merely clips it. The web has the same rule and the same fix.
         row flex=1 min-height=0 width="100%"
           if folder and hasFolder
-            scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color=theme.chrome border-right-style="solid" border-right-width=1 border-color=theme.edge testId="folder"
+            scroll width=230 height="100%" overflow-x="hidden" overscroll-behavior="contain" box-sizing="border-box" background-color="chrome" border-right-style="solid" border-right-width=1 border-color="edge" testId="folder"
               column width="100%" box-sizing="border-box" padding=8 gap=1
                 for e in doc.siblings key=e.id
                   FolderRow(entry=e, open=openFile)
@@ -131,19 +150,17 @@ component Markdown
                 Blocks(block=b)
 
 component FolderRow
-  inject
-    theme: Theme
   props
     entry: Entry
     open: action
   view
     button press=open(entry.path) aria-label=entry.name testId=`file-${entry.id}` width="100%"
       if entry.current
-        row width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color=theme.pill
-          text entry.name font-size=12 font-weight=600 color=theme.pillInk
+        row width="100%" box-sizing="border-box" padding=6 border-radius=6 background-color="pill"
+          text entry.name font-size=12 font-weight=600 color="pillInk"
       else
         row width="100%" box-sizing="border-box" padding=6 border-radius=6
-          text entry.name font-size=12 color=theme.ink
+          text entry.name font-size=12 color="ink"
 
 // One block. A document is a flat list of these — Contract inlines
 // components syntactically and cannot recurse, and a flat list is also what
@@ -157,23 +174,21 @@ component FolderRow
 // `min-width=0`, as it would on the web: its width is its share, and the
 // layout is not asked to find its longest word first.
 component Blocks
-  inject
-    theme: Theme
   props
     block: Block
   view
     if block.kind == "heading"
-      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+      text role="heading" aria-level=block.depth font-size="1em" font-weight=400 testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=6 box-sizing="border-box" color="strongInk" line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
         Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
     else
       if block.kind == "paragraph"
-        text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color=theme.ink line-height=1.625
+        text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box" color="ink" line-height=1.625
           Runs(runs=block.runs, size=16, weight=400)
       else
         if block.kind == "item"
           row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" box-sizing="border-box" padding-top=2 padding-bottom=4 padding-left=(36 + block.depth * 22) padding-right=32
-            text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
-            text flex=1 min-width=0 color=theme.ink line-height=1.625
+            text block.marker font-size=16 line-height=1.625 color="softInk" width=26
+            text flex=1 min-width=0 color="ink" line-height=1.625
               Runs(runs=block.runs, size=16, weight=400)
         else
           if block.kind == "code"
@@ -181,35 +196,35 @@ component Blocks
             // reading column that scrolls sideways is a code block nobody
             // reads the end of.
             view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=8 padding-bottom=10 box-sizing="border-box"
-              view background-color=theme.codeBg border-radius=10 padding=14 width="100%" box-sizing="border-box"
-                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+              view background-color="codeBg" border-radius=10 padding=14 width="100%" box-sizing="border-box"
+                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color="ink" white-space="pre-wrap"
           else
             if block.kind == "quote"
               row testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=6 padding-bottom=8 box-sizing="border-box"
-                view width=3 background-color=theme.quoteEdge border-radius=2
-                text flex=1 min-width=0 padding-left=16 color=theme.quoteInk line-height=1.625
+                view width=3 background-color="quoteEdge" border-radius=2
+                text flex=1 min-width=0 padding-left=16 color="quoteInk" line-height=1.625
                   Runs(runs=block.runs, size=16, weight=400)
             else
               if block.kind == "rule"
                 view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=22 padding-bottom=24 box-sizing="border-box"
-                  view width="100%" height=1 background-color=theme.edge
+                  view width="100%" height=1 background-color="edge"
               else
                 if block.kind == "table-row"
                   view testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-bottom=2 box-sizing="border-box"
-                    row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge
+                    row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color="edge"
                       for c in block.cells key=c.id
                         if block.header
-                          text flex=1 min-width=0 padding=8 color=theme.strongInk line-height="20px"
+                          text flex=1 min-width=0 padding=8 color="strongInk" line-height="20px"
                             Runs(runs=c.runs, size=13, weight=700)
                         else
-                          text flex=1 min-width=0 padding=8 color=theme.ink line-height="20px"
+                          text flex=1 min-width=0 padding=8 color="ink" line-height="20px"
                             Runs(runs=c.runs, size=13, weight=400)
                 else
                   if block.kind == "image"
                     column testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=10 padding-bottom=12 gap=6 box-sizing="border-box"
                       image block.href width="100%" object-fit="contain" aria-label=block.text
                       if block.text != ""
-                        text block.text font-size=12 color=theme.faintInk
+                        text block.text font-size=12 color="faintInk"
                   else
                     // Raw HTML: shown, never interpreted.
-                    text block.text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=4 padding-bottom=6 box-sizing="border-box" font-family="ui-monospace" font-size=12 color=theme.faintInk
+                    text block.text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=4 padding-bottom=6 box-sizing="border-box" font-family="ui-monospace" font-size=12 color="faintInk"
