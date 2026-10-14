@@ -554,7 +554,7 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
   5. **Fails for C.** Windows 1 and 3 have no failed run (one window-1 C launch logged 27 exchanges, one pagination read fewer, with all 19 feed reads). But window 2's C failed two launches, and by the rule above a treatment failure fails that arm's gate; contamination doesn't excuse it. One painted nothing (the null in its block); the other painted at 16.5 s with 14 of its 19 feed reads, five author feeds never connecting and not retried (it is in the table's median, IQR and worst; without it, C's window 2 is 1513, IQR 186, worst 3050).
 - **In sum:** in the clean windows' gated pairs async was not slower (C7 against A7, C against A6 and C7), and in window 3 its spread was the narrowest (C's IQR 78, C7's 110, against 284 and 128); but the primary outcome, gate 1, is a tie well inside the noise, and C failed two launches in window 2.
 - **Finding: connection setup did not complete before the deadline (window 2).** The failed launch waited 15 s, the request deadline (`data/atproto.ts`), then logged clustered `NSURLErrorCancelled` (-999) completions. Those twelve records carry no endpoint or protocol. They establish a setup stall and shared cancellation timing, but do not establish how many physical connections existed or its cause. The earlier “one connection, one point of failure” description was an inference, not a measurement. The 16.5 s launch (`connect_to_post` 16263 ms) may share the cause; its five unconnected feed reads do not prove that. No retry or speculative duplicate request is introduced on that evidence.
-- **Remaining qualification:** independent review of the October 13 stage-1b repairs (§4), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
+- **Remaining qualification:** stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and the physical-device network/UI gate. The October 13 stage-1b repairs have completed independent code review (§4). Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
 
 ## 6. Questions for the ruling
 
@@ -649,3 +649,26 @@ portable reservation immediately. Already-started base threads keep their own
 slots until exit. The lifecycle witness injects failure at each of the six
 base positions while retaining the failed cores, then checks lazy startup,
 physical pool retirement and refusal to retry failed pool construction.
+
+
+## Physical iPhone follow-up, 2026-10-14
+
+The isolated Conduit fixture was built from Exact `a01c62241` with
+`EXACT_HTTP_ASYNC=1` and the published V5 Hermes bundle, then signed and installed
+on a physical iPhone 17 Pro Max (`iPhone18,2`), iOS 27.0.1 (24A446). Its first
+launch was refused while the phone was locked. After a normal unlock it
+launched, but the test-control socket could not reach the Mac's selected IPv4
+endpoint (`No route to host`). The fixture was then rebuilt normally with the
+documented `host.ios.localNetworking=true` option. Its next launch did not
+establish the agent connection before the readiness timeout. That is a control
+channel failure, not evidence of an HTTP transport failure or a successful
+anonymous-network UI drive. No rerouting or device security setting was changed.
+
+The prepared storage fixture has the same documented local-network option;
+its UI write/read and same-store restart remain unqualified while the control
+connection is unavailable. The separate signed ImageIO harness needs no LAN
+control channel and passed all six bounded physical cases recorded in
+LLP 1069.002's October 14 qualification. Those native image-service results
+neither stand in for the missing network/storage UI proof nor pass the LTE
+gate. Tuft still owns the measured rollout campaign, and the async default
+remains off. The broader stages and Draft status are unchanged.
