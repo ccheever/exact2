@@ -18,7 +18,8 @@ verified_commit: null
 BR-SWITCH: show the reference's branch-change notice before continuing a local-checkout
 thread on a different branch, and restore its prior branch with confirmation for a dirty
 checkout. STF-2: a clone toast's Open project leaves Settings and opens the project's draft.
-G4-11: relaunch opens Home's most recently active project draft instead of the last thread.
+G4-11: relaunch opens a Home draft in the focused environment instead of the last thread.
+Cross-environment Home project ordering remains an existing parity gap.
 
 ## Scope and exclusions
 
@@ -42,7 +43,9 @@ Reference checkout verified at `1e2ecbd9758830669684b494d4398f626b0576e0`:
 - `apps/desktop/src/window/DesktopWindow.ts:370,707` and
   `apps/desktop/src/electron/ElectronProtocol.ts:27`: each desktop launch loads `/`.
 - `apps/web/src/routes/_chat.index.tsx:36`: replace that route with the most recently active
-  project's draft. This confirms G4-11 before changing persistence.
+  project's draft. This confirms draft startup before changing persistence. The reference waits
+  for all environment shells and calls `sortScopedProjectsForSidebar`; this clone's existing
+  `ensureSelection` uses `mostRecentProjectId` in the focused shell only.
 
 Library revision `20261005-platforms-v3`: foundations, state/data, layout/interaction,
 platforms, testing/debugging. Actual Contract syntax and behavior are checked against this
@@ -103,8 +106,9 @@ and a draft on both project navigation and relaunch. Do not send the draft to a 
 
 ## Progress
 
-Implementation is ready for verification after the final native build and bounded agent
-capture. Independent review and real-input cases remain with the parent workflow.
+Implementation and bounded native behavior checks are complete. Independent code review
+approved `6017cff6dccc5a2b0f4ee217f6f5ac2bb63310c5` after reproducing the cache regression
+and checking its fix. Visual and real-input verification remain with the parent workflow.
 
 ## Attempts and evidence
 
@@ -133,12 +137,40 @@ capture. Independent review and real-input cases remain with the parent workflow
   cross-environment Git-status leak; the cache scope and pending consent were corrected.
   Focused composer/client/shell/diff tests now pass 123 tests and 584 assertions, including
   changed-environment, generation, origin, and reconnect-consent regressions. Strict application
-  TypeScript and the full suite pass after this correction. A final native rebuild follows.
+  TypeScript and the full suite pass after this correction. The final native build also passed:
+  `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle`
+  (Rust bake 224.4 s, Swift 1.2 s, arms 0.4 s, packaging 1.8 s).
 - Local raw outputs are under `target/branch-navigation/evidence` and task-named temporary
   build/test logs. Scratch scripts and credentials are not tracked.
 
+## Native behavior evidence
+
+The [runtime summary](../evidence/20261014-branch-notice-and-navigation/runtime-summary.json)
+contains checked snapshots from the actual macOS app at implementation commit `6017cff6d`.
+Raw tree/state JSON, transparent captures, and validation logs remain locally under
+`target/branch-navigation/evidence`.
+
+- Clean restore: the live tree showed "Branch changed — was feature" on `main`. Restore
+  changed the actual Git checkout to `feature`; the next status snapshot removed the notice.
+- Dirty restore: after an external fixture mutation, an explicit fixture `vcs.refreshStatus`
+  supplied the new snapshot. The app showed "Switch to feature?" and the reference body with
+  a Switch branch action. Cancel left Git on `main`. Confirm switched to `feature` and retained
+  `dirty.txt` with its original content. No draft was sent.
+- Settings: a real local `projectClone.start` operation produced an Open project toast while
+  `settingsOpen=true`. Pressing it set `settingsOpen=false`, selected the cloned project and
+  left `threadId` empty.
+- Relaunch: selected the existing thread, closed the app and reopened the same named scratch
+  store. Agent credentials are intentionally transient, so this check re-paired to the same
+  isolated server and completed onboarding. The result was `threadId=""` in a project draft;
+  the old thread retained its saved-draft indicator. This does not verify Keychain persistence.
+- Screenshot limitation: all checked PNGs were 2560×1680 RGBA with every channel fixed at zero.
+  They were inspected and provide no visual evidence. No physical keyboard, pointer, or global
+  OS input was used. The macOS agent does not support the screen `check` operation.
+- The app processes and temporary server were stopped after capture. No provider messages,
+  Git pushes, PRs, publication, or changes to the user's `.t3` were made.
+
 ## Next action
 
-Run independent verification against the implementation commit and complete the bounded
-native/real-input acceptance that is not covered by unit tests. Do not close this ticket or
-claim the parent plan complete from these implementation checks.
+Complete visual and physical-input verification against the implementation commit. Preserve the
+existing cross-environment Home ordering gap: draft startup passing here does not establish that
+parity. Do not close this ticket or claim the parent plan complete from these implementation checks.
