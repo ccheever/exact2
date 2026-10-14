@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -22,7 +22,7 @@ const check = need('chrome', unavailable);
 // The stylesheet a default build's page has (look.mjs), with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
 // a disabled button, and a native button with neither (its card's press is its own).
-const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0];
+const sheet = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 const page = sheet + `
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">

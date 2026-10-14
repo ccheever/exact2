@@ -1102,84 +1102,78 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     {
         out.insert("data-exact-said".into(), "justify-content".into());
     }
-    // @ref LLP 1115.000 D4 part B — under the neutral look (the role table's
-    // column says a process shows it) the page's sheet draws these marks
+    // @ref LLP 1115.000 D4 part B — the neutral sheet draws these marks
     // itself (neutral.css), and reads here what CSS cannot say. A checkbox,
     // radio, range or file control whose appearance is the platform's is
     // marked, as a switch and a date field are above: `appearance="none"`
     // hands the box to the author. And a row the author wrote where the
     // sheet would draw over an inherited or implied one (D2's bit) is named:
     // a spinner's own `color`, a grouped list's own ground.
-    if exact_kernel::style::roles::column() == exact_kernel::style::roles::Column::Neutral {
-        use exact_kernel::{ControlKind, StyleId};
-        let kind = ControlKind::of(node.node_type, node.props);
-        if node.style.appearance == exact_kernel::Appearance::Auto
-            && matches!(
-                kind,
-                Some(
-                    ControlKind::Checkbox
-                        | ControlKind::Radio
-                        | ControlKind::Range
-                        | ControlKind::File
-                )
+    use exact_kernel::{ControlKind, StyleId};
+    let kind = ControlKind::of(node.node_type, node.props);
+    if node.style.appearance == exact_kernel::Appearance::Auto
+        && matches!(
+            kind,
+            Some(
+                ControlKind::Checkbox | ControlKind::Radio | ControlKind::Range | ControlKind::File
             )
-        {
-            out.insert("data-exact-control".into(), String::new());
+        )
+    {
+        out.insert("data-exact-control".into(), String::new());
+    }
+    let said = match kind {
+        Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
+        _ if node.props.get(PropId::ListStyle).is_some() => {
+            Some((StyleId::BackgroundColor, "background-color"))
         }
-        let said = match kind {
-            Some(ControlKind::Progress) => Some((StyleId::TextColor, "color")),
-            _ if node.props.get(PropId::ListStyle).is_some() => {
-                Some((StyleId::BackgroundColor, "background-color"))
-            }
-            _ => None,
-        };
-        if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
-            out.insert("data-exact-said".into(), name.into());
-        }
-        // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
-        // bottom edge (a width or a style, `none` included) has drawn its
-        // own separator there, or said it has none: where it is a list's
-        // row the sheet draws no line of its own at that edge. It is told
-        // by its own rows, since a node here does not know what holds it.
-        if matches!(
-            node.node_type,
-            NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
-        ) {
-            for (width, line, word) in [
-                (
-                    StyleId::BorderWidthTop,
-                    StyleId::BorderStyleTop,
-                    "border-top",
-                ),
-                (
-                    StyleId::BorderWidthBottom,
-                    StyleId::BorderStyleBottom,
-                    "border-bottom",
-                ),
-            ] {
-                if node.style.written.has(width) || node.style.written.has(line) {
-                    let words = match out.get("data-exact-said") {
-                        Some(said) if !said.is_empty() => format!("{said} {word}"),
-                        _ => word.to_string(),
-                    };
-                    out.insert("data-exact-said".into(), words);
-                }
+        _ => None,
+    };
+    if let Some((_, name)) = said.filter(|(id, _)| node.style.written.has(*id)) {
+        out.insert("data-exact-said".into(), name.into());
+    }
+    // @ref LLP 1115.000 D16 — a box whose author wrote its top or its
+    // bottom edge (a width or a style, `none` included) has drawn its
+    // own separator there, or said it has none: where it is a list's
+    // row the sheet draws no line of its own at that edge. It is told
+    // by its own rows, since a node here does not know what holds it.
+    if matches!(
+        node.node_type,
+        NodeType::View | NodeType::Pressable | NodeType::ScrollView | NodeType::Text
+    ) {
+        for (width, line, word) in [
+            (
+                StyleId::BorderWidthTop,
+                StyleId::BorderStyleTop,
+                "border-top",
+            ),
+            (
+                StyleId::BorderWidthBottom,
+                StyleId::BorderStyleBottom,
+                "border-bottom",
+            ),
+        ] {
+            if node.style.written.has(width) || node.style.written.has(line) {
+                let words = match out.get("data-exact-said") {
+                    Some(said) if !said.is_empty() => format!("{said} {word}"),
+                    _ => word.to_string(),
+                };
+                out.insert("data-exact-said".into(), words);
             }
         }
-        // A platform button's floor (neutral.css: 36 px each way, 44 under a
-        // coarse pointer) and its padding are the look's, and a size its
-        // author wrote is the author's. In CSS a minimum outranks a size, so
-        // the sheet is told which of the two were written and steps aside on
-        // that axis.
-        if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
-            let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
-                .into_iter()
-                .filter(|(id, _)| node.style.written.has(*id))
-                .map(|(_, name)| name)
-                .collect();
-            if !sizes.is_empty() {
-                out.insert("data-exact-said".into(), sizes.join(" "));
-            }
+    }
+    // A platform button's floor (neutral.css: 36 px each way, 44 under a
+    // coarse pointer) and its padding are the look's, and a size its
+    // author wrote is the author's. In CSS a minimum outranks a size, so
+    // the sheet is told which of the two were written and steps aside on
+    // that axis.
+    if node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button") {
+        let sizes: Vec<&str> = [(StyleId::Width, "width"), (StyleId::Height, "height")]
+            .into_iter()
+            .filter(|(id, _)| node.style.written.has(*id))
+            .map(|(_, name)| name)
+            .collect();
+        if !sizes.is_empty() {
+            out.insert("data-exact-said".into(), sizes.join(" "));
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
@@ -1255,39 +1249,6 @@ mod name_tests {
         for prop in exact_kernel::PropId::ALL {
             assert!(prop.name().is_ascii(), "{}", prop.name());
         }
-    }
-
-    /// LLP 1115.000 D3.1: where the page's own sheet names a colour role it
-    /// writes what the kernel writes for an author who named it, pair and
-    /// all, so the role table is the one place a role's colours are set and
-    /// the sheet's copy cannot drift from it.
-    #[test]
-    fn the_page_sheet_names_a_role_as_the_kernel_writes_it() {
-        use exact_kernel::style::roles;
-        let page = include_str!("../index.html");
-        let (mut rest, mut seen) = (page, Vec::new());
-        while let Some(at) = rest.find("var(--exact-") {
-            let tail = &rest[at..];
-            let end = tail.find([',', ')']).expect("a var() closes");
-            let name = &tail["var(--exact-".len()..end];
-            rest = &tail[end..];
-            // The page's own properties (`--exact-accent`, `--exact-split`)
-            // name no role.
-            let Some(id) = roles::role(&format!("-exact-{name}")) else {
-                continue;
-            };
-            let mut kernel = String::new();
-            exact_kernel::gradient::color_css(&mut kernel, exact_kernel::ColorValue::Role(id));
-            assert!(
-                tail.starts_with(&kernel),
-                "the page names `{name}` as `{}`; the role table says `{kernel}`",
-                &tail[..tail.find(';').unwrap_or(tail.len())]
-            );
-            seen.push(name);
-        }
-        seen.sort_unstable();
-        seen.dedup();
-        assert_eq!(seen, ["fill", "secondary-label", "separator", "system-red"]);
     }
 
     #[test]

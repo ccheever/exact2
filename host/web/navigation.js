@@ -790,8 +790,8 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
-let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is reserved. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);

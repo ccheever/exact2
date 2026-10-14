@@ -384,6 +384,8 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     now_ms: f64,
     on_boot: Option<OnBoot<'_, D>>,
 ) -> Result<Settling<D>, String> {
+    // Both complete documents and streamed JS pages settle through this entry.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     // A renderer runs any plan it is handed: every capability is linked
     // (LLP 1047 D7), so a projection never meets one it can't write.
     exact_web::link(exact_web_capabilities::ALL);
@@ -872,16 +874,6 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
     }
 }
 
-/// The look a shell was built in (LLP 1115.000 D4 part B). The neutral look's
-/// stylesheet says so on the root (`--exact-look: neutral`,
-/// host/web/neutral.css), and a document rendered over that shell resolves a
-/// role in the table's neutral column, as the page it becomes will.
-pub fn shell_look(shell: &str) {
-    if shell.contains("--exact-look:neutral") || shell.contains("--exact-look: neutral") {
-        exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-    }
-}
-
 /// An app's pages as documents, for the web build and the parity check:
 ///
 /// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>]
@@ -1016,9 +1008,6 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
             return ExitCode::FAILURE;
         }
     };
-    if let Some(shell) = &shell {
-        shell_look(shell);
-    }
     if let Some(dist) = serve {
         let grants = data().grants().to_string();
         let config = Serve {

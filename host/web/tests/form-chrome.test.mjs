@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -41,7 +41,7 @@ const scheme = s => `<div style="color-scheme:${s};${ACCENT}" id="${s}">
   <input type="date" data-exact-field id="${s}-date" aria-invalid="true">
   <input data-native id="${s}-bordered" value="0" aria-invalid="true" style="border-color:rgb(0, 0, 255)">
 </div>`;
-const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">${scheme('light')}${scheme('dark')}
   <input data-native id="draft" value="25"><input data-native id="kept" value="5">
 </div>
@@ -66,7 +66,7 @@ const STUBS = {
   'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'],
   'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'focus.js': ['autofocus', 'press', 'hold', 'within'], 'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'],
-  'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'], 'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'],
+  'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'], 'svg-transform.js': ['svgTransform', 'svgGeometry'], 'backdrop.js': ['backdropValue'],
   'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'],
 };
