@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`); stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -1539,9 +1539,11 @@ The crate's grammar, checker and colour folder follow D2–D5, D7 and §3, excep
     Color 4's thresholds);
   - a `color-mix()` without `in <space>`, or with more than two colours.
 
-  CSS Color 5 allows both of the `color-mix()` forms. They are refused with the expected
-  form named rather than folded wrongly. They are owed: the RFC's owner asked for them in
-  review, and they come before stage 2's port needs them.
+  Both `color-mix()` forms landed afterwards, in `bd83193ea` (reviews `e173b07c0`). The
+  method is optional (oklab), and the mix takes one or more colours with CSS Color 5's
+  normalisation, run premultiplied, one colour after another. In a polar space each step
+  takes its own hue arc, which can differ slightly from a single n-way average; the code
+  says so. Rec. 2100 `color()` came with them, absolute and relative.
 - **`tamber-dial-inert` decides by influence, not mention.** Each dial is set to probe values
   and every token refolded; a dial that changes no token is inert. A dial that moved a token
   only at values no probe takes would be wrongly called inert. A probe the fold refuses is
@@ -1549,3 +1551,114 @@ The crate's grammar, checker and colour folder follow D2–D5, D7 and §3, excep
 - **§3's example** indented `radius.md` four spaces, which reads as a malformed `when` under
   `type.body`. It is corrected above. The crate's corpus keeps the uncorrected text as a
   refusal case (`tamber/tests/corpus/bluesky-rfc.err`).
+
+### Stage 1: LLP 1095 D4 and its reach (`7a95dcce4`..`13f49af39`, landed 2026-10-14)
+
+Built from main; the earlier branch never reached origin. Charlie pre-approved the landing
+("Land it", 2026-10-13). It landed on the RFC owner's review, three rounds of external review
+for the core and three for the ports, and the checks.
+- **Commits:**
+  - `7a95dcce4`: named colours;
+  - `cd77df1e8`: overrides where the kernel resolves;
+  - `72b1e154f`: the table bound by pointer;
+  - `9f8933fe8`: the reach;
+  - `edff3d727` … `df717737d`: review rounds;
+  - `bfde5ff10`: minors;
+  - `59a4020df`: no-tells;
+  - `8aa7bf43b`: Expose;
+  - `f63541d57`: the readers, and the Rust `Theme` record deleted;
+  - `856c17ee4` … `13f49af39`: review rounds.
+- **What Charlie saw:** the reach report, `~/x2theme/stage1-reach-report.md`.
+
+**Built differently from LLP 1095 D1: no `ColorValue::Ref`** (approved by the RFC's owner and
+the lead, 2026-10-13; Charlie told).
+- **The table and its scope.** The plan carries a `theme` table. The kernel's colour parser
+  resolves a theme name to the entry's value, which is an existing form (`Fixed`,
+  `LightDark`, `Role`, `Platform`, `Wide`, `Profiled`), through a scope set from the owning
+  plan for each parse, as `color(--profile …)` resolves. The scope is an `Arc` table built
+  once per plan and bound by pointer: a themed 1,000-row list allocates exactly what its
+  literal twin does. Rows hold ordinary values. There is no wire discriminant and no
+  schema-digest break.
+- **Role overrides** are a role → value table.
+  - The kernel applies it to its own defaults (unsaid text's `CanvasText`), to its fallback
+    and resolution (Linux's painter), and to what crosses to a host.
+  - Each Apple host is sent it once at boot (`{"op":"roles"}`), and the surfaces it draws
+    itself read it: the iOS page ground, grouped list grounds, cards, row text, headers and
+    footers, bar titles, sheet and dialog grounds, placeholders.
+  - Those colours resolve per trait: dark, Increase Contrast and the elevated level on iOS,
+    contrast on the Mac. Wide colours keep their components.
+  - The web gets the overrides as `:root` custom properties that the host's own sheet
+    reads.
+- **What this costs stage 4's live table.** With a `Ref`, changing an entry's value would
+  swap one row and every row pointing at it would follow. Without one, a value change
+  re-resolves each row holding the token, found through stage 2's token-beside-value index
+  (D7). **Stage 2's gate measures it:** a one-token colour change on the 1,000-row fixture,
+  where every row reads the token, must touch only those nodes, do no layout, and cost no
+  more than the same change made by a `setMode` slice switch. If it does not, `Ref` comes
+  back before stage 4. The plan's `theme` table is the same in both designs, so that would
+  change the kernel and the hosts, not the plan or the language.
+
+**Rules settled in review:**
+- **The tint is the app's, set only through `AccentColor`.** Its value must be a colour, not
+  another tint role. Overriding a role drawn in the tint (`LinkText`, `ButtonText`,
+  `-exact-link`, `-exact-symbol`) is refused (`lower-theme-tint`). Tint roles stay roles in
+  rows, on the wire and in the JS target's map. Each host makes the theme's colour the app's
+  tint (iOS the presenter root's `tintColor`, the Mac the accent default, the web `:root
+  --exact-accent`), so an authored `accent-color` still wins its subtree (D1).
+- **Names are exact.** `Brand` and `brand` are two entries; only a role's spelling matches
+  without case.
+- **A name spelled like a role is that role's override**, as LLP 1095 D4 says. So an entry
+  named `field` replaces CSS `Field`; the readers renamed theirs `fieldBg`. A warning for a
+  probably-unintended override is a candidate diagnostic.
+- **Refused:** two spellings of one role (`lower-theme-duplicate`); CSS keywords as names;
+  the words gradients and shadows write beside colours (`to`, `top`, `inset` …).
+- **An entry may be any colour a row takes** (`ColorValue::parse_light_dark` is the general
+  parser), including a declared profile's colour.
+- **Entries are written as strings** (`brand="#c8102e"`), since Contract attributes are
+  strings, where LLP 1095 D4's example wrote bare CSS.
+- **A name is read as a whole component** (a row, a shadow's colour, a gradient stop, a
+  palette entry), never inside a `light-dark()` half or another function (LLP 1095 D1).
+  Names inside expressions are this RFC's synthetic tokens (D3).
+- **`lower-colour-one-scheme` and `scripts/no-tells.mjs` read the theme:** the root `theme`
+  block is the app's palette; a row naming a one-scheme entry and an entry replacing a role
+  the page paints are flagged.
+- **A boot the runner refuses** keeps the thread's previous overrides; clearing another
+  plan's set is journaled.
+- **Text on the web under a scheme.**
+  - The root carries `--exact-scheme-color`.
+  - One rule re-reads it on any element whose own style sets a `color-scheme`:
+    `[style*=color-scheme]` for inline and bound schemes, and the JS target's generated
+    scheme classes. So unsaid text on a dark card under a light page takes the dark side.
+  - It loses to the look's control colours and to any authored colour. An authored colour,
+    static or bound, writes `--exact-scheme-color: initial` for its subtree.
+  - Nothing is written without a theme that replaces `CanvasText`.
+  - The substring selector and the class list are accepted as built. A compiler-emitted
+    marker attribute replaces them if they ever misfire (a `color-scheme` mentioned inside
+    another property's value).
+
+**The ports.**
+- **Expose** is on a 43-entry theme: no hex left in its rows, no-tells colour findings from
+  124 to 0, and 22/22 screens identical on the web, iOS and the Mac.
+- **The readers** (`apps/llp`, `apps/markdown`, `apps/markdown-stress`, `packages/reading`)
+  use root themes: 104/104 screens identical, and the Rust `Theme` record is gone.
+- **Each of the three reader apps carries the same 20-entry palette**, because a theme
+  belongs to the app root. One Rust constant used to serve them. That duplication is the
+  case for D11's package tokens: once `packages/reading` ships its own `.tamber`, the apps
+  share one palette.
+
+**Known limits:**
+- **Overrides are per thread, not per session.** A plan whose overrides replace another
+  plan's different set on the same thread (a second embedded session, a reload) writes one
+  journal line. Per-session tables are owed by stage 5 (D12).
+- **Vibrancy:** a themed role under a material isn't drawn vibrant.
+- **Bound authored colours:** on the web, an ancestor's *bound* authored colour that
+  `unset`s writes nothing, as `text_unsets` does.
+- **Still the platform's, by the reach ruling:**
+  - the tab bar's material and unselected glyphs;
+  - search field, segmented control and progress chrome;
+  - the Mac's sidebar, toolbar and selection highlight;
+  - alerts and system menus everywhere.
+- **The Mac's own rendering, not a theme gap:**
+  - its stars are drawn in `ButtonText`, which is `controlTextColor` there;
+  - its links keep `linkColor`;
+  - `color` doesn't tint a symbol image on the Mac, with or without a theme (in QUEUE).
