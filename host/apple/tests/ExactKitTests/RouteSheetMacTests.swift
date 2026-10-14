@@ -283,8 +283,8 @@ final class RouteSheetMacTests: XCTestCase {
 
     /// With no authored size the route fits its content under a maximum,
     /// the window's content area less the sheet's own rows; an authored
-    /// width and height are used as written, whatever the content, and
-    /// stop at that maximum too.
+    /// width and height are used as written, whatever the content or the
+    /// parent window's size.
     func testItFitsItsContentUnderAMaximumAndAnAuthoredSizeWins() throws {
         let f = try make(CGSize(width: 640, height: 420)), p = f.presenter
         try f.press("open-add")
@@ -307,11 +307,16 @@ final class RouteSheetMacTests: XCTestCase {
         XCTAssertEqual(chrome.frame.size, CGSize(width: 480, height: 300 + rows))
         XCTAssertEqual(window.frame.midX, f.window.frame.midX, accuracy: 0.5)
         XCTAssertEqual(try f.node("sized-body").frame.height, 300, "its content fills the size it was given")
-        // A window narrower than it: the route stops at the window's content area.
-        f.window.setContentSize(NSSize(width: 440, height: 420))
+        // AppKit places an authored-size sheet even when it overhangs its parent.
+        f.window.setContentSize(NSSize(width: 440, height: 260))
         f.window.layoutIfNeeded(); f.settle()
-        XCTAssertEqual(p.blocks.used[sized.id]?.width, f.window.contentLayoutRect.width)
-        XCTAssertEqual(chrome.frame.width, f.window.contentLayoutRect.width)
+        XCTAssertEqual(f.window.contentLayoutRect.size, CGSize(width: 440, height: 260))
+        XCTAssertEqual(p.blocks.used[sized.id], CGSize(width: 480, height: 300))
+        XCTAssertEqual(sized.frame, NSRect(x: 0, y: 0, width: 480, height: 300))
+        XCTAssertEqual(chrome.frame.size, CGSize(width: 480, height: 300 + rows))
+        XCTAssertEqual(window.frame.midX, f.window.frame.midX, accuracy: 0.5)
+        XCTAssertEqual(try f.node("sized-body").frame.height, 300)
+        XCTAssertTrue(p.views[sized.id] === sized, "parent resize retains the route")
     }
 
     /// What the sheet's rows do not stand for stays in the header, where
