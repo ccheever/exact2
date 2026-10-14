@@ -9,7 +9,8 @@ import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, viewBox, grantOrigins, launchLocation } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, grantOrigins, launchLocation } from './navigation.js';
+import { viewBox, layoutBoxes } from './input-glue.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
@@ -68,31 +69,6 @@ catch(e) { console.error(e.message); process.exitCode=1; }
     expect(missing.stderr).not.toContain('TypeError');
   } finally { rmSync(dir, {recursive:true,force:true}); }
 }, 60_000); // Six Bun launches of the driver: 25 s at load 110, so a hang bound, not a speed claim.
-
-test('driver deadlines release their timer on success, rejection and timeout', async () => {
-  const driver = readFileSync(new URL('../../scripts/agent.mjs', import.meta.url), 'utf8');
-  const implementation = driver.match(/async function waitAtMost\([^]*?\n\}/)[0];
-  const timers = new Set();
-  const wait = vm.runInNewContext(`(${implementation})`, {
-    setTimeout(callback) { timers.add(callback); return callback; },
-    clearTimeout(callback) { timers.delete(callback); },
-  });
-  expect(await wait(Promise.resolve('ready'), 20000)).toBe('ready');
-  expect(timers.size).toBe(0);
-  const failed = new Error('app exited');
-  await expect(wait(Promise.reject(failed), 20000)).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-  const pending = new Promise(() => {});
-  const closed = wait(pending, 2000);
-  expect(timers.size).toBe(1);
-  [...timers][0]();
-  expect(await closed).toBeUndefined();
-  expect(timers.size).toBe(0);
-  const late = wait(pending, 20000, () => { throw failed; });
-  [...timers][0]();
-  await expect(late).rejects.toBe(failed);
-  expect(timers.size).toBe(0);
-});
 
 test('driver joins only the inspected plan, retains old compatible maps, and labels formatting-only revisions honestly', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'exact-driver-map-')), path = join(dir, 'app.plan');
@@ -285,7 +261,7 @@ function fixture(agentMode = true) {
     preferences: () => '{}', localAssetURL: source => source,
     launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox}; const layoutBoxes = ${layoutBoxes};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agentInputReady', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;

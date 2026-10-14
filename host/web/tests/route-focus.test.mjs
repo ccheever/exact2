@@ -301,10 +301,10 @@ check('in a wide window\'s split the focus follows the detail and comes back to 
 }, 1200), 30000);
 
 check('the agent\'s reveal leaves what a tap refuses where it is', () => inChrome(async (evaluate, press) => {
-  // Before a tap the driver scrolls its target into view (navigation.js `reveal`), as a person would. Under a sheet the
+  // Before a tap the driver scrolls its target into view (input-glue.js `reveal`), as a person would. Under a sheet the
   // list is inert: nobody can scroll or press it, the tap is refused, and a refusal leaves the page as it was. (Shelf in
   // conformance: a refused tap on a covered row's swipe action left the row scrolled to it, on the page that was asked.)
-  const reveal = `import('./navigation.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
+  const reveal = `import('./input-glue.js').then(m => [m.reveal(document.getElementById('row-far'), 1).scrolled, document.getElementById('scroller').scrollTop > 0])`;
   await press('add');
   expect(await evaluate(`document.getElementById('list').inert`)).toBe(true);
   expect(await evaluate(reveal)).toEqual([false, false]);

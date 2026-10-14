@@ -1,3 +1,4 @@
+import { inertAncestor, settleValue } from "./navigation.js";
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
 import "./prompt-glue.js"; // a prompt's Return
 /** An element whose `press` the keyboard reaches only through its tabindex:
@@ -496,4 +497,183 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   };
 }
 
-if (globalThis.exact) globalThis.exact.createInputHandlers = createInputHandlers;
+// A same-origin guest joins `tree` as a compact, bounded outline. Access to
+// a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
+export function guestOutline(frame) {
+  let doc;
+  try { doc = frame.contentDocument; } catch { return null; }
+  if (!doc) return null;
+  const outline = [];
+  const visit = (el, depth) => {
+    if (depth > 4 || outline.length >= 32) return;
+    const id = el.id || undefined;
+    const testId = el.getAttribute("data-testid") ?? el.getAttribute("testId") ?? undefined;
+    const text = [...el.childNodes]
+      .filter((n) => n.nodeType === Node.TEXT_NODE)
+      .map((n) => n.textContent.trim())
+      .filter(Boolean)
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .slice(0, 160) || undefined;
+    if (id || testId || text) {
+      outline.push({ guest: true, depth, tag: el.localName, ...(id ? { id } : {}), ...(testId ? { testId } : {}), ...(text ? { text } : {}) });
+    }
+    for (const child of el.children) visit(child, depth + 1);
+  };
+  for (const child of doc.body?.children ?? []) visit(child, 0);
+  return outline;
+}
+function guestDocument(frame) {
+  try {
+    const document = frame.contentDocument;
+    return document ? { document } : { error: "guest is cross-origin" };
+  } catch {
+    return { error: "guest is cross-origin" };
+  }
+}
+export function guestTap(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const x = Number.isFinite(request.x) ? request.x : guest.innerWidth / 2;
+  const y = Number.isFinite(request.y) ? request.y : guest.innerHeight / 2;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest tap has an invalid selector" }; }
+  target ||= document.elementFromPoint(x, y) || document.body;
+  if (!target) return { guest: true, error: "guest tap found no target" };
+  // Script input is intentionally untrusted (@ref LLP 1020 D4;
+  // exact1 20260806-webview-frame-guest-click-delivery).
+  target.dispatchEvent(new guest.PointerEvent("pointerdown", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+  target.dispatchEvent(new guest.PointerEvent("pointerup", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0, buttons: 0 }));
+  target.dispatchEvent(new guest.MouseEvent("click", { bubbles: true, composed: true, clientX: x, clientY: y, button: 0 }));
+  return { tapped: request.id, guest: true };
+}
+export function guestType(frame, request) {
+  const access = guestDocument(frame);
+  if (access.error) return { guest: true, error: access.error };
+  const { document } = access;
+  const guest = document.defaultView;
+  const active = document.activeElement;
+  const editable = active?.matches?.("input,textarea,[contenteditable]") ? active : null;
+  let target;
+  try { target = request.selector ? document.querySelector(request.selector) : null; }
+  catch { return { guest: true, malformed: true, error: "guest type has an invalid selector" }; }
+  target ||= editable || document.querySelector("input,textarea,[contenteditable]");
+  if (!target) return { guest: true, error: "guest type found no target" };
+  // These are the Apple guest script's event shapes, including focus and
+  // isTrusted:false (@ref LLP 1020 D4).
+  target.focus();
+  if (request.key != null) {
+    const key = String(request.key);
+    target.dispatchEvent(new guest.KeyboardEvent("keydown", { key, bubbles: true, composed: true }));
+    target.dispatchEvent(new guest.KeyboardEvent("keyup", { key, bubbles: true, composed: true }));
+    return { typed: request.id, guest: true, key, value: guestValue(target) };
+  }
+  const text = String(request.text ?? "");
+  if ("value" in target) target.value = text; else target.textContent = text;
+  target.dispatchEvent(new guest.InputEvent("input", { data: text, inputType: "insertText", bubbles: true, composed: true }));
+  target.dispatchEvent(new guest.Event("change", { bubbles: true, composed: true }));
+  return { typed: request.id, guest: true, value: guestValue(target) };
+}
+// What a guest field holds, as the reply shows it: a password's is a fixed mark, whatever its length (#134).
+const guestValue = (target) => "value" in target ? (target.type === "password" && target.value ? "•••" : target.value) : target.textContent;
+
+// D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
+// `change`. A select takes one of its enabled options by value, else by its one label (Playwright's `selectOption`, the
+// diaries' kanban F17 and shop F10); a checkbox takes `true` or `false` and is clicked when that differs, as a person
+// would.
+export function typeControl(el, request) {
+  let text = String(request.text ?? "");
+  const id = request.id;
+  if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
+  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  // A radio is checked by choosing it, and unchecked only by checking another (x2apps survey #2).
+  if (el.type === "radio") {
+    if (text !== "true") return { handled: true, error: text === "false" ? `radio ${id} is unchecked by checking another of its group` : `radio ${id} takes true, not ${JSON.stringify(text)}` };
+    if (!el.checked) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
+  if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
+  el.value = text;
+  if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+  el.dispatchEvent(new Event("change", { bubbles: true }));
+  return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}
+
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+export function reveal(el, id) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen || el.closest("[inert]") || ["hidden", "collapse"].includes(getComputedStyle(el).visibility)) return { revealed: id, scrolled: false }; // nor what its tap refuses (hidden or inert): a refusal leaves the page as it was
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+}
+
+// A text folded into its box's content (LLP 1007.001): `display: contents`, or an inline box under a box that restricts
+// touch. A paragraph's inline runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its own: its box is the anonymous block its
+// text is, as a style-less block child's was — its line boxes along the main axis, and its box's content box across
+// when the box stretches its items (a block, or a flex or grid box that stretches).
+export function viewBox(el) {
+  if (!folded(el)) return el.getBoundingClientRect();
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  const t = range.getBoundingClientRect(), p = el.parentElement;
+  if (!p) return t;
+  const cs = getComputedStyle(p), b = p.getBoundingClientRect(), n = s => parseFloat(cs[s]) || 0;
+  const left = b.left + n("borderLeftWidth") + n("paddingLeft"), right = b.right - n("borderRightWidth") - n("paddingRight");
+  const top = b.top + n("borderTopWidth") + n("paddingTop"), bottom = b.bottom - n("borderBottomWidth") - n("paddingBottom");
+  const flex = /flex|grid/.test(cs.display), row = flex && cs.display.includes("flex") && !cs.flexDirection.startsWith("column");
+  const stretch = !flex || /normal|stretch/.test(cs.alignItems);
+  if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
+  return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}
+
+// The agent reports attached views in viewport coordinates, including folded text.
+export function layoutBoxes(views, gpu) {
+  const r2 = (x) => Math.round(x * 100) / 100;
+  const nodes = [];
+  for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
+    if (!el.isConnected) continue;
+    const r = gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
+    const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
+    if (el instanceof HTMLIFrameElement) {
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      n.hit = hit === el;
+    }
+    if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
+    nodes.push(n);
+  }
+  return nodes;
+}
+export const agentInput = { guestOutline, guestTap, guestType, typeControl, reveal, viewBox, layoutBoxes };
+if (globalThis.exact) Object.assign(globalThis.exact, { createInputHandlers, agentInput });

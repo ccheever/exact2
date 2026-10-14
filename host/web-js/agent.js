@@ -7,7 +7,8 @@ import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js
 import * as perf from './perf.js';
 import { observe } from './check.js';
 import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
-import { displayMode, environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
+import { displayMode, environment, navigation, unselected, foldEnv, preferFold, typedControl, animationClocks, pageReporter } from './navigation.js';
+import { guestOutline, guestTap, guestType, viewBox, typeControl, reveal } from './input-glue.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['aria-valuenow', 'accessibilityValueNow'], ['aria-valuemin', 'accessibilityValueMin'], ['aria-valuemax', 'accessibilityValueMax'], ['aria-valuetext', 'accessibilityValueText'], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];

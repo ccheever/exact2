@@ -411,7 +411,7 @@ const grantSection = (() => {
 })();
 // The agent adapter reads its own copies of the modules it shares with the
 // entry: a module lives in one chunk, so what only the agent reads from
-// navigation.js (the guest outline and taps, the environment) or names.js
+// navigation.js (the environment and page observations) or names.js
 // (every slot's type) would otherwise ride in every page's entry module.
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
 writeFileSync(resolve(gen, 'agent.js'), localImports(readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'")));

@@ -1,5 +1,6 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
-import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
+import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, commitGuestOrigin, guestMessageAuthorized, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, frameURL, dataURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle, storeInPage } from "./navigation.js";
+let guestOutline, guestTap, guestType, typeControl, reveal, viewBox, layoutBoxes, agentInputLoading;
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -1082,7 +1083,17 @@ async function waitForInflight(deadline) {
 }
 async function settleGpu() { loadGpuIfNeeded(); await gpuLoading; return await globalThis.exact.gpu?.settled() ?? []; }
 function gpuPendingReply(request, pending) { const names = pending.map(item => item.name ?? "GPU work"); return request.op === "clock" ? {clock:agentClock, settled:false, reason:"gpu", pending:names} : {error:`GPU is not settled: ${names.join(", ")}`, pending:names}; }
-function agent(request) { if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request)); return agentMode && gpuInPlay() ? settleGpu().then(pending => pending.length ? gpuPendingReply(request, pending) : agentNow(request)) : agentNow(request); } // synchronous once inspection is in (LLP 1043.000 D7/D8)
+function agentInputReady() {
+  return agentInputLoading ??= loadAfterPaint('./input-glue.js', 'agentInput').then(helpers => {
+    ({ guestOutline, guestTap, guestType, typeControl, reveal, viewBox, layoutBoxes } = helpers);
+  });
+}
+// Synchronous once inspection and the agent's input helpers are ready (LLP 1043.000 D7/D8).
+function agent(request) {
+  if (!stageLoaded('inspection')) return loadStage('inspection').then(() => agent(request));
+  if (!viewBox) return agentInputReady().then(() => agent(request));
+  return agentMode && gpuInPlay() ? settleGpu().then(pending => pending.length ? gpuPendingReply(request, pending) : agentNow(request)) : agentNow(request);
+}
 function agentNow(request) { const r = agentReply(request), decorate = globalThis.exact.gpu?.decorate; return decorate ? decorate(request, r) : r; }
 function agentReply(request) {
   try {
@@ -1118,22 +1129,7 @@ function agentReply(request) {
         return st;
       }
       case "layout": {
-        // Every view in the document (attached, whether or not it lies in
-        // the viewport), by id, in the viewport's space with every scroll
-        // offset and transform folded in, to two decimals.
-        const r2 = (x) => Math.round(x * 100) / 100;
-        const nodes = [];
-        for (const [id, el] of [...views].sort((a, b) => a[0] - b[0])) {
-          if (!el.isConnected) continue;
-          const r = exact.gpu?.placementHidden(el) ? new DOMRect() : viewBox(el);
-          const n = { id, x: r2(r.x), y: r2(r.y), w: r2(r.width), h: r2(r.height) };
-          if (el instanceof HTMLIFrameElement) {
-            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-            n.hit = hit === el;
-          }
-          if (el.dataset.scroll === "true") { n.sx = r2(el.scrollLeft); n.sy = r2(el.scrollTop); }
-          nodes.push(n);
-        }
+        const nodes = layoutBoxes(views, exact.gpu);
         const reply = { clock: now(), viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes };
         if (request.id != null) {
           const detail = nodeDetail(request.id, request.plan === true);
@@ -1177,7 +1173,7 @@ function agentReply(request) {
         return clock(request).then((r) => { if (!r.error) followOffset(agentClock); return tagged(r); });
       case "tree": return tree(request);
       case "tags": return ask(request);
-      case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (navigation.js)
+      case "reveal": return tagged(reveal(views.get(request.id), request.id)); // before a tap or a type (input-glue.js)
       case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
         for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
         return tagged({ nonce: performance.timeOrigin });
@@ -1410,7 +1406,7 @@ globalThis.exact = { ...globalThis.exact, mutate, devFirst: () => devFirst(),
   },
   message: (el, text) => { const id = Number(el?.dataset.view); if (inputReady && el && views.get(id) === el && messageViews.has(id)) send(wasm.exact_dispatch(id, 9, writeIn(text), now())); },
   get devAssets() { return devAssets; },
-  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); }); },
+  get ready() { return ready.then(async () => { await moduleReady; if (!inputReady) throw new Error(root.dataset.error || 'data executor not ready'); if (agentMode) await agentInputReady(); }); },
   ...(agentMode ? { agent, agentSettled, now, worldCarry: globalThis.exactWorldCarry } : {}), get wasm() { return wasm; }, assetURL: localAssetURL, stages: () => Object.fromEntries(Object.keys(stages).map(name => [name, stageLoaded(name) ? 'loaded' : 'staged'])), writeIn, readOut, send, views, root, generation: 0, pendingSurfaces: [], postBound: POST_BOUND,
 };
 // The GPU module, on demand: a script element after a rendering opportunity
