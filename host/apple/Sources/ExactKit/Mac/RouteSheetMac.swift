@@ -384,7 +384,7 @@ extension DialogHost {
     func block(of entry: Entry) -> HostBlock? {
         guard var most = maximum else { return nil }
         if entry.route, let chrome = entry.sheet?.chrome { most.height = max(0, most.height - chrome.rows) }
-        return .atMost(most)
+        return entry.route ? .fit(most) : .atMost(most)
     }
 
     /// The driver's tap on an authored button a sheet's row stands for:

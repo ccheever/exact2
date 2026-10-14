@@ -1050,7 +1050,10 @@ style is re-derived on `AttachRoot`).
 **A containing block from the host** (LLP 1115.002 D8.2, 2026-10-12). A host
 that shows a subtree in a view of its own (a split's pane, a sheet) gives its
 root a containing block, `Kernel::set_host_block(view, Some(HostBlock { width,
-height }))`, each axis `Is` the size or `AtMost` a maximum. While it has one
+height }))`, each axis `Is` the size, `AtMost` a maximum, or `Fit` a limit for
+automatic sizing that an authored size or minimum may exceed. `Fit` keeps that
+length as the percentage basis and reports the resulting extent without clamping;
+it is the modal route's policy (LLP 1115.002 D7.4). While it has one
 the node is out of its parent's layout and is laid out by the same
 `compute_layout` call as a root is, in that block: the engine's root for its
 subtree, so a block that changes lays out that subtree alone. Its frames are
