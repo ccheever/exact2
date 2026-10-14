@@ -689,6 +689,7 @@ impl<D: DataSource> Runner<D> {
         for text in &plan.strings {
             exact_kernel::style::roles::intern_literals(text);
         }
+        crate::bridge::set_role_overrides(&plan);
         let carried = match seed {
             Seed::Carried(carried) => Some(carried),
             _ => None,

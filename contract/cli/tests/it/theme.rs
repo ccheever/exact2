@@ -188,3 +188,34 @@ fn a_theme_is_checked_where_it_is_declared() {
     let src = format!("{THEME}component App\n  view\n    text \"a\" color=\"brnad\"\n");
     assert!(format!("{:?}", contract::compile(&src).unwrap_err()).contains("lower-attr-value"));
 }
+
+/// A role the theme replaces is replaced where the kernel resolves it: its
+/// own defaults (unsaid text is `CanvasText`) and what crosses to a host,
+/// not only a row naming it. A plan without the override puts it back.
+#[test]
+fn an_overridden_role_is_replaced_where_the_kernel_resolves_it() {
+    let src = "theme\n  CanvasText = \"light-dark(#123456, #abcdef)\"\n  separator = \"-exact-system-red\"\n\ncomponent App\n  view\n    column\n      text \"a\" testId=\"unsaid\"\n      view testId=\"rule\" border-top=\"1px solid -exact-separator\"\n";
+    let r = boot(src);
+    let unsaid = colour(&r, "unsaid", StyleId::TextColor);
+    assert_eq!(unsaid, parsed("CanvasText"), "the row is the role");
+    assert_eq!(unsaid.resolve(false), Color::parse("#123456").unwrap());
+    assert_eq!(unsaid.resolve(true), Color::parse("#abcdef").unwrap());
+    assert_eq!(unsaid.fallback(), parsed("light-dark(#123456, #abcdef)"));
+    let mut wire = String::new();
+    exact_kernel::gradient::color_text(&mut wire, unsaid, exact_kernel::gradient::ColorText::Wire);
+    assert_eq!(wire, "light-dark(#123456ff, #abcdefff)");
+    // An override naming another role crosses as that role.
+    assert_eq!(
+        colour(&r, "rule", StyleId::BorderColorTop),
+        parsed("-exact-system-red")
+    );
+    drop(r);
+    let plain = boot("component App\n  view\n    text \"a\" testId=\"unsaid\"\n");
+    let mut wire = String::new();
+    exact_kernel::gradient::color_text(
+        &mut wire,
+        colour(&plain, "unsaid", StyleId::TextColor),
+        exact_kernel::gradient::ColorText::Wire,
+    );
+    assert_eq!(wire, "CanvasText");
+}

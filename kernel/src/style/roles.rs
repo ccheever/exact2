@@ -262,6 +262,52 @@ pub fn references(macos: bool) -> Vec<(ColorValue, Box<str>)> {
     out
 }
 
+thread_local! {
+    /// The roles the app's theme replaces (LLP 1095 D4), and with what: an
+    /// existing form. The thread's, as the theme a style is parsed under is:
+    /// the runner sets it from the plan it boots, on the thread that drives
+    /// it, so two runners on two threads (and two tests) keep their own.
+    static OVERRIDES: std::cell::RefCell<Vec<(u8, ColorValue)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Replace the overridden roles; the reported generation moves, so every
+/// session re-presents what it resolved from the old ones.
+pub fn set_overrides(next: Vec<(u8, ColorValue)>) {
+    let next: Vec<(u8, ColorValue)> = next
+        .into_iter()
+        .filter(|(id, c)| role_of(*id).is_some() && !matches!(c, ColorValue::Role(r) if r == id))
+        .collect();
+    let changed = OVERRIDES.with(|t| {
+        let mut table = t.borrow_mut();
+        let changed = *table != next;
+        *table = next;
+        changed
+    });
+    if changed {
+        GENERATION.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// What the theme replaces a role with, if it does.
+pub fn overridden(id: u8) -> Option<ColorValue> {
+    OVERRIDES.with(|t| {
+        let table = t.borrow();
+        if table.is_empty() {
+            return None;
+        }
+        let c = table.iter().find(|(r, _)| *r == id).map(|(_, c)| *c)?;
+        // One step: an override naming another overridden role reads that one's.
+        match c {
+            ColorValue::Role(next) => table
+                .iter()
+                .find(|(r, _)| *r == next)
+                .map(|(_, c)| *c)
+                .or(Some(c)),
+            other => Some(other),
+        }
+    })
+}
+
 /// Interned `-exact-platform-color()`s. A plan names a few; the runner admits one
 /// only as a plan literal (LLP 1095 D3), and the cap bounds the table
 /// whatever else parses one.
@@ -405,6 +451,15 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
                 out.push_str("transparent");
                 return;
             };
+            // @ref LLP 1095 D4 — a role the theme replaces crosses as what
+            // replaces it, on the wire and in CSS.
+            match overridden(id) {
+                Some(ColorValue::Role(next)) if next != id => {
+                    return reference_css(out, ColorValue::Role(next), mode)
+                }
+                Some(ColorValue::Role(_)) | None => {}
+                Some(o) => return crate::gradient::color_text(out, o, mode),
+            }
             if mode == ColorText::Css && web_accent(r) {
                 let named = r.name != "AccentColor";
                 if named {
@@ -444,7 +499,13 @@ impl ColorValue {
     /// a reference's fallback (LLP 1095 D1), a wide colour's sRGB clip.
     pub fn fallback(self) -> ColorValue {
         match self {
-            ColorValue::Role(id) => role_fallback(id),
+            ColorValue::Role(id) => overridden(id).map_or_else(
+                || role_fallback(id),
+                |o| match o {
+                    ColorValue::Role(next) => role_fallback(next),
+                    o => o.fallback(),
+                },
+            ),
             ColorValue::Platform(id) => {
                 platform(id).map_or(ColorValue::Fixed(Color::TRANSPARENT), |p| p.fallback)
             }

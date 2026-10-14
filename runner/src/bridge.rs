@@ -211,6 +211,26 @@ pub fn set_plan_style(
     set_style(patch, id, value, plan.stacks.len())
 }
 
+/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, set where the
+/// kernel resolves a role: its own defaults (unsaid text is `CanvasText`)
+/// and what crosses to a host, as well as a row naming the role. A plan with
+/// none clears them.
+pub fn set_role_overrides(plan: &exact_plan::Plan) {
+    let overrides = plan
+        .theme
+        .iter()
+        .filter_map(|row| {
+            let id = exact_kernel::style::roles::role(plan.str(row.role))?;
+            let value = plan.str(row.value);
+            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
+                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
+            })?;
+            Some((id, colour))
+        })
+        .collect();
+    exact_kernel::style::roles::set_overrides(overrides);
+}
+
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the
 /// binding says of the row: whether its author wrote it on this node
 /// (@ref LLP 1115.000 D2). The kernel keeps that beside the row.
