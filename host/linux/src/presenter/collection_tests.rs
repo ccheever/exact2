@@ -11,6 +11,13 @@ impl DataSource for Rows {
                 Value::Number(first + 1.),
             ]));
         }
+        if let [Value::Number(first), Value::Number(count)] = args {
+            return Ok(Value::list(
+                (0..*count as u32)
+                    .map(|n| Value::Number(first + f64::from(n)))
+                    .collect(),
+            ));
+        }
         Ok(Value::list(
             (0..25_000).map(|n| Value::Number(n as f64)).collect(),
         ))
@@ -945,7 +952,8 @@ fn horizontal_first_measurements_correct_x_and_scroll_left_builds_before_it_move
 #[test]
 fn horizontal_card_boxes_match_the_eager_strip_at_the_same_scroll_left() {
     let boxes = |attrs: &str, left: f32| {
-        let mut p = boot_source(&strip(attrs, "flex-shrink=0"));
+        // Mount 200 cards, not 25,000: the eager strip lays out every one
+        let mut p = boot_source(&strip(attrs, "flex-shrink=0").replace("rows()", "rows(0, 200)"));
         settle(&mut p);
         let view = named(&p, "strip");
         p.wheel(view, left, 0.).unwrap();

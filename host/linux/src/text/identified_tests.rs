@@ -143,8 +143,9 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
 #[test]
 fn unchanged_giant_and_sibling_typing_copy_hash_and_shape_no_giant_source() {
     let engine = TextEngine::shared();
-    let text = "word é\n".repeat(131072);
-    assert!(text.len() >= 1024 * 1024);
+    // Twice the giant bar: any whole-source copy, hash or shape is counted
+    let text = "word é\n".repeat(16384);
+    assert!(text.len() >= 2 * 65536);
     let mut k = tree(engine.clone(), &text);
     let mut p = Painter::new(engine.clone(), 1., Box::new(Raster::new()));
     let first = paint(&mut p, &k);
