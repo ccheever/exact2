@@ -1,0 +1,37 @@
+// The theme fixture (LLP 1121 stage 2): a page in the window's app modes
+// (`setMode`), and three previews pinned beside it: Light, Dim and Black,
+// each a `color-scheme` and, for the dark two, an `-exact-mode` pin. Text
+// whose colour the page sets is inherited into each preview, so a mode
+// boundary sets it again in the preview's tuple.
+component App
+  action dim
+    setMode("dark-style", "dim")
+  action black
+    setMode("dark-style", "black")
+  view
+    scroll width="100%" height="100%" background-color="surface.page" color="text.primary" testId="page"
+      column gap=12 padding=16
+        text "Theme fixture" role="heading" aria-level=1
+        text "Inherited text, the page's" color="text.secondary"
+        row gap=8
+          button press=dim buttonStyle="filled" testId="dim"
+            text "Dim"
+          button press=black buttonStyle="bordered" testId="black"
+            text "Black"
+        column testId="card" padding=12 gap=6 border-radius=12 background-color="surface.card" border-width=1 border-style="solid" border-color="border.hairline" box-shadow="0 2px 8px color-mix(in srgb, border.hairline 60%, transparent)"
+          text "A card"
+          text "Secondary" color="text.secondary"
+          view height=24 border-radius=6 background-image="linear-gradient(90deg, accent.fill, surface.card)"
+          svg viewBox="0 0 24 24" width=24 height=24
+            circle cx=12 cy=12 r=10 fill="accent.fill"
+        text "Previews" role="heading" aria-level=2
+        row gap=8
+          column testId="light" color-scheme="light" flex=1 padding=8 gap=4 border-radius=10 background-color="surface.page"
+            text "Light"
+            view height=20 border-radius=4 background-color="surface.card"
+          column testId="dim-preview" color-scheme="dark" -exact-mode="dark-style:dim" flex=1 padding=8 gap=4 border-radius=10 background-color="surface.page"
+            text "Dim"
+            view height=20 border-radius=4 background-color="surface.card"
+          column testId="black-preview" color-scheme="dark" -exact-mode="dark-style:black" flex=1 padding=8 gap=4 border-radius=10 background-color="surface.page"
+            text "Black"
+            view height=20 border-radius=4 background-color="surface.card"

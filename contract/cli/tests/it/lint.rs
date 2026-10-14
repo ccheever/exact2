@@ -513,7 +513,17 @@ fn the_element_lint_finds_nothing_in_any_app() {
         let Ok(src) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let file = contract_syntax::parse(&src).unwrap();
+        let mut file = contract_syntax::parse(&src).unwrap();
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.tamber");
+        file.design =
+            std::fs::read_to_string(&design)
+                .ok()
+                .map(|text| contract_syntax::DesignSource {
+                    path: design.display().to_string(),
+                    text,
+                    source_id: 1,
+                });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
         checked += 1;

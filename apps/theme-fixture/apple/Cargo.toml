@@ -1,0 +1,22 @@
+[package]
+name = "theme-fixture-apple"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The theme fixture on Apple platforms (LLP 1121 stage 2)"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "theme_fixture_apple"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+theme-fixture-data = { path = "../data" }
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+theme-fixture-data = { path = "../data" }
