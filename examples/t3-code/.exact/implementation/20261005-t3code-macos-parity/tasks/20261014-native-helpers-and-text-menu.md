@@ -3,11 +3,11 @@ name: 20261014-native-helpers-and-text-menu
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-native-helpers-and-text-menu
-pr_url:
+pr_url: https://github.com/ccheever/exact2/pull/544
 verified_commit:
 ---
 
@@ -111,13 +111,12 @@ Changed task-owned code:
 ## Attempts and evidence
 
 One repair round. Host: macOS 26.6.2 (25G83), arm64; Apple Swift 6.4, compiled in Swift 5 mode; Bun 1.4.2.
-The original native observation artifacts are linked above. Raw native-suite output is preserved in
-[`evidence/20261014-native-helpers-and-text-menu`](../evidence/20261014-native-helpers-and-text-menu/).
+The original native observation artifacts are linked above. Raw native-suite output is published on the existing `t3-code-evidence` branch, pinned below; the plan keeps verification logs out of the application branch.
 
 | Check | Before the runtime fix | After the runtime fix |
 | --- | --- | --- |
-| Context-menu XCTest suite | [70 tests, 2 failed assertions](../evidence/20261014-native-helpers-and-text-menu/contextmenu-red.log), both in the new selected-text test: actual menu had four roles and never consulted the Services requestor. Exit 1. | [70 tests, 0 failures](../evidence/20261014-native-helpers-and-text-menu/contextmenu-green.log). Selected text drew Cut, Copy, Paste, Select All, Services; no selection drew the four roles. Composer, text-field, and browser regressions also passed. Exit 0. |
-| Snapshot/native-helper suite | [Failed the tracking-mode grant assertion](../evidence/20261014-native-helpers-and-text-menu/snapshot-red.log). Exit 133. | [165 checks passed](../evidence/20261014-native-helpers-and-text-menu/snapshot-green.log), including 58 helper checks. The grant transition closed the helper and released its watcher while the event-tracking run loop ran. Exit 0. |
+| Context-menu XCTest suite | [70 tests, 2 failed assertions](https://raw.githubusercontent.com/ccheever/exact2/3a82181872531a270472140bd7cdaa765cdbfdb7/native-helpers-and-text-menu/20261014-review/contextmenu-red.log), both in the new selected-text test: actual menu had four roles and never consulted the Services requestor. Exit 1. | [70 tests, 0 failures](https://raw.githubusercontent.com/ccheever/exact2/3a82181872531a270472140bd7cdaa765cdbfdb7/native-helpers-and-text-menu/20261014-review/contextmenu-green.log). Selected text drew Cut, Copy, Paste, Select All, Services; no selection drew the four roles. Composer, text-field, and browser regressions also passed. Exit 0. |
+| Snapshot/native-helper suite | [Failed the tracking-mode grant assertion](https://raw.githubusercontent.com/ccheever/exact2/3a82181872531a270472140bd7cdaa765cdbfdb7/native-helpers-and-text-menu/20261014-review/snapshot-red.log). Exit 133. | [165 checks passed](https://raw.githubusercontent.com/ccheever/exact2/3a82181872531a270472140bd7cdaa765cdbfdb7/native-helpers-and-text-menu/20261014-review/snapshot-green.log), including 58 helper checks. The grant transition closed the helper and released its watcher while the event-tracking run loop ran. Exit 0. |
 
 These are actual AppKit menu/panel executions with synthetic events and injected grant/Settings state. They neither
 request OS grants nor send global input. Actual drawn-menu inspection is the practical local proof: agent mode only
@@ -157,3 +156,7 @@ Review this diff, build and launch the combined macOS app, then execute acceptan
 record the helper's close reason rather than treating disappearance as proof of a grant. For G5-B3, capture the actual
 key-window and Settings-frontmost states before choosing any visibility change. Final acceptance, verified commit,
 PR delivery, and task closure belong to the coordinator's verification pass.
+
+## Publication and review
+
+Draft PR [#544](https://github.com/ccheever/exact2/pull/544) publishes implementation `d488d1057c12039d98359846a4efb0c8bac5545f`. Independent source review found no blocking issue in the two native changes and their red/green checks. This bookkeeping update moves raw logs to the established evidence branch; it changes no runtime or test inputs. Integrated checks and the real-input cases above remain open.
