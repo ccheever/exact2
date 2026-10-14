@@ -9,7 +9,7 @@
 // semantics (contract-action-fixture.ts).
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { contractComponent, type Env } from './contract-action-fixture';
+import { contractComponent, value, type Env } from './contract-action-fixture';
 import { contractFn } from './contract-fn-fixture';
 
 const source = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
@@ -279,40 +279,95 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   const window = contractComponent('app-window.contract', 'T3Window');
   const offer = { source: '["t","a"]', ranges: '12-152', stream: 'Cite check.\nA closing …', size: 140, x: 501, y: 385, end: 'cite-["t","a"]-2', lx: 0, ly: 23.83, lw: 221.2, lh: 21 };
 
+  // Evaluate the actual visibility derive without unrelated window derives and their unrelated resources.
+  const shows = (state: Env, scope: Env) => value(source('app-window.contract').match(/^  derive citeShows = (.+)$/m)![1]!, { ...scope, ...state });
+  const scope = () => ({ data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0,
+    citeWaitDone: 0, pageCover: false, settingsOpen: false, modal: false });
+  const state = (): Env => ({ citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0 });
+
+  test.each(['Escape', 'clear', 'key', 'outside'])('%s during the double-click delay cancels the future offer', (dismiss) => {
+    const w = state(), props = scope(), a = answer();
+    window.call('citeOfferSet', w, props, [offer]);
+    window.call('citeHold', w, { citeWaitAsk: () => {} }, []);
+    expect(shows(w, props)).toBe(false);
+    a.state.parts = [{ block: '2', start: 12, end: 152, lx: 0, ly: 23.83, lw: 221.2, lh: 21 }];
+    const answerScope = { ...a.scope(), citeHolding: true, citeWithdraw: (source: string) => window.call('citeWithdraw', w, {}, [source]) };
+    if (dismiss === 'Escape') a.md.call('keys', a.state, answerScope, ['Escape', {}]);
+    else if (dismiss === 'clear') a.md.call('selected', a.state, answerScope, ['2', '', a.selection('', 0, 0, [])]);
+    else if (dismiss === 'key') a.md.call('keys', a.state, answerScope, ['ArrowRight', {}]);
+    else {
+      w.outsideDown = false;
+      window.call('outsidePressDown', w, { chipShown: false, detailsOpen: false,
+        frame: () => ({ ...geometry(0, 0, 0, 0), unavailable: true }) }, [{ buttons: 1, clientX: 100, clientY: 100 }]);
+    }
+    props.citeWaitDone = 1;
+    expect(shows(w, props)).toBe(false);
+    expect(w.citeFor).toBe('');
+    expect(a.state.parts).toEqual(dismiss === 'clear' ? [] : [{ block: '2', start: 12, end: 152, lx: 0, ly: 23.83, lw: 221.2, lh: 21 }]);
+  });
+
+  test.each([0, 1])('returning to the viewport, thread, page, Settings or dialog cannot revive an offer with %i pending waits', (waits) => {
+    const root = contractComponent('app.contract', 'T3Code');
+    const app = source('app.contract');
+    const contextTask = app.match(/^  task citeContext key=(.+)\n    after\(1, (\w+)\)/m);
+    for (const away of [{ viewport: { width: 1000, height: 700 } }, { data: { threadId: 'other' } },
+      { pageCover: true }, { settingsOpen: true }, { modal: true }]) {
+      const w = state(), props = scope(), r: Env = { citeDismissals: 0 };
+      w.citeWaits = waits;
+      let priorKey = contextTask ? value(contextTask[1]!, props) : undefined;
+      const settleContext = (next: Env) => {
+        if (!contextTask) return;
+        const nextKey = value(contextTask[1]!, next);
+        if (nextKey !== priorKey) root.call(contextTask[2]!, r, {}, []);
+        priorKey = nextKey;
+      };
+      window.call('citeOfferSet', w, props, [offer]);
+      expect(shows(w, props)).toBe(waits === 0);
+      expect(shows(w, { ...props, ...away })).toBe(false);
+      settleContext({ ...props, ...away });
+      settleContext(props);
+      props.citeWaitDone = waits;
+      expect(shows(w, { ...props, ...r })).toBe(false);
+      // A new selection in the restored context still offers Cite normally.
+      window.call('citeOfferSet', w, { ...props, ...r }, [offer]);
+      expect(shows(w, { ...props, ...r })).toBe(true);
+    }
+  });
+
   test('an offer shows on its thread; a withdrawal by another answer, or none, leaves it; the scroll hides it', () => {
-    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeBlurAt: 0 };
-    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeBlurs: 0 }, [offer]);
+    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeDismissedAt: 0 };
+    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 0 }, [offer]);
     expect(state).toMatchObject({ citeOffer: offer, citeFor: '["t","a"]', citeThread: 't', citeViewport: '1280x840' });
     window.call('citeWithdraw', state, {}, ['["t","b"]']);
     expect(state.citeFor).toBe('["t","a"]');
     window.call('citeScrolled', state, {}, [0, 120]);
     expect(state.citeFor).toBe('');
-    expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover and not settingsOpen and not modal');
+    expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal');
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=citeScrolled');
   });
 
   test('Cite waits for the root\'s 500 ms after a double-click and hides once the window loses the focus (observeSelectionActions)', () => {
-    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeBlurAt: 0 };
+    const state: Env = { citeOffer: {}, citeFor: '', citeThread: '', citeViewport: '', citeWaits: 0, citeDismissedAt: 0 };
     const asked: number[] = [];
     window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
     window.call('citeHold', state, { citeWaitAsk: (n: number) => asked.push(n) }, []);
     expect([state.citeWaits, asked]).toEqual([2, [1, 2]]);
-    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeBlurs: 3 }, [offer]);
-    expect(state.citeBlurAt).toBe(3);
+    window.call('citeOfferSet', state, { data: { threadId: 't' }, viewport: { width: 1280, height: 840 }, citeDismissals: 3 }, [offer]);
+    expect(state.citeDismissedAt).toBe(3);
     const window_ = source('app-window.contract');
-    expect(window_).toContain('and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover');
+    expect(window_).toContain('and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover');
     expect(window_).toContain('    citeHold\n    citeHolding = (citeWaits > citeWaitDone)');
     // The root: a wait asked is over 500 ms later; each focus loss counts.
     const root = contractComponent('app.contract', 'T3Code');
-    const r: Env = { citeWaitAsked: 0, citeWaitDone: 0, citeBlurs: 0 };
+    const r: Env = { citeWaitAsked: 0, citeWaitDone: 0, citeDismissals: 0 };
     root.call('citeWaitAsk', r, {}, [2]);
     root.call('citeWaitOver', r, {}, []);
-    root.call('citeBlurred', r, {}, []);
-    expect(r).toEqual({ citeWaitAsked: 2, citeWaitDone: 2, citeBlurs: 1 });
+    root.call('citeDismissed', r, {}, []);
+    expect(r).toEqual({ citeWaitAsked: 2, citeWaitDone: 2, citeDismissals: 1 });
     const app = source('app.contract');
     expect(app).toContain('  task citeWait when citeWaitAsked > citeWaitDone key=citeWaitAsked\n    after(500, citeWaitOver)');
-    expect(app).toContain('  task citeBlur when not page.hasFocus\n    after(1, citeBlurred)');
-    expect(app).toContain(', citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeBlurs=citeBlurs)\n');
+    expect(app).toContain('  task citeBlur when not page.hasFocus\n    after(1, citeDismissed)');
+    expect(app).toContain(', citeWaitDone=citeWaitDone, citeWaitAsk=citeWaitAsk, citeDismissals=citeDismissals)\n');
   });
 
   test('a press anywhere but on Cite hides it (observeSelectionActions\' pointerdown); one on Cite keeps it for its press', () => {

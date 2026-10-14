@@ -251,7 +251,7 @@ component AnswerMarkdown
     parts = next
     if held
       moved = true
-    else if source != "" and length(next) == 0 and citeOffered == source
+    else if source != "" and length(next) == 0
       citeWithdraw(source)
     else if source != "" and length(next) > 0
       citeOfferSet(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
@@ -283,7 +283,9 @@ component AnswerMarkdown
       preventDefault()
       stopPropagation()
       focus("cite-action")
-    else if k == "Escape" and source != "" and citeOffered == source
+    // Dismiss the offer even while the double-click delay keeps it hidden. Other keys cancel a pending offer, as
+    // observeSelectionActions cancels its timer; a subsequent selection change can offer the new keyboard selection.
+    else if source != "" and (k == "Escape" or citeHolding)
       citeWithdraw(source)
   // The quote's place in this answer while its comment is open (the reference resolves it with
   // resolveAssistantCitationRange), or -1.
