@@ -890,6 +890,12 @@ impl Painter {
         {
             return;
         }
+        // The roles drawn in the accent read the nearest authored
+        // `accent-color`, as Apple's tint and the web's `--exact-accent` do,
+        // for this node and, until one of them authors its own, below it.
+        let _accent = exact_kernel::style::roles::authored_accent(
+            node.computed_row(StyleId::AccentColor, |s| s.accent_color),
+        );
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);

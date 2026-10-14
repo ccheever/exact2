@@ -725,6 +725,9 @@ impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
     pub fn resolve(self, dark: bool) -> Color {
+        if let Some(c) = roles::painted_accent(self, dark) {
+            return c;
+        }
         // @ref LLP 1095 D4 — a role the theme replaces is what replaces it.
         if let Some(o) = roles::painted_override(self) {
             return o.resolve(dark);

@@ -413,6 +413,44 @@ pub fn tint(id: u8) -> bool {
     follows_accent(id, false) || follows_accent(id, true)
 }
 
+thread_local! {
+    /// The authored `accent-color` around what a painting host paints now
+    /// ([`authored_accent`]).
+    static AUTHORED: std::cell::Cell<Option<ColorValue>> = const { std::cell::Cell::new(None) };
+}
+
+/// A painting host's scope: the nearest `accent-color` its node or an
+/// ancestor authored (the inherited row), which the roles the browser draws
+/// in the accent ([`web_accent`]: `AccentColor`, `LinkText`, `-exact-link`,
+/// `-exact-symbol`) resolve to while it lasts, as the web's
+/// `var(--exact-accent, AccentColor)` reads the nearest one. Restored when
+/// the scope ends.
+pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
+    AccentScope(AUTHORED.with(|a| a.replace(accent)))
+}
+
+/// What [`authored_accent`] restores.
+pub struct AccentScope(Option<ColorValue>);
+
+impl Drop for AccentScope {
+    fn drop(&mut self) {
+        AUTHORED.with(|a| a.set(self.0));
+    }
+}
+
+/// `c` under the scope's authored accent, when it is a role drawn in the
+/// accent; the accent itself is resolved with none around, so an authored
+/// `AccentColor` is the tint.
+pub(crate) fn painted_accent(c: ColorValue, dark: bool) -> Option<super::Color> {
+    let ColorValue::Role(id) = c else { return None };
+    if !role_of(id).is_some_and(web_accent) {
+        return None;
+    }
+    let accent = AUTHORED.with(|a| a.get())?;
+    let _none = authored_accent(None);
+    Some(accent.resolve(dark))
+}
+
 /// What a painting host resolves for `c` under the theme: a replaced
 /// role's colour, and for a tint role the theme's `AccentColor` (an
 /// authored accent is the host's to apply).
