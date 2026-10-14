@@ -184,6 +184,7 @@ pub fn lint(file: &File) -> Vec<LowerError> {
     // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
     // row's value is one, so each stands for any.
     let theme = crate::theme::theme_decl(file);
+    crate::theme::bind_axes(file);
     let entries = theme.iter().flat_map(|t| &t.entries);
     let _theme = exact_kernel::style::theme::declarations(
         entries.map(|e| (e.name.as_str(), "transparent", false)),

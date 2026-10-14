@@ -368,9 +368,10 @@ fn css_text_in(
                     push_text!(&mut out, "--exact-fit:{};", kind);
                 }
             }
-            // Written with `rotate` and `translate` (LLP 1077 D8), never alone:
-            // nothing of their own to write, and nothing skipped (kanban F30).
+            // Written with `rotate` and `translate` (LLP 1077 D8), never alone, and a
+            // boundary's tuple (LLP 1121 D7): nothing to write, none skipped (F30).
             (StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent, _) => {}
+            (StyleId::Mode, _) => {}
             _ if lowered(id, &value) => {
                 property(&mut out, id);
                 out.push(':');

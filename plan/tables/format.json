@@ -632,6 +632,35 @@
         {
           "name": "value",
           "codec": "str"
+        },
+        {
+          "name": "slices",
+          "codec": "range:theme_slices",
+          "_comment": "@ref LLP 1121 D5, D7: a token that varies by an app axis has one slice per full app tuple, in tuple order (mixed radix over `axes`, the first axis most significant); `value` is the default tuple's. Empty for a token that does not vary."
+        }
+      ]
+    },
+    {
+      "name": "theme_slices",
+      "_comment": "@ref LLP 1121 D5: one token's colour text for one full app tuple; a `theme` row's `slices` range names its own.",
+      "fields": [
+        {
+          "name": "value",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "axes",
+      "_comment": "@ref LLP 1121 D5: the app's axes in declaration order, each with its values joined by `|`, the first the default. `-exact-mode` pins a node's value per axis; the window's are `setMode`'s.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "values",
+          "codec": "str"
         }
       ]
     },

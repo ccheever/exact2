@@ -203,44 +203,177 @@ pub fn set_plan_style(
                     .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
             )
         });
+    // @ref LLP 1121 D5 — a pin's text is the plan's axes: the row holds the
+    // full tuple it makes over the tuple around the node, plus one.
+    if id == StyleId::Mode as u16 {
+        let tuple = value
+            .as_str()
+            .and_then(|text| pinned(plan, text, tuple()))
+            .ok_or(BridgeError::StyleKind {
+                style: StyleId::Mode,
+                value: value.clone(),
+            })?;
+        return set_style(
+            patch,
+            id,
+            &Value::Number(f64::from(tuple + 1)),
+            plan.stacks.len(),
+        );
+    }
     // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
     let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!()))
         .then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
     set_style(patch, id, value, plan.stacks.len())
 }
 
+/// The full app tuple `text`'s pins (`axis=value`, space- or comma-
+/// separated) make over `base`, axis by axis (LLP 1121 D5); `None` when a
+/// pin names no axis or value of `plan`'s.
+pub fn pinned(plan: &exact_plan::Plan, text: &str, base: u32) -> Option<u32> {
+    let axes: Vec<(&str, Vec<&str>)> = plan
+        .axes
+        .iter()
+        .map(|a| (plan.str(a.name), plan.str(a.values).split('|').collect()))
+        .collect();
+    // The base's digit per axis, the first axis most significant.
+    let mut digits = vec![0u32; axes.len()];
+    let mut rest = base;
+    for (i, (_, values)) in axes.iter().enumerate().rev() {
+        digits[i] = rest % values.len() as u32;
+        rest /= values.len() as u32;
+    }
+    // Each axis once, as the compiler checks a literal pin.
+    let mut pinned = 0u64;
+    for pin in text.split([' ', ',']).filter(|p| !p.is_empty()) {
+        let (axis, value) = pin.split_once('=')?;
+        let i = axes.iter().position(|(name, _)| *name == axis)?;
+        if i >= 64 || pinned & (1 << i) != 0 {
+            return None;
+        }
+        pinned |= 1 << i;
+        digits[i] = axes[i].1.iter().position(|v| *v == value)? as u32;
+    }
+    (pinned != 0).then(|| {
+        axes.iter()
+            .zip(&digits)
+            .fold(0, |tuple, ((_, values), d)| tuple * values.len() as u32 + d)
+    })
+}
+
 /// A plan's theme and strings buffers and the theme's length: which plan a
 /// cached table is.
 type PlanAt = (usize, usize, usize);
 
+/// One token's edit: its plan, its name, its default tuple's value and,
+/// when it varies, every tuple's.
+type Edit = (PlanAt, String, String, Vec<String>);
+
 thread_local! {
-    /// The last plan's theme table, kept so a themed list's thousand rows
-    /// bind it by pointer instead of building it each.
-    static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, exact_kernel::style::theme::Table)>> =
+    /// The last plan's theme tables, one an app tuple as it is first bound,
+    /// kept so a themed list's thousand rows bind one by pointer instead of
+    /// building it each.
+    static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, Vec<Option<exact_kernel::style::theme::Table>>)>> =
         const { std::cell::RefCell::new(None) };
+    /// The app tuple of the rows being set (LLP 1121 D5): the window's,
+    /// overridden by the nearest `-exact-mode` pin; the runner sets it
+    /// around a node.
+    static TUPLE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+    /// Tokens edited since a plan was built (LLP 1121 D13), by the plan and
+    /// the token's name: the default tuple's value and, when it varies,
+    /// every tuple's.
+    static EDITS: std::cell::RefCell<Vec<Edit>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
-/// `plan`'s theme as a parse binds it: each entry under its name, and an
-/// override under its role's spelling too. Built when the plan differs from
-/// the last one this thread bound (known by its buffers' addresses, nothing
-/// scanned per row), else the one built before.
-pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
-    use exact_kernel::style::roles;
-    // The plan's own buffers: a cached table built from them is this plan's.
-    let at = (
+/// A token's value from now on, over the plan's (LLP 1121 D13's edit): its
+/// default tuple's and, when it varies, every tuple's. The tables are built
+/// again when next bound.
+pub fn edit_token(plan: &exact_plan::Plan, name: &str, value: &str, slices: &[&str]) {
+    let at = plan_at(plan);
+    EDITS.with(|edits| {
+        let mut edits = edits.borrow_mut();
+        edits.retain(|(p, n, ..)| *p != at || n != name);
+        edits.push((
+            at,
+            name.into(),
+            value.into(),
+            slices.iter().map(|s| (*s).into()).collect(),
+        ));
+    });
+    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+}
+
+/// A plan's buffers: which plan a cached table or an edit is.
+fn plan_at(plan: &exact_plan::Plan) -> PlanAt {
+    (
         plan.theme.as_ptr() as usize,
         plan.theme.len(),
         plan.strings.as_ptr() as usize,
-    );
+    )
+}
+
+/// Set the app tuple rows are set in; the one before.
+pub fn set_tuple(tuple: u32) -> u32 {
+    TUPLE.with(|t| t.replace(tuple))
+}
+
+/// The app tuple rows are set in ([`set_tuple`]).
+pub fn tuple() -> u32 {
+    TUPLE.with(|t| t.get())
+}
+
+/// How many full app tuples `plan`'s axes make (1 with none).
+pub fn tuples(plan: &exact_plan::Plan) -> u32 {
+    plan.axes
+        .iter()
+        .map(|a| plan.str(a.values).split('|').count() as u32)
+        .product()
+}
+
+/// `plan`'s theme as a parse binds it, in the current app tuple
+/// ([`theme_table_at`]).
+pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
+    theme_table_at(plan, tuple())
+}
+
+/// `plan`'s theme as a parse binds it in app tuple `tuple`: each entry under
+/// its name, its value that tuple's slice when it varies (LLP 1121 D5), and
+/// an override under its role's spelling too. Built when the plan differs
+/// from the last one this thread bound (known by its buffers' addresses,
+/// nothing scanned per row) or the tuple was not bound yet, else the one
+/// built before.
+pub fn theme_table_at(plan: &exact_plan::Plan, tuple: u32) -> exact_kernel::style::theme::Table {
+    use exact_kernel::style::roles;
+    // The plan's own buffers: a cached table built from them is this plan's.
+    let at = plan_at(plan);
     THEME_TABLE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some((key, table)) = cache.as_ref() {
-            if *key == at {
-                return table.clone();
-            }
+        if cache.as_ref().is_none_or(|(key, _)| *key != at) {
+            *cache = Some((at, Vec::new()));
         }
+        let (_, tables) = cache.as_mut().expect("set above");
+        let slot = tuple as usize;
+        if let Some(Some(table)) = tables.get(slot) {
+            return table.clone();
+        }
+        let edits: Vec<_> = EDITS.with(|e| {
+            e.borrow()
+                .iter()
+                .filter(|(p, ..)| *p == at)
+                .cloned()
+                .collect()
+        });
         let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
-            let (name, role, value) = (plan.str(row.name), plan.str(row.role), plan.str(row.value));
+            let (name, role) = (plan.str(row.name), plan.str(row.role));
+            let edit = edits.iter().find(|(_, n, ..)| n == name);
+            let value = match (edit, row.slices.len) {
+                (Some((_, _, value, slices)), _) => {
+                    slices.get(tuple as usize).unwrap_or(value).as_str()
+                }
+                (None, 0) => plan.str(row.value),
+                (None, len) => plan
+                    .str(plan.theme_slices[(row.slices.start + tuple.min(len - 1)) as usize].value),
+            };
             // A tint role stays the role in its row (`ColorValue::themed`).
             let tint = roles::role(role).is_some_and(roles::tint);
             (!tint)
@@ -248,7 +381,10 @@ pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table
                 .into_iter()
                 .chain((!role.is_empty() && !tint).then_some((role, value, true)))
         }));
-        *cache = Some((at, table.clone()));
+        if tables.len() <= slot {
+            tables.resize(slot + 1, None);
+        }
+        tables[slot] = Some(table.clone());
         table
     })
 }
@@ -263,6 +399,10 @@ pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
     // next: the cached table is rebuilt for it (never another plan's whose
     // buffers it reuses).
     THEME_TABLE.with(|cache| cache.borrow_mut().take());
+    // A plan booted afresh starts from its own tokens (LLP 1121 D13), though
+    // its buffers may be where an edited one's were.
+    let at = plan_at(plan);
+    EDITS.with(|edits| edits.borrow_mut().retain(|(p, ..)| *p != at));
     let _profiles = exact_kernel::style::profiled::declarations(
         plan.profiles
             .iter()

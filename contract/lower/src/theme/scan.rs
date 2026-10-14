@@ -208,6 +208,23 @@ fn values(e: &Expr, out: &mut Vec<(String, Span, bool)>) {
     }
 }
 
+/// The string literals a value is, through `?:`, `match` and `let`.
+pub(crate) fn literal_leaves(e: &Expr, out: &mut Vec<(String, Span)>) {
+    match e {
+        Expr::Str(text, span) => out.push((text.clone(), *span)),
+        Expr::Ternary(_, yes, no, _) => {
+            literal_leaves(yes, out);
+            literal_leaves(no, out);
+        }
+        Expr::Match { some, none, .. } => {
+            literal_leaves(some, out);
+            literal_leaves(none, out);
+        }
+        Expr::Let { body, .. } => literal_leaves(body, out),
+        _ => {}
+    }
+}
+
 /// A string literal's text, or a template's, with its place.
 fn strings(e: &Expr, strict: bool, out: &mut Vec<(String, Span, bool)>) {
     match e {

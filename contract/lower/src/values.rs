@@ -493,6 +493,10 @@ pub(crate) fn check_style_value(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<(), LowerError> {
+    // A pin names the design's axes, which the runner resolves (LLP 1121 D5).
+    if rows == [StyleId::Mode] {
+        return crate::theme::mode_pins(a);
+    }
     // A name the design lacks, or a colour token in another row (LLP 1121 D3).
     style_value(a, rows, ty, fonts, scope, shapes)
         .map_err(|e| crate::theme::token_error(a, rows, e))
