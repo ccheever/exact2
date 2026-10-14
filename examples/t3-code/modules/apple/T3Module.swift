@@ -21,6 +21,7 @@ final class T3Module: ExactModule {
     let rowDrop: T3RowDrop // legacy-sidebar-full LS-3: files dropped on a legacy sidebar row (T3RowDrop.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
     private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
+    private let mediaFocus = T3MediaFocus() // chat-markdown-media-and-code G4-09: a press elsewhere takes the focus off a media node (T3MediaActions.swift).
     let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
     private let timeline: T3Timeline
     let turns: T3TimelineTurns // The minimap's turns in view and jumps (T3TimelineTurns.swift).
@@ -127,7 +128,7 @@ final class T3Module: ExactModule {
         panelTabs.install(element); toolIcons.install(element); timelineTips.install(element)
         frames.install(element); scrollEnds.install(element)
         composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
-        launcher.install(element); measure.install(element); r9.install(element); r10.install(element)
+        launcher.install(element); measure.install(element); r9.install(element); r10.install(element); mediaFocus.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
         rowDrop.install(element) // legacy-sidebar-full LS-3: a legacy row's file drop target
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
@@ -138,12 +139,12 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
-        composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element)
+        composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); r9.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { detachAppControl(); activity.destroy(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
+    override func destroy() { detachAppControl(); activity.destroy(); mediaFocus.destroy(); T3MenuDismissal.disarm(); rowDrop.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); textMenu.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); promptPreview.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); browserSessions.sync([]); T3LocalBackend.shared.detach(self) } // detachAppControl first: the window's request fails at once (renderer-unavailable), and the control lets go of the backend before the last module stops it
 }
 
 let exactModule: ExactModule.Type = T3Module.self

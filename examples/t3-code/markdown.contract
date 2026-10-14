@@ -5,7 +5,7 @@ use Tip from "./shell-tip.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
-use MorphMaximize from "./shell-morph.contract"
+use MorphMaximize, MorphCopyCheck from "./shell-morph.contract"
 use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
@@ -112,25 +112,6 @@ shape MermaidDiagram
   viewBox: string
   items: list<MermaidItem>
 
-// MorphIcon on a code block's copy button: the check holds 1.2s after a copy,
-// then the copy glyph returns; two names let a second copy restart it.
-keyframes mdCheckA
-  from opacity=1
-  99% opacity=1
-  to opacity=0
-keyframes mdCheckB
-  from opacity=1
-  99% opacity=1
-  to opacity=0
-keyframes mdCopyA
-  from opacity=0
-  99% opacity=0
-  to opacity=1
-keyframes mdCopyB
-  from opacity=0
-  99% opacity=0
-  to opacity=1
-
 // pierre-light / pierre-dark, the reference's Shiki themes, by token class.
 // shiki-residuals: a class ends in "+i" where the pierre theme sets italic (r12-render-highlight.ts).
 fn synColor(cls: string): string = synInk(endsWith(cls, "+i") ? slice(cls, 0, -2) : cls)
@@ -187,6 +168,10 @@ fn noChips(): list<ChipView> = []
 fn runAt(runs: list<ChatRun>, id: string): number = length(join(map(slice(runs, 0, max(0, indexOf(map(runs, (r) => r.id), id))), (r) => r.text), ""))
 fn tokenAt(tokens: list<CodeToken>, id: string): number = length(join(map(slice(tokens, 0, max(0, indexOf(map(tokens, (t) => t.id), id))), (t) => t.text), ""))
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
+
+// G4-05: occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
+fn galleryImage(href: string, chips: list<ChipView>): bool = length(filter(chips, (chip) => chip.kind == "media" and chip.href == href and chip.size == "image" and chip.icon != "blocked")) > 0
+fn markdownGalleryIds(blocks: list<ChatBlock>, chips: list<ChipView>): list<string> = filter(split(join(map(blocks, (block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : (block.flow and not includes(["code", "table", "table-row", "rule"], block.kind) ? join(map(filter(block.runs, (run) => run.kind == "media" and galleryImage(run.href, chips)), (run) => `${block.id}-${run.id}`), "\n") : "")), "\n"), "\n"), (id) => id != "")
 
 component ChatMarkdown
   props
@@ -327,6 +312,9 @@ component MarkdownBlocks
     fit: bool
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
+  derive galleryIds = markdownGalleryIds(document.blocks, noChips())
+  provide
+    galleryIds
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
@@ -350,6 +338,9 @@ component EnvBlocks
     env: MarkdownEnv
   action noCite(blockId: string, runId: string, s: Selection)
     let ignored = blockId
+  derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  provide
+    galleryIds
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -380,6 +371,9 @@ component DiagramBlocks
     // diff-cite-popover DC-1: the cited text's [start, end) in the answer's text stream (-1: none), each block's share.
     markStart: number
     markEnd: number
+  derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
+  provide
+    galleryIds
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -448,7 +442,7 @@ component BlockBody
       // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
       when length(filter(chips, (c) => c.kind == "media" and c.href == block.href)) > 0
         each chip in filter(chips, (c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=chip.label, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true)
+          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     when block.kind == "quote"
@@ -628,7 +622,7 @@ component FlowRuns
         // its alt text.
         when run.kind == "media" and length(filter(chips, (chip) => chip.kind == "media" and chip.href == run.href)) > 0
           each chip in filter(chips, (chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"))
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
         // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
         when not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and length(filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href)) > 0)
           each chip in filter(chips, (chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -1032,8 +1026,12 @@ component MermaidSvg
         else
           path d=item.d transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` stroke=`light-dark(${item.stroke}, ${item.strokeDark})` stroke-width=item.width stroke-dasharray=item.dash stroke-linecap=item.cap stroke-linejoin=item.join
 
-// MarkdownCodeBlock's copy button: Copy morphs to a check for 1.2s after a copy.
+// MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (X18, chat-markdown-media-and-code): the check from a copy until
+// the root clears it 1.2 s later (codeCopyDone, app.contract), both ways on morphicons' spring (shell-morph.contract).
 component CopyCodeButton
+  inject
+    still: bool
+    codeCopyDone: number
   props
     block: ChatBlock
     local: action
@@ -1043,14 +1041,7 @@ component CopyCodeButton
     hovered = over
   view
     button press=local("copy-code", block.id, block.text) hover=hover aria-label="Copy code" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      when copied > 0
-        box position="relative" width="0.75rem" height="0.75rem"
-          box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
-            Icon(name="copy", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-          box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCheckA 1.2s linear forwards" : "mdCheckB 1.2s linear forwards")
-            TimelineIcon(name="check-mark", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      else
-        Icon(name="copy", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=still)
 
 // MarkdownTable (ChatMarkdown.tsx; MIT, see LICENSE-T3): a full-width table of
 // 12pt cells that scrolls sideways past its content width; cells keep one line
@@ -1058,7 +1049,7 @@ component CopyCodeButton
 // wrap across the column (Settings → Word wrap decides the start). A cell's
 // 24rem max-width only caps what it asks of the column: Chrome's table layout
 // ignores max-width on a td, so spare room still widens the column. The footer's Copy menu copies the
-// table as Markdown or CSV; a copy morphs its icon to a check for 1.2s.
+// table as Markdown or CSV; a copy morphs its icon to a check and back after 1.2s (X18, MorphCopyCheck).
 component MarkdownTable
   props
     block: ChatBlock
@@ -1158,6 +1149,9 @@ component TableIconButton
       MorphMaximize(on=(icon == "minimize"), size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=false)
 
 component TableCopyButton
+  inject
+    still: bool
+    codeCopyDone: number
   props
     press: action
     // ↓ and ↑: the same request, asking the window's menu to focus its first or last item as it mounts.
@@ -1185,14 +1179,7 @@ component TableCopyButton
         pressFirst()
   view
     button press=openMenu key=menuKey hover=hover aria-label="Copy table" aria-expanded=open id=testId hatch="t3-measure" data-frame=testId testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      when copied > 0
-        box position="relative" width="0.75rem" height="0.75rem"
-          box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCopyA 1.2s linear forwards" : "mdCopyB 1.2s linear forwards")
-            Icon(name="copy", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-          box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" animation=(copied % 2 == 0 ? "mdCheckA 1.2s linear forwards" : "mdCheckB 1.2s linear forwards")
-            TimelineIcon(name="check-mark", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      else
-        Icon(name="copy", size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      MorphCopyCheck(on=(copied > 0 and copied != codeCopyDone), size=12, color=(hovered or open ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=still)
 
 component TableMenuItem
   props

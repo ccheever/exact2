@@ -226,7 +226,7 @@ export function timelineSnapshot(client: T3Client) {
   const view = timelineView(client);
   const native = nativeTurns(client), rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
   const minimap = minimapItems(rows, native.inView);
-  return { historyError: view.historyError.get(client.threadId) ?? '',
+  return { historyError: view.historyError.get(client.threadId) ?? '', codeCopyNonce: view.codeCopy.threadId === client.threadId ? view.codeCopy.nonce : 0,
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
     minimap: minimap.map(({ row: _row, ...item }) => item), minimapCurrent: minimapCurrent(minimap, native.above), ...imagePreviewView(client), ...diagramPreviewView(client) };
 }

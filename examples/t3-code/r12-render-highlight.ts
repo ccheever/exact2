@@ -15,7 +15,7 @@
 // A text that extends a recently tokenized one (a streaming code block, the same file again)
 // resumes from the last unchanged line's state.
 
-import { colorOf, grammarId, grammarWork, styleOf, tokenizeLineWithin, unicodeText, type LineState } from './r12-render-textmate';
+import { colorOf, grammarId, grammarWork, SCAN_UNITS_PER_MS, styleOf, tokenizeLineWithin, turnWork, unicodeText, type LineProgress, type LineState } from './r12-render-textmate';
 import { FILE_TYPES } from './r12-render-filetypes';
 import type { Cls, Token } from './timeline-highlight';
 
@@ -25,6 +25,11 @@ export const SHIKI_MAX_CHARS = 1_000_000;
 /** The characters one data-module turn tokenizes: at most about 50 ms in the pinned Hermes for the slowest
  *  grammars here (typescript, html; measurements in the shiki-residuals task record). */
 export const SLICE_BUDGET_CHARS = 2_500;
+/** KD-code-cpp-perf: the regex work one turn may do (r12-render-textmate.ts turnWork, checked before each search): a line
+ *  that costs more (a template-dense cpp line: its function-definition regexes traverse the rest of the line once per
+ *  template) goes on next turn from the scan it was in, so a turn stays inside the runner's 100 ms answer budget while the
+ *  line runs to Shiki's 500 ms limit (LINE_SCAN_LIMIT). */
+export const SLICE_SCAN_UNITS = 33 * SCAN_UNITS_PER_MS;
 /** The share of a turn a line that starts the turn may spend on one-time work beside its own cost (advance). */
 export const FIRST_LINE_WORK = 0.5;
 /** A text nobody asked for again within this many turns is dropped (about five seconds of slices). */
@@ -89,21 +94,24 @@ export function shikiLanguage(nameOrPath: string): string {
 interface Document { lang: string; max: number; lines: string[]; states: LineState[]; runs: Token[][] }
 const documents: Document[] = [];
 const results = new Map<string, Token[]>();
-/** A text still being tokenized: its lines, the states and runs so far, the turn it was last asked in. */
-interface Job extends Document { key: string; asked: number }
+/** A text still being tokenized: its lines, the states and runs so far, the turn it was last asked in, and its next line's
+ *  progress when a turn's budget stopped that line part way (KD-code-cpp-perf). */
+interface Job extends Document { key: string; asked: number; progress: LineProgress | null }
 const jobs = new Map<string, Job>();
 
 // ── Turns and slices ────────────────────────────────────────────────────────────────────────
-let slicing = false, turnLeft = Infinity, turnWhole = Infinity, turn = 0;
-/** The app calls this at the start of each answer: from then on a turn tokenizes at most `budget` characters. */
-export function startHighlightTurn(budget = SLICE_BUDGET_CHARS): void {
+let slicing = false, turnLeft = Infinity, turnWhole = Infinity, turnScan = Infinity, turnScanWhole = Infinity, turn = 0;
+/** The app calls this at the start of each answer: from then on a turn tokenizes at most `budget` characters and does at
+ *  most `scan` units of regex work. */
+export function startHighlightTurn(budget = SLICE_BUDGET_CHARS, scan = SLICE_SCAN_UNITS): void {
   slicing = true;
   turnLeft = turnWhole = budget;
+  turnScan = turnScanWhole = scan;
   turn++;
 }
 /** Tests: back to unsliced, everything tokenized at once, and no queued work. */
 export function resetHighlightSlicing(): void {
-  slicing = false; turnLeft = turnWhole = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
+  slicing = false; turnLeft = turnWhole = turnScan = turnScanWhole = Infinity; turn = 0; jobs.clear(); results.clear(); documents.length = 0;
 }
 /** A text waiting for its Shiki tokens paints the heuristic colours up to this length and plain text
  *  above it: the TypeScript heuristic takes 16 ms for 20,000 characters but 1.2 s for 200,000 in Hermes. */
@@ -132,16 +140,16 @@ function newJob(text: string, lang: string, max: number, key: string): Job {
   for (const doc of documents) consider(doc, doc.lines.length);
   for (const job of jobs.values()) consider(job, job.states.length);
   const from = base as Document | null;
-  return { key, lang, max, lines, asked: turn, states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [] };
+  return { key, lang, max, lines, asked: turn, states: from ? from.states.slice(0, shared) : [], runs: from ? from.runs.slice(0, shared) : [], progress: null };
 }
-/** A turn's budget: what is left of it, and all of it. */
-interface Budget { left: number; whole: number }
+/** A turn's budget: what is left of it, all of it, and the regex work left and in all (scan units). */
+interface Budget { left: number; whole: number; scan: number; scanWhole: number }
 /** Tokenizes the job's next lines while `budget.left` characters remain (a line costs its length
  *  and one); true when every line is done. */
 function advance(job: Job, budget: Budget): boolean {
   let state: LineState = job.states.length ? job.states[job.states.length - 1]! : null;
   for (let index = job.states.length; index < job.lines.length; index++) {
-    if (budget.left <= 0) return false;
+    if (budget.left <= 0 || budget.scan <= 0) return false;
     const line = job.lines[index]!;
     if (job.max && line.length >= job.max) {
       // @pierre/diffs' tokenizeMaxLineLength: Shiki paints such a line plain and starts the next one in the
@@ -160,9 +168,13 @@ function advance(job: Job, budget: Budget): boolean {
     // then takes a few turns on a grammar's first use, not one per regex.
     const limit = budget.left >= budget.whole ? Math.max(budget.left - cost, budget.whole * FIRST_LINE_WORK) : budget.left - cost;
     const before = grammarWork();
-    const result = tokenizeLineWithin(line, job.lang, state, limit);
+    const result = tokenizeLineWithin(line, job.lang, state, limit, job.progress, budget.scan, budget.scan >= budget.scanWhole);
     budget.left -= grammarWork() - before;
-    if (!result) { budget.left = Math.min(budget.left, 0); return false; }
+    budget.scan -= turnWork();
+    // A line stopped part way (a compile over the limit, or the turn's regex work) goes on next turn from its progress;
+    // one stopped before its first scan starts again from its state.
+    if (!result || 'progress' in result) { job.progress = result?.progress ?? null; budget.left = Math.min(budget.left, 0); return false; }
+    job.progress = null;
     budget.left -= cost;
     state = result.state;
     const runs: Token[] = [];
@@ -194,22 +206,23 @@ function finish(job: Job): Token[] {
 }
 /** Runs `work` within what is left of this turn's budget. */
 function withinTurn(work: (budget: Budget) => boolean): boolean {
-  if (!slicing) return work({ left: Infinity, whole: Infinity });
-  if (turnLeft <= 0) return false;
-  const budget = { left: turnLeft, whole: turnWhole };
+  if (!slicing) return work({ left: Infinity, whole: Infinity, scan: Infinity, scanWhole: Infinity });
+  if (turnLeft <= 0 || turnScan <= 0) return false;
+  const budget = { left: turnLeft, whole: turnWhole, scan: turnScan, scanWhole: turnScanWhole };
   const done = work(budget);
   turnLeft = budget.left;
+  turnScan = budget.scan;
   return done;
 }
 
 /** One background turn (the root's highlightSlice mutation): the most recently asked texts go on
  *  for up to `chars` characters; a text nobody asked for in STALE_TURNS turns is dropped. */
-export function highlightSlice(chars = SLICE_BUDGET_CHARS): { finished: boolean; pending: boolean } {
+export function highlightSlice(chars = SLICE_BUDGET_CHARS, scan = SLICE_SCAN_UNITS): { finished: boolean; pending: boolean } {
   for (const job of [...jobs.values()]) if (turn - job.asked > STALE_TURNS) jobs.delete(job.key);
-  const budget = { left: chars, whole: chars };
+  const budget = { left: chars, whole: chars, scan, scanWhole: scan };
   let finished = false;
   for (const job of [...jobs.values()].reverse()) {
-    if (budget.left <= 0) break;
+    if (budget.left <= 0 || budget.scan <= 0) break;
     if (advance(job, budget)) { finish(job); finished = true; }
   }
   return { finished, pending: jobs.size > 0 };
