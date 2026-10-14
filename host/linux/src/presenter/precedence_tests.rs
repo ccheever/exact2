@@ -18,7 +18,7 @@ const SOURCE: &str = r#"component App
 "#;
 fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         (),
         (400., 500.),
         1.,
@@ -78,7 +78,7 @@ fn an_ancestor_pan_takes_a_drag_that_starts_on_a_button() {
       text `${panned} ${pressed}` testId="out"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 500.),
         1.,

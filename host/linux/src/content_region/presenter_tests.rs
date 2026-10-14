@@ -100,7 +100,7 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
         };
         let source = APP.replace("testId=\"paragraph\"", &format!("testId=\"paragraph\" pointer-events=(title == \"old picture\" ? \"{old}\" : \"{new}\")"));
         let (mut p, error) = Presenter::boot_with_content_region(
-            &contract::compile(&source).unwrap().encode(),
+            &crate::test_plan(&source),
             (),
             (400., 500.),
             1.,
@@ -155,7 +155,7 @@ fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() 
 fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (400., 500.),
         1.,
@@ -274,7 +274,7 @@ fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
 fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pixels() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (400., 500.),
         1.,
@@ -388,7 +388,7 @@ fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pix
 fn exact_scale_prepared_index_refuses_changed_dpr_before_stale_adoption_or_replay() {
     let _service = crate::content_region::test_service();
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (400., 500.),
         1.25,
@@ -518,7 +518,7 @@ fn unsupported_region_query_preserves_previous_pixels_and_recovers() {
         .replace("view id=\"owner\"", "view id=\"owner\" scale=ownerScale")
         .replace("button press=hide", "button press=collapse testId=\"collapse\" height=20\n        text \"collapse\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
+        &crate::test_plan(&app),
         (),
         (400., 500.),
         1.,
@@ -563,7 +563,7 @@ fn uncertain_ink_coordinates_refuse_full_glyph_fallback_and_recover() {
         .replace("view height=600", "view height=600 padding-top=inset")
         .replace("button press=hide", "button press=move testId=\"move\" height=20\n        text \"move\"\n      button press=restore testId=\"restore\" height=20\n        text \"restore\"\n      button press=hide");
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
+        &crate::test_plan(&app),
         (),
         (400., 500.),
         1.,
@@ -635,7 +635,7 @@ fn natural_scroll_fixture(short: bool) -> Presenter<()> {
         if short { "Short paragraph." } else { &tall }
     );
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(&app).unwrap().encode(),
+        &crate::test_plan(&app),
         (),
         (400., 500.),
         1.,

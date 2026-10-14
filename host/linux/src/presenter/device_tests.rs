@@ -7,7 +7,7 @@ const READS: &str = "shape Media\n  prefersColorScheme: string\n  prefersReduced
 
 fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 500.),
         1.,

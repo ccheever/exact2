@@ -82,7 +82,7 @@ const LONG: &str = r#"component Long
 
 fn boot(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (320., 480.),
         1.,

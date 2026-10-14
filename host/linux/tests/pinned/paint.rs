@@ -38,9 +38,8 @@ fn painters() -> Vec<PainterChoice> {
 
 fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     pin_font();
-    let plan = caltrain::build().unwrap();
     let (mut p, _) = Presenter::boot_with(
-        &plan.encode(),
+        crate::caltrain_plan(),
         caltrain_data::Caltrain,
         (390.0, 844.0),
         1.0,

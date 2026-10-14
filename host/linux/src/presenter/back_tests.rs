@@ -41,7 +41,7 @@ component App
 fn boot(root: &str, back: &str) -> Presenter<()> {
     let source = APP.replace("ROOT", root).replace("BACK", back);
     let (p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
+        &crate::test_plan(&source),
         (),
         (400., 800.),
         1.,

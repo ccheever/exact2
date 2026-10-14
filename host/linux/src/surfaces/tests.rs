@@ -512,7 +512,7 @@ fn oversized_module_output_is_a_structured_refusal() {
 fn an_oversized_record_is_reported_in_state_not_as_the_operations_error() {
     let source = "shape Hud\n  score: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.score}` testId=\"hud\"\n";
     let (mut h, error) = Host::boot(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         400.,

@@ -29,7 +29,7 @@ fn source() -> String {
 }
 fn boot(src: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(src).unwrap().encode(),
+        &crate::test_plan(src),
         (),
         (400., 500.),
         1.,
@@ -181,8 +181,7 @@ fn deletion_remount_and_runtime_replacement_cannot_receive_old_release() {
         .unwrap()
         .primary
         .token;
-    p.reload(&contract::compile(&src).unwrap().encode(), ())
-        .unwrap();
+    p.reload(&crate::test_plan(&src), ()).unwrap();
     assert!(!p.host.hold_update(token, Value::ZERO, f64::NAN).unwrap());
     assert!(!p.pointer_up(150., 40., 200.).unwrap());
     assert_eq!(count(&p), "0");
@@ -919,9 +918,7 @@ component MessageBubble
         let before = clocks(&p);
         // Existing region sessions explicitly refuse in-place reload; do not
         // invent a carrier policy or weaken that refusal for this adapter.
-        assert!(p
-            .reload(&contract::compile(&src).unwrap().encode(), Rows::default())
-            .is_err());
+        assert!(p.reload(&crate::test_plan(&src), Rows::default()).is_err());
         assert_eq!(clocks(&p), before);
         p.pointer_cancel(20.).unwrap();
         assert!(!p.host.has_hold(token));

@@ -21,9 +21,8 @@ fn assets() -> PathBuf {
 
 fn boot() -> Presenter<caltrain_data::Caltrain> {
     pin_font();
-    let plan = caltrain::build().unwrap();
     let (mut p, error) = Presenter::boot(
-        &plan.encode(),
+        crate::caltrain_plan(),
         caltrain_data::Caltrain,
         (390.0, 844.0),
         1.0,
@@ -594,8 +593,9 @@ fn a_reload_carries_state_and_starts_the_pictures_over() {
     assert!(p.set_time(1_790_000_000_000.0, -240.0).is_none());
     let _ = p.tap(view(&p, "change-station"));
     let _ = p.wheel(view(&p, "station-search"), 0.0, 50.0);
-    let plan = caltrain::build().unwrap().encode();
-    let error = p.reload(&plan, caltrain_data::Caltrain).unwrap();
+    let error = p
+        .reload(crate::caltrain_plan(), caltrain_data::Caltrain)
+        .unwrap();
     assert!(error.is_none(), "{error:?}");
     assert!(has(&p, "stations-screen"), "the screen slot carried");
     assert_eq!(p.page(), (0.0, 0.0), "scroll does not survive a restart");
