@@ -157,6 +157,37 @@ final class ElementScrollTests: XCTestCase {
         XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation)
     }
 
+    func testAuthoredScrollTopReplacesOrdinaryElementAnimation() throws {
+        guard !ExactEnv.agentFreezes else { return }
+        let prior = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = prior }
+
+        for behavior in ["auto", "smooth"] {
+            let (p, scroll, window) = try exactFixture()
+            defer { withExtendedLifetime(window) {} }
+            p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": behavior]]]))
+            var ended = 0
+            p.onScrollend = { _ in ended += 1 }
+
+            p.scrollElementIntoView(["target", "start", "nearest"])
+            XCTAssertNotNil(p.views[1]?.scrollEnd?.elementAnimation, "the ordinary reveal is in flight")
+            p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollTop": "120"]]]))
+
+            XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation, "the authored offset invalidates the reveal token")
+            if behavior == "auto" {
+                XCTAssertEqual(scroll.contentView.bounds.minY, 120, accuracy: 0.5, "an auto offset write lands immediately")
+            }
+            let limit = Date().addingTimeInterval(10)
+            while ended == 0 && Date() < limit {
+                _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
+            }
+            XCTAssertEqual(scroll.contentView.bounds.minY, 120, accuracy: 0.5, "the superseded reveal must not overwrite the authored offset")
+            XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation)
+            XCTAssertEqual(ended, 1, "the replacement settles once")
+        }
+    }
+
     private func exactFixture() throws -> (Presenter, NSScrollView, NSWindow) {
         let p = Presenter()
         p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
