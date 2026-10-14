@@ -617,6 +617,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         presenter.session?.view?.setNeedsLayout()
     }
 
+    func setStack(_ stack: [UIViewController], in nav: UINavigationController, animated: Bool) {
+        let shown = nav.viewControllers
+        if animated, stack.count == shown.count + 1, zip(shown, stack).allSatisfy({ $0 === $1 }), let top = stack.last {
+            nav.pushViewController(top, animated: true)
+        } else if animated, stack.count + 1 == shown.count, zip(shown, stack).allSatisfy({ $0 === $1 }) {
+            nav.popViewController(animated: true)
+        } else {
+            nav.setViewControllers(stack, animated: animated)
+        }
+    }
+
     func sync(_ batch: Batch) {
         // Installing or moving a controller can synchronously cause layout.
         // That layout must not start another containment handoff inside this one.
@@ -673,14 +684,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 // shorter push, too), and on an iPad the inline title off the
                 // route leaving in a pop, where `pushViewController` and
                 // `popViewController` move them with their routes.
-                let shown = nav.viewControllers
-                if animated, stack.count == shown.count + 1, zip(shown, stack).allSatisfy({ $0 === $1 }), let top = stack.last {
-                    nav.pushViewController(top, animated: true)
-                } else if animated, stack.count + 1 == shown.count, zip(shown, stack).allSatisfy({ $0 === $1 }) {
-                    nav.popViewController(animated: true)
-                } else {
-                    nav.setViewControllers(stack, animated: animated)
-                }
+                setStack(stack, in: nav, animated: animated)
                 recordOwned(nav)
             }
             nav.view.layoutIfNeeded()

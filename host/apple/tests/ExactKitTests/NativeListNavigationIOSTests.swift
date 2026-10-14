@@ -738,38 +738,45 @@ final class NativeListNavigationIOSTests: XCTestCase {
         XCTAssertEqual(nav.viewControllers, [root], "one route left, the root")
     }
 
-    /// What shows of a leaving route's large title in its scroller: UIKit
-    /// moves it out as a copy of its title view above the scroller's content
-    /// (the label itself goes clear), the copies a reader sees.
-    private func leavingTitleCopies(in scroll: UIScrollView) -> Int {
-        func opacity(_ view: UIView) -> Float {
-            var shown: Float = 1, current: UIView? = view
-            while let v = current { shown *= v.isHidden ? 0 : (v.layer.presentation()?.opacity ?? v.layer.opacity); current = v.superview }
-            return shown
+    private final class RecordingNavigationController: UINavigationController {
+        enum Change: Equatable {
+            case push(UIViewController, Bool)
+            case pop(Bool)
+            case replace([UIViewController], Bool)
         }
-        return scroll.subviews.filter {
-            $0.frame.maxY <= 0.5 && $0.frame.height > 30 && abs($0.frame.width - scroll.bounds.width) < 0.5 && opacity($0) > 0.01
-        }.count
+        var changes: [Change] = []
+
+        func start(_ controllers: [UIViewController]) {
+            super.setViewControllers(controllers, animated: false)
+            changes = []
+        }
+        override func pushViewController(_ controller: UIViewController, animated: Bool) { changes.append(.push(controller, animated)) }
+        override func popViewController(animated: Bool) -> UIViewController? { changes.append(.pop(animated)); return viewControllers.last }
+        override func setViewControllers(_ controllers: [UIViewController], animated: Bool) { changes.append(.replace(controllers, animated)) }
     }
 
-    /// The root's large title leaves with the root as a push starts. On iOS
-    /// 27.2 a push made by `setViewControllers` takes it off at once: no copy
-    /// of it moves out with the root (UIKit's own push moves one).
-    func testARootsLargeTitleSlidesOutWithItAsAPushStarts() throws {
-        guard #available(iOS 26, *) else { return }
-        let p = try lifecycle()
-        let nav = try shownStack(p)
-        let root = try XCTUnwrap(nav.topViewController as? RouteController)
-        try followed("cold-native-list", by: root, in: nav, p)
-        // UIKit's own push moves, as a user sees it.
-        UIView.setAnimationsEnabled(true)
-        try press(p, "control-open")
-        until("the push starts") { nav.topViewController !== root && nav.transitionCoordinator != nil }
-        let collection = try XCTUnwrap(node(p, "cold-native-list")?.scrollView)
-        until("the root's title is copied for the push") { self.leavingTitleCopies(in: collection) > 0 || nav.transitionCoordinator == nil }
-        XCTAssertNotNil(nav.transitionCoordinator, "the push still moves")
-        XCTAssertGreaterThan(leavingTitleCopies(in: collection), 0, "the root's large title moves out with the root")
-        until("the push ends") { nav.transitionCoordinator == nil }
+    /// Record the public UIKit operation, not the private snapshot views
+    /// UIKit uses to animate the leaving title. Real-touch comparisons cover
+    /// the animation's pixels (LLP 1084 §6.5).
+    func testSingleRouteChangesUseUIKitsPushAndPop() {
+        let host = Presenter().navigation
+        let nav = RecordingNavigationController()
+        let root = UIViewController(), pushed = UIViewController(), next = UIViewController()
+        let cases: [([UIViewController], [UIViewController], Bool, RecordingNavigationController.Change)] = [
+            ([root], [root, pushed], true, .push(pushed, true)),
+            ([root, pushed], [root], true, .pop(true)),
+            ([root], [root, pushed], false, .replace([root, pushed], false)),
+            ([root, pushed], [root], false, .replace([root], false)),
+            ([root], [root, pushed, next], true, .replace([root, pushed, next], true)),
+            ([root, pushed], [root, next], true, .replace([root, next], true)),
+            ([root], [pushed, next], true, .replace([pushed, next], true)),
+            ([root, pushed], [next], true, .replace([next], true)),
+        ]
+        for (shown, wanted, animated, change) in cases {
+            nav.start(shown)
+            host.setStack(wanted, in: nav, animated: animated)
+            XCTAssertEqual(nav.changes, [change])
+        }
     }
 
     func testAnAppsOwnPopBackToARootAtRestShowsItsLargeTitleAtItsStart() throws {
