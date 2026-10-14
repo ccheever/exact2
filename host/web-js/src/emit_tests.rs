@@ -338,3 +338,46 @@ fn a_button_that_styles_its_own_disabled_state_carries_the_mark() {
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert_eq!(js.matches("disabledstyled").count(), 1, "{js}");
 }
+
+#[test]
+fn static_authored_clears_keep_inline_css_over_platform_rules() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    main navigationKey="/" color="#123456"
+      header color="inherit" testId="bar"
+        text "Title" role="heading" aria-level=1
+        button "Action" color="unset" testId="action"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color="unset"
+"##,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    for name in ["bar", "action"] {
+        let part = parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap();
+        assert!(part.css.contains("color:unset;"), "{}", part.css);
+    }
+    let placeholder = parts
+        .iter()
+        .flatten()
+        .find(|part| {
+            part.props
+                .get("data-testid")
+                .is_some_and(|id| id == "placeholder")
+        })
+        .unwrap();
+    assert!(
+        placeholder
+            .css
+            .contains("--exact-placeholder-color:initial;"),
+        "{}",
+        placeholder.css
+    );
+}

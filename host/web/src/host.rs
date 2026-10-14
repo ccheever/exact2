@@ -457,6 +457,12 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
         runner.set_device_links(links.device);
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
+        // new runner's page drops the last one's, glue.js).
+        let theme = exact_kernel::style::roles::theme_css();
+        if !theme.is_empty() {
+            batch.theme(&theme);
+        }
         let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {

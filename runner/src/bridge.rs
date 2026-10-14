@@ -193,14 +193,94 @@ pub fn set_plan_style(
                 .any(|w| w.eq_ignore_ascii_case(b"color(--"))
         })
         .unwrap_or(false)
-        .then(|| {
+        // A theme entry may stand for a profile's colour.
+        .then_some(())
+        .or_else(|| (!plan.theme.is_empty() && !plan.profiles.is_empty()).then_some(()))
+        .map(|()| {
             exact_kernel::style::profiled::declarations(
                 plan.profiles
                     .iter()
                     .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
             )
         });
+    // @ref LLP 1095 D4 — the plan's theme, for a colour that names an entry.
+    let _theme = (!plan.theme.is_empty() && matches!(value, exact_plan::str_value!()))
+        .then(|| exact_kernel::style::theme::bind(&theme_table(plan)));
     set_style(patch, id, value, plan.stacks.len())
+}
+
+/// A plan's theme and strings buffers and the theme's length: which plan a
+/// cached table is.
+type PlanAt = (usize, usize, usize);
+
+thread_local! {
+    /// The last plan's theme table, kept so a themed list's thousand rows
+    /// bind it by pointer instead of building it each.
+    static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, exact_kernel::style::theme::Table)>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// `plan`'s theme as a parse binds it: each entry under its name, and an
+/// override under its role's spelling too. Built when the plan differs from
+/// the last one this thread bound (known by its buffers' addresses, nothing
+/// scanned per row), else the one built before.
+pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
+    use exact_kernel::style::roles;
+    // The plan's own buffers: a cached table built from them is this plan's.
+    let at = (
+        plan.theme.as_ptr() as usize,
+        plan.theme.len(),
+        plan.strings.as_ptr() as usize,
+    );
+    THEME_TABLE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if let Some((key, table)) = cache.as_ref() {
+            if *key == at {
+                return table.clone();
+            }
+        }
+        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
+            let (name, role, value) = (plan.str(row.name), plan.str(row.role), plan.str(row.value));
+            // A tint role stays the role in its row (`ColorValue::themed`).
+            let tint = roles::role(role).is_some_and(roles::tint);
+            (!tint)
+                .then_some((name, value, false))
+                .into_iter()
+                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
+        }));
+        *cache = Some((at, table.clone()));
+        table
+    })
+}
+
+/// @ref LLP 1095 D4 — the roles `plan`'s theme replaces, set where the
+/// kernel resolves a role: its own defaults (unsaid text is `CanvasText`)
+/// and what crosses to a host, as well as a row naming the role. A plan with
+/// none clears them. `true` when they replace a different set another plan
+/// made (a second session's, a reload's), which the runner says.
+pub fn set_role_overrides(plan: &exact_plan::Plan) -> bool {
+    // A plan this thread boots or emits is the one its rows are set from
+    // next: the cached table is rebuilt for it (never another plan's whose
+    // buffers it reuses).
+    THEME_TABLE.with(|cache| cache.borrow_mut().take());
+    let _profiles = exact_kernel::style::profiled::declarations(
+        plan.profiles
+            .iter()
+            .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+    );
+    let overrides = plan
+        .theme
+        .iter()
+        .filter_map(|row| {
+            let id = exact_kernel::style::roles::role(plan.str(row.role))?;
+            let value = plan.str(row.value);
+            let colour = exact_kernel::ColorValue::parse_light_dark(value).or_else(|| {
+                exact_kernel::Color::parse(value).map(exact_kernel::ColorValue::Fixed)
+            })?;
+            Some((id, colour))
+        })
+        .collect();
+    exact_kernel::style::roles::set_overrides(overrides)
 }
 
 /// [`set_plan_style`] for one of `plan`'s style bindings, with what the
@@ -362,6 +442,28 @@ impl KeyframesTable {
         .into_iter()
         .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
         .collect()
+    }
+}
+
+/// The thread's role overrides from before a boot, put back unless the boot
+/// succeeds and clears it (LLP 1095 D4).
+pub(crate) struct RestoreOverrides(pub(crate) Option<Vec<(u8, exact_kernel::ColorValue)>>);
+
+impl RestoreOverrides {
+    /// Set `plan`'s overrides, keeping the thread's to put back; and whether
+    /// they replace another plan's.
+    pub(crate) fn set(plan: &exact_plan::Plan) -> (RestoreOverrides, bool) {
+        let previous = exact_kernel::style::roles::overrides();
+        let replaced = set_role_overrides(plan);
+        (RestoreOverrides(Some(previous)), replaced)
+    }
+}
+
+impl Drop for RestoreOverrides {
+    fn drop(&mut self) {
+        if let Some(previous) = self.0.take() {
+            let _ = exact_kernel::style::roles::set_overrides(previous);
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`); stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -983,8 +983,9 @@ for the web's JS target, whose TypeScript data module speaks `tamber/1` with the
   D5);
 - **the app's own screens**, as its connected development builds (a phone, the Mac, a
   browser tab), listed by `hello` and all changing together through the live table.
-  Embedding the app's screens inside the tool itself is later: a web JS-target app cannot
-  host another session today.
+  The tool embeds the app's web build in an `iframe` (LLP 1020): a second document at the
+  dev loop's URL, not a second session in the tool's runtime, which a web JS-target app
+  could not host. *Amended by LLP 1122 D3 (2026-10-13).*
 
 **Agents** use the same operations: `bun exact.mjs tamber op set-token surface.card …` is a
 protocol client with the local token.
@@ -1014,6 +1015,117 @@ checks and the same authority: the files.
   scene graph carries no semantics (exact1 LLP 0389, 0395). Figma's Variables can be kept in
   step through the API (an export after each accepted write, an import as proposals); its
   canvas stays Figma's.
+
+**Importers** (Charlie, 2026-10-13). Each importer is a `tamber/1` client that only
+**proposes** (D13 `propose`). It reads another system's theme and writes a transaction of
+`add-token` and `set-token` operations, with an **unmapped report** listing every source
+value it did not map and why. A person or agent accepts the proposal. Nothing is ever
+dropped silently: the source values number exactly the mapped ones plus the reported ones,
+and the importer checks that before it proposes.
+
+What every importer shares:
+- **Names.** A source's names become dotted Tamber names under a prefix the person picks
+  (`shadcn.` by default). A segment that starts with a digit takes `s`
+  (`blue-500` → `blue.s500`, D3).
+- **Role mappings are proposed separately.** Where a source token means a platform role
+  (`--background` is the page), the importer proposes the role override as a separate
+  item the person can decline, never folded into the token itself. A design stays the
+  platform's unless the person chooses otherwise (D1).
+- **Kinds not built yet are reported, not dropped.** Before stage 6, length, type, shadow
+  and motion values are reported as `kind pending (stage 6)`, with the token each would
+  become, and are proposed once that stage lands.
+- **Components and utility classes from these libraries are out of scope** (§4).
+
+**1. shadcn/ui** (first: the most common). Source: the `:root` and `.dark` blocks of a
+`globals.css`. The values are either v4's `oklch()` or v3's bare HSL channels
+(`222.2 84% 4.9%`, read as `hsl()`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--background`, `--foreground` | `shadcn.background`, `shadcn.foreground`; proposed role overrides `-exact-background`, `-exact-label` | `:root` is the light side and `.dark` the dark side: one `light-dark(a, b)` |
+| `--card`, `--popover` and their `-foreground` | `shadcn.card`, `shadcn.card-foreground` … ; proposed `-exact-secondary-background` for `--card` | same |
+| `--primary`, `--primary-foreground` | `shadcn.primary` …; proposed: the root `accent-color` names `shadcn.primary` (D9) | same |
+| `--secondary`, `--muted`, `--accent` and their `-foreground`; `--destructive` | `shadcn.*` | same |
+| `--border`, `--input`, `--ring` | `shadcn.*`; proposed `-exact-separator` for `--border` | same |
+| `--chart-1…5`, `--sidebar-*` | `shadcn.chart.s1…`, `shadcn.sidebar.*` | same |
+| `--radius` | `shadcn.radius` (length), with `radius.sm/md/lg/xl` as shadcn derives them (`calc(shadcn.radius - 4px)` …) | none |
+| a further theme class (`.theme-blue`, `[data-theme=x]`) | an app axis, proposed (`theme = default \| blue`) | `when theme=blue` |
+
+Gate: shadcn's default theme and one colour theme from its themes page import with every
+variable mapped or reported. Accepting the proposal and exporting gives back the same
+light and dark colours. Re-importing the unchanged source proposes nothing.
+
+**2. Tailwind CSS v4 `@theme`.** Source: the `@theme` block (and `@theme inline`), plus
+dark overrides wherever the stylesheet redefines the variables (`.dark { … }`,
+`@media (prefers-color-scheme: dark)`, `@variant dark`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--color-<name>`, `--color-<name>-<step>` | `tw.<name>`, `tw.<name>.s<step>` (colour) | a dark redefinition is the dark side of a `light-dark()` |
+| `--spacing`, `--spacing-<n>` | `tw.space.base`, `tw.space.<n>` (length) | — |
+| `--radius-<n>` | `tw.radius.<n>` | — |
+| `--font-<n>` | `tw.family.<n>` | — |
+| `--text-<n>`, `--text-<n>--line-height` | `tw.type.<n>` (size and line height) | — |
+| `--font-weight-<n>`, `--leading-<n>`, `--tracking-<n>` | numbers (`tw.weight.<n>` …) | — |
+| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | a dark redefinition, if any |
+| `--ease-<n>` | `tw.ease.<n>` (easing) | — |
+| `--breakpoint-*`, `--container-*`, `--blur-*`, `--drop-shadow-*`, `--perspective-*`, `--aspect-*`, `--animate-*` | not mapped, reported (no Tamber kind; breakpoints are layout, CSS's own) | — |
+| `--*: initial`, `--color-*: initial` | resets, honoured: the reset names are not imported | — |
+
+Utility classes and `@utility` are out of scope. Gate: Tailwind v4's default theme imports
+(its palette, spacing, radii, fonts, shadows and easings) with every variable mapped or
+reported. A project with a `.dark` block maps its colours to `light-dark()`. Re-importing
+the unchanged source proposes nothing.
+
+**3. DTCG JSON** (Format 2025.10, with the Resolver Module where present), from Tokens Studio
+and from Figma Variables exports. This replaces stage 5's "DTCG import"; export stays in
+stage 5.
+
+| Source `$type` | Tamber kind |
+|---|---|
+| `color` | `color` |
+| `dimension` | `length` |
+| `fontFamily` | `family` |
+| `fontWeight`, `number` | `number` |
+| `duration`, `cubicBezier` | `duration`, `easing` |
+| `shadow` | `box-shadow` |
+| `typography` | `type` |
+| `border`, `transition`, `gradient`, `strokeStyle` | reported (a gradient's stops become colour tokens when they are references) |
+
+- **Names:** a group path becomes a dotted name, with the segments sanitised and
+  collisions reported.
+- **Aliases:** `{a.b}` becomes a reference to the token.
+- **Modes:** a Resolver modifier, Tokens Studio theme set, or Figma mode named `light` and
+  `dark` (or `Light` and `Dark`) is the scheme, and becomes `light-dark()`. Any other
+  modifier becomes an app axis, proposed, with its contexts as values and `when` lines for
+  their values.
+- **Our own export:** a file `tamber export dtcg` wrote carries
+  `$extensions["exact"]`, and re-import restores the source expressions from it (D14).
+
+Gate: a Tokens Studio sample set and a Figma Variables export with light and dark modes
+import with every token mapped or reported. Our own export round-trips with no proposed
+operations.
+
+**4. Astryx** (per exact1 LLP 0267). It is also a **probe for gaps in Tamber's token kinds**:
+its unmapped report is the evidence for new kinds, as it was for exact1's Proposal I.
+Source: a published theme package (`@astryxdesign/theme-neutral`, pinned to a version) or a
+`defineTheme()` result, read as resolved light and dark values (`resolveThemeTokens()`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--color-background-body/surface/card/popover/inverted` | `astryx.surface.*`; proposed role overrides (`-exact-background` for body) | light and dark values become `light-dark()` |
+| `--color-text-*`, `--color-icon-*` | `astryx.text.*`, `astryx.icon.*` | same |
+| `--color-accent`, `--color-on-accent`, status colours with muted and on variants | `astryx.*` | same |
+| `--color-overlay`, `--color-overlay-hover/pressed` | `astryx.overlay.*` (as colours; the pressed look is the author's state part, D8) | same |
+| `--spacing-*` | `astryx.space.*` | — |
+| `--radius-inner/element/container/full` | `astryx.radius.*` | — |
+| `--shadow-low/med/high`, inset rings | `box-shadow` (rings as `inset` shadows) | same |
+| `--duration-fast/medium/slow` | `duration`; their **min / nominal / max tiers** are reported (Tamber has one value per duration token) | — |
+| easing | `easing` | — |
+
+Gate: the pinned `theme-neutral` imports with every token mapped or reported. The unmapped
+report is attached to the stage's commit as the kinds probe; each gap it finds (the motion
+tiers, for one) becomes a §9 question or a later kind, never a silent omission.
 
 ### D15 — Component params: a component declares what the tool may tweak, and how
 
@@ -1193,6 +1305,9 @@ icons
 - **No dial or param changes at run time in a shipped app.** A person's choice is an app axis.
 - **No side channel for any tool.** Every client, ours included, edits through `tamber/1`.
 - **No live two-way Figma canvas sync** (D14).
+- **No components or utility classes from imported libraries.** shadcn's components,
+  Tailwind's utilities and Astryx's components are not imported; importers bring tokens only
+  (D14).
 
 ## 5. Staging and gates
 
@@ -1228,6 +1343,14 @@ Android's reader and the terminal.
    request without the token is refused, and a `--lan` client or a forwarded request cannot
    obtain it; each inverse transaction undoes, including an `unset-param` restoring the
    component's default.
+   - **3a–3d. Importers** (D14, Charlie 2026-10-13). Each is a `tamber/1` client that only
+     proposes, after stage 3, in this order: **3a** shadcn, **3b** Tailwind v4 `@theme`,
+     **3c** DTCG (Tokens Studio, Figma Variables export), **3d** Astryx (also the
+     token-kinds probe). No digest break. Before stage 6, values of other kinds are reported
+     as pending. **Gate, each:** the known theme D14 names for it imports; every source
+     value is mapped or listed in the unmapped report with a reason, and a test counts
+     them; the accepted proposal, exported again, gives back the source's values;
+     re-importing the unchanged source proposes nothing.
 4. **The live table** (D13). Needs Charlie's §Runtime admission, and reclaimable live colour
    storage first: `Wide` entries are process-global, immutable and capped at 4,096
    (`kernel/src/style/wide.rs`); the policy says what a running transition keeps alive. No
@@ -1243,7 +1366,8 @@ Android's reader and the terminal.
    the sample host draws with `ExactTamber(view).color(…)` and follows `setMode`, a pin above
    it, a Dynamic Type change and the live table; two embedded sessions with different
    designs answer differently; a TypeScript data module returning an unknown token fails
-   `tsc`; a DTCG export re-imported unedited proposes no operations.
+   `tsc`; a DTCG export re-imported unedited proposes no operations (DTCG import itself is
+   stage 3c).
 6. **Length, number, type, shadow and motion tokens.** Prerequisite: LLP 1115.000 D12.2 (D6).
    Digest break: the new reference forms on those rows. Hosts: all. **Gate:** Expose's 48
    `font-family` writes and its radii become tokens with screens identical; under Bold Text a
@@ -1343,8 +1467,9 @@ the implementation follows until Charlie rules otherwise.
    cascade)? *Provisional default:* bare names (D3).
 3. **DEFERRED admissions.** The protocol server and design tool (stage 3, against §Tooling)
    and the live table (stage 4, a development-only hot revision of values, against
-   §Runtime). Admit both? What take? *Provisional default:* not admitted until he rules;
-   stages 1 and 2 need neither.
+   §Runtime). **Ruled (Charlie, 2026-10-13): admitted, for development builds only,
+   together with LLP 1122 §9 Q2.** This is his waiver, so no take is named. Release builds
+   keep both refusals. The `rules/DEFERRED.md` text lands with LLP 1122.
 4. **Remote and collaborative clients.** D13 proposes pairing with scoped, revocable,
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program? *Provisional default:* local clients only; pairing as D13
@@ -1414,9 +1539,11 @@ The crate's grammar, checker and colour folder follow D2–D5, D7 and §3, excep
     Color 4's thresholds);
   - a `color-mix()` without `in <space>`, or with more than two colours.
 
-  CSS Color 5 allows both of the `color-mix()` forms. They are refused with the expected
-  form named rather than folded wrongly. They are owed: the RFC's owner asked for them in
-  review, and they come before stage 2's port needs them.
+  Both `color-mix()` forms landed afterwards, in `bd83193ea` (reviews `e173b07c0`). The
+  method is optional (oklab), and the mix takes one or more colours with CSS Color 5's
+  normalisation, run premultiplied, one colour after another. In a polar space each step
+  takes its own hue arc, which can differ slightly from a single n-way average; the code
+  says so. Rec. 2100 `color()` came with them, absolute and relative.
 - **`tamber-dial-inert` decides by influence, not mention.** Each dial is set to probe values
   and every token refolded; a dial that changes no token is inert. A dial that moved a token
   only at values no probe takes would be wrongly called inert. A probe the fold refuses is
@@ -1424,3 +1551,127 @@ The crate's grammar, checker and colour folder follow D2–D5, D7 and §3, excep
 - **§3's example** indented `radius.md` four spaces, which reads as a malformed `when` under
   `type.body`. It is corrected above. The crate's corpus keeps the uncorrected text as a
   refusal case (`tamber/tests/corpus/bluesky-rfc.err`).
+
+### Stage 1: LLP 1095 D4 and its reach (`7a95dcce4`..`13f49af39`, landed 2026-10-14)
+
+Built from main; the earlier branch never reached origin. Charlie pre-approved the landing
+("Land it", 2026-10-13). It landed on the RFC owner's review, three rounds of external review
+for the core and three for the ports, and the checks.
+- **Commits:**
+  - `7a95dcce4`: named colours;
+  - `cd77df1e8`: overrides where the kernel resolves;
+  - `72b1e154f`: the table bound by pointer;
+  - `9f8933fe8`: the reach;
+  - `edff3d727` … `df717737d`: review rounds;
+  - `bfde5ff10`: minors;
+  - `59a4020df`: no-tells;
+  - `8aa7bf43b`: Expose;
+  - `f63541d57`: the readers, and the Rust `Theme` record deleted;
+  - `856c17ee4` … `13f49af39`: review rounds.
+- **What Charlie saw:** the reach report, `~/x2theme/stage1-reach-report.md`.
+
+**Built differently from LLP 1095 D1: no `ColorValue::Ref`** (approved by the RFC's owner and
+the lead, 2026-10-13; Charlie told).
+- **The table and its scope.** The plan carries a `theme` table. The kernel's colour parser
+  resolves a theme name to the entry's value, which is an existing form (`Fixed`,
+  `LightDark`, `Role`, `Platform`, `Wide`, `Profiled`), through a scope set from the owning
+  plan for each parse, as `color(--profile …)` resolves. The scope is an `Arc` table built
+  once per plan and bound by pointer: a themed 1,000-row list allocates exactly what its
+  literal twin does. Rows hold ordinary values. There is no wire discriminant and no
+  schema-digest break.
+- **Role overrides** are a role → value table.
+  - The kernel applies it to its own defaults (unsaid text's `CanvasText`), to its fallback
+    and resolution (Linux's painter), and to what crosses to a host.
+  - Each Apple host is sent it once at boot (`{"op":"roles"}`), and the surfaces it draws
+    itself read it: the iOS page ground, grouped list grounds, cards, row text, headers and
+    footers, bar titles, sheet and dialog grounds, placeholders.
+  - Those colours resolve per trait: dark, Increase Contrast and the elevated level on iOS,
+    contrast on the Mac. Wide colours keep their components.
+  - The Mac's grouped cards and separators read overrides of
+    `-exact-secondary-grouped-background` and `-exact-separator`; without an override they
+    keep their measured form colours. A native multiline editor's text view and scroll
+    view read `Field`, keeping their separate AppKit defaults without it. Author-drawn
+    and Markdown editors keep transparent native views. Light/dark app captures and
+    editing across a scheme change qualify these surfaces; a changed table still takes
+    effect through boot/reload, not a new live-table notification.
+  - The web gets the overrides as `:root` custom properties that the host's own sheet
+    reads.
+- **What this costs stage 4's live table.** With a `Ref`, changing an entry's value would
+  swap one row and every row pointing at it would follow. Without one, a value change
+  re-resolves each row holding the token, found through stage 2's token-beside-value index
+  (D7). **Stage 2's gate measures it:** a one-token colour change on the 1,000-row fixture,
+  where every row reads the token, must touch only those nodes, do no layout, and cost no
+  more than the same change made by a `setMode` slice switch. If it does not, `Ref` comes
+  back before stage 4. The plan's `theme` table is the same in both designs, so that would
+  change the kernel and the hosts, not the plan or the language.
+
+**Rules settled in review:**
+- **The tint is the app's, set only through `AccentColor`.** Its value must be a colour, not
+  another tint role. Overriding a role drawn in the tint (`LinkText`, `ButtonText`,
+  `-exact-link`, `-exact-symbol`) is refused (`lower-theme-tint`). Tint roles stay roles in
+  rows, on the wire and in the JS target's map. Each host makes the theme's colour the app's
+  tint (iOS the presenter root's `tintColor`, the Mac the accent default, the web `:root
+  --exact-accent`), so an authored `accent-color` still wins its subtree (D1).
+- **Names are exact.** `Brand` and `brand` are two entries; only a role's spelling matches
+  without case.
+- **A name spelled like a role is that role's override**, as LLP 1095 D4 says. So an entry
+  named `field` replaces CSS `Field`; the readers renamed theirs `fieldBg`. A warning for a
+  probably-unintended override is a candidate diagnostic.
+- **Refused:** two spellings of one role (`lower-theme-duplicate`); CSS keywords as names;
+  the words gradients and shadows write beside colours (`to`, `top`, `inset` …).
+- **An entry may be any colour a row takes** (`ColorValue::parse_light_dark` is the general
+  parser), including a declared profile's colour.
+- **Entries are written as strings** (`brand="#c8102e"`), since Contract attributes are
+  strings, where LLP 1095 D4's example wrote bare CSS.
+- **A name is read as a whole component** (a row, a shadow's colour, a gradient stop, a
+  palette entry), never inside a `light-dark()` half or another function (LLP 1095 D1).
+  Names inside expressions are this RFC's synthetic tokens (D3).
+- **`lower-colour-one-scheme` and `scripts/no-tells.mjs` read the theme:** the root `theme`
+  block is the app's palette; a row naming a one-scheme entry and an entry replacing a role
+  the page paints are flagged.
+- **A boot the runner refuses** keeps the thread's previous overrides; clearing another
+  plan's set is journaled.
+- **Text on the web under a scheme.**
+  - The root carries `--exact-scheme-color`.
+  - One rule re-reads it on any element whose own style sets a `color-scheme`:
+    `[style*=color-scheme]` for inline and bound schemes, and the JS target's generated
+    scheme classes. So unsaid text on a dark card under a light page takes the dark side.
+  - It loses to the look's control colours and to any authored colour. An authored colour,
+    static or bound, writes `--exact-scheme-color: initial` for its subtree.
+  - Nothing is written without a theme that replaces `CanvasText`.
+  - The substring selector and the class list are accepted as built. A compiler-emitted
+    marker attribute replaces them if they ever misfire (a `color-scheme` mentioned inside
+    another property's value).
+
+**The ports.**
+- **Expose** is on a 43-entry theme: no hex left in its rows, no-tells colour findings from
+  124 to 0, and 22/22 screens identical on the web, iOS and the Mac.
+- **The readers** (`apps/llp`, `apps/markdown`, `apps/markdown-stress`, `packages/reading`)
+  use root themes: 104/104 screens identical, and the Rust `Theme` record is gone.
+- **Each of the three reader apps carries the same 20-entry palette**, because a theme
+  belongs to the app root. One Rust constant used to serve them. That duplication is the
+  case for D11's package tokens: once `packages/reading` ships its own `.tamber`, the apps
+  share one palette.
+
+**Known limits:**
+- **Overrides are per thread, not per session.** A plan whose overrides replace another
+  plan's different set on the same thread (a second embedded session, a reload) writes one
+  journal line. Per-session tables are owed by stage 5 (D12).
+- **Vibrancy:** a themed role under a material isn't drawn vibrant.
+- **Mac single-line field backgrounds:** on macOS 27.0.1 (26A434), offscreen captures of
+  bezeled `NSTextField`s keep their native background after `backgroundColor` is set;
+  the same borderless control paints the assigned colour. This includes the current
+  default square bezel. Apple's [rounded-bezel restriction](https://developer.apple.com/documentation/appkit/nstextfield/drawsbackground)
+  explains the rounded case only. Focused and onscreen native probes remain unmeasured;
+  no replacement control is introduced. Evidence: `~/audits/exact2-no-tells-2026-10-11/theme-reach/current-main-mac-gaps-2026-10-14/field-native-probe-independent-runtime-review.txt`.
+- **Bound authored colours:** on the web, an ancestor's *bound* authored colour that
+  `unset`s writes nothing, as `text_unsets` does.
+- **Still the platform's, by the reach ruling:**
+  - the tab bar's material and unselected glyphs;
+  - search field, segmented control and progress chrome;
+  - the Mac's sidebar, toolbar and selection highlight;
+  - alerts and system menus everywhere.
+- **The Mac's own rendering, not a theme gap:**
+  - its stars are drawn in `ButtonText`, which is `controlTextColor` there;
+  - its links keep `linkColor`;
+  - `color` doesn't tint a symbol image on the Mac, with or without a theme (in QUEUE).

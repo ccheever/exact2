@@ -92,6 +92,17 @@ lto = "fat"
 opt-level = 0
 debug = true
 
+# The logic data sources' wasm interpreter: a test spends a source's whole fuel
+# budget (tens of millions of instructions), which unoptimized takes seconds.
+[profile.dev.package.wasmi]
+opt-level = 3
+[profile.dev.package.wasmi_core]
+opt-level = 3
+[profile.dev.package.wasmi_ir]
+opt-level = 3
+[profile.dev.package.wasmi_collections]
+opt-level = 3
+
 # Keep the CPU rasterizer's per-pixel loops fast during development and tests.
 [profile.dev.package.tiny-skia]
 opt-level = 3

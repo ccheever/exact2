@@ -538,6 +538,7 @@ impl<D: DataSource> Host<D> {
         batch.roots(&host.roots.clone());
         host.emit_title(&mut batch);
         host.emit_language(&mut batch);
+        colors::emit_roles(&mut batch);
         for s in host.runner.take_surface_updates() {
             batch.surface(&s);
         }

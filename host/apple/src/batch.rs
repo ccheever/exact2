@@ -87,6 +87,25 @@ fn id_list(ids: &[u32], out: &mut String) {
 }
 
 impl Batch {
+    /// @ref LLP 1095 D4 — the roles the app's theme replaces, by the
+    /// schema's name, each with the colour that replaces it as a style row
+    /// sends one; sent at boot, an empty table clearing the last plan's. A
+    /// surface the platform draws (a grouped list's ground, a bar's title)
+    /// colours itself from it where it would read the role.
+    pub fn roles(&mut self, entries: &[(&str, String)]) {
+        let mut s = String::from("{\"op\":\"roles\",\"roles\":{");
+        for (i, (name, colour)) in entries.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            quote(name, &mut s);
+            s.push(':');
+            s.push_str(colour);
+        }
+        s.push_str("}}");
+        self.ops.push(s);
+    }
+
     /// The resolved strings table owns the document's language and direction.
     pub fn language(&mut self, lang: &str, dir: &str) {
         let mut s = String::from("{\"op\":\"language\",\"lang\":");

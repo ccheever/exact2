@@ -4,6 +4,7 @@
 //! new schema rows need no mapping unless their name or unit differs.
 //! Unsupported rows are reported in [`Skipped`].
 
+mod clears;
 mod fonts;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -43,8 +44,6 @@ fn css_text_in(
     font_names: &[String],
     relative: bool,
 ) -> (String, Vec<Skipped>) {
-    // The row's `rem`/`em` length as authored, appended, when asked for and
-    // the row has one.
     let authored = |out: &mut String, id| {
         use exact_kernel::style::relative::Unit;
         let Some((unit, n)) = style.relative.get(id).filter(|_| relative) else {
@@ -72,12 +71,14 @@ fn css_text_in(
         }
         true
     };
-    let mut out = String::new();
+    let mut out = String::from(exact_kernel::style::roles::scheme_color(style));
     let mut skipped = Vec::new();
-    // @ref LLP 1061's ruling: the row and host feedback are independent
-    // CSS numbers, multiplied through `scale` without writing `transform`.
+    // @ref LLP 1061: row scale and host feedback multiply independently.
     let press = press_composes(style);
-    for id in style.mask.iter() {
+    for id in style.mask.union(style.written).iter() {
+        if !style.mask.has(id) && clears::push(&mut out, id, press) {
+            continue;
+        }
         let value = style.get(id);
         match (id, &value) {
             (StyleId::Transition, RowValue::Transitions(t)) => {
@@ -576,7 +577,6 @@ pub(crate) fn translate_axis(out: &mut String, px: f32, pct: f32) {
 }
 
 fn property(out: &mut String, id: StyleId) {
-    // Every node's every row asks: each name is spelled once per process.
     static NAMES: [std::sync::OnceLock<String>; 256] = [const { std::sync::OnceLock::new() }; 256];
     out.push_str(NAMES[id as usize].get_or_init(|| {
         let mut name = String::new();
@@ -623,7 +623,6 @@ fn dashed(out: &mut String, name: &str) {
     }
 }
 
-/// A [`lowered`] row's CSS value, appended.
 fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
     match value {
         // CSS's unbounded maximum is `none`; `max-width: auto` is no value (LLP 1102 §3.11).

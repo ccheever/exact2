@@ -715,13 +715,17 @@ final class NavigationBarIOSTests: XCTestCase {
         spin(0.2)
         XCTAssertTrue(app.animated, "the app's animator ran, through the forwarded delegate")
         XCTAssertEqual(backs(session), 0, "no Back")
+        let phase = { (navigation.observation()["transition"] as? [String: Any])?["phase"] as? String }
+        XCTAssertFalse(navigation.changing, "the cancelled pop is over")
+        XCTAssertEqual(phase(), "cancelled")
         // Completed: the same animator, finished.
         app.interactive = false
         nav.popViewController(animated: true)
         until("the completed pop lands") { nav.transitionCoordinator == nil && nav.viewControllers.count == 1 }
         spin(0.2)
-        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded after Exact's own")
+        XCTAssertGreaterThan(app.shown, 0, "didShow forwarded to the app")
         XCTAssertEqual(backs(session), 1, "Back once")
+        XCTAssertEqual(phase(), "completed")
     }
 
     func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {

@@ -297,6 +297,14 @@ impl PlanBuilder {
         ProfilesId(self.plan.profiles.len() as u32 - 1)
     }
 
+    /// One `theme` entry (LLP 1095 D4): its name, the role it overrides
+    /// (`""` for none) and the colour text it stands for.
+    pub fn theme_entry(&mut self, name: &str, role: &str, value: &str) -> ThemeId {
+        let (name, role, value) = (self.str(name), self.str(role), self.str(value));
+        self.plan.theme.push(ThemeRow { name, role, value });
+        ThemeId(self.plan.theme.len() as u32 - 1)
+    }
+
     /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;

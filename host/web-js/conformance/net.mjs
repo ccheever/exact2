@@ -2,27 +2,29 @@
 // and generated in code, so every target sees the same answers and a run is a
 // function of the commit, never of someone else's server (host/web-js/conform.mjs).
 //
-// A browser reaches it through a proxy (`startNet().proxy`): a CONNECT is
-// tunnelled to a local HTTPS server that holds a certificate made for the run
-// (`spki`, which Chrome is told to trust); an app's request nothing here
-// answers is kept in `unanswered`, which fails the run, since an app catches a
-// failed fetch and shows its fallback. The browser
-// itself speaks HTTP to that server, so CORS, preflights, redirects and Range
-// requests behave as they do against the real ones. Loopback (the page's own
-// server, an app's local service) is not proxied.
+// Everything reaches it through a proxy (`startNet().proxy`): a CONNECT is
+// tunnelled to a local HTTPS server whose certificate an authority made for
+// the run signs. Chrome trusts the server's key (`spki`); Bun and native code
+// trust the authority (`env`'s `NODE_EXTRA_CA_CERTS` and `SSL_CERT_FILE`). An
+// app's request nothing here answers is kept in `unanswered`, which fails the
+// run, since an app catches a failed fetch and shows its fallback. Clients speak
+// real HTTP to the server, so CORS, preflights, redirects and Range requests
+// behave as they do against the real servers. Loopback (the page's own server,
+// an app's local service) is not proxied.
 //
 // The answers are strict: a request the real API would not answer as the app
 // expects (an unknown path or field, a missing parameter, a malformed body) gets
 // no answer and lands in `unanswered`, so a broken request cannot pass as a
 // fallback screen both targets agree on.
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash, X509Certificate } from 'node:crypto';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { encodePng } from '../../../scripts/png.mjs';
 
 /** The hosts this module answers, by the app that asks them. */
@@ -34,19 +36,27 @@ export const HOSTS = {
 };
 
 /** Start the proxy and the HTTPS server behind it. `close()` stops both.
- *  Every HTTPS host is tunnelled to the local server, so a request is seen whole
- *  and judged by who sent it, not by its host. `unanswered` fails a run: an
- *  app's request (a page's, Bun's, native code's) nothing here answers, a
- *  tunnel whose TLS handshake failed (a client that does not trust the run's
- *  certificate), a CONNECT to a port other than 443. `browser` holds the
- *  browser's own requests (sign-in, updates; see `browserOwn`), answered 404;
- *  it, `answered`, `tunnels` and `aborted` (a request its client gave up on
- *  before the answer, as a page navigating away does) are reported only. */
-export async function startNet() {
-  const { key, cert, spki } = certificate(Object.keys(HOSTS));
+ *  Every HTTPS host is tunnelled to the local server, so a request is seen whole and judged by
+ *  who sent it, not by its host. `unanswered` fails a run: an app's request (a page's, Bun's,
+ *  native code's) nothing here answers, a CONNECT to a port other than 443, or a handshake a
+ *  client other than a browser abandoned (one that does not trust the run's authority). The rest
+ *  is reported only: `answered`, `tunnels`, `browser` (the browser's own requests, such as
+ *  sign-in and updates, answered 404; see `browserOwn`), and `aborted` (a request its client gave
+ *  up on, as a page navigating away does, or a browser's abandoned handshake: the browsers here
+ *  accept any certificate, so theirs is a preconnect or a shutdown, not a refusal). */
+export async function startNet(directory) {
+  // Its trust files go in `directory`, or in a scratch one `close()` removes
+  const scratch = directory ? null : mkdtempSync(resolve(tmpdir(), 'exact-conform-net-'));
+  directory ??= scratch;
+  const { key, chain, cert, spki } = certificate(Object.keys(HOSTS));
+  // Native code (rustls's native roots, OpenSSL) reads `SSL_CERT_FILE` in place of the system's roots:
+  // the authority joins the usual public roots there, so a toolchain's own downloads still verify
+  const authority = resolve(directory, 'net-authority.pem'), trust = resolve(directory, 'net-trust.pem');
+  writeFileSync(authority, cert);
+  writeFileSync(trust, [cert.toString().trim(), ...rootCertificates].join('\n') + '\n');
   const unanswered = [], answered = [], tunnels = [], aborted = [], browser = [];
   const sockets = new Set(), own = socket => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); };
-  const https = createHttpsServer({ key, cert }, (req, res) => {
+  const https = createHttpsServer({ key, cert: chain }, (req, res) => {
     const host = (req.headers.host ?? '').split(':')[0], request = `${req.method} https://${host}${req.url}`;
     const chunks = [];
     res.on('close', () => { if (!res.writableFinished) aborted.push(request); });
@@ -60,7 +70,8 @@ export async function startNet() {
     });
   });
   // A tunnel the client spoke on whose connection closes without a completed handshake is a client
-  // that refused the certificate (one it never spoke on is a preconnect left unused). Matched by
+  // that refused the certificate, unless the client is a browser (one never spoken on is a
+  // preconnect left unused). Matched by
   // port, the tunnel's local end, as Bun emits no `tlsClientError`.
   const tunnelOf = new Map(), secured = new Set();
   https.on('connection', socket => {
@@ -68,7 +79,9 @@ export async function startNet() {
     const port = socket.remotePort;
     socket.on('close', () => {
       const tunnel = tunnelOf.get(port);
-      if (tunnel?.spoke && !secured.has(port)) unanswered.push(`CONNECT ${tunnel.url}: TLS handshake failed (is the run's certificate trusted?)`);
+      if (tunnel?.spoke && !secured.has(port)) {
+        (tunnel.browser ? aborted : unanswered).push(`CONNECT ${tunnel.url}: TLS handshake failed (is the run's certificate trusted?)`);
+      }
       tunnelOf.delete(port); secured.delete(port);
     });
   });
@@ -90,7 +103,7 @@ export async function startNet() {
     }
     tunnels.push(req.url);
     const upstream = connect(https.address().port, '127.0.0.1', () => {
-      const tunnel = { url: req.url, spoke: false };
+      const tunnel = { url: req.url, spoke: false, browser: BROWSER.test(req.headers['user-agent'] ?? '') };
       tunnelOf.set(upstream.localPort, tunnel);
       socket.once('data', () => { tunnel.spoke = true; });
       socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
@@ -104,10 +117,11 @@ export async function startNet() {
   const at = `127.0.0.1:${proxy.address().port}`, url = `http://${at}`;
   return {
     proxy: at, spki, cert, unanswered, answered, tunnels, aborted, browser,
-    /** What a child process needs to go through this proxy (scripts/agent.mjs, Bun's fetch, Rust's
-     *  HTTP clients): every spelling, so an inherited one (`ALL_PROXY`, `no_proxy=*`) cannot route around it. */
+    /** What a child process needs to go through this proxy and trust its server (scripts/agent.mjs,
+     *  Bun's fetch, Rust's HTTP clients): every spelling of the proxy variables, so an inherited one
+     *  (`ALL_PROXY`, `no_proxy=*`) cannot route around it. */
     env: {
-      EXACT_NET_PROXY: at, EXACT_NET_SPKI: spki,
+      EXACT_NET_PROXY: at, EXACT_NET_SPKI: spki, NODE_EXTRA_CA_CERTS: authority, SSL_CERT_FILE: trust,
       ...Object.fromEntries(['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY'].flatMap(name => [[name, url], [name.toLowerCase(), url]])),
       NO_PROXY: LOOPBACK, no_proxy: LOOPBACK,
       // Cargo fetches the toolchain's crates, not an app's data: an empty proxy of its own sends it direct
@@ -117,6 +131,7 @@ export async function startNet() {
     close: () => {
       const closed = Promise.all([new Promise(ok => https.close(ok)), new Promise(ok => proxy.close(ok))]);
       for (const socket of sockets) socket.destroy();
+      if (scratch) rmSync(scratch, { recursive: true, force: true });
       return closed;
     },
   };
@@ -130,8 +145,10 @@ const LOOPBACK = '127.0.0.1,localhost,::1';
  *  typed address), and a browser's user agent; Bun and native code send neither. */
 function browserOwn(req) {
   const site = req.headers['sec-fetch-site'];
-  return (site === undefined || site === 'none') && /^Mozilla\/5\.0 /.test(req.headers['user-agent'] ?? '');
+  return (site === undefined || site === 'none') && BROWSER.test(req.headers['user-agent'] ?? '');
 }
+
+const BROWSER = /^Mozilla\/5\.0 /;
 
 /** The reply for one request, or null when nothing here answers it. */
 export function answer(host, method, url, headers = {}, body = Buffer.alloc(0)) {
@@ -154,7 +171,10 @@ function cors(req) {
   };
 }
 
-/** A self-signed certificate for `hosts`, made for this run, and its SPKI digest (Chrome's `--ignore-certificate-errors-spki-list`). */
+/** A certificate authority made for this run (`cert`, what clients trust) and a server certificate
+ *  it signs for `hosts` (`chain` and `key`, what the server presents; `spki`, its key's digest for
+ *  Chrome's `--ignore-certificate-errors-spki-list`). Rustls needs the two apart: webpki takes
+ *  neither a self-signed server certificate as its own anchor nor a CA certificate as a server's. */
 function certificate(hosts) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-conform-net-'));
   try {
@@ -163,11 +183,19 @@ function certificate(hosts) {
       if (r.status !== 0) throw new Error(`conformance net: openssl ${args[0]} failed: ${r.stderr || r.error?.message}`);
       return r;
     };
-    run(['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes', '-days', '2', '-subj', '/CN=exact conformance',
-      '-addext', `subjectAltName=${hosts.map(h => `DNS:${h}`).join(',')}`, '-keyout', 'key.pem', '-out', 'cert.pem']);
-    const der = spawnSync('sh', ['-c', 'openssl x509 -in cert.pem -pubkey -noout | openssl pkey -pubin -outform der'], { cwd: dir });
-    if (der.status !== 0) throw new Error(`conformance net: the certificate's public key: ${der.stderr}`);
-    return { key: readFileSync(resolve(dir, 'key.pem')), cert: readFileSync(resolve(dir, 'cert.pem')), spki: createHash('sha256').update(der.stdout).digest('base64') };
+    const ec = ['-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:prime256v1', '-nodes'];
+    run(['req', '-x509', ...ec, '-days', '2', '-subj', '/CN=exact conformance authority',
+      '-addext', 'basicConstraints=critical,CA:TRUE', '-addext', 'keyUsage=critical,keyCertSign',
+      '-keyout', 'authority-key.pem', '-out', 'authority.pem']);
+    run(['req', ...ec, '-subj', '/CN=exact conformance', '-keyout', 'key.pem', '-out', 'request.pem']);
+    writeFileSync(resolve(dir, 'server.ext'), [`subjectAltName=${hosts.map(h => `DNS:${h}`).join(',')}`,
+      'basicConstraints=critical,CA:FALSE', 'keyUsage=critical,digitalSignature', 'extendedKeyUsage=serverAuth'].join('\n') + '\n');
+    run(['x509', '-req', '-in', 'request.pem', '-CA', 'authority.pem', '-CAkey', 'authority-key.pem', '-CAcreateserial',
+      '-days', '2', '-extfile', 'server.ext', '-out', 'server.pem']);
+    const read = name => readFileSync(resolve(dir, name)), server = read('server.pem');
+    const spki = new X509Certificate(server).publicKey.export({ type: 'spki', format: 'der' });
+    return { key: read('key.pem'), chain: Buffer.concat([server, read('authority.pem')]), cert: read('authority.pem'),
+      spki: createHash('sha256').update(spki).digest('base64') };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

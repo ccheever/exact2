@@ -1,18 +1,7 @@
 //! LLP 1057.001 §1 on Linux: candidates innermost first, then by rank; the
 //! first whose axis rule accepts at the slop begins, and nothing after it.
 use super::super::*;
-use exact_runner::DataError;
 
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 /// A swipe row inside a column that pans: the inner swipe is first.
 const SOURCE: &str = r#"component App
   state replies = 0
@@ -27,10 +16,10 @@ const SOURCE: &str = r#"component App
         text "swipe me"
       text `${replies} ${panned}` testId="out"
 "#;
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(SOURCE).unwrap().encode(),
-        NoData,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -40,7 +29,7 @@ fn boot() -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn out(p: &Presenter<NoData>) -> String {
+fn out(p: &Presenter<()>) -> String {
     let k = p.host.kernel();
     let id = k.node_by_key(k.find_by_test_id("out")[0]).unwrap().id;
     k.node(id)
@@ -90,7 +79,7 @@ fn an_ancestor_pan_takes_a_drag_that_starts_on_a_button() {
 "#;
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
-        NoData,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

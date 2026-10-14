@@ -1,5 +1,6 @@
 //! The abstract syntax tree.
 
+pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
 
@@ -46,6 +47,10 @@ pub struct File {
     pub timelines: Vec<TimelineDecl>,
     /// `color-profile` declarations, in order (LLP 1100 D3).
     pub color_profiles: Vec<ColorProfileDecl>,
+    /// The app's `theme` (LLP 1095 D4): the root file's only.
+    pub theme: Option<ThemeDecl>,
+    /// The app's design, `app.tamber` (LLP 1121 D2), set by the driver.
+    pub design: Option<DesignSource>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -577,17 +582,6 @@ pub struct KeyframesDecl {
 pub struct TimelineDecl {
     /// The name `animation-timeline` refers to.
     pub name: String,
-    /// Where.
-    pub span: Span,
-}
-
-/// `color-profile --name src="…" rendering-intent=…`: CSS's `@color-profile`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ColorProfileDecl {
-    /// The dashed name `color()` refers to, `--` included.
-    pub name: String,
-    /// The descriptors, literal: `src` and `rendering-intent`.
-    pub attrs: Vec<Attr>,
     /// Where.
     pub span: Span,
 }

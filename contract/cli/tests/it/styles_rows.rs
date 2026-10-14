@@ -15,6 +15,84 @@ impl DataSource for NoData {
     }
 }
 
+#[test]
+fn explicit_clear_intent_differs_from_a_missing_class_row() {
+    use exact_kernel::StyleId::TextColor;
+    for parent in ["", "color=\"#123456\""] {
+        for keyword in ["inherit", "unset", "currentcolor"] {
+            let src = format!(
+                r##"style Colored
+  color="#123456"
+style Plain
+  opacity=1
+component App
+  state on = false
+  state parentInk = "#123456"
+  action flip
+    on = not on
+  action retint
+    parentInk = "#654321"
+  view
+    column {parent}
+      view color=parentInk
+        text "changing parent" color="{keyword}" testId="retint"
+      text "plain" testId="plain"
+      text "static" color="{keyword}" testId="static"
+      text "dynamic" color=(on ? "#123456" : "{keyword}") testId="dynamic"
+      text "class" class=(on ? Colored : Plain) testId="class"
+      text "same" color="#123456" testId="same"
+"##
+            );
+            let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+            let mut r = Runner::boot(
+                plan,
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+            .unwrap();
+            let style = |r: &Runner<NoData>, id: &str| {
+                let k = r.kernel();
+                let n = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+                (
+                    n.style.mask.has(TextColor),
+                    n.style.written.has(TextColor),
+                    n.text_color(),
+                )
+            };
+            for on in [false, true, false] {
+                let inherited = style(&r, "plain").2;
+                assert_eq!(
+                    style(&r, "static"),
+                    (false, true, inherited),
+                    "static {keyword}, {parent}"
+                );
+                let dynamic = style(&r, "dynamic");
+                assert_eq!(
+                    (dynamic.0, dynamic.1),
+                    (on, true),
+                    "dynamic {keyword}, {parent}"
+                );
+                let class = style(&r, "class");
+                assert_eq!((class.0, class.1), (on, on), "class {keyword}, {parent}");
+                if !on {
+                    assert_eq!(dynamic.2, inherited);
+                    assert_eq!(class.2, inherited);
+                }
+                let same = style(&r, "same");
+                assert_eq!((same.0, same.1), (true, true));
+                r.act("flip", vec![]).unwrap();
+            }
+            r.act("retint", vec![]).unwrap();
+            let inherited = style(&r, "retint");
+            assert_eq!((inherited.0, inherited.1), (false, true));
+            assert_eq!(inherited.2, Color::parse_hex("#654321").unwrap().into());
+            assert!(r.journal().all(|line| !line.contains("invalid")));
+        }
+    }
+}
+
 /// CSS `order` is a box's style row, bound or literal: a flex item moves in
 /// its row, as on the web (feed F19: it compiled as an SVG filter
 /// primitive's attribute and moved nothing).

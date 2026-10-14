@@ -618,6 +618,24 @@
       ]
     },
     {
+      "name": "theme",
+      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), and the colour text it stands for, which names no entry. A colour string naming an entry or an overridden role reads that text, in the compiler and when the runner sets a row.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "role",
+          "codec": "str"
+        },
+        {
+          "name": "value",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "hatches",
       "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
       "fields": [

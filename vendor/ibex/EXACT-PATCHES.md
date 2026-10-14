@@ -3,7 +3,7 @@
 ## Snapshot and update recipe
 
 - Upstream: `https://github.com/expo/ibex.git` at
-  `e60b3e0570315f31710744c1187f3cec5574fedf` (2026-10-13).
+  `e742c7284a767edbfb711db3333f7610c24f99f8` (2026-10-14).
 - Source trees: `crates/{ibex2,ibex2-sqlite,hermes-lean-sys,hermes-lean-sys-installer}`.
 - Data inputs: `scripts/icu74-filter-{root-en,en-intl}.json` and
   `third_party/wpt/urltestdata.json`.
@@ -28,6 +28,10 @@ storage declaration were unchanged. The subsequent `e60b3e0` refresh adopts
 the authenticated v5 trust table: eleven target mappings for ten assets,
 including Android aarch64. Its manifests, locks and integration seams are
 unchanged. The published bundle was consumed by the qualification below.
+The `e742c72` refresh adopts expo/ibex#1: off Apple, the portable WebSocket
+transport tunnels through the environment's proxy as fetch does
+(`transport/websocket.rs` and its tests, the only vendored inputs that changed
+since `e60b3e0`). Manifests, locks and integration seams are unchanged.
 
 For another refresh, export the four named crate trees and all three data inputs
 from the selected commit into a temporary directory. Recover the current local

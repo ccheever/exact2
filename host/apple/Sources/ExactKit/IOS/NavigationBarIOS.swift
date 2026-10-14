@@ -236,9 +236,10 @@ struct BadgeFace: Equatable {
 }
 
 /// The delegate Exact gives each navigation controller it builds: Exact's
-/// own handling first (pop reconciliation, LLP 1035.001 D1, D2), then the
-/// app's delegate, which receives straight anything Exact does not
-/// implement — a custom transition's animator (LLP 1075.003 §3.5).
+/// own handling first, then the app's delegate, which receives straight
+/// anything Exact does not implement — a custom transition's animator
+/// (LLP 1075.003 §3.5). An animated push or pop is reconciled (LLP 1035.001
+/// D1, D2) in its coordinator's completion, after both have heard `didShow`.
 final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var host: NavigationHost?
     weak var app: UINavigationControllerDelegate?
@@ -477,6 +478,14 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
+        // The theme's label colour on the bar's titles (LLP 1095 D4); its
+        // glyphs take the app's tint, which the theme's `AccentColor` sets.
+        if let ink = ThemeRoles.color("label") ?? ThemeRoles.color("CanvasText") {
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+            #if !os(tvOS)
+            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+            #endif
+        }
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true

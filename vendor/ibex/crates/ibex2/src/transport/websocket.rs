@@ -1,5 +1,6 @@
 //! A WebSocket client off Apple (RFC 6455): TCP from the standard
-//! library, TLS from the same rustls and trust store as `RustlsHttpTransport`.
+//! library, TLS from the same rustls and trust store as `RustlsHttpTransport`,
+//! and the same environment proxy (an HTTP CONNECT tunnel; see `tunnel`).
 //! One readiness-driven I/O pump owns each socket and rustls connection. It
 //! multiplexes the bounded outbound queue with requested receives, so control
 //! frames remain live while a large data message drains.
@@ -22,6 +23,9 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 const MAX_HEAD: usize = 16 << 10;
+/// How long a proxy has to answer CONNECT, its request written and its whole
+/// answer read: a deadline, not a per-read timeout a slow drip could renew.
+const CONNECT_BUDGET: Duration = Duration::from_secs(15);
 const FRAGMENT: usize = 16 << 10;
 const MAX_OUTBOUND_BYTES: usize = 16 << 20;
 const MAX_OUTBOUND_MESSAGES: usize = 256;
@@ -45,11 +49,27 @@ enum AdmissionState {
 pub struct TcpSocketTransport {
     tls: std::sync::OnceLock<Arc<rustls::ClientConfig>>,
     #[cfg(test)]
+    proxy: TestProxy,
+    #[cfg(test)]
+    connect_budget: Option<Duration>,
+    #[cfg(test)]
     writer_gate: Option<Arc<(Mutex<bool>, std::sync::Condvar)>>,
     #[cfg(test)]
     pump_observer: Option<Arc<PumpObserver>>,
     #[cfg(test)]
     zero_socket_writes: bool,
+}
+
+/// Where a test transport's proxy comes from: none (the default, so a
+/// developer's own proxy settings never reach a loopback fixture), the
+/// environment (as in production), or a given one.
+#[cfg(test)]
+#[derive(Clone, Default)]
+enum TestProxy {
+    #[default]
+    None,
+    Environment,
+    Given(ureq::Proxy),
 }
 
 #[cfg(test)]
@@ -78,6 +98,8 @@ impl TcpSocketTransport {
         tls.set(config).expect("a fresh TLS configuration");
         Self {
             tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: None,
             pump_observer: None,
             zero_socket_writes: false,
@@ -88,6 +110,8 @@ impl TcpSocketTransport {
     fn with_writer_gate(gate: Arc<(Mutex<bool>, std::sync::Condvar)>) -> Self {
         Self {
             tls: std::sync::OnceLock::new(),
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: Some(gate),
             pump_observer: None,
             zero_socket_writes: false,
@@ -98,6 +122,8 @@ impl TcpSocketTransport {
     fn with_pump_observer(observer: Arc<PumpObserver>) -> Self {
         Self {
             tls: std::sync::OnceLock::new(),
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: None,
             pump_observer: Some(observer),
             zero_socket_writes: false,
@@ -113,6 +139,8 @@ impl TcpSocketTransport {
         tls.set(config).expect("a fresh TLS configuration");
         Self {
             tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: None,
             pump_observer: Some(observer),
             zero_socket_writes: false,
@@ -125,14 +153,73 @@ impl TcpSocketTransport {
         tls.set(config).expect("a fresh TLS configuration");
         Self {
             tls,
+            proxy: TestProxy::None,
+            connect_budget: None,
             writer_gate: None,
             pump_observer: None,
             zero_socket_writes: true,
         }
     }
 
+    /// A transport whose proxy comes from `proxy`, with `NO_PROXY` and the
+    /// protocol applied as to the environment's, and a CONNECT that must be
+    /// answered within `connect_budget` (default `CONNECT_BUDGET`).
+    #[cfg(test)]
+    fn with_tls_and_proxy(
+        config: Arc<rustls::ClientConfig>,
+        proxy: TestProxy,
+        connect_budget: Option<Duration>,
+    ) -> Self {
+        let mut transport = Self::with_tls(config);
+        transport.proxy = proxy;
+        transport.connect_budget = connect_budget;
+        transport
+    }
+
     fn tls(&self) -> Arc<rustls::ClientConfig> {
         self.tls.get_or_init(tls_config).clone()
+    }
+
+    // @ref LLP 0059.000#312-websocket--delegating-capability-bearing-author-required — the portable transport traverses fetch's environment proxy
+    /// The proxy a socket to `host:port` goes through: the environment's, as
+    /// fetch's ureq agent reads it, unless `NO_PROXY` names the host. One the
+    /// socket cannot speak (`https://`, SOCKS) fails the open rather than
+    /// being skipped.
+    fn proxy_for(&self, host: &str, port: u16) -> Result<Option<ureq::Proxy>, HostError> {
+        #[cfg(test)]
+        let proxy = match &self.proxy {
+            TestProxy::None => None,
+            TestProxy::Environment => ureq::Proxy::try_from_env(),
+            TestProxy::Given(proxy) => Some(proxy.clone()),
+        };
+        #[cfg(not(test))]
+        let proxy = ureq::Proxy::try_from_env();
+        let Some(proxy) = proxy else {
+            return Ok(None);
+        };
+        // The target's authority alone: NO_PROXY names hosts, and a path too long for `http::Uri` cannot defeat it
+        if format!("http://{host}:{port}/")
+            .parse::<ureq::http::Uri>()
+            .is_ok_and(|uri| proxy.is_no_proxy(&uri))
+        {
+            return Ok(None);
+        }
+        if proxy.protocol() != ureq::ProxyProtocol::Http {
+            return Err(failed(format!(
+                "the environment's proxy {} is not an http:// CONNECT proxy, the only kind a \
+                 WebSocket tunnels through; use one or name the host in NO_PROXY",
+                named(&proxy)
+            )));
+        }
+        Ok(Some(proxy))
+    }
+
+    fn connect_budget(&self) -> Duration {
+        #[cfg(test)]
+        if let Some(budget) = self.connect_budget {
+            return budget;
+        }
+        CONNECT_BUDGET
     }
 }
 
@@ -316,7 +403,17 @@ impl TcpSocketTransport {
         let port = url
             .port_or_known_default()
             .ok_or_else(|| failed("no port"))?;
-        let addrs: Vec<_> = (host.trim_start_matches('[').trim_end_matches(']'), port)
+        // Through a proxy the connection is the proxy's, and the proxy resolves
+        // the target, as fetch's CONNECT does (ureq's default for HTTP proxies)
+        let proxy = self.proxy_for(host, port)?;
+        let (dial_host, dial_port) = match proxy.as_ref() {
+            Some(proxy) => (proxy.host(), proxy.port()),
+            None => (host, port),
+        };
+        let addrs: Vec<_> = (
+            dial_host.trim_start_matches('[').trim_end_matches(']'),
+            dial_port,
+        )
             .to_socket_addrs()
             .map_err(failed)?
             .collect();
@@ -338,7 +435,7 @@ impl TcpSocketTransport {
                 Err(e) => last = failed(e),
             }
         }
-        let tcp = tcp.ok_or(last)?;
+        let mut tcp = tcp.ok_or(last)?;
         tcp.set_nodelay(true).map_err(failed)?;
         // Aborting wakes Poll even when the connection is completely idle.
         // Shutdown is retained as a second, idempotent way to make socket I/O
@@ -355,6 +452,10 @@ impl TcpSocketTransport {
         let shutdown = tcp.try_clone().map_err(failed)?;
         tcp.set_read_timeout(Some(Duration::from_secs(15)))
             .map_err(failed)?;
+        if let Some(proxy) = proxy.as_ref() {
+            tunnel(&mut tcp, proxy, host, port, self.connect_budget())
+                .map_err(|e| signal.check().err().unwrap_or(e))?;
+        }
         let mut wire = if url.scheme() == "wss" {
             let name = rustls::pki_types::ServerName::try_from(
                 host.trim_start_matches('[')
@@ -448,6 +549,158 @@ impl TcpSocketTransport {
             protocol,
         })
     }
+}
+
+/// A proxy as an error names it: its scheme, host and port, never the
+/// credentials its URL may carry.
+fn named(proxy: &ureq::Proxy) -> String {
+    let scheme = proxy.uri().scheme_str().unwrap_or("http");
+    format!("{scheme}://{}:{}", proxy.host(), proxy.port())
+}
+
+/// Opens an HTTP CONNECT tunnel to `host:port` through `proxy` on `tcp`, as
+/// ureq's `ConnectProxyConnector` does for fetch, with Basic credentials from
+/// the proxy's URL. Every write and read checks one deadline, `budget` from
+/// now. Informational (1xx) answers are passed over, and any 2xx final answer
+/// opens the tunnel (RFC 9110 §9.3.6, §15.2; this ureq takes only 200). The
+/// answer is read a byte at a time, so no tunnel byte is consumed with it. An
+/// error gives its status code, never its reason phrase, which a proxy may
+/// fill with anything, the credentials it was sent included.
+fn tunnel(
+    tcp: &mut StdTcpStream,
+    proxy: &ureq::Proxy,
+    host: &str,
+    port: u16,
+    budget: Duration,
+) -> Result<(), HostError> {
+    use base64::Engine as _;
+    let target = format!("{host}:{port}");
+    let through = |what: String| failed(format!("the proxy {} {what}", named(proxy)));
+    let deadline = Instant::now() + budget;
+    let remaining = || {
+        let left = deadline.saturating_duration_since(Instant::now());
+        (!left.is_zero()).then_some(left).ok_or_else(|| {
+            through(format!(
+                "did not answer CONNECT {target} within {} s",
+                budget.as_secs_f64()
+            ))
+        })
+    };
+    let mut head = format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n");
+    if proxy.username().is_some() || proxy.password().is_some() {
+        let credentials = format!(
+            "{}:{}",
+            proxy.username().unwrap_or_default(),
+            proxy.password().unwrap_or_default()
+        );
+        let encoded = base64::engine::general_purpose::STANDARD.encode(credentials);
+        head.push_str(&format!("Proxy-Authorization: Basic {encoded}\r\n"));
+    }
+    head.push_str("\r\n");
+    let mut unsent = head.as_bytes();
+    while !unsent.is_empty() {
+        tcp.set_write_timeout(Some(remaining()?)).map_err(failed)?;
+        match tcp.write(unsent) {
+            Ok(0) => return Err(through(format!("closed before CONNECT {target} was sent"))),
+            Ok(sent) => unsent = &unsent[sent..],
+            Err(e) if is_retry(&e) => {}
+            Err(e) => return Err(through(format!("was not sent CONNECT {target}: {e}"))),
+        }
+    }
+    let status = loop {
+        let mut answer = Vec::with_capacity(256);
+        let mut byte = [0u8; 1];
+        while !answer.ends_with(b"\r\n\r\n") {
+            if answer.len() >= MAX_HEAD {
+                return Err(through(format!(
+                    "answered CONNECT {target} with a head over {MAX_HEAD} bytes"
+                )));
+            }
+            tcp.set_read_timeout(Some(remaining()?)).map_err(failed)?;
+            match tcp.read(&mut byte) {
+                Ok(0) => return Err(through(format!("closed before answering CONNECT {target}"))),
+                Ok(_) => answer.push(byte[0]),
+                Err(e) if is_retry(&e) => {}
+                Err(e) => return Err(through(format!("did not answer CONNECT {target}: {e}"))),
+            }
+        }
+        // 101 would switch protocols, which a CONNECT answer cannot
+        match connect_status(&answer) {
+            Some(status @ 100..=199) if status != 101 => continue,
+            status => break status,
+        }
+    };
+    // The upgrade that follows keeps the open's own timeouts
+    tcp.set_write_timeout(None).map_err(failed)?;
+    tcp.set_read_timeout(Some(Duration::from_secs(15)))
+        .map_err(failed)?;
+    match status {
+        Some(200..=299) => Ok(()),
+        Some(status) => Err(through(format!(
+            "refused CONNECT {target} with status {status}"
+        ))),
+        None => Err(through(format!(
+            "answered CONNECT {target} with a malformed head"
+        ))),
+    }
+}
+
+/// Whether a deadline-bound loop tries an I/O call again: an interrupted
+/// call, or a timeout, on which the deadline itself then decides.
+fn is_retry(e: &std::io::Error) -> bool {
+    matches!(
+        e.kind(),
+        std::io::ErrorKind::Interrupted
+            | std::io::ErrorKind::WouldBlock
+            | std::io::ErrorKind::TimedOut
+    )
+}
+
+/// The status of a CONNECT answer's head, ending in its blank line, or `None`
+/// when it breaks RFC 9112's grammar (§4–5): an `HTTP/1.0` or `HTTP/1.1`
+/// status line with a three-digit code and an optional reason, then header
+/// lines of a token, a colon and a value, a folded line continuing the one
+/// before. A reason or value may hold any octet but a control other than tab
+/// (obs-text included). A status line ending at its code, without the space
+/// before an empty reason, is taken, as proxies send it.
+fn connect_status(head: &[u8]) -> Option<u16> {
+    // Every line ends in CRLF: a bare LF leaves a line without its CR, and a
+    // bare CR is a control, which no part below admits
+    let mut lines = head
+        .strip_suffix(b"\n\r\n")?
+        .split(|b| *b == b'\n')
+        .map(|line| line.strip_suffix(b"\r"));
+    let status_line = lines.next()??;
+    let (code, reason) = status_line
+        .strip_prefix(b"HTTP/1.1 ")
+        .or_else(|| status_line.strip_prefix(b"HTTP/1.0 "))?
+        .split_at_checked(3)?;
+    let text = |octets: &[u8]| {
+        octets
+            .iter()
+            .all(|&b| b == b'\t' || (b >= 0x20 && b != 0x7f))
+    };
+    let token = |b: &u8| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(b);
+    if !code.iter().all(u8::is_ascii_digit)
+        || !(reason.is_empty() || reason.starts_with(b" ") && text(reason))
+    {
+        return None;
+    }
+    let mut first = true;
+    for line in lines {
+        let line = line?;
+        let well_formed = match line.first() {
+            Some(b' ' | b'\t') => !first && text(line),
+            _ => line.iter().position(|b| *b == b':').is_some_and(|colon| {
+                colon > 0 && line[..colon].iter().all(token) && text(&line[colon + 1..])
+            }),
+        };
+        if !well_formed {
+            return None;
+        }
+        first = false;
+    }
+    std::str::from_utf8(code).ok()?.parse().ok()
 }
 
 /// Send the opening handshake and check the answer. Returns bytes read past

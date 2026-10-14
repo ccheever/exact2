@@ -804,6 +804,8 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let launched_place = crate::time::launch_place();
+        // A refused boot puts back the overrides it took (a session still running keeps its own).
+        let (mut restore, replaced) = crate::bridge::RestoreOverrides::set(&plan);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
@@ -1058,6 +1060,13 @@ impl<D: DataSource> Runner<D> {
             let line = format!("{why}; nothing is granted");
             runner.log(line);
         }
+        if replaced {
+            // @ref LLP 1121 §10 — the overridden roles are the thread's until
+            // per-session tables (stage 5): a second plan with other ones
+            // takes them over from the first, which is said, not silent.
+            runner.log("theme: this plan's role overrides replace another plan's on this thread; a session still running the other now shows these (per-session tables are owed)".to_string());
+        }
+        restore.0 = None;
         Ok(runner)
     }
 

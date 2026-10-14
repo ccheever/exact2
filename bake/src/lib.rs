@@ -21,7 +21,36 @@ pub use receipt::write_development_artifacts;
 /// The Bun a bake spawns: `BUN` names one, else the first on PATH. The scripts
 /// put the Bun they checked against package.json's pin first (`developmentBuildEnv`).
 pub fn bun() -> std::process::Command {
-    std::process::Command::new(bun_program())
+    let mut command = std::process::Command::new(bun_program());
+    if let Some(helper) = filesystem_helper() {
+        command.env("EXACT_FILESYSTEM_HELPER", helper);
+    }
+    command
+}
+
+/// The tooling filesystem helper (`scripts/filesystem.mjs`), checked current once per
+/// process and named to every Bun this process spawns, each of which would otherwise run
+/// Cargo to check it again; a process that was named one passes it on. `None` when it
+/// cannot be resolved: each Bun then checks it for itself, and reports any failure.
+fn filesystem_helper() -> Option<&'static std::ffi::OsString> {
+    static HELPER: std::sync::OnceLock<Option<std::ffi::OsString>> = std::sync::OnceLock::new();
+    HELPER
+        .get_or_init(|| {
+            if let Some(inherited) = std::env::var_os("EXACT_FILESYSTEM_HELPER") {
+                return Some(inherited);
+            }
+            let script =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/filesystem.mjs");
+            let output = std::process::Command::new(bun_program())
+                .arg(script)
+                .arg("--helper")
+                .output()
+                .ok()?;
+            (output.status.success() && !output.stdout.is_empty())
+                .then(|| String::from_utf8(output.stdout).ok().map(Into::into))
+                .flatten()
+        })
+        .as_ref()
 }
 
 fn bun_program() -> std::ffi::OsString {

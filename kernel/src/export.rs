@@ -175,7 +175,7 @@ pub fn encode(arena: &NodeArena, root: Option<u32>, epoch: u64) -> Result<Vec<u8
         nodes.f32(row.frame.height);
         let style = arena.style(*slot);
         style.validate_domain().map_err(DecodeError::from)?;
-        style.encode_masked(style.mask, &mut styles);
+        style.encode_patch(&mut styles);
         write_props(&mut props, arena.props(*slot));
     }
     nodes.pad8();

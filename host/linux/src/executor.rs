@@ -16,20 +16,32 @@ pub struct Executor {
     wake: UnixStream,
     note: Option<String>,
 }
+/// The Linux host's transports: rustls over ureq and the portable WebSocket.
+fn portable_host() -> ibex2::host::Host {
+    ibex2::host::Host::with_transport(Box::new(ibex2::transport::RustlsHttpTransport::new()))
+        .with_socket_transport(Box::new(
+            ibex2::transport::websocket::TcpSocketTransport::new(),
+        ))
+}
+
 impl Executor {
     /// Start native transport owners from the app's grants.
     pub fn start(grants: &str) -> Self {
         let (wake, signal) = UnixStream::pair().expect("executor socketpair");
         wake.set_nonblocking(true).expect("nonblocking wake");
         signal.set_nonblocking(true).expect("nonblocking signal");
-        #[cfg(not(target_vendor = "apple"))]
-        let (host, note) = {
-            let transport = ibex2::transport::RustlsHttpTransport::new();
-            let note = Some(format!("trust roots: {}", transport.roots()));
-            (ibex2::host::Host::with_transport(Box::new(transport)), note)
+        // A Mac build takes the platform's transports, but under conformance's network
+        // (`EXACT_NET_PROXY`, host/web-js/conformance/net.mjs) speaks as the Linux one
+        // does: rustls and portable sockets take the run's proxy and trust from the
+        // environment, and NSURLSession takes neither
+        let portable =
+            cfg!(not(target_vendor = "apple")) || std::env::var_os("EXACT_NET_PROXY").is_some();
+        let (host, note) = if portable {
+            let roots = ibex2::transport::RustlsHttpTransport::new().roots();
+            (portable_host(), Some(format!("trust roots: {roots}")))
+        } else {
+            (ibex2::host::Host::new(), None)
         };
-        #[cfg(target_vendor = "apple")]
-        let (host, note) = (ibex2::host::Host::new(), None);
         // Grants that do not parse hold nothing: the journal says so once,
         // and every request's refusal names the line (the core's).
         let (bindings, note) = match ibex2::grant::GrantSet::parse(&exact_runner::io_grants(grants))
@@ -43,7 +55,8 @@ impl Executor {
                 )
             }
         };
-        let core = core::Core::start(
+        // The other owners, scoped grants and streams take the same transports as the first
+        let core = core::Core::start_on(
             bindings,
             grants,
             Box::new(move || {
@@ -51,6 +64,11 @@ impl Executor {
                 // (or retirement) because the presenter hasn't drained a pipe.
                 let _ = (&signal).write(&[1]);
             }),
+            if portable {
+                std::sync::Arc::new(portable_host)
+            } else {
+                std::sync::Arc::new(ibex2::host::Host::new)
+            },
         );
         Self { core, wake, note }
     }

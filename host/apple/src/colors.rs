@@ -95,6 +95,21 @@ impl<D: DataSource> Host<D> {
     }
 }
 
+/// The roles the plan's theme replaces (LLP 1095 D4), for the presenter's
+/// own surfaces: one message at boot.
+pub(crate) fn emit_roles(batch: &mut Batch) {
+    use exact_kernel::style::roles;
+    let entries: Vec<(&str, String)> = (0..=u8::MAX)
+        .map_while(|id| roles::role_of(id).map(|r| (id, r)))
+        .filter_map(|(id, r)| {
+            let mut colour = String::new();
+            crate::style::push_color_value(&mut colour, roles::overridden(id)?);
+            Some((r.name, colour))
+        })
+        .collect();
+    batch.roles(&entries);
+}
+
 #[cfg(test)]
 #[path = "colors_tests.rs"]
 mod tests;

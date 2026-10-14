@@ -94,7 +94,12 @@ pub struct Folding {
 
 /// Parse, check and fold a `.tamber` source.
 pub fn check(src: &str, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
-    let design = parse(src)?;
+    check_design(parse(src)?, vocab)
+}
+
+/// Check and fold a design already parsed, or built by a caller: the
+/// compiler's inline `theme` (LLP 1095 D4) and its synthetic tokens (D3).
+pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagnostic>> {
     let (tokens, tuples, dials) = check::check(&design, vocab)?;
     let fallbacks = tokens
         .iter()

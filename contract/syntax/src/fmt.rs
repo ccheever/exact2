@@ -254,6 +254,9 @@ impl<'a> Layout<'a> {
         for style in &file.styles {
             self.attributes.extend(style.attrs.iter().map(|a| a.span));
         }
+        if let Some(theme) = &file.theme {
+            self.attributes.extend(theme.entries.iter().map(|a| a.span));
+        }
         for rule in &file.keyframes {
             for frame in &rule.frames {
                 self.attributes.extend(frame.attrs.iter().map(|a| a.span));

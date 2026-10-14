@@ -188,7 +188,8 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
 }
 impl BoxPaint {
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
-        let s = node.style;
+        let effective = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let s = &effective;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
@@ -1183,10 +1184,10 @@ impl Painter {
 /// hit there too.
 fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
     let kernel = scene.kernel;
-    let Some(node) = kernel
-        .node(id)
-        .filter(|n| n.style.position_type == exact_kernel::PositionType::Sticky)
-    else {
+    let Some(node) = kernel.node(id).filter(|n| {
+        n.computed_row(exact_kernel::StyleId::PositionType, |s| s.position_type)
+            == exact_kernel::PositionType::Sticky
+    }) else {
         return offset;
     };
     let Some(c) = kernel.sticky_constraint(node.key) else {

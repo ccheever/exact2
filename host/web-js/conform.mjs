@@ -118,12 +118,10 @@ mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist int
 // The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
 process.env.CHROME ??= chromium().executable;
 // The outside servers the apps ask are answered locally (conformance/net.mjs): every browser, build
-// and child process this run starts inherits the route, and an outside request nothing answers is
+// and child process this run starts inherits the route and its trust, and an outside request nothing answers is
 // a failure (an app catches a failed fetch and shows its fallback, so it would otherwise pass).
-const net = await startNet();
-const netCertificate = resolve(out, 'net-certificate.pem');
-writeFileSync(netCertificate, net.cert);
-Object.assign(process.env, net.env, { NODE_EXTRA_CA_CERTS: netCertificate });
+const net = await startNet(out);
+Object.assign(process.env, net.env);
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
 function serve(dir) {

@@ -260,12 +260,13 @@ extension NodeView {
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
-    /// `systemBackground` (tvOS has none; white stands in).
+    /// `systemBackground` (tvOS has none; white stands in) — or the theme's
+    /// where it replaces the page's ground (LLP 1095 D4).
     package static var platformBackground: UIColor {
         #if os(tvOS)
-        return .white
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .white)
         #else
-        return .systemBackground
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
         #endif
     }
 }

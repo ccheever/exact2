@@ -493,6 +493,19 @@ pub(crate) fn check_style_value(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<(), LowerError> {
+    // A name the design lacks, or a colour token in another row (LLP 1121 D3).
+    style_value(a, rows, ty, fonts, scope, shapes)
+        .map_err(|e| crate::theme::token_error(a, rows, e))
+}
+
+fn style_value(
+    a: &Attr,
+    rows: &[StyleId],
+    ty: &Ty,
+    fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), LowerError> {
     if rows
         .iter()
         .any(|r| matches!(r, StyleId::Resize | StyleId::UserSelect))

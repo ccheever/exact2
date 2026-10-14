@@ -142,7 +142,23 @@ pub fn of(id: StyleId, value: &StyleValue) -> Option<Option<StyleValue<'static>>
         return None;
     };
     let metric = named(text)?;
-    Some(as_written(id, self::value(metric, column())))
+    let column = column();
+    let mut value = self::value(metric, column);
+    if column == Column::Mac {
+        // These measured AppKit surfaces differ from the roles' defaults;
+        // a theme replaces them without changing an unthemed form.
+        let role = match metric.name {
+            "grouped-card-fill" => Some("-exact-secondary-grouped-background"),
+            "grouped-separator" => Some("-exact-separator"),
+            _ => None,
+        };
+        if let Some(role) =
+            role.filter(|name| roles::role(name).and_then(roles::overridden).is_some())
+        {
+            value = MetricValue::Text(role);
+        }
+    }
+    Some(as_written(id, value))
 }
 
 /// A `style` metric's value as the value a producer hands a row (the
@@ -243,9 +259,22 @@ mod tests {
                 "grouped-ground" => Text("-exact-grouped-background"),
                 "grouped-ground-plain" => Text("-exact-background"),
                 "grouped-card-radius" => Number(12.0),
+                "header-ground" => Text("-exact-background"),
+                "header-color" => Text("-exact-label"),
+                "header-edge-width" => Number(1.0),
+                "header-edge-style" => Text("solid"),
+                "header-edge-color" => Text("-exact-separator"),
+                "header-min-height" => Number(32.0),
+                "header-padding-block" => Number(6.0),
+                "header-padding-inline" => Number(16.0),
+                "header-position" => Text("sticky"),
+                "header-top" => Number(0.0),
                 _ => m.web,
             };
             assert_eq!(m.neutral, neutral, "{}", m.name);
+            if m.name.starts_with("header-") {
+                assert_eq!([m.web, m.ios, m.macos], [Text("unset"); 3], "{}", m.name);
+            }
         }
     }
 
@@ -309,6 +338,11 @@ mod tests {
             match name {
                 n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
                 "grouped-separator" => &[BorderColorBottom, BorderColorTop],
+                "header-edge-width" => &[BorderWidthBottom],
+                "header-edge-style" => &[BorderStyleBottom],
+                "header-edge-color" => &[BorderColorBottom],
+                "header-position" => &[PositionType],
+                "header-top" => &[Top],
                 n if n.ends_with("-color") => &[TextColor],
                 n if n.ends_with("-tint") => &[TintColor],
                 "grouped-section-width" => &[Width],

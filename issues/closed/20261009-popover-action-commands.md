@@ -126,10 +126,10 @@ component X66app
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| `showPopover` from an action | `contract build a.contract -o a.plan` | macOS 26.6.2, Apple Silicon (compiler) | main `b896050d7` | exit 1: `` a.contract:5:7 [type-unknown-command] `showPopover` is not a host command; the hosts answer blur, copyText, …, showPicker, showModal, …, close, … `` | builds; ArrowDown opens the menu | [record](https://raw.githubusercontent.com/ccheever/exact2/ff842e44f24a2b7a22e064242c5a6f329adc554f/file-x48-x68/x66-record.txt) |
+| `showPopover` from an action | `contract build a.contract -o a.plan` | macOS 26.6.2, Apple Silicon (compiler) | main `b896050d7` | exit 1: `` a.contract:5:7 [type-unknown-command] `showPopover` is not a host command; the hosts answer blur, copyText, …, showPicker, showModal, …, close, … `` | builds; ArrowDown opens the menu | record |
 | `toggle` event | `contract build b.contract -o b.plan` | same | same | exit 1: `` b.contract:9:48 [lower-unknown-attr] `column` has no attribute `toggle` `` | builds; `open` follows the popover | same |
 | Invisible-invoker workaround, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --json --size 400x300 "tap trigger" "clock settle" "type trigger key Escape" "clock settle" state "type trigger key ArrowDown" "clock settle" state` | macOS | same | `popover` null after Escape; `{"phase":"open","popover":7,"source":5}` after ArrowDown, with the focus still on the trigger | (the behavior asked for, without node 5) | same |
-| Same, web | the same ops with `agent web` | Chrome 154 (the agent's) | same | the menu opens on ArrowDown (screenshot; the web's `state` reports no popover) | same | [screenshot](https://raw.githubusercontent.com/ccheever/exact2/ea794c31c57badf7bc242e0541776ee62c180e07/file-x48-x68/x66-web-after-arrow.png) |
+| Same, web | the same ops with `agent web` | Chrome 154 (the agent's) | same | the menu opens on ArrowDown (screenshot; the web's `state` reports no popover) | same | screenshot |
 
 ### Acceptance criteria
 

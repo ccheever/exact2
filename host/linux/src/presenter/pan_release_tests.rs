@@ -1,18 +1,7 @@
 //! LLP 1057 §10.6 on Linux: a pan that began ends with one `panrelease`, its
 //! velocity the contact tracker's; a tap releases nothing; a cancel at rest.
 use super::super::*;
-use exact_runner::DataError;
 
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 const SOURCE: &str = r#"component App
   state x = 0
   state vx = 0
@@ -33,10 +22,10 @@ const SOURCE: &str = r#"component App
         text "drag me"
       text `${x} ${vx} ${vy} ${releases} ${presses}` testId="out"
 "#;
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(SOURCE).unwrap().encode(),
-        NoData,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -46,7 +35,7 @@ fn boot() -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn out(p: &Presenter<NoData>) -> Vec<f64> {
+fn out(p: &Presenter<()>) -> Vec<f64> {
     let k = p.host.kernel();
     let id = k.node_by_key(k.find_by_test_id("out")[0]).unwrap().id;
     k.node(id)

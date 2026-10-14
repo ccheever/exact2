@@ -93,7 +93,7 @@ word.
 ```ebnf
 file          = { declaration } ;
 declaration   = use | shape | function | style | keyframes | font | sound
-              | routes | component | test ;
+              | theme | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
@@ -110,6 +110,7 @@ keyframe-line = selector { "," selector } { FIELD "=" frame-value } NL ;
 selector      = "from" | "to" | NUMBER "%" ;
 frame-value   = STRING | NUMBER | "-" NUMBER | constant-call ;
 constant-call = IDENT "(" [ arguments ] ")" ;
+theme         = "theme" block(IDENT "=" STRING NL) ;   (* the root file's; LLP 1095 D4 *)
 font          = "font" STRING ( "=" STRING NL | block(font-face) ) ;
 font-face     = NUMBER [ "italic" ] "=" STRING NL ;
 sound         = "sound" STRING NL ;

@@ -7,7 +7,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action pasted(at: string, e: ClipboardEvent)\n    log = `${log}${at}:${e.text};`\n  action copied\n    log = `${log}copy;`\n  action seen\n    log = log\n  view\n    column width=300 paste=pasted(\"grid\") copy=copied testId=\"grid\"\n      box testId=\"cell\" width=50 height=20 focus=seen\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -15,7 +15,7 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -61,7 +61,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
       box key=keyed paste=pasted copy=copied testId="cell" width=80 height=24
       text log testId="log" height=20
 "#;
-    let text_of = |p: &Presenter<NoData>| {
+    let text_of = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let log = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         k.node(log)
@@ -80,7 +80,7 @@ fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
         let plan = contract::compile(&format!("{head}{guard}{tail}")).unwrap();
         let (mut p, boot_error) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (300.0, 300.0),
             1.0,
             std::path::PathBuf::new(),
@@ -135,7 +135,7 @@ fn a_tap_holds_its_modifiers_for_the_press() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action pick(e: MouseEvent)\n    log = `${log}${e.shiftKey}${e.metaKey}${e.altKey};`\n  view\n    column width=300\n      button press=pick testId=\"b\" width=50 height=20\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -143,7 +143,7 @@ fn a_tap_holds_its_modifiers_for_the_press() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -232,7 +232,7 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
     let plan = contract::compile("component App\n  state log = \"\"\n  action at(kind: string, e: PointerEvent)\n    log = `${log}${kind}:${e.pointerType};`\n  view\n    column width=300\n      box testId=\"pad\" width=200 height=100 touch-action=\"none\" pointerdown=at(\"down\") pointerup=at(\"up\")\n      text log testId=\"log\" height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -240,7 +240,7 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
@@ -339,7 +339,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 600.0),
         1.0,
         std::path::PathBuf::new(),
@@ -347,18 +347,18 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let named = |p: &Presenter<NoData>, id: &str| {
+    let named = |p: &Presenter<()>, id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id
     };
-    let log = |p: &mut Presenter<NoData>| {
+    let log = |p: &mut Presenter<()>| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
         text.unwrap_or("").to_string()
     };
     let (pad, field, root) = (named(&p, "pad"), named(&p, "field"), named(&p, "log"));
-    let key = |p: &mut Presenter<NoData>, id: u32, chord: &str| {
+    let key = |p: &mut Presenter<()>, id: u32, chord: &str| {
         handle(p, &format!(r#"{{"op":"type","id":{id},"key":"{chord}"}}"#))
     };
     for (chord, want) in [
@@ -382,7 +382,7 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     key(&mut p, field, "s");
     assert_eq!(log(&mut p), before, "a field's plain key is its typing");
     // The paste chord: the key handler, then the paste, until a button declares it.
-    let paste = |p: &mut Presenter<NoData>| {
+    let paste = |p: &mut Presenter<()>| {
         handle(
             p,
             &format!(r#"{{"op":"type","id":{pad},"clipboard":"paste","text":"x"}}"#),
@@ -432,7 +432,7 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -442,7 +442,7 @@ fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
     assert!(boot_error.is_none(), "{boot_error:?}");
     let k = p.host().kernel();
     let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
-    let log = |p: &mut Presenter<NoData>| {
+    let log = |p: &mut Presenter<()>| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
         let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
@@ -502,7 +502,7 @@ fn a_named_tap_presses_what_it_names_never_a_control_inside_it() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 400.0),
         1.0,
         std::path::PathBuf::new(),
@@ -510,11 +510,11 @@ fn a_named_tap_presses_what_it_names_never_a_control_inside_it() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let log = |p: &Presenter<NoData>| {
+    let log = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let log = k.find_by_test_id("log")[0];
         k.node_by_key(log)
@@ -601,7 +601,7 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
     .unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 400.0),
         1.0,
         std::path::PathBuf::new(),
@@ -609,11 +609,11 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
     )
     .unwrap();
     assert!(boot_error.is_none(), "{boot_error:?}");
-    let id = |p: &Presenter<NoData>, test_id: &str| {
+    let id = |p: &Presenter<()>, test_id: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
     };
-    let text = |p: &Presenter<NoData>| {
+    let text = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let log = k.find_by_test_id("log")[0];
         k.node_by_key(log)
@@ -623,8 +623,8 @@ fn a_named_tap_never_toggles_focuses_or_follows_what_is_inside_it() {
             .unwrap_or("")
             .to_string()
     };
-    let on = |p: &Presenter<NoData>| p.host().runner().slot("on") == Some(&Value::Bool(true));
-    let tap = |p: &mut Presenter<NoData>, t: &str| {
+    let on = |p: &Presenter<()>| p.host().runner().slot("on") == Some(&Value::Bool(true));
+    let tap = |p: &mut Presenter<()>, t: &str| {
         let i = id(p, t);
         handle(p, &format!(r#"{{"op":"tap","id":{i}}}"#))
     };

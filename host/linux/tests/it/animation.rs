@@ -3,20 +3,9 @@
 //! draws the presented values.
 use exact_kernel::MonospaceMeasurer;
 use exact_linux::Host;
-use exact_runner::{DataError, DataSource, Event};
+use exact_runner::Event;
 
-struct NoData;
-impl DataSource for NoData {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn view(h: &Host<NoData>, name: &str) -> u32 {
+fn view(h: &Host<()>, name: &str) -> u32 {
     let k = h.kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
@@ -35,7 +24,7 @@ fn an_animation_plays_under_the_clock_and_stops_with_its_row() {
     let plan = contract::compile(&src).unwrap().encode();
     let mut h = Host::boot(
         &plan,
-        NoData,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         600.,

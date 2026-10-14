@@ -70,3 +70,15 @@ test('an iOS app lists the schemes canOpenURL may ask about, and a malformed or 
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('readManifest admits the app\'s design, `tamber` (LLP 1121 D2)', async () => {
+  const { readManifest } = await import('./app.mjs');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(resolve(tmpdir(), 'tamber-manifest-'));
+  try {
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "a"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'D', app: { id: 'com.example.d', name: 'D' }, tamber: 'design/app.tamber' }));
+    assert.equal(readManifest(dir, 'd').tamber, 'design/app.tamber');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});

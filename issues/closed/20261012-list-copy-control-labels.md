@@ -77,13 +77,6 @@ Chrome 155.0.8059.39 over the JS build and the `--wasm` build, then Meta+C. In t
 | R | JS target and wasm target, Chrome 155 | #493 `107faa2a5` | `rcode 1 body\nR2\nrcode 2 body\nR3\nrcode 3 body` (wasm: the same with blank lines). Painted: the codes and the labels | (the reference) |
 | Q: plain rows | macOS, JS and wasm | #493 `107faa2a5` | the three codes on each (macOS with blank lines) | (unchanged) |
 
-![B: Chrome on the JS target, the wasm target and macOS](https://raw.githubusercontent.com/ccheever/exact2/1a163b6b5ae714f25da862a579f7853f19f97393/fw/x81-list-copy-unselectable/list-copy-control-labels-b.png)
-
-![R: the same](https://raw.githubusercontent.com/ccheever/exact2/1a163b6b5ae714f25da862a579f7853f19f97393/fw/x81-list-copy-unselectable/list-copy-control-labels-r.png)
-
-Record (the commands, every copy and the AppKit test's runs on main's and #493's Swift):
-https://raw.githubusercontent.com/ccheever/exact2/1a163b6b5ae714f25da862a579f7853f19f97393/fw/x81-list-copy-unselectable/list-copy-control-labels-record.txt
-
 `TextSelectionMacTests.testACopyAcrossListRowsLeavesOutUnselectableText` (PR #493) covers R's endpoints. It does not
 cover B, or R's labels in the copy.
 

@@ -200,7 +200,7 @@ final class HeaderTitleView: UIControl {
         super.init(frame: CGRect(x: 0, y: 0, width: 200, height: 44))
         title.font = .preferredFont(forTextStyle: .headline)
         subtitle.font = .preferredFont(forTextStyle: .footnote)
-        subtitle.textColor = .secondaryLabel
+        subtitle.textColor = ThemeRoles.color("secondary-label", or: .secondaryLabel)
         for label in [title, subtitle] { label.adjustsFontForContentSizeCategory = true; label.lineBreakMode = .byTruncatingTail }
         avatar.contentMode = .scaleAspectFit
         texts.axis = .vertical
