@@ -11,8 +11,9 @@ import { footerLayout, textWidth, traitsDisplay, presentBackgroundWork, tasksPro
 import { traitsMenu } from './composer-presentation';
 import { toasts } from './toast';
 import { queueState, queuedEdit } from './composer-controls-queue';
-import { composerBranches } from './composer-controls-branch';
+import { branchMismatchNotice, composerBranches, resolveLocalCheckoutBranchMismatch, restoreThreadBranch, stripWorkspace } from './composer-controls-branch';
 
+import { vcsStatusEvent, watchVcsStatus, VCS_STATUS_KEY } from './shell-vcs';
 import { at, effort, fast, provider, thread, projection, Fake, storage, connected, opened, running } from './composer-controls-fixture';
 
 describe('sticky model and next-turn selection', () => {
@@ -355,4 +356,126 @@ test('older resource arguments cannot rewind the shared client clock', () => {
   noteNow(client, 3000);
   expect(composerNow(client)).toBe(3000);
   expect(composerNow({})).toBe(0);
+});
+
+
+describe('local checkout branch mismatch', () => {
+  const base = { effectiveEnvMode: 'local', activeWorktreePath: null, activeThreadBranch: 'feature', currentGitBranch: 'main' };
+  test('only a local checkout with two different known branches mismatches', () => {
+    expect(resolveLocalCheckoutBranchMismatch(base)).toEqual({ threadBranch: 'feature', currentBranch: 'main' });
+    for (const patch of [{ effectiveEnvMode: 'worktree' }, { activeWorktreePath: '/worktree' }, { activeThreadBranch: null }, { currentGitBranch: null }, { currentGitBranch: 'feature' }]) {
+      expect(resolveLocalCheckoutBranchMismatch({ ...base, ...patch })).toBeNull();
+    }
+  });
+  async function mismatch(dirty = false) {
+    const context = await opened();
+    obj(context.client.projection.thread).branch = 'feature';
+    await watchVcsStatus(context.client, context.native, '/repo', 0);
+    const status = (branch: string, changed = dirty) => vcsStatusEvent(context.client, { subscriptionId: context.native.subs[VCS_STATUS_KEY],
+      value: { _tag: 'snapshot', local: { isRepo: true, refName: branch, hasWorkingTreeChanges: changed } } });
+    status('main');
+    return { ...context, status };
+  }
+  test('content reveals the notice, clearing keeps it, resolution resets it, and dismissal survives a revisit', async () => {
+    const { client, command, status } = await mismatch();
+    expect(stripWorkspace(client)).toBe('/repo'); // still watched when both the card and strip are closed
+    expect(branchMismatchNotice(client)).toBeNull();
+    client.local.drafts[client.draftKey] = 'Continue';
+    const notice = branchMismatchNotice(client)!;
+    expect(notice).toMatchObject({ title: 'Branch changed — was feature', actionLabel: 'Restore branch', dismissLabel: 'Dismiss branch change notice' });
+    client.local.drafts[client.draftKey] = '';
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    status('feature'); expect(branchMismatchNotice(client)).toBeNull();
+    status('main'); expect(branchMismatchNotice(client)).toBeNull();
+    client.local.snapshotDrafts[client.draftKey] = [{ id: 'attachment' }];
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    await command('cclocal:branch-mismatch-dismiss', notice.dismissId);
+    expect(branchMismatchNotice(client)).toBeNull();
+    client.threadId = 't2'; expect(branchMismatchNotice(client)).toBeNull();
+    client.threadId = 't1'; expect(branchMismatchNotice(client)).toBeNull();
+    status('another'); expect(branchMismatchNotice(client)).not.toBeNull();
+  });
+  test('clean restore switches the checkout and focuses the composer without redundant metadata', async () => {
+    const { client, command, native } = await mismatch();
+    const result = await command('cc:branch-restore');
+    expect(result.message).toBe('focus:composer');
+    expect(native.committed.at(-1)).toMatchObject({ method: 'vcs.switchRef', cwd: '/repo', refName: 'feature' });
+    expect(native.committed.some(entry => entry.type === 'thread.metadata.update')).toBe(false);
+    expect(branchMismatchNotice(client)).toBeNull();
+  });
+  test('dirty restore waits for confirmation and rejects confirmation after a mismatch changes', async () => {
+    const { command, native, status } = await mismatch(true);
+    expect((await command('cc:branch-restore')).message).toBe('branch-restore-confirm:feature');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    status('another');
+    await command('cc:branch-restore-confirmed');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    await command('cc:branch-restore');
+    expect((await command('cc:branch-restore-confirmed')).message).toBe('focus:composer');
+    expect(native.branch).toBe('feature');
+  });
+  test.each(['environment', 'generation', 'origin'])('a changed %s cannot reuse another connection’s clean checkout status', async change => {
+    const { client, native, disk, status } = await mismatch();
+    client.local.drafts[client.draftKey] = 'Continue';
+    await composerBranches(client, native, false, '', true); // populate both the stream and branch-picker caches
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    if (change === 'environment') client.environmentId = 'env2';
+    if (change === 'generation') { client.generation++; native.generation++; }
+    if (change === 'origin') client.origin = 'http://env2:3773';
+    client.local.drafts[client.draftKey] = 'Continue in the new connection';
+    expect(branchMismatchNotice(client)).toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('');
+    await watchVcsStatus(client, native, '/repo', 1);
+    expect(branchMismatchNotice(client)).toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    status('env2-branch', true);
+    expect(branchMismatchNotice(client)).not.toBeNull();
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    expect(await restoreThreadBranch(client, native, disk, true)).toBe('focus:composer');
+  });
+  test('a reconnect cannot inherit dirty-checkout consent even when both branch names match', async () => {
+    const { client, native, disk, status } = await mismatch(true);
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+    client.generation++; native.generation++;
+    await watchVcsStatus(client, native, '/repo', 1);
+    status('main', true);
+    expect(await restoreThreadBranch(client, native, disk, true)).toBe('');
+    expect(native.committed.some(entry => entry.method === 'vcs.switchRef')).toBe(false);
+    expect(await restoreThreadBranch(client, native, disk)).toBe('branch-restore-confirm:feature');
+  });
+  test.each(['switch', 'ids'])('an environment change during %s cannot dispatch metadata on the new environment', async stage => {
+    const { client, native, disk } = await mismatch();
+    const original = native.later.bind(native);
+    native.later = async input => {
+      const request = obj(input);
+      const value = request.method === 'vcs.switchRef' ? native.ok({ refName: 'normalized-feature' }) : await original(input);
+      if ((stage === 'switch' && request.method === 'vcs.switchRef') || (stage === 'ids' && request.op === 'ids')) {
+        client.environmentId = 'env2'; client.generation++; client.threadId = 'other-thread';
+      }
+      return value;
+    };
+    expect(await restoreThreadBranch(client, native, disk)).toBe('');
+    expect(native.committed.some(entry => entry.type === 'thread.metadata.update')).toBe(false);
+    expect(toasts(client)).toHaveLength(0);
+  });
+  test('a normalized ref updates thread metadata; switch and metadata failures have distinct toasts', async () => {
+    for (const failure of ['', 'switch', 'metadata']) {
+      const { client, native, command } = await mismatch();
+      const original = native.later.bind(native);
+      native.later = async input => {
+        const request = obj(input);
+        if (request.method === 'vcs.switchRef') {
+          if (failure === 'switch') return { ok: false, generation: 1, error: { kind: 'server', message: 'conflicting changes', uncertain: false } };
+          return native.ok({ refName: 'local-feature' });
+        }
+        if (obj(request.payload).type === 'thread.metadata.update' && failure === 'metadata') return { ok: false, generation: 1, error: { kind: 'server', message: 'metadata unavailable', uncertain: false } };
+        return original(input);
+      };
+      await command('cc:branch-restore');
+      if (!failure) expect(native.committed.at(-1)).toMatchObject({ type: 'thread.metadata.update', threadId: 't1', branch: 'local-feature', worktreePath: null });
+      else expect(toasts(client).at(-1)).toMatchObject({ kind: 'error', title: failure === 'switch' ? 'Failed to switch checkout' : 'Checkout switched, but the thread could not be updated' });
+    }
+  });
 });

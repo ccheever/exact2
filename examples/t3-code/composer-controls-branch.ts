@@ -18,15 +18,24 @@ import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // lane r4-git: MobileRunC
 import { gitlessStrip } from './r12-threads-strip'; // lane r12-threads: the non-Git strip (BranchToolbar.logic.ts)
 import { autoBalanceState } from './auto-balance'; // auto-balance: the Run on menu's "Auto balance"
 import { letGo } from './let-go';
+import { draftFiles } from './composer-editor-files';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from './shell-vcs'; // the workspace status the card's stream holds
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
 // `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
 type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
-const repos = new WeakMap<T3Client, Map<string, Repo>>();
+type RepoCache = { environmentId: string; generation: number; origin: string; byCwd: Map<string, Repo> };
+const repos = new WeakMap<T3Client, RepoCache>();
+function repositoryCache(client: T3Client): Map<string, Repo> {
+  let cache = repos.get(client);
+  if (!cache || cache.environmentId !== client.environmentId || cache.generation !== client.generation || cache.origin !== client.origin) {
+    cache = { environmentId: client.environmentId, generation: client.generation, origin: client.origin, byCwd: new Map() };
+    repos.set(client, cache);
+  }
+  return cache.byCwd;
+}
 function repo(client: T3Client, cwd: string): Repo {
-  let byCwd = repos.get(client);
-  if (!byCwd) { byCwd = new Map(); repos.set(client, byCwd); }
+  const byCwd = repositoryCache(client);
   let entry = byCwd.get(cwd);
   if (!entry) { entry = { isRepo: false, refName: '', checked: false, refs: [], total: 0, refsQuery: null, error: '' }; byCwd.set(cwd, entry); }
   return entry;
@@ -101,7 +110,7 @@ export function toggleServerOrigin(client: T3Client): boolean {
  */
 export function serverThreadWorkspace(client: T3Client): Obj | null {
   if (!canOverrideServerEnv(client) || serverEnvMode(client) !== 'worktree') return null;
-  const entry = repos.get(client)?.get(projectRoot(client));
+  const entry = repositoryCache(client).get(projectRoot(client));
   const base = serverEnvBranch(client) || defaultRefName(client) || (entry?.refName ?? '');
   if (!base) throw new ClientError('Select a base branch before sending in New worktree mode.');
   return { type: 'worktree', baseRef: base, ...(serverOrigin(client) ? { startFromOrigin: true } : {}) };
@@ -112,14 +121,14 @@ function activeWorktree(client: T3Client): string {
 }
 function cwdFor(client: T3Client): string { return activeWorktree(client) || projectRoot(client); }
 /**
- * The workspace the strip shows (shouldShowComposerContextStrip), or '' while it is hidden. The
- * status stream follows it while the details card is closed (shell-details.ts), as the reference's
- * BranchToolbarBranchSelector subscribes `vcsEnvironment.status` for its own workspace.
+ * The workspace whose status the context strip and branch notice use. The stream follows it
+ * while the details card is closed (shell-details.ts), as ChatView and BranchToolbarBranchSelector
+ * read `vcsEnvironment.status` for their workspace.
  */
 export function stripWorkspace(client: T3Client): string {
   if (client.connection !== 'connected' || !client.ready || !client.projectId) return '';
-  const persist = (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip === true;
-  return client.threadId && !persist ? '' : cwdFor(client);
+  // ChatView's mismatch notice needs status even with the workspace card and context strip closed.
+  return cwdFor(client);
 }
 /** resolveEffectiveEnvMode: a draft pointed at an existing worktree is local to it; a thread with a worktree is a worktree. */
 function effectiveEnvMode(client: T3Client): string {
@@ -240,7 +249,7 @@ export function stripShortcuts(client: T3Client): { workspace: boolean; branch: 
   const none = { workspace: false, branch: false, previous: false };
   if (client.connection !== 'connected' || !client.ready || !client.projectId) return none;
   if (client.threadId && (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip !== true) return none;
-  const cwd = cwdFor(client), entry = cwd ? repos.get(client)?.get(cwd) : undefined;
+  const cwd = cwdFor(client), entry = cwd ? repositoryCache(client).get(cwd) : undefined;
   if (!entry || (entry.checked && !entry.isRepo)) return none; // a checkout whose status has not arrived is assumed Git
   return { workspace: !client.threadId || canOverrideServerEnv(client), branch: true, previous: !!previousWorktree(client) };
 }
@@ -355,14 +364,14 @@ export async function branchMenu(client: T3Client, native: Native, name: string)
 /** The launch's workspace: a new worktree from its base ref, an existing worktree, else the project root (on a chosen branch). */
 /** A multi-model draft's base: the repository check and the branch each new worktree starts from. */
 export function fanoutBase(client: T3Client): { isRepo: boolean; branch: string; startFromOrigin: boolean } {
-  const entry = repos.get(client)?.get(projectRoot(client));
+  const entry = repositoryCache(client).get(projectRoot(client));
   return { isRepo: entry?.isRepo === true, branch: draftContext(client).branch || (entry?.refName ?? ''), startFromOrigin: false };
 }
 export function workspaceStrategy(client: T3Client): Obj {
   const context = draftContext(client);
   if (context.worktreePath) return { type: 'existing_worktree', worktreePath: context.worktreePath, ...(context.branch ? { branch: context.branch } : {}) };
   if (context.envMode === 'worktree') {
-    const entry = repos.get(client)?.get(projectRoot(client));
+    const entry = repositoryCache(client).get(projectRoot(client));
     const base = context.branch || defaultRefName(client) || (entry?.refName ?? '');
     if (!base) throw new ClientError('Choose a base ref for the new worktree.');
     return { type: 'worktree', baseRef: base, ...(startFromOrigin(client) ? { startFromOrigin: true } : {}) };
@@ -371,4 +380,81 @@ export function workspaceStrategy(client: T3Client): Obj {
 }
 
 /** r6-polish: the open strip picker's pages (r6-polish-refs.ts asks whether a scroll still wants its page). */
-export function stripPages(client: T3Client): Repo[] { return [...(repos.get(client)?.values() ?? [])].filter(entry => entry.refsQuery !== null); }
+export function stripPages(client: T3Client): Repo[] { return [...repositoryCache(client).values()].filter(entry => entry.refsQuery !== null); }
+
+// Branch-notice-and-navigation: ported from BranchToolbar.logic.ts and ChatView.tsx at
+// 1e2ecbd975. Exact shares the workspace status stream and represents the AlertDialog request
+// as a command result; revelation and dismissal remain session state, as in ChatView.logic.ts.
+export function resolveLocalCheckoutBranchMismatch(input: {
+  effectiveEnvMode: string; activeWorktreePath: string | null; activeThreadBranch: string | null; currentGitBranch: string | null;
+}): { threadBranch: string; currentBranch: string } | null {
+  const { effectiveEnvMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
+  if (effectiveEnvMode !== 'local' || activeWorktreePath !== null) return null;
+  if (!activeThreadBranch || !currentGitBranch || activeThreadBranch === currentGitBranch) return null;
+  return { threadBranch: activeThreadBranch, currentBranch: currentGitBranch };
+}
+const mismatchSessions = new WeakMap<T3Client, { revealed: string; dismissed: Set<string>; confirm: string }>();
+function mismatchSession(client: T3Client) {
+  let state = mismatchSessions.get(client);
+  if (!state) { state = { revealed: '', dismissed: new Set(), confirm: '' }; mismatchSessions.set(client, state); }
+  return state;
+}
+function checkoutMismatch(client: T3Client) {
+  const cwd = projectRoot(client), cached = repositoryCache(client).get(cwd), status = peekVcsStatus(client, cwd) ?? cached?.status;
+  const current = cached?.switched && cached.switched.status === status ? cached.switched.name : str(status?.refName);
+  const mismatch = client.threadId ? resolveLocalCheckoutBranchMismatch({ effectiveEnvMode: effectiveEnvMode(client),
+    activeWorktreePath: activeWorktree(client) || null, activeThreadBranch: serverEnvBranch(client), currentGitBranch: current }) : null;
+  return mismatch ? { ...mismatch, cwd, dirty: status?.hasWorkingTreeChanges === true,
+    key: `${client.environmentId}:${client.threadId}:${mismatch.threadBranch}:${mismatch.currentBranch}`,
+    confirmationKey: `${client.environmentId}:${client.generation}:${client.origin}:${cwd}:${client.threadId}:${mismatch.threadBranch}:${mismatch.currentBranch}` } : null;
+}
+export function branchMismatchNotice(client: T3Client) {
+  const mismatch = checkoutMismatch(client), state = mismatchSession(client), key = mismatch?.key ?? '';
+  if (state.revealed !== key) state.revealed = '';
+  const hasContent = !!client.draft.trim() || client.snapshotDrafts.length > 0 || draftFiles(client.local).some(file => file.draftKey === client.draftKey);
+  if (!mismatch || state.dismissed.has(key) || (!hasContent && state.revealed !== key)) return null;
+  state.revealed = key;
+  return { id: `branch-mismatch:${key}`, icon: 'git-branch', title: `Branch changed — was ${mismatch.threadBranch}`,
+    tip: `This thread last ran on ${mismatch.threadBranch}. Sending will continue on ${mismatch.currentBranch}.`,
+    action: 'cc:branch-restore', actionLabel: 'Restore branch', dismiss: 'cclocal:branch-mismatch-dismiss',
+    dismissId: key, dismissLabel: 'Dismiss branch change notice' };
+}
+export function dismissBranchMismatch(client: T3Client, key: string): void { mismatchSession(client).dismissed.add(key); }
+
+/** Restore the local checkout. A confirmation belongs to this exact thread and mismatch. */
+export async function restoreThreadBranch(client: T3Client, native: Native, storage: Files, confirmed = false): Promise<string> {
+  const mismatch = checkoutMismatch(client), state = mismatchSession(client);
+  if (!mismatch || (confirmed && state.confirm !== mismatch.confirmationKey)) { state.confirm = ''; return ''; }
+  if (!confirmed && mismatch.dirty) { state.confirm = mismatch.confirmationKey; return `branch-restore-confirm:${mismatch.threadBranch}`; }
+  state.confirm = '';
+  const access = client.restAccess(native), threadId = client.threadId;
+  const environmentId = client.environmentId, generation = client.generation, origin = client.origin, projectId = client.projectId;
+  const current = () => client.environmentId === environmentId && client.generation === generation && client.origin === origin
+    && client.threadId === threadId && client.projectId === projectId;
+  let result: Obj;
+  try { result = await access.request('vcs.switchRef', { cwd: mismatch.cwd, refName: mismatch.threadBranch }, true); }
+  catch (error) {
+    if (!current()) return '';
+    if (letGo(error)) throw error;
+    pushToast(client, { kind: 'error', title: 'Failed to switch checkout', description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+    return '';
+  }
+  if (!current()) return '';
+  const branch = str(result.refName, mismatch.threadBranch), cached = repo(client, mismatch.cwd);
+  cached.checked = false; cached.refsQuery = null; cached.switched = { name: branch, status: peekVcsStatus(client, mismatch.cwd) };
+  restartVcsStatus(client, mismatch.cwd);
+  if (branch !== mismatch.threadBranch) {
+    try {
+      const [commandId] = await access.ids(1);
+      if (!current()) return '';
+      await access.dispatch(storage, { type: 'thread.metadata.update', commandId, threadId, branch, worktreePath: null }, 'Restore thread branch');
+    } catch (error) {
+      if (!current()) return '';
+      if (letGo(error)) throw error;
+      pushToast(client, { kind: 'error', title: 'Checkout switched, but the thread could not be updated',
+        description: error instanceof Error ? error.message : 'An error occurred.', stacked: true });
+      return '';
+    }
+  }
+  return current() ? 'focus:composer' : '';
+}
