@@ -125,7 +125,7 @@ pub(crate) fn load(
     }
     match loader.scope() {
         Ok(mut file) => {
-            file.design = design(path).map_err(|e| vec![e])?;
+            file.design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
             Ok((file, loader.sources))
         }
         Err(all) => Err(resolve(&loader.sources, all)),
@@ -146,8 +146,12 @@ fn design_path(root: &Path) -> Option<PathBuf> {
     })
 }
 
-/// The app's design, read (LLP 1121 D2).
-fn design(root: &Path) -> Result<Option<contract_syntax::DesignSource>, CompileError> {
+/// The app's design, read (LLP 1121 D2), and a source of its own, so a
+/// refusal in it names it.
+fn design(
+    root: &Path,
+    sources: &mut Sources,
+) -> Result<Option<contract_syntax::DesignSource>, CompileError> {
     let Some(path) = design_path(root) else {
         return Ok(None);
     };
@@ -159,9 +163,12 @@ fn design(root: &Path) -> Result<Option<contract_syntax::DesignSource>, CompileE
         file: Some(path.clone().into()),
         related: Box::new([]),
     })?;
+    sources.paths.push(path.clone());
+    sources.origins.push(Origin::App);
     Ok(Some(contract_syntax::DesignSource {
         path: path.display().to_string(),
         text,
+        source_id: (sources.paths.len() - 1) as u32,
     }))
 }
 

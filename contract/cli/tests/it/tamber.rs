@@ -143,7 +143,12 @@ fn a_design_refusal_names_the_file_line_and_column() {
     );
     let e = contract::compile_path(&path).unwrap_err();
     assert_eq!(e.id, "tamber-unknown-token", "{e:?}");
-    assert!(e.message.contains("app.tamber:5:9"), "{}", e.message);
+    // The refusal is the design file's, at its line and column.
+    assert!(
+        e.file.as_deref().is_some_and(|f| f.ends_with("app.tamber")),
+        "{e:?}"
+    );
+    assert_eq!((e.span.line, e.span.col), (5, 9), "{e:?}");
     // Another entry beside it has no design: it is `app.contract`'s.
     let other = Path::new(&path).with_file_name("other.contract");
     std::fs::write(
@@ -216,4 +221,108 @@ fn an_app_without_a_design_carries_none() {
     let plan =
         contract::compile("component App\n  view\n    text \"a\" color=\"CanvasText\"\n").unwrap();
     assert!(plan.theme.is_empty());
+}
+
+#[test]
+fn a_profile_colour_is_named_whole_and_an_expression_over_one_is_refused() {
+    let profile = "color-profile --brand src=\"assets/brand.icc\"\n\ntheme\n  ink = \"color(--brand 0.1 0.2 0.3 0.4)\"\n  text = \"ink\"\n";
+    let plan = contract::compile(&format!(
+        "{profile}\ncomponent App\n  view\n    column\n      text \"a\" color=\"ink\"\n      text \"b\" color=\"text\"\n"
+    ))
+    .unwrap();
+    let rows = table(&plan);
+    assert!(
+        rows.iter()
+            .filter(|(_, _, v)| v == "color(--brand 0.1 0.2 0.3 0.4)")
+            .count()
+            == 2,
+        "{rows:?}"
+    );
+    // A colour no author writes is no stand-in: a token of the same value
+    // keeps its own.
+    let plan = contract::compile(&format!(
+        "{profile}  faint = \"#00000101\"\n\ncomponent App\n  view\n    text \"a\" color=\"faint\"\n"
+    ))
+    .unwrap();
+    assert!(table(&plan)
+        .iter()
+        .any(|(n, _, v)| n == "faint" && v == "#00000101"));
+    for (extra, row) in [
+        (
+            "  mixed = \"color-mix(in srgb, text 50%, #fff)\"\n",
+            "\"mixed\"",
+        ),
+        ("", "\"color-mix(in srgb, ink 50%, #fff)\""),
+    ] {
+        let e = contract::compile(&format!(
+            "{profile}{extra}\ncomponent App\n  view\n    text \"a\" color={row}\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-theme-value", "{row}: {e:?}");
+    }
+}
+
+#[test]
+fn a_literal_a_call_carries_is_a_synthetic_token_and_text_is_not_folded() {
+    let theme = "theme\n  brand = \"#c8102e\"\n  card = \"#000000\"\n\n";
+    let pair = "light-dark(brand, card)";
+    let plan = contract::compile(&format!(
+        "{theme}fn echo(c: string): string = c\n\ncomponent App\n  view\n    text \"a\" testId=\"echo\" color=echo(\"{pair}\")\n"
+    ))
+    .unwrap();
+    assert!(table(&plan).iter().any(|(n, ..)| n == pair));
+    assert_eq!(
+        colour(plan, "echo", StyleId::TextColor),
+        parsed("light-dark(#c8102e, #000000)")
+    );
+    // A label that only reads like a colour is not the build's to fold.
+    contract::compile(&format!(
+        "{theme}component App\n  state label: string = \"light-dark(brand, CanvasText)\"\n  view\n    text label color=\"brand\"\n"
+    ))
+    .unwrap();
+    // A branch of `?:` naming no token is said to.
+    let e = contract::compile(&format!(
+        "{theme}component App\n  state on = true\n  view\n    text \"a\" color=(on ? \"brnad\" : \"brand\")\n"
+    ))
+    .unwrap_err();
+    assert_eq!(e.id, "tamber-unknown-token", "{e:?}");
+}
+
+#[test]
+fn a_design_tokens_refusal_and_warning_are_at_its_line() {
+    let path = app(
+        "lines",
+        &[
+            (
+                "app.tamber",
+                "tamber shelf\n\ntheme\n  brand = #c8102e\n  top = #000\n",
+            ),
+            (
+                "app.contract",
+                "component App\n  view\n    text \"a\" color=\"brand\"\n",
+            ),
+        ],
+    );
+    let e = contract::compile_path(&path).unwrap_err();
+    assert_eq!(e.id, "lower-theme-name", "{e:?}");
+    assert!(
+        e.file.as_deref().is_some_and(|f| f.ends_with("app.tamber")),
+        "{e:?}"
+    );
+    assert_eq!(e.span.line, 5, "{e:?}");
+    std::fs::write(
+        path.with_file_name("app.tamber"),
+        "tamber shelf\n\ntheme\n  Canvas = #fbf3e9\n",
+    )
+    .unwrap();
+    let (_, warnings) = contract::compile_path_all_warned(&path, false);
+    let w = warnings
+        .iter()
+        .find(|w| w.id == "lower-colour-one-scheme")
+        .unwrap_or_else(|| panic!("{warnings:?}"));
+    assert!(
+        w.file.as_deref().is_some_and(|f| f.ends_with("app.tamber")),
+        "{w:?}"
+    );
+    assert_eq!(w.span.line, 4, "{w:?}");
 }

@@ -451,10 +451,11 @@ fn theme_map(plan: &Plan) -> Option<String> {
         }
     }
     // A colour function's own text is left whole, as the kernel reads no
-    // name inside one (a `light-dark()` half, LLP 1095 D1); a gradient's
-    // stops and a shadow's colour are components, read as names.
+    // name inside one (a `light-dark()` half, LLP 1095 D1), unless it is a
+    // synthetic token's, which is named by that text (LLP 1121 D3); a
+    // gradient's stops and a shadow's colour are components, read as names.
     Some(format!(
-        r#"((N,R)=>{{const F=/(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}o+=M(v.slice(at,m.index))+v.slice(m.index,j);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
+        r#"((N,R)=>{{const F=/(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w.\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}const f=v.slice(m.index,j);o+=M(v.slice(at,m.index))+(Object.hasOwn(N,f)?N[f]:f);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
         names.join(","),
         roles.join(",")
     ))
@@ -974,7 +975,7 @@ pub(crate) mod tests {
     /// overridden role writes the entry's CSS, as the literal path does.
     #[test]
     fn a_bound_theme_name_writes_its_entry() {
-        let plan = contract::compile("theme\n  brand = \"#c8102e\"\n  ink = \"brand\"\n  -exact-secondary-label = \"light-dark(#111, #eee)\"\n  AccentColor = \"#00ff00\"\n\ncomponent App\n  view\n    text \"a\"\n").unwrap();
+        let plan = contract::compile("theme\n  brand = \"#c8102e\"\n  ink = \"brand\"\n  -exact-secondary-label = \"light-dark(#111, #eee)\"\n  AccentColor = \"#00ff00\"\n\ncomponent App\n  state c: string = \"brand\"\n  view\n    column\n      text \"a\" color=c\n      text \"b\" color=\"light-dark(brand, #000)\"\n").unwrap();
         let values = [
             "brand",
             "ink",
@@ -1001,11 +1002,45 @@ pub(crate) mod tests {
                 run(&SYSTEM_COLOR_MAP, &["CanvasText"])[0].clone(),
                 "#123456",
                 // The tint's role stays itself, under an authored accent too;
-                // no name is read inside a colour function.
+                // no name is read inside a colour function but a synthetic
+                // token's, which the view wrote (LLP 1121 D3).
                 run(&SYSTEM_COLOR_MAP, &["AccentColor"])[0].clone(),
-                "light-dark(brand, #000)",
+                "light-dark(#c8102eff, #000000ff)",
                 "light-dark(rgb(0 0 0 / calc((1))), brand)",
                 "linear-gradient(#c8102eff, #000)"
+            ])
+        );
+    }
+
+    /// LLP 1121 D3 — a design's dotted name and a synthetic token's
+    /// expression, bound, read their folded colours as the kernel does.
+    #[test]
+    fn a_bound_design_name_and_synthetic_token_write_their_values() {
+        let dir = std::env::temp_dir().join(format!("exact-web-js-tamber-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("app.tamber"),
+            "tamber t\n\ntheme\n  brand = #c8102e\n  surface.card = #000000\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("app.contract"), "component App\n  state c: string = \"brand\"\n  view\n    column\n      text \"a\" color=c\n      text \"b\" color=\"light-dark(brand, surface.card)\"\n").unwrap();
+        let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
+        let values = [
+            "surface.card",
+            "0 1px 2px surface.card",
+            "light-dark(brand, surface.card)",
+            "linear-gradient(light-dark(brand, surface.card), #fff)",
+            "1.5px",
+        ];
+        assert_eq!(
+            run(&color_map(&plan), &values),
+            serde_json::json!([
+                "#000000ff",
+                "0 1px 2px #000000ff",
+                "light-dark(#c8102eff, #000000ff)",
+                "linear-gradient(light-dark(#c8102eff, #000000ff), #fff)",
+                "1.5px"
             ])
         );
     }

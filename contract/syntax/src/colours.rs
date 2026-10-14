@@ -35,4 +35,6 @@ pub struct DesignSource {
     pub path: String,
     /// Its text.
     pub text: String,
+    /// Its source id, as a span names the file it is in.
+    pub source_id: u32,
 }

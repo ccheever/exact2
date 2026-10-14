@@ -1,10 +1,10 @@
 //! What an app's view says about its design's tokens (LLP 1121 D3, D7):
-//! the names its colour literals write, the expressions over tokens it
-//! writes (each a synthetic token), and whether a colour row is computed,
-//! when a string from data may name any token.
+//! the names its literals write, the expressions over tokens they write
+//! (each a synthetic token), and whether a colour row is computed, when a
+//! string from data may name any token.
 
 use super::role_named;
-use contract_syntax::{Attr, Component, Expr, File, Node, Span, TemplatePart};
+use contract_syntax::{Attr, Component, Expr, File, Node, Span, Stmt, TemplatePart};
 use exact_kernel::{StyleCodec, StyleId};
 use exact_tamber::Design;
 use std::collections::HashSet;
@@ -56,25 +56,81 @@ fn colour_attr(name: &str) -> bool {
 }
 
 /// The words of a value, as a name is written in one.
-fn words(text: &str) -> impl Iterator<Item = &str> {
+pub(crate) fn words(text: &str) -> impl Iterator<Item = &str> {
     text.split(|c: char| !(c.is_ascii_alphanumeric() || "-_.".contains(c)))
         .filter(|w| !w.is_empty())
+}
+
+/// An expression over tokens a literal writes.
+pub(crate) struct Synthetic {
+    /// Its whole text, which names it in the plan.
+    pub expr: String,
+    /// Where it is first written.
+    pub span: Span,
+    /// Written in a colour row's value, so it must fold; one only a `fn`, a
+    /// state or another attribute writes is dropped when it does not.
+    pub strict: bool,
 }
 
 #[derive(Default)]
 pub(crate) struct Said {
     /// Each expression over a token a literal writes, first where written.
-    pub synthetic: Vec<(String, Span)>,
+    pub synthetic: Vec<Synthetic>,
     /// A colour row's value is computed somewhere: any token may be named.
     pub computed: bool,
-    /// Every word the colour literals write.
+    /// Every word the literals write that is a token's name.
     words: HashSet<String>,
 }
 
 impl Said {
-    /// What `file`'s styles, `root`'s view and the `fn`s and derives they
-    /// read say of `design`'s tokens.
+    /// What `file`'s styles, `root`'s view and the `fn`s, states, derives and
+    /// actions they read say of `design`'s tokens.
     pub(crate) fn of(file: &File, root: &Component, design: &Design) -> Said {
+        let mut literals: Vec<(String, Span, bool)> = Vec::new();
+        let mut computed = false;
+        let mut attrs = |attrs: &[Attr]| {
+            for a in attrs {
+                let colour = colour_attr(&a.name);
+                computed |= colour && !literal(&a.value);
+                exprs(&a.value, &mut |e| strings(e, colour, &mut literals));
+            }
+        };
+        for s in &file.styles {
+            attrs(&s.attrs);
+        }
+        let mut stack: Vec<&Node> = root.view.iter().collect();
+        while let Some(node) = stack.pop() {
+            match node {
+                Node::Element {
+                    attrs: a, children, ..
+                } => {
+                    attrs(a);
+                    stack.extend(children);
+                }
+                Node::When {
+                    then, otherwise, ..
+                } => stack.extend(then.iter().chain(otherwise)),
+                Node::Each { body, .. } => stack.extend(body),
+                Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
+                Node::Use { children, .. } => stack.extend(children),
+                Node::Children { .. } => {}
+            }
+        }
+        // A computed row may read a `fn`, a state, a derive or what an
+        // action assigns: their literals too.
+        let mut loose = |e: &Expr| exprs(e, &mut |e| strings(e, false, &mut literals));
+        let bindings = root.derives.iter().chain(&root.states);
+        for e in file
+            .fns
+            .iter()
+            .map(|f| &f.body)
+            .chain(bindings.map(|b| &b.expr))
+        {
+            loose(e);
+        }
+        for a in &root.actions {
+            stmts(&a.body, &mut loose);
+        }
         let declared: Vec<&str> = design
             .tokens
             .iter()
@@ -87,48 +143,25 @@ impl Said {
         let is_token = |w: &str| {
             declared.contains(&w) || role_named(w).is_some_and(|(id, _)| roles.contains(&id))
         };
-        let mut said = Said::default();
-        let mut literals: Vec<(String, Span)> = Vec::new();
-        // Every literal is read for names (a token kept that no row needs
-        // costs a line); a computed colour is what keeps them all.
-        let mut attrs = |attrs: &[Attr], said: &mut Said| {
-            for a in attrs {
-                let computed = leaves(&a.value, &mut literals);
-                said.computed |= computed && colour_attr(&a.name);
-            }
+        let mut said = Said {
+            computed,
+            ..Default::default()
         };
-        for s in &file.styles {
-            attrs(&s.attrs, &mut said);
-        }
-        let mut stack: Vec<&Node> = root.view.iter().collect();
-        while let Some(node) = stack.pop() {
-            match node {
-                Node::Element {
-                    attrs: a, children, ..
-                } => {
-                    attrs(a, &mut said);
-                    stack.extend(children);
-                }
-                Node::When {
-                    then, otherwise, ..
-                } => stack.extend(then.iter().chain(otherwise)),
-                Node::Each { body, .. } => stack.extend(body),
-                Node::Match { some, none, .. } => stack.extend(some.1.iter().chain(none)),
-                Node::Use { children, .. } => stack.extend(children),
-                Node::Children { .. } => {}
-            }
-        }
-        // A computed row may read a `fn`, a derive or a state: their literals too.
-        let bindings = root.derives.iter().chain(&root.states).map(|d| &d.expr);
-        for body in file.fns.iter().map(|f| &f.body).chain(bindings) {
-            leaves(body, &mut literals);
-        }
-        for (text, span) in literals {
+        for (text, span, strict) in literals {
             said.words
                 .extend(words(&text).filter(|w| is_token(w)).map(str::to_string));
             for expr in expressions(&text, &is_token) {
-                if !said.synthetic.iter().any(|(e, _)| e == expr) {
-                    said.synthetic.push((expr.to_string(), span));
+                match said.synthetic.iter_mut().find(|s| s.expr == expr) {
+                    Some(s) if strict && !s.strict => {
+                        s.strict = true;
+                        s.span = span;
+                    }
+                    Some(_) => {}
+                    None => said.synthetic.push(Synthetic {
+                        expr: expr.to_string(),
+                        span,
+                        strict,
+                    }),
                 }
             }
         }
@@ -138,30 +171,111 @@ impl Said {
     /// Whether the view names `name`: a token a literal writes, or a
     /// synthetic token's expression.
     pub(crate) fn names(&self, name: &str) -> bool {
-        self.words.contains(name) || self.synthetic.iter().any(|(e, _)| e == name)
+        self.words.contains(name) || self.synthetic.iter().any(|s| s.expr == name)
     }
 }
 
-/// `e`'s string leaves, through `?:`, `match`, `let` and a template's text;
-/// whether any leaf is computed.
-fn leaves(e: &Expr, out: &mut Vec<(String, Span)>) -> bool {
+/// Whether a value is literal: its leaves through `?:`, `match` and `let`
+/// are string literals.
+fn literal(e: &Expr) -> bool {
     match e {
-        Expr::Str(text, span) => {
-            out.push((text.clone(), *span));
-            false
-        }
-        Expr::Ternary(_, yes, no, _) => leaves(yes, out) | leaves(no, out),
-        Expr::Match { some, none, .. } => leaves(some, out) | leaves(none, out),
-        Expr::Let { body, .. } => leaves(body, out),
+        Expr::Str(..) => true,
+        Expr::Ternary(_, yes, no, _) => literal(yes) && literal(no),
+        Expr::Match { some, none, .. } => literal(some) && literal(none),
+        Expr::Let { body, .. } => literal(body),
+        _ => false,
+    }
+}
+
+/// A string literal's text, or a template's, with its place.
+fn strings(e: &Expr, strict: bool, out: &mut Vec<(String, Span, bool)>) {
+    match e {
+        Expr::Str(text, span) => out.push((text.clone(), *span, strict)),
         Expr::Template(parts, span) => {
             for p in parts {
                 if let TemplatePart::Text(text) = p {
-                    out.push((text.clone(), *span));
+                    out.push((text.clone(), *span, strict));
                 }
             }
-            true
         }
-        _ => true,
+        _ => {}
+    }
+}
+
+/// Visit `e` and every expression inside it.
+fn exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    f(e);
+    match e {
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
+        Expr::Template(parts, _) => {
+            for p in parts {
+                if let TemplatePart::Expr(x) = p {
+                    exprs(x, f);
+                }
+            }
+        }
+        Expr::List(items, _) => items.iter().for_each(|a| exprs(a, f)),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
+        | Expr::Unary(_, x, _) => exprs(x, f),
+        Expr::Call(_, args, _) => args.iter().for_each(|a| exprs(a, f)),
+        Expr::Binary(_, a, b, _) => {
+            exprs(a, f);
+            exprs(b, f);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            exprs(a, f);
+            exprs(b, f);
+            exprs(c, f);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            exprs(subject, f);
+            exprs(some, f);
+            exprs(none, f);
+        }
+        Expr::Let { value, body, .. } => {
+            exprs(value, f);
+            exprs(body, f);
+        }
+        Expr::Arrow { body, .. } => exprs(body, f),
+    }
+}
+
+/// Every expression an action's statements hold.
+fn stmts(body: &[Stmt], f: &mut dyn FnMut(&Expr)) {
+    for s in body {
+        match s {
+            Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => f(expr),
+            Stmt::Command { args, .. } | Stmt::Send { args, .. } => args.iter().for_each(&mut *f),
+            Stmt::If {
+                cond,
+                then,
+                otherwise,
+                ..
+            } => {
+                f(cond);
+                stmts(then, f);
+                stmts(otherwise, f);
+            }
+            Stmt::Match {
+                subject,
+                some,
+                none,
+                ..
+            } => {
+                f(subject);
+                stmts(&some.1, f);
+                stmts(none, f);
+            }
+            _ => {}
+        }
     }
 }
 
@@ -189,12 +303,11 @@ fn expressions<'t>(text: &'t str, is_token: &dyn Fn(&str) -> bool) -> Vec<&'t st
             }
         }
         let Some(end) = end else { break };
-        let call = &text[start..end];
         let name = &text[start..open];
         if COLOUR_FNS.iter().any(|f| f.eq_ignore_ascii_case(name))
             && words(&text[open..end]).any(is_token)
         {
-            out.push(call);
+            out.push(&text[start..end]);
             from = end;
         } else {
             from = open + 1;
