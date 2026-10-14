@@ -1,13 +1,13 @@
 ---
 name: 20261007-installed-font-picker
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: in-progress
 verification: unverified
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-appearance-theme-tools
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/548
 verified_commit: 3edaae26884e28b820506e0b54dc5cee030baf7e
 ---
 
@@ -136,3 +136,13 @@ bold/italic variants, Files/PR live typography, full persistence/mode-switching,
 restoration, and keyboard selection/focus-return coverage remain unverified. These limits
 keep the full task’s verification status open; the bounded catalog, validation, and runtime
 family wiring work is implemented and checked as above.
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#548](https://github.com/ccheever/exact2/pull/548) was published and read back at
+`31d46d0a21e1de85626ce04a0d81068fcd8cc6cd`, based on `feat(example)/t3-code`.
+The [durable native packet](https://github.com/ccheever/exact2/blob/ffe98932fe5943814d09069cbb210d2f91c5d01d/appearance-theme-tools/20261014-resume/README.md)
+contains accepted final screenshots, source/binary identities, and compact baseline/after
+observations. Its transparent baseline PNG is rejected, and differing fixtures are declared.
+Independent review approved the bounded implementation; the outstanding full-task
+verification rows above remain open. This publication update is coordinator bookkeeping.

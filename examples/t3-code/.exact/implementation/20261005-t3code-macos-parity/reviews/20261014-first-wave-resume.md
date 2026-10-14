@@ -1,6 +1,6 @@
 # First-wave continuation, 2026-10-14
 
-The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. This report is partial: Appearance is completing its native Escape repair, main adoption is pending, and none of these draft PRs has merged into the feature branch in this continuation.
+The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. This report is partial: all eleven implementations are published as draft PRs, main is merged into the local integration candidate, and the final repository/native checks are in progress. None of these PRs has merged into the remote feature branch in this continuation.
 
 ## Published revisions
 
@@ -16,12 +16,13 @@ The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e`
 | [sidebar-hover-archive-and-glyph](../tasks/20261014-sidebar-hover-archive-and-glyph.md) | [#545](https://github.com/ccheever/exact2/pull/545) | `a6fa91916dad1a27b34fc9ad42f5a91c383e81a8` | Connected native hover/glyph drive passed; Archive dialog and real input remain open. |
 | [pr-list-place-and-thread-picker](../tasks/20261014-pr-list-place-and-thread-picker.md) | [#546](https://github.com/ccheever/exact2/pull/546) | `6ff18f2251305c8f3f30a6ace8e425eab001367f` | Cancellation recovery and disabled-row Enter reviewed; connected scroll/picker real input remains open. |
 | [branch-notice-and-navigation](../tasks/20261014-branch-notice-and-navigation.md) | [#547](https://github.com/ccheever/exact2/pull/547) | `4105091dbcdff5146dd431e9f0789658605d8cf6` | Actual Git, dirty Cancel/Confirm, Settings toast and draft relaunch passed; transparent screenshots provide no visual proof. |
+| [Appearance fonts](../tasks/20261007-installed-font-picker.md) and [theme inspection](../tasks/20261009-blocked-theme-usage-highlight.md) | [#548](https://github.com/ccheever/exact2/pull/548) | `31d46d0a21e1de85626ce04a0d81068fcd8cc6cd` | Native fonts 28/28 and Inspector 33/33 passed; variants, full persistence/keyboard matrix and VoiceOver remain open. |
 
 ## Review and integration
 
 All listed repair implementations received source review. The composer repair additionally has independent review bound to its seven-file fingerprint `c157e0b26c513dcb9c371c667184cdc6573a2bfa0ebd15409ec1ece920403159`; the PR-list repair to 42 runtime/test files, `74f8c9eb6b8f883dbfec26d475cba358b56e5318092802dfbae4cf8fa691358b`. Their task records distinguish AppKit/agent checks from real input.
 
-The local integration branch combines these ten published branches and Appearance source `6accb80fb`, whose final repair and publication are pending. Markdown/Cite's conflicting import keeps the new morph and current Cite helpers. The PR-list merge keeps the sidebar's press forwarding in a single appearance subtree and keeps Markdown's media-focus installation while removing the retired R10 selection hook.
+The local first-wave checkpoint `1e3152209` combines all eleven published branches, including Appearance runtime `3edaae268` and its final receipt head `31d46d0a2`. Markdown/Cite's conflicting import keeps the new morph and current Cite helpers. The PR-list merge keeps the sidebar's press forwarding in a single appearance subtree and keeps Markdown's media-focus installation while removing the retired R10 selection hook.
 
 The branch-navigation merge `123d31131` preserves that same single-subtree behavior for ToastStack and adds the new confirmation label. Root comments were shortened to keep the source within the 1,500-line cap; caps and staged diff checks pass.
 
@@ -29,8 +30,12 @@ At integration `6ecc1e0cf`, the full app suite had 4,959 passes, one skip and tw
 
 The hover controller now belongs to the root alongside its clock (`95ae39500`), avoiding 134 unrelated window-property captures per forwarded handler. Its isolated plan fell from 37,196,589 to 33,177,857 bytes, below the original 33,309,129-byte feature baseline. UI node and binding counts stayed unchanged. The fresh native fixture passed timing, repeated-image navigation, focus return, hover-away and Settings dismissal. PR #541 was updated and read back at the new head above.
 
-The combined source at `7baeb1229` compiled at 27,894,502 bytes; strict application TypeScript passed. Its app root is 1,498 lines and caps pass. The full app run before the final Appearance repair had 4,966 passes, one skip and 12 failures. Two invocation-order assertions were corrected by `7baeb1229`; Appearance owns the remaining font fixtures, updated markup expectations, and invisible Inspector control attributes. Its native drive also exposed Escape closing Settings. These remain open until the follow-up repair and combined rerun.
+The combined source at `7baeb1229` compiled at 27,894,502 bytes; strict application TypeScript passed. Its app root is 1,498 lines. The first combined Bun run had 4,966 passes, one skip and 12 failures, from invocation-order/markup expectations and fixtures. These were corrected without weakening their expectations. Appearance's native Inspector failure was repaired by sharing Escape ownership with Settings. At `128463953`, all 4,978 app tests passed, with one skip.
+
+Appearance's independent review is bound to runtime `3edaae268` and documentation head `31d46d0a2`. It checked 576 outside-click state/effect comparisons, 33/33 native Inspector checks and 28/28 native font checks. The actual composer uses the selected Georgia family and the expanded local diff carries Menlo to code/gutters. The [durable packet](https://github.com/ccheever/exact2/blob/ffe98932fe5943814d09069cbb210d2f91c5d01d/appearance-theme-tools/20261014-resume/README.md) contains source/binary identities and authentic final screenshots. Its transparent baseline image is rejected; baseline tree/AX observations are separate from the final connected fixture. Both broader task records remain unverified for their outstanding matrix.
+
+Main adoption is tracked in [round 14](../tasks/20261014-adopt-main-fixes-r14.md). The migrated app passes the same 4,978 tests and strict TypeScript. The root source sweep found main's newly refused non-SVG transforms; `30be3a94a` converts four chevrons to individual rotation and removes an ignored monogram transform. The resulting plan compiles to 28,103,415 bytes, 15.6% below the original 33,309,129-byte feature baseline. The affected root test and workspace capture require a clean rerun; native integration remains pending.
 
 ## Next action
 
-Finish Appearance and rerun the combined checks, compile/build and drive the combined app, then adopt current main with its ancestry preserved. Main's `migrate-1116-015.mjs` must run against the app before that merge; update Contract fixtures and source assertions as well. Run the repository gates on the final tree. Keep final real-input rows open while the desktop is locked. PR #541 remains draft with the others until integration checks complete; its size/functionality choice is no longer needed after the measured reduction.
+Complete the final repository gates and one combined native drive. Publish the first-wave checkpoint to the feature branch, then publish/merge main adoption with its ancestry preserved. Keep final real-input rows open while the desktop is locked. PR #541's size/functionality choice is no longer needed after the measured reduction. Start dependent application tasks only after the feature branch contains the adopted main.
