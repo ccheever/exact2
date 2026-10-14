@@ -17,6 +17,8 @@ final class TableListMacTests: XCTestCase {
       state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
       derive rows = seed.concat(seed)
       state opened = 0 - 1
+      state display = "block"
+      state direction = "column"
       action open(r: number)
         opened = r
       view
@@ -51,6 +53,10 @@ final class TableListMacTests: XCTestCase {
             for r in seed key=`f${r}`
               row press=open(r) width=80 height=44
                 text `F ${r}`
+          list display=display width="100%" height=60 testId="bound-display"
+            text "A bound display keeps authored rows"
+          list display="flex" flex-direction=direction width="100%" height=60 testId="bound-direction"
+            text "A bound direction keeps authored rows"
           list virtualized=true estimated-item-height=120 flex=1 min-height=0 width="100%" testId="outer"
             for r in seed key=`o${r}`
               column height=120 width="100%"
@@ -74,6 +80,11 @@ final class TableListMacTests: XCTestCase {
         XCTAssertNil(tables.feeds[try list("strip").id], "a list that scrolls sideways is a carousel")
         XCTAssertNil(tables.feeds[try list("eager-strip").id], "windowed or not")
         XCTAssertNil(tables.feeds[try list("wrapped").id], "and a flex row that wraps is the author's arrangement, not rows")
+        for name in ["bound-display", "bound-direction"] {
+            let node = try list(name)
+            XCTAssertNotEqual(node.props["listRows"], "true", "Contract does not mark a list whose layout is bound")
+            XCTAssertNil(tables.feeds[node.id], "AppKit follows Contract's mark even when the bound value currently lays rows out vertically")
+        }
         XCTAssertNil(tables.feeds[try list("inner-0").id], "a list in another list's row keeps its painted rows")
         // The driver's own chrome paints every list's rows, and gives them back.
         tables.painted = true
