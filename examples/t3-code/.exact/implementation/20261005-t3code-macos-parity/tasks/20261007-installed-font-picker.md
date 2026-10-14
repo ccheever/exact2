@@ -3,7 +3,7 @@ name: 20261007-installed-font-picker
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-appearance-theme-tools
@@ -146,3 +146,9 @@ contains accepted final screenshots, source/binary identities, and compact basel
 observations. Its transparent baseline PNG is rejected, and differing fixtures are declared.
 Independent review approved the bounded implementation; the outstanding full-task
 verification rows above remain open. This publication update is coordinator bookkeeping.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

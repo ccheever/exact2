@@ -3,7 +3,7 @@ name: 20261014-sidebar-hover-archive-and-glyph
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-sidebar-hover-archive-and-glyph'
@@ -133,3 +133,9 @@ R11-X63, G4-14b and B12. The coordinator owns publication, integration and the b
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#545](https://github.com/ccheever/exact2/pull/545) was read back at `a6fa91916dad1a27b34fc9ad42f5a91c383e81a8`, based on `feat(example)/t3-code`. Connected native hover/glyph drive passed; Archive dialog and real input remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.

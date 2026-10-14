@@ -3,7 +3,7 @@ name: 20261014-native-helpers-and-text-menu
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-native-helpers-and-text-menu
@@ -164,3 +164,9 @@ Draft PR [#544](https://github.com/ccheever/exact2/pull/544) publishes implement
 ## Coordinator publication, 2026-10-14
 
 Draft PR [#544](https://github.com/ccheever/exact2/pull/544) was read back at `4f81dc73ffb3984524ada9f8542ab3a67254e6ea`, based on `feat(example)/t3-code`. Native Services and tracking timer proof passed; original real-grant/Finder observations remain unresolved. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
+
+### Remote delivery, 2026-10-14
+
+GitHub reports this PR merged at 03:04 UTC into `feat(example)/t3-code`, published as
+first-wave checkpoint `1e31522094c2587ce6e7a30bdd8ca0e87bc8310a`. This records delivery
+only; the task's remaining acceptance and real-input qualifications above still apply.
