@@ -64,7 +64,7 @@ component R4FilesSurface
     editorLit = on ? id : (editorLit == id ? "" : editorLit)
   action editorHover(id: string, over: bool)
     if over
-      focus(`file-editor-${id}-km`)
+      focus(`file-editor-${id}`)
     else if editorLit == id
       focus("file-editors-keys")
   view
@@ -167,7 +167,7 @@ component R4CrumbItem
   state lit = false
   action hover(over: bool)
     if over
-      focus(`${test}-km`)
+      focus(test)
     else if lit
       focus(keysId)
   action focused(on: bool)

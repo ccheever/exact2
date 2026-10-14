@@ -409,10 +409,14 @@ component PrdCommentCard
     handoffs: PrHandoffsView
     surface: string
   state over = false
+  state focused = false
   action hover(value: bool)
     over = value
+  // Both events bubble for links without IDs; the incoming event retains the settled focus state.
+  action focusWithin(on: bool)
+    focused = on
   view
-    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" role="article" hover=hover testId=`pull-request-comment-${card.id}`
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" role="article" hover=hover focusin=focusWithin(true) focusout=focusWithin(false) testId=`pull-request-comment-${card.id}`
       row flex-wrap="wrap" align-items="flex-start" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-left-radius="0.5rem" border-top-right-radius="0.5rem" background-color="light-dark(#f4f4f540, #ffffff06)"
         row flex=1 min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
           PrdIdentity(card=card)
@@ -430,7 +434,7 @@ component PrdCommentCard
           PrdLocation(card=card)
       if card.bodyId != "" or card.canEdit
         column padding="0.75rem" box-sizing="border-box" min-width=0
-          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-s`, documents=documents, code=code, env=env, still=still, local=local, act=act)
+          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=(over or focused), scope=`${scope}-s`, documents=documents, code=code, env=env, still=still, local=local, act=act)
 
 // CommentGroup: the overlapping faces, the label, "N authors · N files · Latest …", a chevron.
 component PrdCommentGroupBox
@@ -482,12 +486,16 @@ component PrdCollapsedComment
     still: bool
   state open = false
   state over = false
+  state focused = false
   action toggle
     open = not open
   action hover(value: bool)
     over = value
+  // Both events bubble for links without IDs; the incoming event retains the settled focus state.
+  action focusWithin(on: bool)
+    focused = on
   view
-    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() role="article" hover=hover testId=`pull-request-finished-${card.id}`
+    column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=prsBorder() role="article" hover=hover focusin=focusWithin(true) focusout=focusWithin(false) testId=`pull-request-finished-${card.id}`
       column padding="0.75rem" box-sizing="border-box"
         row flex-wrap="wrap" align-items="flex-start" gap="0.5rem"
           PrdIdentity(card=card)
@@ -503,7 +511,7 @@ component PrdCollapsedComment
       // A dismissal carries no more words than an approval does; kept where the pencil lives.
       if open and (card.bodyId != "" or card.canEdit)
         column padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" min-width=0
-          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=over, scope=`${scope}-f`, documents=documents, code=code, env=env, still=still, local=local, act=act)
+          PrdRemarkBody(remarkId=card.id, bodyId=card.bodyId, raw=card.raw, kind=card.kind, canEdit=card.canEdit, saving=card.saving, serial=card.savedSerial, shown=(over or focused), scope=`${scope}-f`, documents=documents, code=code, env=env, still=still, local=local, act=act)
 
 // PullRequestActivityUnavailableState: compact under Summary's Comments, full in the Timeline.
 component PrdActivityUnavailable

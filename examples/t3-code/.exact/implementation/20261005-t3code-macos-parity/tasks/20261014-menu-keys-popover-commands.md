@@ -1,7 +1,7 @@
 ---
 name: 20261014-menu-keys-popover-commands
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: in-progress
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -34,8 +34,8 @@ Prepared on 2026-10-14 as serial follow-up **4 of 8**, from feature head
 `5e5bdb094439d155543f5eb1111eea0ccb3abc76`. Dialog #553, legacy sidebar #557 and
 Connections #566 actually merged into `feat(example)/t3-code`; all three resulting
 merge commits are ancestors of this prepared base. The isolated Orca checkout uses
-branch `feat(example)/t3-code-menu-keys-popover-commands`. This ticket is ready for
-coordinator review before behavior implementation. Verification remains unverified;
+branch `feat(example)/t3-code-menu-keys-popover-commands`. The coordinator accepted and committed preparation at
+`8bd44a945d4b256027306882f3c5227533139209` and authorized implementation. Verification remains unverified;
 preparation does not qualify native behavior or predecessor limitations.
 
 ## Scope and exclusions
@@ -397,7 +397,7 @@ harness or replacement fixture infrastructure is authorized.
 | Combined Run on/Workspace | Reuse three independent existing project/server copies plus isolated primary project. All need the same canonical origin and connected/synchronized generations. Use a new unstarted draft and narrow composer; inspect actual envOptions first. Auto-balance needs offered state and at least two eligible environments. Reapply previously restored primary-origin changes only to a task-owned copy when needed. |
 | G2 variants | forceWorktree requires valid two-model selection. Previous worktree needs an eligible nonarchived same-project thread with a different nonempty worktree path and valid updatedAt. Native prerequisites remain unestablished; use existing No project UI for gitless where available. Do not fabricate records or start agents. Keep domain/native coverage distinct. |
 | Git Return | Select in the disposable project or already configured new-worktree draft; use real details-branch-search, accept and reopen. |
-| Diff Return | Copy established work repository and bare origin as a pair, retaining main, feature/audit and origin/main, origin/feature/audit, origin/release/2026-10 refs; retarget origin paths only in copies and register the copied root through existing setup. Require branch-range selection, nonempty baseRef, diffCompare=true and mounted diff-base. A dirty file alone is insufficient. The coordinator has prepared and registered this copied pair and an unstarted feature/audit thread on the same isolated primary backend; use that handoff instead of duplicating setup. |
+| Diff Return | Copy established work repository and bare origin as a pair, retaining main, feature/audit and origin/main, origin/feature/audit, origin/release/2026-10 refs; retarget origin paths only in copies, place the pair under the backend's configured server root, and register the copied root through existing setup. The file-root guard rejects an outside-root copy even if its Git refs are valid. Require branch-range selection, nonempty baseRef, diffCompare=true and mounted diff-base. A dirty file alone is insufficient. The coordinator has prepared and registered this copied pair and an unstarted feature/audit thread on the same isolated primary backend; use that handoff instead of duplicating setup. |
 | Long summary remark/pencil | User explicitly authorized one fixture. Coordinator created and GET-verified [PR159 summary comment](https://github.com/daehyeonmun2021/playground/pull/159#issuecomment-6166089478): primary-owned, 1,034 characters, 25 newlines, 18 ordered-list items and two Markdown links. Use the approved primary lane; verify rendered height exceeds 240 points, real link focus and canEdit in the app. Opening/canceling edit is allowed; no additional posts/edits. Native eligibility/height remain unverified. |
 
 Agent-native credentials, preferences and route catalogs are process-local even with
@@ -532,9 +532,11 @@ from Bun action tests. Record any unexecuted case as unverified.
 | Scope and callers | Reconciled on prepared `5e5bdb094`; six rows, 38 openers and 47 redirects retained. |
 | Public APIs / issues | Source checked; X54/X66/X73 fixes present; remote issue/PR states refreshed. |
 | Serial dependencies | #553/#557/#566 actually merged into intended base; actual merge ancestry and final Connections source hashes pass. |
-| Prepared checkout / ticket | Isolated Orca branch at `5e5bdb094`; this portable tracked-path ticket ready for coordinator review. |
-| Fixture / native readiness | Local, core G2 and paired Diff data available; real authorized summary comment available, native height/edit eligibility unmeasured; G2 variant prerequisites still need qualification. |
-| Implementation, tests, build, app drive, real input | Not performed by this preparation. |
+| Prepared checkout / ticket | Coordinator accepted preparation at `8bd44a945` and authorized the complete six-row implementation in this isolated branch. |
+| Fixture / native readiness | Coordinator qualified the real editable PR159 summary: 587.35-point body clipped at 240; BEFORE link focus left it clipped with pencil opacity 0. Local, core G2 and copied Diff data are available; G2 variants and AFTER native behavior remain to qualify. |
+| Implementation | All six behaviors implemented; 38 openers and 47 redirects migrated, retired helpers removed. Candidate `9437b8a0` (46 production files) failed three AFTER cases; repair round 2 changes `sidebar-row`, `diff` and `legacy-sidebar` contracts. Repaired source aggregate `16936867`. |
+| Automated validation | Repair round 2: complete 335-file Bun suite 5,168 pass, one existing skip, no failures; strict TypeScript; all 44 macOS crate tests; Contract compilation; caps; formatting. The five new tests fail on candidate `9437b8a0`. |
+| Independent review / native build | Source review approved candidate `9437b8a0`; the repair is not yet reviewed. Repair native bundle build passed (executable SHA-256 `3131df360846`). The failed AFTER cases need a re-drive. |
 | Verification / publication | Unverified / none. |
 
 ## Attempts and evidence
@@ -575,12 +577,166 @@ source/framework SHA, fixture/reset, command, assertion, actual result and artif
 paths. Preserve failures. The repository permits three repair rounds; changing worker
 or test variant does not reset that limit.
 
+### Implementation candidate, 2026-10-14
+
+The coordinator authorized implementation after committing the prepared ticket at
+`8bd44a945d4b256027306882f3c5227533139209`. The application now uses real trigger
+commands and actual row focus throughout the 38-opener/47-redirect inventory. The
+Environment Icon submenu also uses the shared activation guard while preserving its
+parent's arrow handling. `KeyMenuOpen`, `KeyMenuWatched`, `KmDoor`, their callers,
+`kmBump`, Git's picked-body state and Diff's empty-body close workaround are removed.
+State-owned menu entry points and merged dialog/Connections ownership remain intact.
+Legacy observes its whole popup and keeps the count field mounted through clamp;
+composer navigation uses one eligible Run on/Workspace sequence. Filters uses blur
+for pointer-exit dismissal and restores its actual trigger on the closed toggle.
+Long summary bodies expand on body focusin, and remark owners expose the mounted
+pencil while their settled focus state is inside.
+
+Frozen source manifest `target/menu-keys/implementation-verification-2/source.json`
+covers all 1,246 tracked app files except `.exact` records; its aggregate is
+`9437b8a0f82fd36eacdae683c19ddb51a77563a63273b7b2a1c1169a2e7ddbb8`.
+Each manifest row is serialized as path, NUL, hexadecimal file SHA-256, newline, in
+`git ls-files` order; the aggregate hashes those bytes. Each completed verification
+receipt checks the aggregate before and after its command. No framework/host file
+changed, and no app source changed after this candidate was recorded.
+
+- The first Contract compile rejected LegacyCount's derived-value read after its
+  dirty-state assignment. Repair round 1 snapshots the submitted value before the
+  assignment; compilation then passed. Both diagnostics remain in
+  `target/menu-keys/implementation-compile-{initial,after-snapshot}.log`.
+- The central menu suite initially had six new-test assumption failures (125 passed).
+  Corrections concerned an unrelated armed state, attribute order, ancestor hover
+  handlers and disabled-row guards; its final focused run passed 131 tests and
+  2,818 assertions. Both `menu-keys-focused-{first,second}.log` files remain.
+- The first root-file suite had 5,015 passes and four stale-test failures. The fixes
+  only updated old keyed wiring, Snooze's new source ID, an adjacency assumption,
+  and the provider fixture's KmItem constructor. The 326-root-file rerun passed
+  5,019 tests. The coordinator identified nine omitted nested test files; the final
+  complete command explicitly supplies all 335 tracked `.test.ts` paths, each with
+  a `./` prefix. It passed **5,165 tests, one existing grammar-generator skip, zero
+  failures**, with 123,541 assertions. These are distinct runs, not one claimed total.
+- Strict TypeScript for `app.ts` passed. `cargo test -p t3-code-macos --lib
+  --no-fail-fast` passed **42 tests**, including five new compiled-plan tests for
+  ordered trigger commands, modifiers/repeat, Legacy focus boundaries and stable
+  clamp reconciliation, and Snooze toggle lifetime/observed row navigation.
+- The coordinator independently matched all source hashes, staged the task, and
+  passed whitespace, caps (4,549 files, seven categories), and
+  `cargo fmt --all -- --check`. Its receipt is
+  `target/menu-keys/coordinator-gates/early-checks.json`.
+- Independent source review approved this candidate with no additional confirmed
+  production defect. `target/menu-keys/source-review.md` records all 46 production
+  hashes and the review boundary. It does not certify native behavior.
+
+All final command receipts and raw logs are under
+`target/menu-keys/implementation-verification-2/`; the initial failed full-root run
+and its earlier manifest remain under `implementation-verification/`. These local
+paths are working evidence awaiting coordinator publication, not durable published
+URLs. The native bundle build is in progress on the same frozen candidate.
+
+Native qualification remains required for normal AppKit NSMenu opening/highlight,
+Filters' actual two-Escape focus/ring, Legacy physical Tab exit, composer final focus
+and available G2 variants, Git/Diff close/reopen/IME, and the real tall summary body.
+The remark focusout/focusin pair proves settled state in action tests; uninterrupted
+pencil visibility between descendants still needs native observation. Keeping the
+pencil mounted preserves its node identity but does not itself prove that timing.
+The coordinator's BEFORE capture qualified the actual PR159 summary body and edit
+eligibility and recorded the expected old failure; AFTER remains unverified here.
+No provider message, additional GitHub write, app launch or native input was performed
+by the implementation owner.
+
+### Repair round 2, 2026-10-14
+
+The bounded AFTER drive of `9437b8a0` (`target/menu-keys/after/agent-01/handoff.md`) had three failures.
+This round changes only `examples/t3-code`. It did not launch or drive the app. Logs and receipts are in
+`target/menu-keys/repair-2/`.
+
+1. **Snooze Escape with the pointer outside (regression).** Escape returned the focus to
+   `snooze-trigger-<id>`. Then the closed toggle set `snoozeOpen=false`, so `shown` became false and the
+   actions row became `aria-hidden`. The macOS host then dropped the focus: `refreshInputGates`
+   (`host/apple/Sources/ExactKit/Mac/NavigationMac.swift:214,222`) makes a node that is
+   `accessibilityHiddenByProp` resign first responder. Chrome keeps the focus inside `aria-hidden`.
+   Repro: focus a button in `aria-hidden=(not shown)`, then make `shown` false. The reference shows the
+   actions while one of them has keyboard focus (`has-[:focus-visible]`, Sidebar.tsx). Change:
+   `ThreadRow` keeps `actionsFocused` from `focusin`/`focusout` on the root row of `SidebarCardActions`.
+   `relatedTarget` is checked against `actionIds` (`sidebar-row.contract:97–110, 314`), and the Discard
+   button gets the ID `discard-trigger-<id>`. Recorded deviation: this pins on any focus, not only
+   focus-visible, as `SidebarPinButton` already does. A Mac click on a button moves no focus.
+2. **Diff scope reopen by key.** After Escape, ↑/↓ on the focused trigger mounted the menu, but nothing
+   focused a row. The first opening worked. The opening blurred the trigger and relied on the popup's
+   `autofocus`. On macOS, `Accessibility.swift:511` skips a node whose `ObjectIdentifier` is in
+   `autofocusProcessed`. Mac `release` (`PresenterMac.swift:795`) does not remove the identifier, but
+   iOS does (`PresenterIOS.swift:1052`). A reopened popup's new view can then reuse the freed identity.
+   This is a likely root cause, not proven by a native trace. The other data-module menus
+   (`r6-device`, Files crumbs/editors, linked PR rows, Diff turns) use the same path and were not driven.
+   Change: `DiffPanelBody.openScope(end)` shows the menu for the opening turn
+   (`scopeShown = data.diffMenu != "" or scopeOpenedAt == data.revision`). The data module's answer
+   increments `revision`. The same action sends the command and focuses
+   `kmOpenTarget("diff-scope-keys", end)`, so `-first`/`-last` focus the real row. A pointer press
+   focuses the popup. `closeScope` resets the opening, and `DiffScopeMenu.closeMenus` calls it. The
+   data module still owns the menu (`diff.contract:69–86, 139–141, 158–174, 226–227`).
+3. **Legacy count clamp and Tab (LS-3).** Tab from the field went to the enabled increase stepper. The
+   clamp to 15 then disabled it, so the focus stayed on a disabled button. The macOS host does not
+   reset focus when a focused control becomes disabled, and `NativeButtonMac.keyDown`
+   (`NativeButtonsMac.swift:85`, `guard acceptsFirstResponder`) discards Tab on a disabled first responder.
+   Chrome resets the focus and continues Tab from that position. The reference steppers are Base UI 1.4.1
+   `NumberFieldIncrement/Decrement`, with `tabIndex: -1` in `useNumberFieldButton`. Change: both steppers get
+   `tabindex=-1 retainFocus=true` (`legacy-sidebar.contract:269,272`). Tab from the field now leaves the
+   popup, which closes it (the existing `left` handler). A press keeps the focus in the field.
+4. **Legacy layer width 1,259 compared with 192.** The candidate caused it on purpose. `triggerKey` now
+   runs `place()`, as the pointer press always did. This sets the `tail` spacer, so the 12rem panel
+   aligns its end to the trigger (reference `MenuPopup align="end"`). The BEFORE keyboard opener skipped
+   placement. The focus observer and the count field do not change it. Not changed.
+5. **PR comment Edit focus.** The candidate did not change it. The candidate changes `PrdWords` only
+   by adding `focusin=bodyFocused`; `begin` and the textarea `autofocus` are unchanged. In AFTER, the
+   focus was already on `pull-request-comments-toggle` (logical 8556 before the toggle and Edit taps). A
+   Mac click moves no focus, so the host's autofocus guard (`Accessibility.swift:517`) skipped the
+   textarea. In BEFORE, the focused body link unmounted when editing opened. Not changed.
+
+Tests: Bun `menu-keys.test.ts` (Snooze Escape focus-within), `diff-panel-parity.test.ts` (three
+reopen rounds with ↓/↑ after Escape, modifiers, pointer, revision answer) and
+`legacy-sidebar-full.test.ts` (steppers are no Tab stops). Rust compiled-plan tests
+`title_snooze_tests::snooze_escape_keeps_the_returned_trigger_shown_until_focus_leaves_the_actions` and
+`legacy_sidebar_tests::options_steppers_are_no_tab_stops_so_a_clamp_never_strands_the_focus`. Three stale
+diff-wiring assertions in `menu-keys.test.ts` were updated. With the three staged candidate contracts swapped
+in, all five new tests failed (3 Bun, 2 Rust: `old-code-bun.log`, `old-code-rust.log`); the files were
+then restored.
+
+Results on the repaired source: focused suites 368 pass / 0 fail (8 files); all 335 tracked app test files
+5,168 pass, 1 existing skip, 0 fail, 123,595 assertions; strict TypeScript pass; Contract build pass;
+`cargo test -p t3-code-macos --lib` 44 pass; `git add -A examples/t3-code` then caps pass (4,549 files,
+7 categories); `cargo fmt --all -- --check` pass. Native bundle build (`build.mjs t3-code-macos --bundle`) passed in 3 min 20 s, cargo 196.9 s; executable SHA-256 `3131df3608464d1cfdfd68e6cc0136f3fefb40abf9f98a81931e330054e84c89` (`native-build.json`). Source aggregate
+(1,246 files, same recipe) `16936867fb05ccce68dc8bc3bef92aa9e37b44f35133e99f7f3589dd734201ea`
+(`target/menu-keys/repair-2/source.json`). Not verified: native re-drive of Snooze pointer-outside
+Escape, Diff scope reopen, and Legacy clamp Tab (physical Tab included).
+
+### Native AFTER drives, 2026-10-14
+
+Drive 1 (candidate `9437b8a0`, agent mode, one app lifetime, local lane
+`target/menu-keys/after/agent-01/handoff.md`): Sort, Filters two-Escape return (no
+`pr-filters-rest`), Snooze pin, Git branch and Diff base Return close, PR159 long-comment
+expansion and pencil, and the G2 combined Run on/Workspace order passed. Three cases failed:
+Snooze Escape with the pointer outside left focus null; Diff scope reopened by key focused
+no row; Legacy count 22 then Tab left focus on the disabled increase button. Repair round 2
+(above) fixed these in app source. Source aggregate after repair:
+`16936867fb05ccce68dc8bc3bef92aa9e37b44f35133e99f7f3589dd734201ea`.
+
+Drive 2 (the one retry, same recipe, `target/menu-keys/after/agent-02/handoff.md`): all
+three repaired cases pass, including physical Tab/Shift+Tab through `orca computer`
+(effects read back from app state; Orca marks synthetic keys unverified). The Legacy panel
+is 192x266 at its trigger's right edge; its layer box is 1259x270 because it also holds a
+1067x1 spacer. Sort, Filters and Git branch spot checks still pass. Physical Escape after
+the second Filters Escape showed the blue ring on Filters.
+
+Host differences found (worked around in the app, to be reported as framework issues):
+macOS drops focus inside a node that becomes `aria-hidden` (`NavigationMac.swift:214,222`);
+macOS keeps a removed node's autofocus record (`PresenterMac.swift:795`, iOS clears it at
+`PresenterIOS.swift:1052`); macOS keeps focus on a button that becomes disabled and ignores
+Tab there (`NativeButtonsMac.swift:85`).
+
+Still unverified: real NSMenu tracking in a normal (non-agent) launch, Enter activation of
+G2 rows under the agent driver (Space passes), spoken VoiceOver.
+
 ## Next action
 
-Coordinator reviews this prepared ticket, then authorizes the complete six-row
-implementation in this branch. Settle the shared real-trigger/real-row API first,
-migrate every opener and door caller preserving dialog owners, then finish the six
-specific behaviors and existing tests. Use the coordinated native slot and fixture
-prerequisites for the bounded app pass; record unavailable cases as unverified.
-Publication/merge remain coordinator-owned. Browser and CSS follow-ups wait for
-this task's actual PR merge.
+Publish the PR to `feat(example)/t3-code` and merge it, retaining the unverified rows above.
+Then start follow-up 5, `browser-panel-parity`, from the resulting feature head.

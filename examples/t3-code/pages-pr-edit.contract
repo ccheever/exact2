@@ -126,6 +126,9 @@ component PrdWords
   derive held = not open and collapse and tall and not expanded
   action measured(width: number, height: number)
     tall = height > 240
+  action bodyFocused
+    if collapse and not open
+      expanded = true
   action toggleFull
     if expanded
       scrollIntoView(frameId, block="nearest")
@@ -176,7 +179,7 @@ component PrdWords
       if not open or previewing
         row width="100%" align-items="flex-start" gap="0.25rem"
           column flex=1 min-width=0
-            column id=frameId position="relative" max-height=(held ? 240 : 100000) overflow="hidden" padding-left=(open ? "0.75rem" : "0px") padding-right=(open ? "0.75rem" : "0px") padding-top=(open ? "0.5rem" : "0px") padding-bottom=(open ? "0.5rem" : "0px") box-sizing="border-box" border-radius="0.5rem" border-width=(open ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId=(open ? `${testId}-preview-body` : frameId)
+            column id=frameId focusin=bodyFocused position="relative" max-height=(held ? 240 : 100000) overflow="hidden" padding-left=(open ? "0.75rem" : "0px") padding-right=(open ? "0.75rem" : "0px") padding-top=(open ? "0.5rem" : "0px") padding-bottom=(open ? "0.5rem" : "0px") box-sizing="border-box" border-radius="0.5rem" border-width=(open ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" testId=(open ? `${testId}-preview-body` : frameId)
               column width="100%" resize=measured
                 if shownId == ""
                   if open

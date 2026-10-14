@@ -407,7 +407,7 @@ component EditorOption
   state lit = false
   action hover(value: bool)
     if value
-      focus(`details-editor-${editor.id}-km`)
+      focus(`details-editor-${editor.id}`)
     else if lit
       focus(keysId)
   action focused(on: bool)

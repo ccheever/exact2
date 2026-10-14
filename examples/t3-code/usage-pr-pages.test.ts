@@ -99,9 +99,10 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('      sub = name\n      subPointer = false\n      subLeft = false\n      subKeyed = subKeyed + 1\n      focus("pr-filters-sub-keys")');
     // Opening Filters again, by a press, Enter, Space, ↓ or ↑, starts with no search, as the reference's popup remounts.
     expect(menu).toContain('action openMenu\n    sub = ""\n    authorQuery = ""');
-    expect(menu).toContain('button popovertarget="pr-filters-menu" press=openMenu ');
-    expect(menu).toContain('  action keyOpened(last: bool)\n    keyed = kmBump(keyed, last)\n    openMenu()');
-    expect(menu).toContain('KeyMenuOpen(menuId="pr-filters-menu", armed=keyArmed, opened=keyOpened)');
+    expect(menu).toContain('button id="pull-requests-filters" popovertarget="pr-filters-menu" press=openMenu ');
+    expect(menu).toContain('      if not e.repeat\n        openMenu()\n        showPopover("pr-filters-menu", source="pull-requests-filters")');
+    expect(menu).toContain('let target = kmTriggerTarget(filterItems, k)');
+    expect(menu).toContain('KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=0,');
     // Opened by a press, the Author popup's KeyMenu sees no keyboard opening, so it leaves the focus in the search.
     expect(menu).toContain('KeyMenu(menuId="pr-filters-sub-keys", items=subItems, keyed=(sub == "author" and subPointer ? 0 : subKeyed), gap="0px", modal=true)');
     expect(menu).toContain('authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');

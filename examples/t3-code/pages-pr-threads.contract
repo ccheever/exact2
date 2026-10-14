@@ -154,6 +154,7 @@ component PrdThreadComment
     local: action
     act: action
   state over = false
+  state focused = false
   state editing = false
   state seen = 0
   state draft = ""
@@ -161,6 +162,9 @@ component PrdThreadComment
   derive open = editing and seen == comment.savedSerial
   action hover(value: bool)
     over = value
+  // Both events bubble for links without IDs; the incoming event retains the settled focus state.
+  action focusWithin(on: bool)
+    focused = on
   action begin
     editing = true
     seen = comment.savedSerial
@@ -178,7 +182,7 @@ component PrdThreadComment
   action cancel
     editing = false
   view
-    column min-width=0 hover=hover role="article" testId=`pull-request-thread-comment-${comment.id}`
+    column min-width=0 hover=hover focusin=focusWithin(true) focusout=focusWithin(false) role="article" testId=`pull-request-thread-comment-${comment.id}`
       row min-width=0 flex-wrap="wrap" align-items="center" gap="0.5rem"
         LayerTip(label=comment.authorTip, side="top", align="start", tipId=`pull-request-thread-author-tip-${comment.id}`)
           row align-items="center" gap="0.375rem" min-width=0
@@ -189,7 +193,7 @@ component PrdThreadComment
         text comment.age font-size="0.75rem" line-height="1rem" color=ptMuted() white-space="nowrap" testId=`pull-request-thread-age-${comment.id}`
         PrdReactionBar(pills=comment.reactions, reacted=comment.reacted, canReact=canReact, choices=choices, subject=comment.id, pickerId=`pr-code-react-${comment.id}`, act=act)
       column margin-top="0.25rem" min-width=0
-        PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=over, open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
+        PrdWords(bodyId=comment.bodyId, emptyText="", collapse=false, canEdit=comment.canEdit, pencil=true, hovered=(over or focused), open=open, previewing=previewing, draft=draft, saving=comment.saving, allowEmpty=false, label="Edit comment", placeholder="", previewId=`pr-preview:comment:${comment.id}`, pencilLabel="Edit comment", frameId=`pr-code-comment-body-${comment.id}`, testId=`pr-code-comment-${comment.id}`, still=still, documents=documents, code=code, env=env, local=local, begin=begin, edit=edit, preview=preview, save=save, cancel=cancel)
 
 // PendingReviewCommentCard: dashed, "Pending — sent when you submit the review", a trash to discard it.
 component PrdPendingCard

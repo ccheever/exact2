@@ -57,7 +57,7 @@ component R6ScriptMenu
   // FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the focus hands it to the popup.
   action hover(id: string, rowId: string, value: bool)
     if value
-      focus(`${rowId}-km`)
+      focus(rowId)
     else if lit == id
       focus("details-scripts-keys")
   action focused(id: string, on: bool)

@@ -22,8 +22,6 @@ shape R4GitBranch
   originShown: bool
   originOn: bool
   count: number
-  // A ref picked from the keyboard empties the open popover (r4-git-branch.ts).
-  picked: bool
   // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
   checkout: R9CheckoutItem[]
 shape R4GitMenuItem

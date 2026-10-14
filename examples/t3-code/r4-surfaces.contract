@@ -1,3 +1,4 @@
+use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 use TerminalContent from "./terminal.contract"
 use Look from "./settings-appearance-look.contract"
 // The right panel's tab bar and its non-diff surfaces (lane r4-surfaces,
@@ -38,9 +39,6 @@ use ChatDocument from "./markdown.contract"
 use prdTone from "./pages-pr-detail.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
-use KeyMenuOpen from "./menu-keys.contract"
-use kmBump from "./menu-keys.contract"
 use kmKeyEnd from "./menu-keys.contract"
 use kmArrow from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
@@ -252,24 +250,24 @@ component R4AddSurface
   state over = false
   action hover(value: bool)
     over = value
-  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
-  state keyed = 0
-  state keyArmed = false
-  action keyArm(on: bool)
-    keyArmed = on
-  action keyOpened(last: bool)
-    keyed = kmBump(keyed, last)
-  action triggerKey(k: string)
-    if kmOpenKey(k)
-      keyed = kmBump(keyed, false)
+  // Keyboard opening targets the first or last enabled menu row.
+  derive menuItems = surfaces.filter((surface) => surface.available).map((surface) => KmItem(id=`add-surface-${surface.id}`, label=surface.label))
+  action triggerKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("r4-add-surface", source="panel-add-surface")
+        let openingTarget = kmTriggerTarget(menuItems, k)
+        if openingTarget != ""
+          focus(openingTarget)
   view
     column position="relative" flex-shrink=0
-      button popovertarget="r4-add-surface" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id="panel-add-surface"
+      button popovertarget="r4-add-surface" key=triggerKey hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title="" id="panel-add-surface"
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      KeyMenuOpen(menuId="r4-add-surface", armed=keyArmed, opened=keyOpened)
       column id="r4-add-surface" popover="auto" position-try-fallbacks="none" position="absolute" margin-top="0.375rem" width="12rem" data-dialog-return="menu" focusin=dialogMenuEntered("r4-add-surface", "panel-add-surface")
         column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
-          KeyMenu(menuId="r4-add-surface-keys", items=surfaces.filter((surface) => surface.available).map((surface) => KmItem(id=`add-surface-${surface.id}`, label=surface.label)), keyed=keyed, gap="0px", modal=true)
+          KeyMenu(menuId="r4-add-surface-keys", items=menuItems, keyed=0, gap="0px", modal=true)
             for surface in surfaces key=surface.id
               if surface.id == "browser" and surface.available
                 BrowserAddItem(keysId="r4-add-surface-keys", surface=surface, profiles=profiles, choose=ui("choose", surface.id), local=local)
@@ -286,7 +284,7 @@ component R4AddItem
   state lit = false
   action hover(over: bool)
     if over
-      focus(`add-surface-${surface.id}-km`)
+      focus(`add-surface-${surface.id}`)
     else if lit
       focus(keysId)
     hovered = over
@@ -473,7 +471,7 @@ component R4LinkedMenu
   state openLit = false
   action openLitHover(on: bool)
     if on
-      focus("linked-pr-menu-open-km")
+      focus("linked-pr-menu-open")
     else if openLit
       focus("linked-pr-menu-keys")
   action openLitFocus(on: bool)
@@ -500,7 +498,7 @@ component R4MenuItem
   state lit = false
   action hover(over: bool)
     if over
-      focus(`linked-pr-menu-${test}-km`)
+      focus(`linked-pr-menu-${test}`)
     else if lit
       focus(keysId)
   action focused(on: bool)

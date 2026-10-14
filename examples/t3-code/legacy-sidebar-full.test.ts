@@ -1068,3 +1068,77 @@ describe('LEG-TIP: the root validates the rendered owner, including delayed tips
     expect(value(valid, env)).toBe(false);
   });
 });
+
+describe('LS-3: the complete Sidebar options focus boundary', () => {
+  test('radio, field and step-button transitions stay open; outside focus and no target close without redirecting focus', () => {
+    const options = contractComponent('legacy-sidebar.contract', 'LegacyOptions'), state = options.state();
+    const hidden: string[] = [], focused: string[] = [];
+    const scope = { ...options.derives(state, { KmItem: (item: { id: string; label: string }) => item }),
+      hidePopover: (id: string) => hidden.push(id), focus: (id: string) => focused.push(id) };
+    const members = ['legacy-sort-projects-updated_at', 'legacy-sort-projects-created_at', 'legacy-sort-projects-manual',
+      'legacy-sort-threads-updated_at', 'legacy-sort-threads-created_at', 'legacy-preview-count', 'legacy-preview-decrease',
+      'legacy-preview-increase', 'legacy-sidebar-options-keys', 'legacy-sidebar-options-keys-first', 'legacy-sidebar-options-keys-last'];
+    expect(scope.focusIds).toEqual(expect.arrayContaining(members));
+    for (const target of members) for (const relatedTarget of members) {
+      options.call('left', state, scope, [{ target, relatedTarget }]);
+    }
+    expect(hidden).toEqual([]);
+    for (const relatedTarget of ['legacy-options', 'composer', '', null]) {
+      options.call('left', state, scope, [{ target: 'legacy-preview-count', relatedTarget }]);
+    }
+    expect(hidden).toEqual(Array(4).fill('legacy-sidebar-options'));
+    expect(focused).toEqual([]);
+    const source = readFileSync(`${import.meta.dir}/legacy-sidebar.contract`, 'utf8');
+    expect(source).toContain('row id="legacy-sidebar-options" focusout=left popover="auto"');
+    for (const id of ['legacy-preview-count', 'legacy-preview-decrease', 'legacy-preview-increase']) {
+      expect(source).toContain(`id="${id}"`);
+    }
+  });
+
+  test('clamping and stepping reconcile the draft on the same input and preserve the open boundary', async () => {
+    const { client, native } = rig(), count = contractComponent('legacy-sidebar.contract', 'LegacyCount'), state = count.state();
+    const pending: Promise<unknown>[] = [], writes: unknown[][] = [];
+    const scope = () => ({ count: legacySidebarSnapshot(client, Date.parse(at(10)), { projectIdentity: identity }).previewCount,
+      local: (op: string, id: string, text: string) => { writes.push([op, id, text]); pending.push(sidebarLocal(client, native, op, id, text)); } });
+    const act = async (name: string, ...args: unknown[]) => {
+      const props = scope(); count.call(name, state, { ...props, ...count.derives(state, props) }, args);
+      await Promise.all(pending.splice(0));
+    };
+    for (const [text, expected] of [['99', '15'], ['0', '1'], ['', '1']] as const) {
+      await act('edit', text);
+      expect(count.derives(state, scope()).value).toBe(text);
+      await act('submitDraft');
+      expect(count.derives(state, scope()).value).toBe(expected);
+      expect(count.drawn('id="legacy-preview-count"', state, scope())).toBe(true);
+    }
+    await act('edit', '12'); await act('commit', '12');
+    expect(count.derives(state, scope()).value).toBe('12');
+    await act('step', '1'); expect(count.derives(state, scope()).value).toBe('13');
+    await act('step', '-1'); expect(count.derives(state, scope()).value).toBe('12');
+    expect(writes).toEqual([['legacy-preview', '', '99'], ['legacy-preview', '', '0'], ['legacy-preview', '', ''],
+      ['legacy-preview', '', '12'], ['legacy-preview-step', '', '1'], ['legacy-preview-step', '', '-1']]);
+    const source = readFileSync(`${import.meta.dir}/legacy-sidebar.contract`, 'utf8');
+    expect(source).toContain('LegacyCount(count=legacy.previewCount, local=local)');
+    expect(source).not.toContain('for n in [legacy.previewCount]');
+  });
+
+  // menu-keys repair round 2 (AFTER drive 20–22): typed 22, Tab went to the increase stepper, the clamp disabled it,
+  // and the focus stayed on that disabled button. Base UI 1.4.1's steppers (useNumberFieldButton: tabIndex -1) are
+  // no Tab stops and keep the focus in the field, so the field is the popup's last stop and Tab leaves the popup.
+  test('the steppers are no Tab stops: Tab from a clamped field leaves the popup instead of landing on a disabled stepper', () => {
+    const count = contractComponent('legacy-sidebar.contract', 'LegacyCount'), state = count.state();
+    const source = readFileSync(`${import.meta.dir}/legacy-sidebar.contract`, 'utf8').split('\n');
+    const stepper = (id: string) => source.find(line => line.includes(`button cursor="pointer" id="${id}"`))!;
+    for (const [id, disabled] of [['legacy-preview-decrease', 'count <= 1'], ['legacy-preview-increase', 'count >= 15']] as const) {
+      expect(stepper(id)).toContain(' tabindex=-1 retainFocus=true ');
+      expect(stepper(id)).toContain(`disabled=(${disabled})`);
+    }
+    // The field stays the one stop, at the clamp's maximum and minimum alike, and closes the popup on its way out.
+    expect(source.find(line => line.includes('input id="legacy-preview-count"'))).not.toContain('tabindex');
+    for (const n of [15, 1]) expect(count.drawn('id="legacy-preview-count"', state, { count: n, local: () => {} })).toBe(true);
+    const options = contractComponent('legacy-sidebar.contract', 'LegacyOptions'), hidden: string[] = [];
+    const scope = { ...options.derives(options.state(), { KmItem: (item: { id: string; label: string }) => item }), hidePopover: (id: string) => hidden.push(id) };
+    options.call('left', options.state(), scope, [{ target: 'legacy-preview-count', relatedTarget: 'sidebar-add-project-trigger' }]);
+    expect(hidden).toEqual(['legacy-sidebar-options']);
+  });
+});

@@ -190,9 +190,9 @@ component PrdActOnItem
     idPrefix: string
   state lit = false
   action hover(value: bool)
-    if value
-      focus(`${idPrefix}${item.key}-km`)
-    else if lit
+    if value and not disabled
+      focus(`${idPrefix}${item.key}`)
+    else if not value and lit
       focus(keysId)
   action focused(on: bool)
     lit = on

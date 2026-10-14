@@ -166,7 +166,7 @@ component R6MenuItem
   state lit = false
   action hover(value: bool)
     if value
-      focus(`${testId}-km`)
+      focus(testId)
     else if lit
       focus(keysId)
   action focused(on: bool)

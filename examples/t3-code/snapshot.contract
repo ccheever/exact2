@@ -1,3 +1,4 @@
+use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 // T3 SnapShots (MIT, see LICENSE-T3): the settings route (SnapShotSettings.tsx,
 // macOS direct mode), the composer's SnapShot attachment frames
 // (SnapShotAttachmentDetails.tsx) and the macOS setup dialog. Sizes and colors
@@ -14,9 +15,6 @@ use ComposerVideo from "./r4-composer.contract"
 use VideoDraftTile from "./r4-composer.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
-use KeyMenuOpen from "./menu-keys.contract"
-use kmBump from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 
@@ -143,16 +141,17 @@ component SnapshotPanel
     preview: action
     record: action
     saveShortcut: action
-  // fix-keyboard-focus: Enter or Space opens the menu from the keyboard (menu-keys.contract).
-  state keyed = 0
-  state keyArmed = false
-  action keyArm(on: bool)
-    keyArmed = on
-  action keyOpened(last: bool)
-    keyed = kmBump(keyed, last)
-  action triggerKey(k: string)
-    if kmOpenKey(k)
-      keyed = kmBump(keyed, false)
+  // Keyboard opening targets the first or last enabled menu row.
+  derive menuItems = [KmItem(id="snapshot-sound-off", label="Off"), KmItem(id="snapshot-sound-whoosh", label="Whoosh"), KmItem(id="snapshot-play-whoosh", label="Play Whoosh"), KmItem(id="snapshot-sound-click", label="Click"), KmItem(id="snapshot-play-click", label="Play Click")]
+  action triggerKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        showPopover("snapshot-sound-menu", source="snapshot-sound")
+        let openingTarget = kmTriggerTarget(menuItems, k)
+        if openingTarget != ""
+          focus(openingTarget)
   // audit-wave-followups-4 FX-2 (menu-keys.contract): the sound menu's rows are MenuItems, highlighted by their focus alone; the
   // pointer entering one focuses it, and leaving the one that holds the focus hands it to the popup.
   state soundLit = ""
@@ -160,7 +159,7 @@ component SnapshotPanel
     soundLit = on ? id : (soundLit == id ? "" : soundLit)
   action soundHover(id: string, over: bool)
     if over
-      focus(`${id}-km`)
+      focus(id)
     else if soundLit == id
       focus("snapshot-sound-keys")
   view
@@ -191,15 +190,14 @@ component SnapshotPanel
                 text "Cancel" class=SnapLabelXs
           SnapRow(title="Capture sound", description="Choose the sound played when capture starts.", status="", first=false, rowId="snap-shot-sound")
             box position="relative" flex-shrink=0
-              button popovertarget="snapshot-sound-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
+              button id="snapshot-sound" popovertarget="snapshot-sound-menu" key=triggerKey aria-label=`Snapshot sound: ${data.soundLabel}${data.soundSelection == "soft-pop" ? " (Default)" : ""}` disabled=(not data.captureAvailable) testId="snapshot-sound" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" flex-shrink=0
                 row gap="0.25rem" align-items="center"
                   text data.soundLabel font-size="0.875rem" line-height="1.25rem" class=SnapInk white-space="nowrap"
                   if data.soundSelection == "soft-pop"
                     text "(Default)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
                 SnapIcon(name="chevron-down", size=12, color="light-dark(#27272a80, #f5f5f580)")
-              KeyMenuOpen(menuId="snapshot-sound-menu", armed=keyArmed, opened=keyOpened)
               column id="snapshot-sound-menu" popover="auto" position-try-fallbacks="none" role="menu" aria-label="Snapshot sound" class=SnapMenu position="absolute" top="100%" right=0 testId="snapshot-sound-menu"
-                KeyMenu(menuId="snapshot-sound-keys", items=[KmItem(id="snapshot-sound-off", label="Off"), KmItem(id="snapshot-sound-whoosh", label="Whoosh"), KmItem(id="snapshot-play-whoosh", label="Play Whoosh"), KmItem(id="snapshot-sound-click", label="Click"), KmItem(id="snapshot-play-click", label="Play Click")], keyed=keyed, gap="0px", modal=true)
+                KeyMenu(menuId="snapshot-sound-keys", items=menuItems, keyed=0, gap="0px", modal=true)
                   button id="snapshot-sound-off" hover=soundHover("snapshot-sound-off") focus=soundFocus("snapshot-sound-off", true) blur=soundFocus("snapshot-sound-off", false) press=change("snapShotPlaySound", "false") popovertarget="snapshot-sound-menu" popovertargetaction="hide" role="menuitemradio" aria-checked=(data.soundSelection == "off") class=SnapMenuItem width="100%" background-color=(soundLit == "snapshot-sound-off" ? "light-dark(#27272a14, #f5f5f50f)" : (data.soundSelection == "off" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")) testId="snapshot-sound-off" data-focus-stop="enabled"
                     text "Off" class=SnapInk
                   row width="100%" align-items="center"

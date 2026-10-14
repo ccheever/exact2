@@ -1,4 +1,6 @@
 import { test, expect } from 'bun:test';
+import { contractComponent } from './contract-action-fixture';
+import { contractFn } from './contract-fn-fixture';
 import { updateTargets, runConnectionOp, CONNECTION_OPS, CLIENT_VERSION } from './connections';
 import { EnvironmentFleet, environmentKey } from './settings-b-fleet';
 import { initialShell, obj, type Obj } from './domain';
@@ -45,4 +47,38 @@ test('Update all starts the shared update job for each eligible environment and 
   expect(calls.some(call => call.op === 'request')).toBe(false);
   const current = { ...client, config: config('This Mac', CLIENT_VERSION, 'respawn') } as unknown as T3Client;
   await expect(runConnectionOp(native, 'environment-update-all', '', '', true, current)).rejects.toThrow('No saved environment can update itself');
+});
+
+
+// The Icon row is also a submenu trigger: activation opens it, arrows belong to the parent menu.
+
+test('the environment Icon submenu opens its actual row without taking parent arrow navigation', async () => {
+  const menu = contractComponent('connections.contract', 'EnvironmentIconMenu');
+  const kmOpenKey = await contractFn('menu-keys.contract', 'kmOpenKey', ['k']);
+  const kmTriggerTarget = await contractFn('menu-keys.contract', 'kmTriggerTarget', ['items', 'k']);
+  const environment = { environmentId: 'remote', iconLock: '', icons: [{ kind: 'desktop', label: 'Desktop' }, { kind: 'server', label: 'Server' }] };
+  const calls: unknown[][] = [];
+  const state = menu.state();
+  const scope = {
+    environment, KmItem: (item: unknown) => item, kmOpenKey, kmTriggerTarget,
+    preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']),
+    showPopover: (...args: unknown[]) => calls.push(['showPopover', ...args]), focus: (id: string) => calls.push(['focus', id]),
+  };
+  const derived = menu.derives(state, scope);
+  expect(derived.menuItems).toEqual([{ id: 'environment-icon-remote-desktop', label: 'Desktop' }, { id: 'environment-icon-remote-server', label: 'Server' }]);
+  const event = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
+  for (const key of ['Enter', ' ', 'Space']) {
+    calls.length = 0;
+    menu.call('triggerKey', state, { ...scope, ...derived }, [key, event]);
+    expect(calls).toEqual([
+      ['preventDefault'], ['stopPropagation'], ['showPopover', 'environment-icon-remote-popup', { source: 'environment-icon-remote' }],
+      ['focus', 'environment-icon-remote-desktop'],
+    ]);
+  }
+  for (const key of ['ArrowDown', 'ArrowUp']) {
+    calls.length = 0;
+    menu.call('triggerKey', state, { ...scope, ...derived }, [key, event]);
+    expect(calls).toEqual([]);
+  }
+  expect(menu.derives(state, { ...scope, environment: { ...environment, iconLock: 'Managed by host' } }).menuItems).toEqual([]);
 });
