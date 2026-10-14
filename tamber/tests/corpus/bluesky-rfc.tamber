@@ -18,7 +18,7 @@ theme
   accent.fill-faded = light-dark(color-mix(in srgb, accent 50%, #ffffff), color-mix(in srgb, #208bfe 50%, #000000))
   accent.on-fill = #ffffff
   type.body = -exact-body/1.35 "InterVariable"
-    radius.md = 12px
+  radius.md = 12px
   radius.full = 999px
 
 icons

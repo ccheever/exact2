@@ -347,6 +347,28 @@ pub(crate) fn absolute(
         let Some((Item::Ident(id), rest)) = arg.split_first() else {
             return not();
         };
+        if hdr_space(id).is_some() {
+            let (main, alpha) = channels(rest, text)?;
+            let mut c = [0.0; 3];
+            for i in 0..3 {
+                c[i] = component(&main[i], Slot::Channel(1.0), &NO_CHANNELS, names)?;
+            }
+            let a = match alpha {
+                Some(a) => component(a, Slot::Channel(1.0), &NO_CHANNELS, names)?,
+                None => 1.0,
+            };
+            let n = exact_color::number_text;
+            return match exact_color::parse(&format!(
+                "color({id} {} {} {} / {})",
+                n(c[0]),
+                n(c[1]),
+                n(c[2]),
+                n(a)
+            )) {
+                Some(Parsed::Wide(w)) => Ok(Folded::One(Half::Wide(w))),
+                _ => not(),
+            };
+        }
         let Some((space, _)) = color_space(id) else {
             return fail("tamber-syntax", format!("`{id}` is not a `color()` space"));
         };
@@ -462,6 +484,9 @@ pub(crate) fn relative(
                     format!("`{text}`: `color(from X <space> …)`"),
                 );
             };
+            if let Some(hdr) = hdr_space(id) {
+                return relative_hdr(hdr, source, tail, text, names);
+            }
             let Some((space, keys)) = color_space(id) else {
                 return fail("tamber-syntax", format!("`{id}` is not a `color()` space"));
             };
@@ -514,31 +539,96 @@ pub(crate) fn relative(
     })
 }
 
-/// `color-mix(in <space>, a [p], b [q])` (CSS Color 5 §2): percentages
-/// normalised, an alpha multiplier when they sum under 100%, interpolated
-/// premultiplied in the mix's space from each colour's exact components;
-/// the result is `Wide` in that space even in sRGB (LLP 1121 D7).
+/// A Rec. 2100 space `color()` names, which no interpolation method does.
+fn hdr_space(id: &str) -> Option<Space> {
+    match id.to_ascii_lowercase().as_str() {
+        "rec2100-pq" => Some(Space::Rec2100Pq),
+        "rec2100-hlg" => Some(Space::Rec2100Hlg),
+        "rec2100-linear" => Some(Space::Rec2100Linear),
+        _ => None,
+    }
+}
+
+/// `color(from X rec2100-pq r g b)`: X's channels in the HDR space.
+fn relative_hdr(
+    space: Space,
+    source: &Item,
+    rest: &[Item],
+    text: &str,
+    names: &mut dyn Names,
+) -> Result<Folded, FoldError> {
+    let (main, alpha) = channels(rest, text)?;
+    let source = color_item(source, names)?;
+    per_side(&[&source], text, |s| {
+        let src = s[0].wide();
+        let values = if src.space == space {
+            src.c
+        } else {
+            exact_color::rec2100_from_linear_srgb(space, src.linear_srgb()).unwrap_or(src.c)
+        };
+        let ch = Channels {
+            names: ["r", "g", "b"],
+            values,
+            missing: [false; 3],
+            alpha: Some(src.alpha),
+        };
+        let mut c = [0.0; 3];
+        for i in 0..3 {
+            c[i] = component(&main[i], Slot::Channel(1.0), &ch, names)?;
+        }
+        let a = match alpha {
+            Some(a) => component(a, Slot::Channel(1.0), &ch, names)?,
+            None => src.alpha,
+        };
+        Ok(Half::Wide(Wide {
+            space,
+            c,
+            alpha: a.clamp(0.0, 1.0),
+        }))
+    })
+}
+
+/// `color-mix([in <space>,] a [p], b [q], …)` (CSS Color 5 §2): the method
+/// is optional (oklab); one or more colours, their percentages normalised
+/// (an omitted one takes an equal share of what is left, a sum over 100%
+/// scales down, a sum under it is an alpha multiplier, 0% throughout an
+/// equal mix at alpha 0), interpolated premultiplied in the mix's space
+/// from each colour's exact components, one after another; the result is
+/// `Wide` in that space even in sRGB (LLP 1121 D7).
 pub(crate) fn mix(
     args: &[Vec<Item>],
     text: &str,
     names: &mut dyn Names,
 ) -> Result<Folded, FoldError> {
-    let shape = "`color-mix(in <space>, <colour> [<percentage>], <colour> [<percentage>])`";
-    let [how, a, b] = args else {
-        return fail("tamber-syntax", shape);
+    let shape = "`color-mix([in <space>,] <colour> [<percentage>], …)`";
+    let explicit = matches!(args.first().and_then(|a| a.first()), Some(Item::Ident(w)) if w.eq_ignore_ascii_case("in"));
+    let (how, colours) = match args.split_first() {
+        Some((first, rest)) if explicit => {
+            let words: Vec<String> = first
+                .iter()
+                .map(|i| match i {
+                    Item::Ident(w) => Ok(w.to_ascii_lowercase()),
+                    _ => Err(syntax(shape)),
+                })
+                .collect::<Result<_, _>>()?;
+            let words: Vec<&str> = words.iter().map(String::as_str).collect();
+            let Some((how, _)) = Interpolation::parse(&words).filter(|(_, n)| *n == words.len())
+            else {
+                return fail("tamber-syntax", shape);
+            };
+            (how, rest)
+        }
+        _ => (Interpolation::OKLAB, args),
     };
-    let words: Vec<String> = how
-        .iter()
-        .map(|i| match i {
-            Item::Ident(w) => Ok(w.to_ascii_lowercase()),
-            _ => Err(syntax(shape)),
-        })
-        .collect::<Result<_, _>>()?;
-    let words: Vec<&str> = words.iter().map(String::as_str).collect();
-    let Some((how, _)) = Interpolation::parse(&words).filter(|(_, n)| *n == words.len()) else {
-        return fail("tamber-syntax", shape);
-    };
-    let mut side_arg = |arg: &[Item]| -> Result<(Folded, Option<f64>), FoldError> {
+    if colours.is_empty() {
+        return fail(
+            "tamber-syntax",
+            format!("`{text}`: {shape} takes at least one colour"),
+        );
+    }
+    let mut folded = Vec::new();
+    let mut given = Vec::new();
+    for arg in colours {
         let (color, pct): (Vec<&Item>, Vec<&Item>) = arg.iter().partition(|i| {
             !matches!(i, Item::Percent(_)) && !matches!(i, Item::Func(f, ..) if is_math(f))
         });
@@ -550,63 +640,105 @@ pub(crate) fn mix(
             [p] => Some(component(p, Slot::Percentage, &NO_CHANNELS, names)?),
             _ => return fail("tamber-syntax", shape),
         };
-        Ok((color_item(color, names)?, pct))
-    };
-    let (a, p) = side_arg(a)?;
-    let (b, q) = side_arg(b)?;
-    let (p, q) = match (p, q) {
-        (None, None) => (50.0, 50.0),
-        (Some(p), None) => (p, 100.0 - p),
-        (None, Some(q)) => (100.0 - q, q),
-        (Some(p), Some(q)) => (p, q),
-    };
-    if !(0.0..=100.0).contains(&p) || !(0.0..=100.0).contains(&q) {
-        return fail("tamber-syntax", format!("`{text}`: percentages are 0–100%"));
+        if pct.is_some_and(|p| !(0.0..=100.0).contains(&p)) {
+            return fail("tamber-syntax", format!("`{text}`: percentages are 0–100%"));
+        }
+        folded.push(color_item(color, names)?);
+        given.push(pct);
     }
-    // Both 0% is an even mix at alpha 0 (CSS Color 5's current draft).
-    let (t, multiplier) = match p + q {
-        0.0 => (0.5, 0.0),
-        sum => (q / sum, (sum / 100.0).min(1.0)),
-    };
-    per_side(&[&a, &b], text, |s| {
-        let (c, alpha) = interpolate(s[0].wide(), s[1].wide(), t, how);
-        Ok(Half::Wide(wide_from(how.space, c, alpha * multiplier)))
+    let (weights, multiplier) = normalise(&given);
+    let refs: Vec<&Folded> = folded.iter().collect();
+    per_side(&refs, text, |s| {
+        // One colour after another: the running mix toward the next, by its
+        // share of the weight so far (CSS Color 5's n-ary mix). Exact in a
+        // rectangular space; in a polar one each step takes its own shorter
+        // or longer hue, which can differ a little from one n-way average.
+        let mut acc = end(s[0].wide(), how.space);
+        let mut total = weights[0];
+        for (h, &w) in s.iter().zip(&weights).skip(1) {
+            total += w;
+            // All 0% so far: an even step, as CSS Color 5 mixes them.
+            let t = if total > 0.0 { w / total } else { 0.5 };
+            acc = step(acc, end(h.wide(), how.space), t, how);
+        }
+        Ok(Half::Wide(wide_from(
+            how.space,
+            acc.c,
+            acc.alpha * multiplier,
+        )))
     })
 }
 
-/// CSS Color 4 §12: premultiplied interpolation in `how`'s space, a
-/// powerless hue taking the other's, the hue going round by its method.
-fn interpolate(a: Wide, b: Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) {
-    let space = how.space;
-    let polar = matches!(
-        space,
-        MixSpace::Hsl | MixSpace::Hwb | MixSpace::Lch | MixSpace::Oklch
-    );
-    let hue = if matches!(space, MixSpace::Hsl | MixSpace::Hwb) {
-        0
+/// CSS Color 5's percentage normalisation: the weights, summing to 1 (all
+/// 0 when every percentage is), and the alpha multiplier.
+fn normalise(given: &[Option<f64>]) -> (Vec<f64>, f64) {
+    let specified: f64 = given.iter().flatten().sum();
+    let omitted = given.iter().filter(|p| p.is_none()).count();
+    let share = if omitted > 0 {
+        (100.0 - specified).max(0.0) / omitted as f64
     } else {
-        2
+        0.0
     };
-    let gray = |w: Wide, c: [f64; 3]| {
-        polar
-            && match space {
-                MixSpace::Hsl | MixSpace::Hwb => {
-                    let rgb = components(w, MixSpace::Srgb);
-                    rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
-                }
-                _ => c[1].abs() < 1e-6,
-            }
+    let all: Vec<f64> = given.iter().map(|p| p.unwrap_or(share)).collect();
+    let sum: f64 = all.iter().sum();
+    if sum <= 0.0 {
+        return (all, 0.0);
+    }
+    (
+        all.iter().map(|w| w / sum).collect(),
+        (sum / 100.0).min(1.0),
+    )
+}
+
+/// A colour at one end of an interpolation in a space: its components, its
+/// alpha, and whether its hue is powerless (an achromatic colour's).
+#[derive(Clone, Copy)]
+struct End {
+    c: [f64; 3],
+    alpha: f64,
+    gray: bool,
+}
+
+fn polar(space: MixSpace) -> Option<usize> {
+    match space {
+        MixSpace::Hsl | MixSpace::Hwb => Some(0),
+        MixSpace::Lch | MixSpace::Oklch => Some(2),
+        _ => None,
+    }
+}
+
+fn end(w: Wide, space: MixSpace) -> End {
+    let c = components(w, space);
+    let gray = match space {
+        MixSpace::Hsl | MixSpace::Hwb => {
+            let rgb = components(w, MixSpace::Srgb);
+            rgb[0].max(rgb[1]).max(rgb[2]) - rgb[0].min(rgb[1]).min(rgb[2]) < 1e-6
+        }
+        MixSpace::Lch | MixSpace::Oklch => c[1].abs() < 1e-6,
+        _ => false,
     };
-    let (mut ca, mut cb) = (components(a, space), components(b, space));
-    if polar {
-        match (gray(a, ca), gray(b, cb)) {
-            (true, false) => ca[hue] = cb[hue],
-            (false, true) => cb[hue] = ca[hue],
+    End {
+        c,
+        alpha: w.alpha,
+        gray,
+    }
+}
+
+/// One interpolation between two ends (CSS Color 4 §12): premultiplied in
+/// `how`'s space, a powerless hue taking the other's, the hue going round by
+/// its method. The result's hue is powerless only where both ends' were, so
+/// a running n-ary mix keeps the hue it has.
+fn step(mut a: End, mut b: End, t: f64, how: Interpolation) -> End {
+    let hue = polar(how.space);
+    if let Some(hue) = hue {
+        match (a.gray, b.gray) {
+            (true, false) => a.c[hue] = b.c[hue],
+            (false, true) => b.c[hue] = a.c[hue],
             _ => {}
         }
-        let (h1, h2) = (ca[hue], cb[hue]);
+        let (h1, h2) = (a.c[hue], b.c[hue]);
         let d = h2 - h1;
-        cb[hue] = match how.hue {
+        b.c[hue] = match how.hue {
             HueMethod::Shorter if d > 180.0 => h2 - 360.0,
             HueMethod::Shorter if d < -180.0 => h2 + 360.0,
             HueMethod::Longer if d > 0.0 && d < 180.0 => h2 - 360.0,
@@ -618,15 +750,21 @@ fn interpolate(a: Wide, b: Wide, t: f64, how: Interpolation) -> ([f64; 3], f64) 
         };
     }
     let alpha = a.alpha + (b.alpha - a.alpha) * t;
-    let mut c = [0.0; 3];
-    for i in 0..3 {
-        if polar && i == hue {
-            c[i] = (ca[i] + (cb[i] - ca[i]) * t).rem_euclid(360.0);
-            continue;
+    let c = std::array::from_fn(|i| {
+        if hue == Some(i) {
+            return (a.c[i] + (b.c[i] - a.c[i]) * t).rem_euclid(360.0);
         }
-        let (pa, pb) = (ca[i] * a.alpha, cb[i] * b.alpha);
+        let (pa, pb) = (a.c[i] * a.alpha, b.c[i] * b.alpha);
         let v = pa + (pb - pa) * t;
-        c[i] = if alpha > 0.0 { v / alpha } else { v };
+        if alpha > 0.0 {
+            v / alpha
+        } else {
+            v
+        }
+    });
+    End {
+        c,
+        alpha,
+        gray: a.gray && b.gray,
     }
-    (c, alpha)
 }

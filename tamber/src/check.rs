@@ -768,7 +768,7 @@ impl<'a> Checker<'a> {
         };
         let role = |f: &Folded| matches!(f, Folded::Host(_)).then(|| f.css());
         if let Some(host) = role(&light).or_else(|| role(&dark)) {
-            self.at(&at, "tamber-under-role", format!("`{host}` has no light side to keep under an axis `under scheme=dark`; write the light and dark colours in a `light-dark()`"));
+            self.at(&at, "tamber-under-role", format!("`{host}` has no light side to keep under an axis `under scheme=dark`, and a `light-dark()` with a role as a side is refused until LLP 1095 D10: write the light and dark colours"));
             return None;
         }
         let keep = light.side(false).ok()?;
