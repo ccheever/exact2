@@ -387,7 +387,8 @@ export const Kept = kind => `exact.${kind}.${DEVELOPMENT_STORE ? `@${DEVELOPMENT
 export const Store = {
   map: new Map(), writes: [], dirty: false,
   get(k) { return this.map.get(k); },
-  set(k, v) { if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
+  // Keeping what is already kept is no write, as the runner's `Store::set`.
+  set(k, v) { if (v != null && this.map.get(k) === v) return; if (v == null) this.map.delete(k); else this.map.set(k, v); this.writes.push([k, v]); this.dirty = true; Rev++; },
   save() { return [new Map(this.map), this.writes.length]; },
   restore([m, n]) { this.map = m; this.writes.length = n; this.dirty = false; },
   persist() { const p = Kept("secret"); for (const [k, v] of this.writes.splice(0)) try { v == null ? localStorage.removeItem(p + k) : localStorage.setItem(p + k, v); } catch {} },
