@@ -23,6 +23,11 @@
  * `lower-colour-one-scheme` warning names the bare ones (outside `svg`), so what
  * passes here never earns it.
  *
+ * The app's `theme` (LLP 1095 D4) is where its colours are said: its entries'
+ * literals are the palette, not tells, and a colour property naming an entry
+ * (`color="brand"`, `light-dark(brand, ink)`) names what the colour is. Lowering
+ * refuses an entry spelled as a CSS colour name, so a name here is never one.
+ *
  * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
  * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
  * total's big number) is not flagged. A line that must keep a literal ends with
@@ -79,6 +84,18 @@ function uncomment(text) {
     else out += c;
   }
   return out;
+}
+
+/** The source with the root `theme` block's lines blanked, offsets unchanged:
+ * its literals are the app's palette (LLP 1095 D4). */
+function withoutTheme(text) {
+  let inTheme = false;
+  return text.split('\n').map(line => {
+    if (/^theme\s*$/.test(line)) { inTheme = true; return line; }
+    if (inTheme && (line.trim() === '' || /^\s/.test(line))) return line.replace(/\S/g, ' ');
+    inTheme = false;
+    return line;
+  }).join('\n');
 }
 
 /** Each `name=value` attribute: the value a quoted string, a template, a
@@ -145,7 +162,7 @@ function nodeHeads(lines) {
 
 /** Every tell in one `.contract` source: `{ line, column, property, value, kind }`. */
 export function tellsIn(source) {
-  const text = uncomment(source), lines = source.split('\n'), found = [];
+  const text = withoutTheme(uncomment(source)), lines = source.split('\n'), found = [];
   // The nodes that are numeric readouts: their literal `font-size` is design.
   const heads = nodeHeads(text.split('\n'));
   const readouts = new Set(text.split('\n').flatMap((line, i) => /(^|\s)font-variant-numeric=["`]?tabular-nums\b/.test(line) ? [heads[i]] : []));
@@ -218,6 +235,7 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
   -exact-separator, -exact-fill, -exact-grouped-background, -exact-system-red …
   The one authored colour is the accent: a role, or one light-dark(light, dark) pair
   on accent-color (docs/contract-for-agents.md, "Colours: say a role, not a value").
+  An app's own palette goes in its root \`theme\` block, and rows name its entries.
 - Type: leave body text unsaid; say a heading (text role="heading" aria-level=1..4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)
   (docs/contract-for-agents.md, "Type: say a heading, not a size").
