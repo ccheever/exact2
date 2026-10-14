@@ -1,486 +1,567 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r1, 2026-10-13. Not reviewed. Nothing built. The tool's name is open (§9 Q1); this document says "the design tool".
+**Status:** Draft r2, 2026-10-13. Round 1 was reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh), both RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r1.{astra,grok}.md`); r2 takes every finding (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
-- The Tamber server (LLP 1121 D13): two additions this RFC asks for, `set-row` (D6) and the build relay (D3).
-- The agent API (LLP 1012): used as it is, with one asked-for `prefer` group (D8).
-- The compiler's source maps (`contract build --map`, `docs/reference.md` "Source maps") and the dev server that keeps them.
+- The Tamber server (LLP 1121 D13): the build relay and its tile sessions (D3), the provenance join (D5), `set-row` (D6), held proposals (D10), `commit` (D9).
+- The agent API (LLP 1012): two new forms, no new operation: `layout` at a point (D5), and a `tap` that holds a state (D8).
+- The compiler's source maps (`contract build --map`): a source digest per file (D6).
+- The web JS target's runtime: a row's token reported beside its computed value (D5).
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-13
-**Implementer:** none yet; each stage follows the Tamber stage it needs (§4).
+**Implementer:** none yet. No stage is accepted until it has an implementer and a date (`rules/RULES.md` §Scope); each follows the Tamber stage it needs (§4).
 **Related:**
-- LLP 1121 (Tamber): D7 the token index, D8 state parts, D9 control roles, D13 the protocol, D14 clients and importers, D15 component params, §5 staging, §9 Q3 and Q4.
-- LLP 1012 (the agent API's operations), LLP 1035.002 (`layout` explaining one node: its site and every row's source), LLP 1095 D7 (the agent pins traits).
-- `rules/DEFERRED.md` §Tooling ("no Design Mode … no devtools UI"), §Agent API (ten operations).
-- exact1, as research: LLP 0158 (Design Mode: the scope ladder, act first and scope after, templates not copies, provenance confidence), LLP 0200 and 0208 (the authoring platform and its advanced surfaces, both shelved), LLP 0225 (the UI Elements Lab), LLP 0304 W5 and W6 (Design Mode was DOM-only; editing security deferred). The survey is `~/.tuft/projects/exact2-theming/facet1-research.md` §10d.
+- LLP 1121 (Tamber): D7 the token index, D8 state parts, D13 the protocol, D14 clients and importers, D15 component params, §5 staging, §9 Q3 and Q4.
+- LLP 1012 (the agent API), LLP 1035.002 (`layout` explaining one node: its site and each row's source), LLP 1095 D7.
+- `rules/DEFERRED.md`:
+  - §Tooling ("no Design Mode … no devtools UI");
+  - §Agent API (ten operations; "a new input is a form of `tap` … a new question is answered from `tree`, `state`, or `layout`");
+  - the 2026-09-10 source-map admission ("read by the driver and never by a host … any general provenance explorer stay[s] refused").
+- exact1, as research:
+  - LLP 0158 (Design Mode);
+  - LLP 0200 and 0208 (shelved for bundling too much);
+  - LLP 0225;
+  - LLP 0304 W5 and W6 (Design Mode was DOM-only and native never landed; editing security was deferred).
+- The survey: `~/.tuft/projects/exact2-theming/facet1-research.md` §10d.
 
 ## Summary
 
-The design tool is how a designer, or an agent, shapes an exact2 app's look. It never draws
-a picture of the app. It shows **the app itself, running**: on a phone, a simulator, the
-Mac and the web, side by side, in every mode the design has. Select something on any of
-those screens and the tool shows where its look comes from: the Contract node, its rows,
-the tokens and component params behind them, and the dials behind those. Change any of
-them and every connected device updates at once. Each change is a one-line, reviewable diff
-in the app's own files.
+The design tool is how a designer, or an agent, shapes an exact2 app's look. It never
+draws a picture of the app: it shows **the app itself, running**, tiled side by side in
+every mode the design has. Select something on a tile and the tool shows where its look
+comes from: the Contract node, its rows, the tokens and component params behind them, and
+the dials behind those. Change one and every tile shows it, live where the change is a
+token value, by rebuild where it is source. Each change is a reviewable diff in the app's
+own files.
 
-It is a `tamber/1` client like any other (LLP 1121 D13, D14): it has no private channel,
-and an agent has every power it has. Its parts are:
-- **the canvas** (D3, D4): live builds, tiled by mode;
-- **inspect** (D5): from a pixel to its provenance;
-- **the scope ladder** (D6): instance, param, token, dial, after exact1's Design Mode;
-- **panels** (D7) generated from the design's dials and the components' declared params;
-- **states** (D8);
-- **history** in git (D9);
-- **agents** (D10);
-- **importers'** review (D11);
-- **collaboration** (D12) and **security** (D13).
+It is a `tamber/1` client (LLP 1121 D13, D14) with no private channel; an agent can do
+everything it does. It asks four things of the rest of exact2:
+- **a build relay** in the Tamber server, which owns the tiles' agent sessions;
+- **a point hit-test**, as a form of `layout`;
+- **a held state**, as a form of `tap`;
+- **`set-row`**, a checked edit of one Contract row.
 
-What it is not: a vector drawing tool, or a layout editor in v1 (D14).
+It is not a drawing tool, and not a layout editor in v1 (D14).
+
+## 0. Review rounds
+
+**Round 1** (r1 → r2). Astra: RIGHT WITH CHANGES (2 BLOCKER, 8 MAJOR, 1 MINOR). Grok:
+RIGHT WITH CHANGES (4 BLOCKER, 8 MAJOR, 4 MINOR). Both accepted the shape: a `tamber/1`
+client, files as the only design state, fail-closed provenance, no layout editor. Both
+found the machinery underspecified. Each finding is taken:
+- **Hit-testing** (Grok B1, Astra M4): `layout` boxes are not paint order or hit targets.
+  Now the host hit-tests a point, as a form of `layout`; each capture is taken with its
+  geometry in one settle, and a stale selection is refused (D5).
+- **Web tiles have no token provenance** (Grok B2, Astra M5): the JS target keeps no
+  kernel, and its map is reached through the wrong producer. Now the JS runtime reports a
+  row's token beside its computed value, each build advertises its own plan and map, and
+  until both exist web tiles run the wasm host, which has the kernel (D5).
+- **`set-row`'s address** (Grok B3, Astra B2): a plan-digest span is not a source revision.
+  Now maps carry source digests; the server resolves the row in the source AST at write
+  time, parses the value as the row's type, compiles the candidate before writing, keeps
+  bytes for undo, and refuses tag-origin rows (D6).
+- **The relay** (Grok B4, Astra M3/M10): now split into observing (for `read` and `propose`
+  clients) and driving (for `write` only), from an allowlist of request forms, with
+  server-owned captures. Tiles are sessions the server launches and owns (D3).
+- **Held states** (Grok M5, Astra M8): a form of `tap`, not `prefer`, with full semantics;
+  state tiles are separate web sessions (D8).
+- **The default scope** (Grok M6): back to exact1's: the param, otherwise the source row;
+  token and dial offered, never the default (D6).
+- **Templates and styles** (Grok M7, Astra M6): every expansion of a source span is
+  outlined; `class:` rows are edited on the style; the narrow rung is "this template"
+  (D6).
+- **Live versus rebuild** (Grok M8): the chip says which before the gesture (D6).
+- **Unspoken surfaces** (Grok M9, Astra M9): `commit`, held proposals and tile sessions
+  are named as server additions; presence and retained visual history are cut from v1;
+  import has no preview before writing (D9–D11).
+- **DEFERRED** (Grok M10, Astra B1): §9 Q2 asks to amend §Tooling and the source-map line
+  together; the server, not a host, joins the map (D5).
+- **Over-scope** (Grok M11): the canvas lands on web tiles first; native tiles only after
+  that gate (§4).
+- **The prompt's data** (Grok M12): it stays local unless the developer names a model (D10).
+- **Inverse edits and impact** (Astra M7): an edit targets one mode branch; no inverse is
+  invented for a derived colour; impact comes from the dependency closure (D6).
+- **Minors:**
+  - text size is `prefer root-font-size` in px (D3);
+  - captures are served over loopback, not as data URLs, and navigation is mirrored by
+    location, not by point (D3);
+  - every row source the runner reports is named (D5);
+  - captures stay in private temporary storage (D13).
 
 ## 1. Motivation
 
-- **Tamber makes a design data that can be swapped live** (LLP 1121 D7, D13). Something
-  has to put a person's hands on that data while they look at the real app.
-- **exact1 built this as Design Mode** (LLP 0158) and learned three things that shape this
+- **Tamber makes a design data that swaps live** (LLP 1121 D7, D13). Something has to put a
+  person's hands on that data while they look at the real app.
+- **exact1 built this as Design Mode** (LLP 0158) and learned four things that shape this
   design:
-  1. **The scope problem is the design problem.** "Did you mean this button, all buttons,
-     or the radius token?" 0158's answer, a scope ladder with a systemic default, act first
-     and re-scope after, is right and is kept (D6).
-  2. **Provenance must be exact or the edit must not commit.** Write-back through a value
-     that a recipe transformed was wrong. 0158 failed closed on anything short of `exact`
-     confidence. Here provenance is a lookup through the compiler's source map and
-     Tamber's token index, not a guess (D5).
-  3. **DOM-only editing was the ceiling.** Provenance came from the web's DOM mirror, so
-     native apps got themes but no editing (0304 W5). Here the canvas is every host,
-     driven through the agent API, which is the same on all of them (D3).
-- **The repository's own apps need it.** T3 Code's theme editor hand-built "where is this
-  colour used" (`issues/closed/20261010-paint-role-node-list-read.md`). The Bluesky
-  clone's Light, Dim and Dark, its font sizes and its post button are exactly the edits
-  this tool makes (LLP 1121 §1).
+  1. **Scope is the design problem.** "This button, all buttons, or the radius token?"
+     0158's answer, a scope ladder with a systemic default that never defaults to the
+     theme, is kept (D6).
+  2. **Provenance must be exact or the edit must not commit.** 0158 failed closed below
+     `exact` confidence; so does this (D5).
+  3. **DOM-only was the ceiling.** Native editing was specified and never landed (0304
+     W5). Here every host is reached through the agent API. But the web lands first,
+     because exact1's lesson is also that bundling every host into one stage stalls (§4).
+  4. **Editing security was deferred** (0304 W6). Here it is designed in (D13).
+- **The repository's apps need it.** T3 Code hand-built "where is this colour used"
+  (`issues/closed/20261010-paint-role-node-list-read.md`). The Bluesky clone's modes, font
+  sizes and post button are exactly this tool's edits (LLP 1121 §1).
 
 ## 2. Decisions
 
-### D1 — What it is for, and for whom
+### D1 — What it is for
 
-The design tool is the **primary way to shape an exact2 app's look**, for two kinds of
-co-editor:
-- **designers**, who see and adjust;
-- **agents**, who read the same provenance and make the same edits, through the same
-  protocol (D10).
+The design tool is the **primary way to shape an exact2 app's look**, for designers and for
+agents, as co-editors through one protocol (D10). It edits the design: tokens, dials, axes,
+component params, state looks and, at the narrowest rung, a node's paint rows (D6).
+Structure, layout, data and behaviour stay with Contract source (D14).
 
-It edits the design, not the program: tokens, dials, axes, component params, state looks
-and, at the narrowest scope, a node's paint rows (D6). Structure, layout, data and behaviour
-stay with Contract source and its authors (D14).
+### D2 — Architecture
 
-### D2 — Architecture: a web JS-target Exact app speaking `tamber/1`
+- **A web JS-target Exact app** (LLP 1121 D13): its TypeScript data module is its only
+  client code, speaking `tamber/1` over one socket with the project's local token.
+- **Everything else is the server's.** The Tamber server, running in the dev loop (LLP 1121
+  D13), owns:
+  - the design files;
+  - the tiles' agent sessions (D3);
+  - the provenance join (D5);
+  - the captures;
+  - `set-row` (D6);
+  - held proposals (D10);
+  - `commit` (D9).
 
-- **It is an Exact app built for the web's JS target**, as LLP 1121 D13 requires. Only a
-  TypeScript data module there can send socket frames, and that module is its protocol
-  client. Its native builds, if any, come later.
-- **Two connections, one token.** The data module holds two:
-  - `tamber/1` to the Tamber server, for the design (reads, `subscribe`, writes,
-    `propose`);
-  - the **build relay** (D3) on the same server, for the running builds.
+  The tool asks; the server acts. A JS-target app could not spawn browsers or read a map
+  itself, and should not.
+- **No design state of its own.** The files are the design and git the history. Closing the
+  tool loses the selection and the canvas layout, nothing else.
+- `bun exact.mjs tamber tool` opens it at the dev loop's local URL.
 
-  Both use the project's local write token (LLP 1121 D13).
-- **It keeps no state of its own beyond the session.** The files are the design (LLP 1121
-  D13); git is the history (D9). Closing the tool loses nothing but the current selection
-  and layout.
-- **It is served by the dev loop**, which already runs the Tamber server (LLP 1121 D13),
-  at a local URL. `bun exact.mjs tamber tool` opens it.
+### D3 — The canvas: tiles the server launches and owns
 
-### D3 — The canvas: the app's own builds, live, side by side
+**A tile is an agent session the Tamber server launches**, keeps open and addresses by an
+id. The agent driver opens a session by launching its own browser, and on a phone or
+simulator it restarts the app (`scripts/agent.mjs`). So a tile can't be "a build that
+happens to be connected": the server owns each tile's carrier, its plan generation, and its
+reload and disconnect. The server holds a table of tiles keyed by id: host, carrier, pinned
+modes, current plan digest and map, last capture.
 
-The canvas is a grid of **tiles**. Each tile is one connected development build of the app,
-on any host:
-- the iOS simulator or a paired iPhone;
-- the Mac app;
-- a web build in a browser tab;
-- a headless web build that the tool starts itself, which is the cheap way to add tiles.
+- **Order of hosts.** First, headless web tiles (cheap, many). Then the iOS simulator and the
+  Mac app, launched with the platform's own chrome. Then a paired phone. A native tile comes
+  only after the web canvas has passed its gate (§4).
+- **What a tile shows: a capture.** The server settles the tile (`clock settle`, bounded;
+  an unsettled tile is shown as unsettled, not hidden) and takes `screenshot` and `layout`
+  together. It tags them with the tile's epoch and plan digest, and serves the image to
+  the tool over a loopback URL at `--scale 1`, never as a `data:` URL, which is capped at
+  1 MiB. A capture is retaken after each commit the tile reports, a live-table batch
+  included.
+- **A continuous mirror is not in r1** (§9 Q5): the agent API has no frame stream, and
+  DEFERRED §Agent API holds the count at ten.
+- **Modes side by side.** A tile is pinned to one combination of:
+  - scheme and contrast (`prefer prefers-color-scheme dark`, LLP 1095 D7);
+  - an app mode (`prefer mode dark-style dim`, LLP 1121 D13);
+  - the platform's text size (`prefer root-font-size 21`, in px, a page fact);
+  - its window size (a web `resize` tap; a native tile keeps its device's size).
 
-**What a tile shows.** The build's latest screenshot, taken through the agent API's
-`screenshot`. It is refreshed when the build reports a commit, including a live-table batch
-(LLP 1121 D13), and settles under `clock` before capture, so the image is never caught
-mid-animation. A phone or simulator also shows the app live on its own screen; the tile is
-the copy the tool can hit-test. A continuously streamed mirror is not in r1: the agent API
-has no frame stream, and DEFERRED §Agent API holds it to ten operations (§9 Q5).
+  The app's own text-size setting (LLP 1121 D6's percentage) is the app's, reached by
+  driving the app, not by `prefer`. For a design with Bluesky's axes, the default canvas is
+  six web tiles: Light, Dim and Black, each at the default and the largest text size.
+- **One screen everywhere.** "Go to" drives every tile to a route by `type` on the
+  navigation root's location, never by replaying a click point onto tiles of other sizes.
+  Each tile keeps its own `--storage`.
 
-**The build relay.** The Tamber server relays the agent API's operations for the builds
-connected to the dev loop. It adds no operation: `tree`, `screenshot`, `tap`, `type`,
-`state`, `layout`, `logs`, `clock`, `prefer` and `perf` are LLP 1012's, addressed by the
-build ids that `hello` lists (LLP 1121 D13). It authenticates with the same token. The relay
-exists so the tool needs one connection and one credential, not a driver per host.
+**The build relay** is how the tool reaches tiles. It is an allowlist of request forms,
+never a pass-through of LLP 1012:
 
-**Modes side by side.** A tile is pinned to one combination of:
-- **scheme and contrast**, by `prefer media` (LLP 1095 D7);
-- **an app mode**, by `prefer mode` (LLP 1121 D13), for example Dim;
-- **text size**, by `prefer page root-font-size` (LLP 1121 D6's percentage, or the
-  platform's sizes);
-- **window size**, by the host's own resize.
+| Group | Forms | Who |
+|---|---|---|
+| **observe** | a capture (the server's screenshot and layout pair, by handle), `layout` of a node, `layout` at a point (D5), `tree`, `prefer` on the tile's pinned facts, `clock settle` | `read`, `propose`, `write` |
+| **drive** | `tap` (including D8's held state), `type` | `write` only, each journaled with its client |
 
-The default canvas for a design with Bluesky's axes is six web tiles (Light, Dim and Black,
-at the default text size and at the largest), plus every device the developer connects,
-each following the mode the tool last chose for it.
+Not relayed, ever:
+- a client-chosen `path`;
+- `logs`, `perf` and `state`;
+- file-picker answers;
+- any form that reads or writes a file.
 
-**One screen everywhere.** "Go to" drives every tile to the same route. Navigation inside a
-tile (a `tap` relayed from a click on its screenshot) can be mirrored to the others. Each
-tile keeps its own data (`--storage`).
+The server picks every file it writes and hands back handles.
 
 ### D4 — The app's own preview screens
 
-A design reviewed only on screens the app happens to reach misses states and modes. The
-tool therefore also shows **preview screens**: ordinary routes in the app that a developer
-writes, or the tool proposes as a starter. Each lays out one component or one screen under
-several `color-scheme` and `-exact-mode` pins at once (LLP 1121 D5), as the Bluesky clone's
-Appearance screen does with its three previews. They run in the app like any route, so they
-need nothing from the tool. A tile on a preview screen is the tool's component workbench
-(D7).
+Some states and modes the app's normal screens never reach. So the tool also uses
+**preview screens**: ordinary routes, written by the developer (the tool offers a starter),
+that lay out a component or screen under several `color-scheme` and `-exact-mode` pins
+(LLP 1121 D5). A Light preview is `color-scheme="light"`; Dim and Black are
+`color-scheme="dark"` plus the pin. The Bluesky clone's Appearance screen is one. A tile on a
+preview screen is the tool's component workbench (D7).
 
-### D5 — Inspect: from a pixel to its provenance
+### D5 — Inspect: a point, a node, its provenance
 
-**Selecting.** Click a tile. The tool hit-tests the click against the tile's last `layout`
-answer (`nodes[]` with their boxes) and takes the front-most node. The selection is the
-**source node**, not the rendered copy: every copy of a node inside an `each` is outlined
-in every tile, and the chip reads "All rows". This is exact1's "templates, not copies"
-(LLP 0158 §3.3). Per-row styling is data, and an agent's job.
+**Selecting.** A click on a tile becomes **`layout` at a point**, a new form of `layout`
+(DEFERRED: "a new question is answered from … `layout`"): `{"op":"layout","at":[x,y]}`. The
+host answers with the view id its own hit test finds front-most at that point:
+- the web, `elementsFromPoint` (`host/web/geometry-glue.js`);
+- native hosts, the same hit test `tap` uses.
 
-**Provenance**, in four steps, each a lookup:
-1. **Node → source.** `layout <id>` gives the node's plan site and every row with its
-   source (`authored`, `inherited` from an ancestor, or `initial`) (LLP 1035.002 D1). The
-   dev server's source map for that plan, verified by digest (`docs/reference.md` "Source
-   maps"), gives the site's file and range, its component call-site chain, and each winning
-   row's origin (`own`, `class:<Name>`, `tag`).
-2. **Row → token.** A row that holds a token reference names it: LLP 1121 D7 keeps the token
-   beside the value, and D13's `explain` reports it with the `when` that won.
-3. **Token → dials and params.** `explain` gives the chain (`background-color:
-   surface.card ← neutral (dial)`), including a component param (`PostButton.radius ←
-   radius.md`).
-4. **Where else it is used.** `uses` lists every node holding the token in each connected
-   build (LLP 1121 D7's index), and the tool outlines them across tiles.
+The point is in the capture's coordinates; the server converts for the capture's scale. If
+the tile's epoch has moved since the capture, the selection is refused and the tile
+recaptured. Boxes from `layout` are used for outlines only.
 
-**Fail closed.** The tool offers an edit only where provenance is exact: the source map's
-digest matches the build's plan, and the row's source is `authored` with a known origin or a
-token. Otherwise the panel shows the value read-only and says why ("inherited from
-`app.contract:12`", "a computed expression"). This is exact1's lesson: never write back
-through a value it can't trace.
+**The selection is the source.** The tool selects a source span, not a rendered copy. It
+outlines every mounted node whose site maps to that span: each copy in an `each`, and each
+expansion of a component body, across every tile. The chip says how many ("12 rows",
+"PostButton · 3 instances"). This is exact1's "templates, not copies", extended to
+components.
 
-**The inspector panel** shows:
-- the selected node's type, its source location (one click opens it in the developer's
-  editor), and its call-site chain;
-- its paint rows, each with value, source and token chip;
-- the component's params, if the node is inside a component instance (D7);
-- its state parts (D8).
+**Provenance, joined by the server.** The source-map admission lets the driver read maps
+and never a host. Here the Tamber server joins them (§9 Q2 asks to widen that line) and
+hands the tool provenance records:
+1. **Node → source.** `layout <id>` gives the node's site and each row with its source.
+   The sources are:
+   - `authored`, with an origin: `own`, `class:<Name>`, or `tag`;
+   - `dynamic`;
+   - `inherited` from an ancestor;
+   - `initial`;
+   - a boundary-implied colour row (LLP 1121 D7);
+   - `applied: unsupported`.
 
-### D6 — The scope ladder: instance, param, token, dial
+   The server looks the site up in **that tile's own map**, verified by plan digest. Each
+   build advertises its plan and map pair on its own envelope. Today the JS loop's
+   `/exact.json` answers for a different producer's plan (`host/web-js/dev.mjs`), so this is
+   owed before web inspect (§3).
+2. **Row → token.** On a kernel host, the token kept beside the row (LLP 1121 D7), and
+   `explain` with the `when` that won. On the JS target, **the runtime reports a row's
+   specified token beside its computed value**, in the runner's row shape. Its `layout`
+   reads `getComputedStyle` today, so a token arrives as `rgb(…)` (`host/web-js/agent.js`).
+   Until the JS runtime reports tokens, web tiles run the wasm host (`--wasm`), which has
+   the kernel.
+3. **Token → dials and params**, by `explain` (LLP 1121 D13).
+4. **Impact.** `uses` lists the mounted nodes that hold a token. The tool labels these
+   "mounted uses", not "everything affected": a descendant that inherits the colour is
+   affected and isn't listed. The full impact of a change is computed from the tokens whose
+   folded values it changes (the dependency closure) and shown as those tokens.
 
-Every edit has exactly one scope. From narrowest to widest:
+**Fail closed.** An edit is offered only when:
+- the tile's map matches its plan digest;
+- the map's source digest matches the file on disk (D6);
+- the row's source is `authored` with an `own` or `class:` origin, or the row holds a
+  token.
 
-| Scope | Writes | Through | Available when |
-|---|---|---|---|
-| **instance** | a paint row on this source node | `set-row` (below), via `contract fmt` | the row is the node's own, authored |
-| **param** | this component's param, for every instance | `set-param` (LLP 1121 D15) | the node is in a component that declares the param |
-| **token** | the token, everywhere it is used | `set-token` | the row's value is a token |
-| **dial** | a dial, and every token folded from it | `set-dial` | the token depends on the dial |
+Everything else is shown read-only, with its reason ("inherited from
+`app.contract:12`", "computed", "the tag's default", "set at a mode boundary"). This is
+exact1's rule: never write back through a value it cannot trace.
 
-**The systemic default.** An edit lands at the narrowest scope that edits the system rather
-than forking it:
-- the **param** when the row reads one;
-- otherwise the **token** when the row holds one;
-- otherwise the **instance**.
+### D6 — The scope ladder
 
-A **dial** is offered, never the default: changing a whole brand by accident is the one
-mistake the ladder must make impossible. This is exact1 0158 §3.1 with Tamber's rungs.
+Every edit has one scope and one **target branch**: the token's default, or one named
+`when` (a mode tuple). From narrowest to widest:
 
-**Act first, scope after** (0158 §3.2):
-- An edit applies at once, at the default scope, live on every tile.
-- The scope is a chip on the selection ("PostButton · radius", "Just this",
-  `radius.md`).
-- The **blast radius is the feedback**: every node the edit reaches is outlined, in every
-  tile.
-- **Re-scope after the fact.** The chip on the last edit re-applies it at another rung
-  without redoing the gesture, as one transaction: the inverse at the old scope plus the
-  write at the new one.
-- **Promote and detach.** An instance edit can be promoted to a param or a token (naming a
-  new token if needed, `add-token`). A param or token edit can be detached back to the
-  selected instance.
+| Rung | Writes | Through | Applies | Available when |
+|---|---|---|---|---|
+| **template** | one paint row of this source node, in every expansion | `set-row` | rebuild | the row is `authored`, origin `own` |
+| **style** | the row in the `style` the node's `class` names | `set-row` on the style | rebuild | origin `class:<Name>` |
+| **param** | this component's param, for every instance | `set-param` (LLP 1121 D15) | live | the row reads a param |
+| **token** | the token, everywhere | `set-token` | live | the row holds a token |
+| **dial** | a dial, and every token folded from it | `set-dial` | live | the token depends on a dial |
 
-**`set-row`**, the one protocol addition this needs. It sets or unsets one paint row of
-one Contract node, addressed by the source map's site and the file's digest, through
-`contract fmt`:
-- The rows are those LLP 1121 D8 allows in a state part (colours, opacity, shadow, tint,
-  press scale), plus `border-radius` and `font` once LLP 1121 stage 6 admits those kinds.
-  No layout rows (D14).
-- Any edit to it rebuilds and reloads, like any other edit to a Contract file (LLP 1121
-  D13).
-- It is a minor-version addition to `tamber/1`, in LLP 1121 D13's table, with the same
-  digest preconditions, inverse and journal.
-- §9 Q3 asks whether instance edits belong in the tool at all.
+- **The default, as exact1 set it** (0158 §3.1): the **param** when the row reads one,
+  otherwise the **template** or **style** rung. **Token and dial are offered, never the
+  default.** With the live table, a token edit repaints every use at once, and an
+  accidental one is the mistake the ladder exists to prevent.
+- **"Just this" is not a rung.** There is no per-instance paint store: params are the
+  design's, not props (LLP 1121 D15). The template rung is labelled "this template", and
+  "just this" appears only for a node that renders once.
+- **The chip says live or rebuild before the gesture.** Live rungs scrub on every tile;
+  rebuild rungs apply on release, and the tile reloads, losing scroll and drafts as any
+  source edit does.
+- **Act first, re-scope after** (0158 §3.2). The chip on the last edit re-applies it at
+  another rung as one transaction: the inverse, then the new write. The blast radius is
+  outlined as it happens.
+- **Promote and detach**, only where the source can express it:
+  - **Template to param:** one transaction adds the param (`add-param`) and rewrites the
+    row to read it, so `tamber-param-unused` never fires.
+  - **Template to token:** one transaction adds the token and rewrites the row.
+  - **Detach param to template:** writes the literal and leaves the param to its other
+    readers.
 
-### D7 — Panels from dials and component params
+  No re-scope to a dial is invented: a colour derived from several dials has no unique
+  dial value. The tool shows the dials as inputs instead.
+- **Expressions are kept.** Editing a token whose value is an expression offers that
+  expression's inputs. Overwriting it with a literal is an explicit "pin", marked as LLP
+  1121 D14 marks a pinned override.
 
-The tool draws no panel by hand. Every control comes from the design's declared metadata:
-- **The dials panel**: each dial with its `control`, `range`, `step` and `label`, ordered
-  by `group` and `priority` (LLP 1121 D4).
-- **The token grid**: tokens by name group × every mode tuple and scheme, with resolved
-  swatches. It shows contrast badges between declared on-pairs (a colour and its
-  `on-` partner). Each badge says which resolution it assessed, the stored value or a named
-  build's (LLP 1121 D13 `resolve`, `resolve-on`). Each token shows the dials it follows.
-- **The component panel**: when the selection is inside a component instance, the
-  component's params, grouped by `group` and ordered by `priority` (1 first, 3 behind
-  "more"), each with its `control` (LLP 1121 D15). A `select` offers its `options`; a
-  `token` control offers the tokens of the kind. A param pinned off its token default shows
-  the mark LLP 1121 D14 defines ("no longer follows `radius.md`").
-- **The component workbench**: a preview screen (D4) for one component, with its params
-  panel beside it and its state parts (D8).
+**`set-row`**, the server's checked edit of one Contract row:
+- **Address.** Each source file's digest is recorded in the map at compile time (a compiler
+  addition). The edit names the file, the source span, the row and the digest the tool saw.
+  A plan digest is never the address: formatting moves spans without changing it
+  (`docs/reference.md` "Source maps").
+- **Resolution.** The server finds the attribute in the file's syntax tree, not by span
+  text, and parses the value as that row's type. A shorthand (`border`, `font`) is edited as
+  the shorthand or refused, never split silently.
+- **Check.** The server compiles the candidate file before writing; a refused compile writes
+  nothing.
+- **Write.** Through LLP 1121 D13's journaled commit. The original bytes are kept, so its
+  inverse restores the file byte for byte.
+- **Refused:** tag-origin rows, computed rows, layout rows (D14), and rows that LLP 1121 D8
+  does not allow in a state part. `border-radius` and `font` are allowed once LLP 1121
+  stage 6 admits their kinds.
+- It is a minor-version addition to `tamber/1` (LLP 1121 D13's table). §9 Q3 asks whether
+  the template rung belongs in the tool.
 
-The tool surfaces what a component declares and nothing else. A component that declares no
-params shows its rows (D5) and an offer to add params (`add-param`), which writes the
-`params` section in the component's file.
+### D7 — Panels from declared metadata
+
+The tool hand-draws no control:
+- **Dials**: each dial's `control`, `range`, `step` and `label`, by `group` and `priority`
+  (LLP 1121 D4).
+- **The token grid**: tokens × every mode tuple and scheme, with swatches from `resolve`
+  (the stored value or residual, labelled as such) or from `resolve-on` a named tile. It
+  has contrast badges between declared on-pairs, each saying which resolution it assessed.
+- **The component panel**: the selected component's params, grouped by `group`, ordered by
+  `priority` (3 behind "more"), each with its `control` and `options` (LLP 1121 D15). A
+  pinned param shows LLP 1121 D14's mark.
+- **The workbench**: a preview screen (D4) for one component, with its params, its states
+  (D8) and its blast radius.
+
+A component with no params shows its rows (D5) and an offer to promote one to a param
+(D6).
 
 ### D8 — States
 
-A designer has to see the pressed, hovered, focused, disabled and checked looks without
-pressing anything.
-- **Runner-known states** (`:disabled`, `:checked`) are data. A preview screen (D4) sets
-  them, or the tool drives a tile into them with `tap` and `type`.
-- **Host-known states** (`:active`, `:hover`, `:focus-visible`) are the host's own
-  tracking (LLP 1121 D8), and the agent API can tap but not hold a press. So this RFC asks
-  for **a fifth `prefer` group, `state`**, beside `media`, `page`, `fold` and `mode`:
-  `prefer state <id> active` pins one node's host state, in development builds only,
-  until it is cleared. It is held like a press, so overlays, ease and Reduce Motion behave
-  as they do for a real press (LLP 1121 D8).
-- **The states strip.** For the selected node, the tool shows one tile per state the node
-  declares, each pinned with `prefer state`. Next to each is that state part's rows, edited
-  through `set-state`, which rebuilds (LLP 1121 D13).
-- **Without `prefer state`** (if it is refused, §9 Q4), the strip shows runner-known states
-  only, and host-known looks are edited blind, with a live tap to check.
+- **Runner-known states** (`:disabled`, `:checked`) are data. A preview screen sets them,
+  or the tool drives a tile into them.
+- **Host-known states** (`:active`, `:hover`, `:focus-visible`) use a new form of `tap`,
+  **a held state**: `{"op":"tap","id":V,"hold":"active"|"hover"|"focus-visible"}`. It holds
+  that host state on one node until cleared (`"hold":null`), in development builds only.
+  DEFERRED: "a new input is a form of `tap`". Its semantics:
+  - **Ownership.** The relay session that set it; one held state per node.
+  - **Cleared** by an explicit clear, by the node's retirement, by a reload, and by real
+    input on that node, which always wins.
+  - **Precedence.** A disabled node takes no hold, as it takes no press; the hold applies
+    overlays, ease and Reduce Motion exactly as a real press does (LLP 1121 D8).
+  - **Unsupported:** a host that cannot hold a state answers so by name; iOS answers
+    `tap` phases `unsupported` today.
+- **The states strip** uses one web tile per state, so pressed, hovered and default show at
+  once. A native host shows them one after another on its one tile.
+- **Editing a state part** is `set-state` (LLP 1121 D13), a rebuild.
+- If the held state is refused (§9 Q4), host-known looks are edited and checked with a real
+  press.
 
-### D9 — Undo and history: the session in memory, the record in git
+### D9 — Undo and history
 
-- **Undo.** Every write returns its inverse transaction (LLP 1121 D13). The tool keeps the
-  session's stack, and undo and redo issue those inverses. A change another client made is
-  never undone by mine: an inverse whose preconditions fail (the file changed since) is
-  refused, and the tool says who changed it.
-- **The session changeset.** The working tree's diff of the design files since the session
-  began, shown as a list of edits in plain words ("`radius.md` 8 → 12px") with the
-  line-level diff under each.
-- **Commit, when asked.** "Commit" writes one git commit of the design files touched. Its
-  message lists the edits and who made them (person or agent), and its author is the
-  developer. Nothing is committed without that action, and the tool never pushes.
-- **History.** The git log of the design files, readable as edits. "Revert" proposes the
-  inverse of a past commit as a transaction (`propose`), which the person accepts.
-- **Review.** A changeset or commit has a review view: per edit, before and after
-  screenshots of the affected tiles, taken when the edit was made. A reviewer sees what
-  changed on screen, not only in text.
+- **Undo** issues each write's inverse (LLP 1121 D13). An inverse whose preconditions fail
+  is refused and names who changed the file: a client, or "changed on disk" for a hand edit
+  or a checkout.
+- **The session changeset**: the design files' diff since the session began, as edits in
+  plain words with the lines under each.
+- **`commit`**, a server addition to `tamber/1`:
+  - It commits the design files the session wrote, with a message listing the edits and
+    their authors (person or agent).
+  - It refuses, naming the file, if any of them had changes before the session (a dirty or
+    staged file at its start), so a commit never sweeps in unrelated work. The developer
+    commits those by hand.
+  - It never pushes.
+- **History** is the git log of the design files, read as edits. "Revert" proposes a past
+  commit's inverse.
+- **Not in v1:** a retained visual history. The review view shows before and after
+  captures for the current session only.
 
 ### D10 — Agents as co-editors
 
-An agent is a client with the same token, the same reads and the same writes (LLP 1121 D13,
-D14). The tool adds three things on top:
-- **Attribution.** Every event in `subscribe` names its client. The tool shows an agent's
-  edits as they arrive, outlined in its own colour, in the changeset under its name.
-- **Proposals.** An agent may write directly, or `propose` for review. The tool lists
-  pending proposals with the same review view as an import (D11): accept all, accept some,
-  decline.
-- **Prompt-as-tweak** (0158 §9). A selection-scoped request ("make the pressed state a
-  little darker", "match this to the system blue") goes to an agent with a context bundle:
-  - the selection and its provenance (D5);
-  - the scope ladder's options;
+An agent is a client with the same token, reads and writes.
+- **Attribution.** Each event in `subscribe` names its client; the tool outlines an agent's
+  edits in its own colour.
+- **Held proposals**, a server addition. An agent's `propose` can be held: the server keeps
+  the transaction in memory (with an expiry) and announces it on `subscribe`. The tool
+  shows it for review (D11's view): accept all, some, or none. Accepting applies it as one
+  write with fresh preconditions.
+- **Prompt-as-tweak** (0158 §9). A selection-scoped request goes to an agent with a bundle:
+  - the selection's provenance;
+  - the rungs;
   - the relevant tokens and params;
-  - the tile screenshots.
+  - captures.
 
-  The agent answers with a transaction proposed at an explicit scope, which the person
-  reviews. Which agent and model is the developer's configuration, not the tool's.
+  The agent answers with a proposal at an explicit rung. **The bundle stays on the machine**
+  unless the developer has named a model that runs elsewhere, and the tool says, before
+  sending, that captures are included. The tool holds no keys.
 
-### D11 — Importers, with a review view
+### D11 — Importers' review
 
-The importers of LLP 1121 D14 (shadcn, Tailwind v4, DTCG, Astryx) are proposal-only
-clients. The tool is where their proposals are reviewed. An import shows three lists:
-- **Mapped tokens**: name, value per mode, and a swatch. Each can be accepted or edited
-  before accepting.
-- **Role overrides**, offered separately (`--background` → `-exact-background`), each off
-  until ticked: the design stays the platform's unless the person chooses (LLP 1121 D1).
-- **Unmapped values**, each with the importer's reason, so nothing is dropped unseen.
+LLP 1121 D14's importers (shadcn, Tailwind v4, DTCG, Astryx) propose; the tool reviews.
+Each import shows:
+- the mapped tokens, with values per mode and swatches;
+- the role overrides, each off until ticked (LLP 1121 D1);
+- the unmapped values, each with its reason.
 
-Accepting applies the chosen items as one transaction, previewed live on every tile before
-it is written. Importing components is a non-goal, as in LLP 1121.
+Accepting writes the chosen items as one transaction, and undo is one step. There is no live
+preview before writing: the live table applies written values only (LLP 1121 D13), and a
+preview layer would be a second truth, which exact1 found costly. The review shows each
+value's swatch in each mode instead.
 
 ### D12 — Collaboration
 
-- **Local first.** Several clients on one machine (the tool in two windows, an agent, a
-  hand edit in an editor) edit one design through one server, serialized by digest
-  preconditions (LLP 1121 D13). The tool shows who else is connected and their selections.
-- **Remote, by pairing** (LLP 1121 D13; its §9 Q4). A designer on another machine pairs
-  once with a code shown in the local tool. They get a token scoped `read`, `propose` or
-  `write`, revocable, with every write attributed. Their tool shows the same canvas through
-  the relay, so the screenshots come from the developer's builds.
-- **A team relay**, for people who share no machine, is open (§9 Q6).
+- **Local first.** Several clients on one machine edit through one server, serialized by
+  digests (LLP 1121 D13). The tool lists connected clients. Live presence (each client's
+  selection) is not in v1.
+- **Remote, by pairing** (LLP 1121 D13). A paired client gets the observe group of the relay
+  at `read` and `propose`, and the drive group only at `write`. It sees the developer's
+  tiles.
+- **A team relay** for people who share no machine is open (§9 Q6).
 
 ### D13 — Security
 
-- **Development builds only.** A release build has no protocol endpoint, no relay, no live
-  table and no `prefer state` (LLP 1121 D13).
-- **One credential, local by default.** The project's write token is held in the server's
-  memory. It is given only to a verified-local request (LLP 1121 D13), and it gates both
-  `tamber/1` and the relay.
-- **The relay can drive the app.** `tap` and `type` act as the user, on real devices. A
-  paired client gets the relay only with `write` scope, and every relayed operation is
-  journaled with the client that sent it.
-- **The tool writes only through the protocol.** It never edits files itself, so every
-  write has the server's checks, digests and journal.
-- **Screenshots are the app's data.** The tool keeps tile images in memory and in
-  `.exact/` for review views. They are listed in the session and deleted with it unless
-  committed into a review.
+- **Development builds only.** Release builds have no endpoint, no relay, no live table and
+  no held state.
+- **One credential.** The project's token, in the server's memory, is given only to a
+  verified-local request (LLP 1121 D13). Paired clients have scoped, revocable tokens.
+- **The relay is an allowlist** (D3). Driving needs `write`, and each driving request is
+  journaled with its client. No request form names a file.
+- **Writes only through the server**, under its digests, compile check and journal (D6, LLP
+  1121 D13). `set-row` writes only files inside the project root that the map names.
+- **Captures are private.** They go to a temporary directory created `0700` per session,
+  are served by handle over loopback, and are deleted when the session ends. `.exact/` is
+  not ignored by git, so nothing is kept there.
+- **Prompts** stay local unless a remote model is named (D10).
 
 ### D14 — What it is not
 
-- **Not a vector drawing tool.** There is no free-form canvas, no shapes, no artboards and
-  no pixel nudging. Everything on the canvas is the running app.
-- **Not a layout editor in v1.** Dragging boxes, changing flex direction, gap or padding by
-  handle, and reordering children are Contract source edits. They are structural, and
-  exact1's 0158 found drag intent in a flex world ambiguous: is a drag gap, padding or
-  basis? The case for layout in v1 is weak. Lengths a design names (spacing, radius) are
-  tokens and params, so they are editable at those scopes (LLP 1121 stage 6). Instance
-  `set-row` excludes layout rows. Layout editing is a later RFC once instance edits have
-  been used (§9 Q3).
-- **Not a component editor.** It edits a component's declared params and state parts. It
-  does not add parts, slots or structure. The component library (LLP 1121 stage 12) is its
-  own RFC.
-- **Not a Figma replacement for Figma files.** Figma is a client (LLP 1121 D14). There is no
-  live two-way canvas sync.
+- **Not a drawing tool.** No shapes, artboards or free canvas: everything shown is the
+  running app.
+- **Not a layout editor in v1.** Dragging boxes, flex direction, gap or padding by handle,
+  and reordering are structural source edits. exact1 found drag intent in a flex layout
+  ambiguous (0158 §14): is a drag gap, padding or basis? Lengths a design names are tokens
+  and params, editable at those rungs once LLP 1121 stage 6 lands. `set-row` refuses
+  layout rows. Layout editing is a later RFC.
+- **Not a component editor.** It edits declared params and state parts, not parts or slots.
+- **Not Figma.** Figma is a client (LLP 1121 D14), with no canvas sync.
 
-## 3. What it needs from elsewhere
+## 3. What it needs
 
 | Need | From | Status |
 |---|---|---|
-| reads, writes, `propose`, `subscribe`, inverses, the token | LLP 1121 D13, stage 3 | accepted, not built |
-| the live table | LLP 1121 stage 4 | accepted, not built; DEFERRED admission open |
-| `explain`, `uses`, the token index | LLP 1121 D7, D13; stage 2 | stage 2 in progress |
-| component params | LLP 1121 D15, stage 7 | accepted, not built |
-| state parts, `set-state` | LLP 1121 D8, stage 8 | accepted, not built |
-| importers | LLP 1121 D14, stages 3a–3d | accepted, not built |
-| pairing | LLP 1121 stage 10 | proposed (its §9 Q4) |
-| `set-row` | this RFC D6 → LLP 1121 D13 | proposed |
-| the build relay | this RFC D3 → LLP 1121 D13 | proposed |
+| reads, writes, `propose`, `subscribe`, inverses, token | LLP 1121 D13, stage 3 | accepted, not built |
+| live table | LLP 1121 stage 4 | accepted; DEFERRED admission open |
+| `explain`, `uses`, token beside value | LLP 1121 D7, stage 2 | in progress |
+| params; state parts and `set-state`; importers; pairing | LLP 1121 stages 7, 8, 3a–3d, 10 | accepted, not built |
 | `prefer mode` | LLP 1121 D13 | accepted, not built |
-| `prefer state` | this RFC D8 → LLP 1012 | proposed |
-| source maps on the dev server | `contract build --map` | built |
-| `layout <id>` with site and row sources | LLP 1035.002 D1 | built |
+| build relay with tile sessions | this RFC D3 → LLP 1121 D13 | proposed |
+| `layout` at a point | this RFC D5 → LLP 1012 | proposed |
+| `tap` holding a state | this RFC D8 → LLP 1012 | proposed |
+| each build's own plan and map pair; source digests in maps | this RFC D5, D6 → the compiler and both dev loops | proposed |
+| the JS runtime reporting a row's token | this RFC D5 → the web JS target | proposed |
+| `set-row`, `commit`, held proposals | this RFC D6, D9, D10 → LLP 1121 D13 | proposed |
+| source maps; `layout <id>` with sources | `contract build --map`; LLP 1035.002 D1 | built |
 
 ## 4. Staging and gates
 
-Each tool stage lands with, or after, the Tamber stage it needs. Each needs an implementer
-and a date (`rules/RULES.md` §Scope), and all of it needs DEFERRED §Tooling's admission
-(§9 Q2).
+Each stage needs an implementer, a date and the DEFERRED admissions (§9 Q2). Each lands with
+or after the Tamber stage it needs.
 
-1. **T1, the files** (with Tamber stage 3):
-   - the tool as a web JS-target app;
-   - the dials panel and token grid (D7);
-   - undo, the changeset, commit and history (D9);
-   - agents' attribution and proposals (D10).
+1. **T1, files** (with Tamber stage 3):
+   - the tool, with dials and the token grid (D7);
+   - undo, the changeset, `commit` and history (D9);
+   - attribution and held proposals (D10).
 
    **Gate:**
-   - every control the tool shows comes from declared metadata;
-   - an edit is a one-line diff, and undo restores the file byte for byte;
-   - an agent's write appears attributed within one event;
-   - a stale inverse is refused with the other client named;
-   - commit writes one commit with the edits listed, and never pushes.
-2. **T1a, import review** (with Tamber stages 3a–3d): D11.
-   **Gate:** a shadcn theme imports through the review view; role overrides are off until
-   ticked; every unmapped value is listed; accepting is one transaction.
-3. **T2, the canvas and inspect** (with Tamber stage 4, and the relay):
-   - tiles on the web, iOS simulator, a phone and the Mac (D3);
-   - modes side by side;
-   - inspect with provenance (D5);
-   - the token and dial rungs of the scope ladder (D6).
+   - every control comes from declared metadata;
+   - an edit is a one-line diff, and undo restores the bytes;
+   - an agent's write appears attributed;
+   - a stale inverse names who changed the file;
+   - `commit` refuses a file dirty before the session, and never pushes.
+2. **T1a, import review** (with Tamber 3a–3d), D11. **Gate:** a shadcn theme reviews with
+   overrides off until ticked, every unmapped value listed, and one transaction to accept.
+3. **T2, the web canvas and inspect** (with Tamber stage 4):
+   - headless web tiles owned by the server, running the wasm host (D3);
+   - `layout` at a point; captures paired with geometry;
+   - provenance (D5);
+   - the param, token and dial rungs (D6).
 
    **Gate:**
-   - a dial drag updates six web tiles, the simulator and the Mac within one refresh of
-     each, with no reload;
-   - clicking a row in the Bluesky clone on any tile selects its source node, outlines
-     every copy, and shows its file and line, its rows' sources and its token chain;
-   - an inherited or computed row is read-only, with the reason;
-   - `uses` outlines every node using the token across tiles;
-   - a relayed `tap` without the token is refused.
-4. **T3, components** (with Tamber stage 7): the component panel and workbench (D7), the
-   param rung (D6). **Gate:** the clone's `PostButton` params appear grouped and ordered as
-   declared; a `set-param` re-scoped to the token is one transaction and undoes as one; a
-   pinned param shows its mark.
-5. **T4, states** (with Tamber stage 8, and `prefer state` if admitted): D8. **Gate:**
-   the post button's pressed, disabled and default looks show side by side without a
-   touch; editing `:active` rebuilds and the strip shows the new look.
-6. **T5, instance scope** (with `set-row`, if admitted): the instance rung, promote and
-   detach (D6). **Gate:** an instance colour edit writes one Contract line and rebuilds;
-   promoting it to a new token writes the token and replaces the literal in one transaction;
-   detach reverses it.
-7. **T6, remote** (with Tamber stage 10): pairing and remote tiles (D12). **Gate:** a
-   paired `propose` client cannot write or drive; revoking it cuts it off; its proposals
-   arrive in the review view.
+   - six web tiles in Light, Dim and Black at two text sizes;
+   - a dial drag updates them all with no reload;
+   - a click on an overlapped or clipped node selects the node the host hit-tests;
+   - a stale capture's click is refused and recaptured;
+   - a token row shows its chain;
+   - an inherited, dynamic or boundary-implied row is read-only with its reason;
+   - an observe-only client cannot `tap`;
+   - no client can name a capture path.
+4. **T2b, JS-target tiles**: the runtime's token report and each build's own map pair.
+   **Gate:** a JS-target tile answers inspect as the wasm tile does, row for row, on the
+   Bluesky clone.
+5. **T2c, native tiles**: the iOS simulator and the Mac, then a phone, each owned by the
+   server, with platform chrome. **Gate:** T2's inspect gate passes on each native host.
+6. **T3, components** (with Tamber stage 7): the component panel and workbench (D7). **Gate:**
+   `PostButton`'s params appear as declared; a param edit re-scoped to its token is one
+   transaction and one undo.
+7. **T4, states** (with Tamber stage 8 and the held `tap`): D8. **Gate:** pressed, hovered,
+   disabled and default show at once on web tiles; real input clears a hold; a disabled
+   node refuses one; editing `:active` rebuilds.
+8. **T5, template and style rungs** (with `set-row`): D6. **Gate:**
+   - a template colour edit writes one line and rebuilds;
+   - a stale source digest is refused;
+   - a candidate that fails to compile writes nothing;
+   - promote to param and to token are each one transaction;
+   - a `class:` row edits the style.
+9. **T6, remote** (with Tamber stage 10): D12. **Gate:** a paired `propose` client observes
+   but cannot drive or write; revocation cuts it off.
 
 ## 5. Non-goals
 
-- Vector drawing, artboards, free-form canvases (D14).
+- Drawing, artboards, free canvases (D14).
 - Layout and structure editing in v1 (D14).
-- Editing in release builds, or a production inspect tier.
-- A second source of truth: the tool keeps no design state outside the files (D2).
+- Editing in release builds; a production inspect tier.
+- Design state outside the files (D2).
 - Components from imported libraries (D11).
-- A live mirror stream in r1 (D3).
+- A continuous mirror, live presence and retained visual history in v1 (D3, D9, D12).
+- A preview layer before writing (D11).
 
 ## 6. Risks
 
-- **Stale screenshots mislead.** A tile is a capture. Each shows its age and the commit it
-  reflects, and a tile whose build missed a batch is marked stale until it catches up.
-- **Wrong-scope surprises.** Mitigated by the systemic default, the blast-radius outlines,
-  re-scope after the fact, and uniform undo (D6). exact1 0158 found the same.
-- **Provenance gaps.** Inspect refuses rather than guesses (D5). A row with no exact path
-  can't be edited here, and it says why.
-- **Many tiles are many builds.** Six headless web tiles are cheap; simulators are not. The
-  default canvas uses web tiles for modes and real devices as the developer connects them.
-- **The relay widens what a token can do.** It can drive the app on real devices. It is
-  scoped and journaled (D13).
+- **A capture is not live.** Each tile shows its age and the commit it reflects, and a tile
+  that missed a batch is marked stale until recaptured.
+- **Wrong scope.** Mitigated by exact1's default, blast-radius outlines, re-scope after the
+  fact, and one undo (D6).
+- **Provenance gaps** make some rows read-only (D5). That is the point, but it can frustrate:
+  the reason is always shown.
+- **Tiles cost.** Web tiles are cheap; simulators are not. Native tiles come one host at a
+  time (§4).
+- **The relay drives real devices.** It is scoped, allowlisted and journaled (D3, D13).
 
 ## 7. Cost
 
-- The tool itself: one web JS-target app, with its TypeScript data module as the protocol
-  client.
-- Two protocol additions on the Tamber server: `set-row` and the build relay.
-- One `prefer` group, `state`, on every host that tracks a press.
-- Docs: a page in `docs/` on driving the tool, and the protocol reference's new rows.
-- Nothing in the runner or kernel beyond what LLP 1121 already builds.
+- **The tool:** one web JS-target app.
+- **The Tamber server:** the relay and its tile sessions, the provenance join, `set-row`,
+  `commit`, held proposals.
+- **The agent API:** two forms, `layout` at a point and the held `tap`, on each host that
+  answers them.
+- **The compiler:** source digests in maps. **The dev loops:** each build's own map pair.
+- **The JS runtime:** reporting a row's token.
+- **Docs:** the tool's page, and the protocol reference's new rows.
 
 ## 8. Not in this RFC
 
-- Layout and structure editing (D14). It is a later RFC once instance edits have been used.
-- A continuous live mirror (D3).
+- Layout and structure editing.
+- A continuous mirror.
 - Native builds of the tool.
 - The component library's workbench beyond params and states (LLP 1121 stage 12).
 - A production inspect tier.
+- Live presence.
 
 ## 9. Open questions for Charlie
 
-1. **The name.** The tool is unnamed. Candidates, if a starting point helps:
-   - **Atelier** (the studio);
-   - **Loupe** (looking closely at the real thing);
-   - **Bench** (where components are tried);
-   - **Swatchbook**.
-2. **DEFERRED §Tooling.** The tool is a devtools UI, which §Tooling defers. LLP 1121 §9 Q3
-   asks the same for the protocol server. Admit both together, for development builds only?
-3. **Instance scope** (D6, `set-row`). Should the tool edit one node's paint rows, or only
-   params, tokens and dials, leaving every instance edit to source and agents? Recommended:
-   yes, paint rows only, with promote and detach, because a designer's first edit is often
-   "just this one". Layout rows stay out of v1.
-4. **`prefer state`** (D8): a fifth `prefer` group pinning one node's host-known state in
-   development builds. Recommended: yes. Without it, pressed and hover looks are edited
+1. **The name.** Candidates if a start helps: **Atelier**, **Loupe**, **Bench**,
+   **Swatchbook**.
+2. **DEFERRED.** The tool is a devtools UI (§Tooling). Its inspect joins source maps in the
+   Tamber server and shows provenance, which the 2026-09-10 admission keeps to the driver and
+   refuses as "a general provenance explorer". Amend both, for development builds only,
+   together with LLP 1121 §9 Q3? RULES asks for a take or your waiver; none is offered here.
+3. **The template and style rungs** (D6, `set-row`). Paint rows on one source node, with
+   promote and detach, or only params, tokens and dials? Recommended: yes, paint rows only,
+   in T5, after the system rungs have been used.
+4. **The held `tap`** (D8). Recommended: yes. Without it, pressed and hover looks are edited
    blind.
-5. **A live mirror** (D3). Screenshot tiles refreshed on each commit are enough for design
-   edits. A continuous stream needs a new agent surface, against §Agent API's ten
-   operations. Recommended: not in r1.
-6. **A team relay** (D12) for people who share no machine. Recommended: not in this
-   program until pairing has been used.
-7. **The relay** (D3): relaying the agent API's operations through the Tamber server, under
-   its token, so the tool has one connection. Recommended: yes. The alternative is the tool
-   driving each host's agent carrier itself.
+5. **A continuous mirror** (D3). Recommended: not in r1. It would need a new agent surface.
+6. **A team relay** (D12). Recommended: not until pairing has been used.
+7. **The build relay** (D3): the Tamber server owning tile sessions and relaying an
+   allowlist of agent forms under its token. Recommended: yes. The alternative is the tool
+   driving each host's carrier itself, which a JS-target app cannot do.
