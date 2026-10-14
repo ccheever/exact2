@@ -50,6 +50,26 @@ fn refused(body: &str) -> (String, String) {
     (e.id.to_string(), e.message)
 }
 
+/// `open` on a `dialog` is refused, and the error teaches the modal ways to
+/// open and close one: in HTML `open` alone shows it non-modally.
+#[test]
+fn a_dialogs_open_attribute_is_refused_teaching_show_modal() {
+    for open in ["open=true", "open=busy"] {
+        let (id, message) = refused(&format!(
+            "dialog id=\"c\" role=\"alertdialog\" {open}\n  button press=go commandfor=\"c\" command=\"close\"\n    text \"Delete\"\n  button commandfor=\"c\" command=\"close\"\n    text \"Cancel\""
+        ));
+        assert_eq!(id, "lower-unknown-attr");
+        for taught in [
+            "non-modal",
+            "showModal(\"id\")",
+            "command=\"show-modal\"",
+            "close(\"id\")",
+        ] {
+            assert!(message.contains(taught), "{message}");
+        }
+    }
+}
+
 #[test]
 fn dialog_close_handler_compiles_with_action_commands() {
     let src = r#"component App

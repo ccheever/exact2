@@ -142,6 +142,14 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             a.name,
             logical(&a.name).unwrap_or_default()
         ),
+        None if tag == "dialog" && a.name == "open" => {
+            ": in HTML, `open` alone shows a dialog non-modally, which Exact does not support. For a \
+             modal, give the dialog an `id` and call `showModal(\"id\")` in an action, or put \
+             `commandfor=\"id\" command=\"show-modal\"` on a button; close it with `close(\"id\")` \
+             or `commandfor=\"id\" command=\"close\"`. A dialog that state holds open is not \
+             available yet"
+                .into()
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }
