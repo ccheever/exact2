@@ -689,7 +689,6 @@ impl<D: DataSource> Runner<D> {
         for text in &plan.strings {
             exact_kernel::style::roles::intern_literals(text);
         }
-        let replaced = crate::bridge::set_role_overrides(&plan);
         let carried = match seed {
             Seed::Carried(carried) => Some(carried),
             _ => None,
@@ -805,6 +804,9 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let launched_place = crate::time::launch_place();
+        // After every check that can refuse the boot: a refused plan never
+        // takes the thread's overrides from a session still running.
+        let replaced = crate::bridge::set_role_overrides(&plan);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),

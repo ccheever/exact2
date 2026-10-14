@@ -1360,7 +1360,7 @@ package final class Presenter {
         self.title = title
         onTitle?(title)
     }
-    struct CanvasKey: Equatable { let root: ObjectIdentifier?; let channels: [Double]? }
+    struct CanvasKey: Equatable { let root: ObjectIdentifier?; let channels: [Double]?; var theme = ThemeRoles.generation }
     private var canvasKey: CanvasKey?
     func paintCanvas() {
         // The root's colour, resolved and compared only when what it is made

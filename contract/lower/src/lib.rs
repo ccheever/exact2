@@ -286,7 +286,9 @@ fn lower_with_sites(
     };
     l.declare_fonts(file, asset_root)?;
     l.declare_sounds(file, asset_root)?;
-    // Bound before any style is parsed, as the profiles below are.
+    // Bound before any style is parsed, the profiles first: an entry may be
+    // a profile's colour.
+    let _profiles = l.declare_color_profiles(file);
     let _theme = l.declare_theme(file);
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
@@ -325,7 +327,6 @@ fn lower_with_sites(
     }
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
-    let _profiles = l.declare_color_profiles(file);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;

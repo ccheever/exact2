@@ -30,11 +30,17 @@ package enum ThemeRoles {
     /// leaves the role the platform's.
     package static func color(_ role: String) -> PlatformColor? {
         guard let value = table[role] else { return nil }
-        let side = { (dark: Bool) in TextEngine.color(value.textChannels(dark: dark) ?? [0, 0, 0, 0]) }
+        let side = { (dark: Bool, contrast: Bool?, elevated: Bool) in
+            TextEngine.color(value.textChannels(dark: dark, contrast: contrast, elevated: elevated) ?? [0, 0, 0, 0])
+        }
         #if os(macOS)
-        return NSColor(name: nil) { appearance in side(appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua) }
+        return NSColor(name: nil) { appearance in side(appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua, nil, false) }
+        #elseif os(tvOS)
+        return UIColor { traits in side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, false) }
         #else
-        return UIColor { traits in side(traits.userInterfaceStyle == .dark) }
+        // The view's level and contrast too: a role it names resolves as a
+        // sheet's (elevated) and under Increase Contrast.
+        return UIColor { traits in side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, traits.userInterfaceLevel == .elevated) }
         #endif
     }
 
@@ -51,6 +57,9 @@ extension Presenter {
     func applyThemeTint() {
         #if os(iOS) || os(tvOS)
         root.tintColor = ThemeRoles.color("AccentColor")
+        #else
+        // The page's ground where the app sets none (LLP 1115 D2).
+        viewport.backgroundColor = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .windowBackgroundColor)
         #endif
     }
 }

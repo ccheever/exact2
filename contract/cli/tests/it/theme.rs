@@ -179,6 +179,14 @@ fn a_theme_is_checked_where_it_is_declared() {
             "syntax-duplicate-declaration",
         ),
         ("  brand = 3\n", "syntax-theme-entry"),
+        (
+            "  secondary-label = \"#000\"\n  -exact-secondary-label = \"#111\"\n",
+            "lower-theme-duplicate",
+        ),
+        ("  LinkText = \"#000\"\n", "lower-theme-tint"),
+        ("  link = \"#000\"\n", "lower-theme-tint"),
+        ("  none = \"#000\"\n", "lower-theme-name"),
+        ("  inherit = \"#000\"\n", "lower-theme-name"),
     ] {
         let src = format!("theme\n{body}\ncomponent App\n  view\n    text \"a\"\n");
         let errors = contract::compile(&src).unwrap_err();
@@ -259,4 +267,54 @@ fn two_plans_each_read_their_own_names() {
     red.act("pick", vec![Value::str("nope")]).unwrap();
     let said: Vec<&str> = red.journal().skip(before).collect();
     assert!(said.iter().any(|l| l.contains("nope")), "{said:?}");
+}
+
+/// A name is a name, exactly: `Brand` and `brand` are two entries (only a
+/// role's spelling matches without case); an entry may be a declared
+/// profile's colour; a theme's one-scheme colour is the lint's as a literal
+/// is, named by a row or replacing a role the page paints.
+#[test]
+fn names_are_exact_profiles_are_colours_and_the_lint_reads_the_theme() {
+    let src = "theme\n  Brand = \"#ff0000\"\n  brand = \"#0000ff\"\n\ncomponent App\n  view\n    column\n      text \"a\" testId=\"lower\" color=\"brand\"\n      text \"b\" testId=\"upper\" color=\"Brand\"\n";
+    let r = boot(src);
+    assert_eq!(colour(&r, "lower", StyleId::TextColor), parsed("#0000ff"));
+    assert_eq!(colour(&r, "upper", StyleId::TextColor), parsed("#ff0000"));
+    let icc = "color-profile --brand src=\"assets/brand.icc\"\n\ntheme\n  ink = \"color(--brand 0.1 0.2 0.3 0.4)\"\n\ncomponent App\n  view\n    text \"a\" color=\"ink\"\n";
+    contract::compile(icc).unwrap_or_else(|e| panic!("{e:?}"));
+    let lint = |src: &str| {
+        let (result, warnings) = contract::compile_warned(src);
+        result.unwrap();
+        warnings
+            .iter()
+            .filter(|w| w.id == "lower-colour-one-scheme")
+            .count()
+    };
+    assert!(lint("theme\n  card = \"#f1f3f5\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n") > 0, "a row naming a one-scheme entry");
+    assert!(
+        lint("theme\n  Canvas = \"#fbf3e9\"\n\ncomponent App\n  view\n    text \"a\"\n") > 0,
+        "a page role replaced in one scheme"
+    );
+    assert_eq!(lint("theme\n  card = \"light-dark(#f1f3f5, #0f1419)\"\n  Canvas = \"light-dark(#fff, #000)\"\n\ncomponent App\n  view\n    column background-color=\"card\"\n      text \"a\"\n"), 0);
+}
+
+/// A plan with no overrides booted after one with them clears them, and
+/// says so: a session still running the first now shows none.
+#[test]
+fn clearing_another_plans_overrides_is_said() {
+    let run = |src: &str| {
+        Runner::boot(
+            contract::compile(src).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+    };
+    let _themed =
+        run("theme\n  CanvasText = \"#010101\"\n\ncomponent App\n  view\n    text \"a\"\n");
+    let plain = run("component App\n  view\n    text \"a\"\n");
+    assert!(plain
+        .journal()
+        .any(|l| l.contains("replace another plan's")));
 }

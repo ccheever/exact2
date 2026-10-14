@@ -123,7 +123,13 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
             }),
     );
     out.truncate(MAX_WARNINGS);
-    one_scheme(root, &checked.file.styles, &checked.file.fns, &mut out);
+    one_scheme(
+        root,
+        &checked.file.styles,
+        &checked.file.fns,
+        checked.file.theme.as_ref(),
+        &mut out,
+    );
     out
 }
 
@@ -898,6 +904,9 @@ fn literal_colours(text: &str, out: &mut Vec<String>) {
 struct Leaves<'a> {
     fns: &'a [FnDecl],
     derives: &'a [Binding],
+    /// The theme's entries, by every spelling a row names them (LLP 1095
+    /// D4): a name is the colour it stands for.
+    theme: Vec<(String, &'a str)>,
 }
 
 impl Leaves<'_> {
@@ -907,7 +916,18 @@ impl Leaves<'_> {
     /// benefit of the doubt. `depth` bounds the expansion.
     fn colours(&self, e: &Expr, locals: &[String], depth: u32, out: &mut Vec<String>) {
         match e {
-            Expr::Str(text, _) => literal_colours(text, out),
+            Expr::Str(text, _) => {
+                literal_colours(text, out);
+                for word in text.split(|c: char| c.is_whitespace() || c == ',') {
+                    if let Some((_, value)) = self
+                        .theme
+                        .iter()
+                        .find(|(name, _)| name.eq_ignore_ascii_case(word))
+                    {
+                        literal_colours(value, out);
+                    }
+                }
+            }
             Expr::Template(parts, _) => {
                 for p in parts {
                     if let TemplatePart::Text(text) = p {
@@ -994,17 +1014,65 @@ fn colour_sites(attrs: &[Attr], leaves: &Leaves<'_>, locals: &[String], out: &mu
 /// One line a node and property, each short, so every site is named in
 /// one run; with more than one, a last line says why and what the accent
 /// may be.
-fn one_scheme(root: &Component, styles: &[StyleDecl], fns: &[FnDecl], out: &mut Vec<LowerError>) {
+fn one_scheme(
+    root: &Component,
+    styles: &[StyleDecl],
+    fns: &[FnDecl],
+    theme: Option<&contract_syntax::ThemeDecl>,
+    out: &mut Vec<LowerError>,
+) {
     // A game (LLP 1046) reads its world through `exactSurface`: its HUD and
     // title screen are its art, over a world no scheme repaints.
     if root.resources.iter().any(|r| r.source == "exactSurface") {
         return;
     }
+    let entries = theme.map_or(&[][..], |t| &t.entries[..]);
+    let mut spelled = Vec::new();
+    for e in entries {
+        let Expr::Str(value, _) = &e.value else {
+            continue;
+        };
+        spelled.push((e.name.clone(), value.as_str()));
+        spelled.push((format!("-exact-{}", e.name), value.as_str()));
+    }
     let leaves = Leaves {
         fns,
         derives: &root.derives,
+        theme: spelled,
     };
     let mut sites = Vec::new();
+    // An entry that replaces a role the page paints with no row naming it
+    // (its text, its ground) is a site of its own.
+    for e in entries {
+        let role = exact_kernel::style::roles::role(&e.name)
+            .or_else(|| exact_kernel::style::roles::role(&format!("-exact-{}", e.name)));
+        let paints = match role
+            .and_then(exact_kernel::style::roles::role_of)
+            .map(|r| r.name)
+        {
+            Some("CanvasText" | "label" | "secondary-label" | "FieldText") => Paints::Text,
+            Some(
+                "Canvas"
+                | "background"
+                | "grouped-background"
+                | "secondary-background"
+                | "secondary-grouped-background"
+                | "Field",
+            ) => Paints::Surface,
+            Some("separator" | "opaque-separator") => Paints::Line,
+            _ => continue,
+        };
+        let mut colours = Vec::new();
+        leaves.colours(&e.value, &[], 4, &mut colours);
+        if !colours.is_empty() {
+            sites.push(Site {
+                span: e.span,
+                name: e.name.clone(),
+                paints,
+                colours,
+            });
+        }
+    }
     for s in styles {
         colour_sites(&s.attrs, &leaves, &[], &mut sites);
     }

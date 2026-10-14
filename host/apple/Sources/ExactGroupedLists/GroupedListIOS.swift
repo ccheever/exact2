@@ -465,6 +465,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let s = section(at: index)
         var c = view.defaultContentConfiguration()
         c.text = header ? s?.header : s?.footer
+        // UIKit's header and footer ink is the secondary label: the theme's where it replaces it.
+        if let ink = ThemeRoles.color("secondary-label") { c.textProperties.color = ink }
         (header ? s?.headerLook : s?.footerLook)?.apply(to: &c.textProperties, engine: owner.text)
         view.contentConfiguration = c
         view.marginsIgnoreSafeArea()

@@ -23,15 +23,6 @@ pub(crate) struct ThemeEntry {
     pub value: String,
 }
 
-impl ThemeEntry {
-    /// Every spelling a row may name it by.
-    pub(crate) fn keys(&self) -> Vec<&str> {
-        let mut keys = vec![self.name.as_str()];
-        keys.extend(self.role.as_deref());
-        keys
-    }
-}
-
 /// A role's id, as a row writes it (`-exact-label`, `CanvasText`) or as a
 /// theme key may (LLP 1095 D4's bare `secondary-label`).
 fn role_named(name: &str) -> Option<(u8, String)> {
@@ -68,11 +59,22 @@ impl Lowerer<'_> {
             self.b
                 .theme_entry(&e.name, e.role.as_deref().unwrap_or(""), &e.value);
         }
-        exact_kernel::style::theme::declarations(
-            self.theme
-                .iter()
-                .flat_map(|e| e.keys().into_iter().map(move |k| (k, e.value.as_str()))),
-        )
+        exact_kernel::style::theme::declarations(self.theme.iter().flat_map(|e| {
+            let tint = e
+                .role
+                .as_deref()
+                .and_then(roles::role)
+                .is_some_and(roles::tint);
+            (!tint)
+                .then_some((e.name.as_str(), e.value.as_str(), false))
+                .into_iter()
+                .chain(
+                    e.role
+                        .as_deref()
+                        .filter(|_| !tint)
+                        .map(|r| (r, e.value.as_str(), true)),
+                )
+        }))
     }
 
     /// Entry `i`'s colour text, following names; `None` once refused.
@@ -105,6 +107,48 @@ impl Lowerer<'_> {
         };
         let text = text.trim();
         let role = role_named(&entry.name);
+        // One override a role: its spellings are one name (LLP 1121 D3).
+        if let Some((id, _)) = role {
+            if let Some(first) = entries[..i]
+                .iter()
+                .find(|e| role_named(&e.name).is_some_and(|(other, _)| other == id))
+            {
+                let message = format!(
+                    "`{}` overrides the role `{}` already does",
+                    entry.name, first.name
+                );
+                self.refuse(entry, "lower-theme-duplicate", message);
+                return None;
+            }
+            // The tint is the app's: `AccentColor` sets it; a role drawn in
+            // it follows (LLP 1095 D1, an authored accent over the design).
+            if roles::tint(id) && id != roles::accent() {
+                let message = format!(
+                    "`{}` is drawn in the app's tint: a theme sets the tint with `AccentColor`",
+                    entry.name
+                );
+                self.refuse(entry, "lower-theme-tint", message);
+                return None;
+            }
+        }
+        let reserved = [
+            "none",
+            "auto",
+            "inherit",
+            "initial",
+            "unset",
+            "revert",
+            "revert-layer",
+            "currentcolor",
+        ];
+        if role.is_none() && reserved.contains(&entry.name.to_ascii_lowercase().as_str()) {
+            let message = format!(
+                "`{}` is a CSS keyword; name the entry otherwise",
+                entry.name
+            );
+            self.refuse(entry, "lower-theme-name", message);
+            return None;
+        }
         if role.is_none() && parses(&entry.name) {
             self.refuse(
                 entry,

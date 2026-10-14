@@ -193,7 +193,10 @@ pub fn set_plan_style(
                 .any(|w| w.eq_ignore_ascii_case(b"color(--"))
         })
         .unwrap_or(false)
-        .then(|| {
+        // A theme entry may stand for a profile's colour.
+        .then_some(())
+        .or_else(|| (!plan.theme.is_empty() && !plan.profiles.is_empty()).then_some(()))
+        .map(|()| {
             exact_kernel::style::profiled::declarations(
                 plan.profiles
                     .iter()
@@ -206,39 +209,46 @@ pub fn set_plan_style(
     set_style(patch, id, value, plan.stacks.len())
 }
 
+/// A plan's theme and strings buffers and the theme's length: which plan a
+/// cached table is.
+type PlanAt = (usize, usize, usize);
+
 thread_local! {
     /// The last plan's theme table, kept so a themed list's thousand rows
     /// bind it by pointer instead of building it each.
-    static THEME_TABLE: std::cell::RefCell<Option<exact_kernel::style::theme::Table>> =
+    static THEME_TABLE: std::cell::RefCell<Option<(PlanAt, exact_kernel::style::theme::Table)>> =
         const { std::cell::RefCell::new(None) };
 }
 
 /// `plan`'s theme as a parse binds it: each entry under its name, and an
 /// override under its role's spelling too. Built when the plan differs from
-/// the last one this thread bound (compared entry by entry, without
-/// allocating), else the one built before.
+/// the last one this thread bound (known by its buffers' addresses, nothing
+/// scanned per row), else the one built before.
 pub fn theme_table(plan: &exact_plan::Plan) -> exact_kernel::style::theme::Table {
-    let pairs = || {
-        plan.theme.iter().flat_map(|row| {
-            let value = plan.str(row.value);
-            std::iter::once((plan.str(row.name), value))
-                .chain((!plan.str(row.role).is_empty()).then(|| (plan.str(row.role), value)))
-        })
-    };
+    use exact_kernel::style::roles;
+    // The plan's own buffers: a cached table built from them is this plan's.
+    let at = (
+        plan.theme.as_ptr() as usize,
+        plan.theme.len(),
+        plan.strings.as_ptr() as usize,
+    );
     THEME_TABLE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if let Some(table) = cache.as_ref() {
-            let same = table.len() == pairs().count()
-                && table
-                    .iter()
-                    .zip(pairs())
-                    .all(|((n, v), (pn, pv))| **n == *pn && **v == *pv);
-            if same {
+        if let Some((key, table)) = cache.as_ref() {
+            if *key == at {
                 return table.clone();
             }
         }
-        let table = exact_kernel::style::theme::table(pairs());
-        *cache = Some(table.clone());
+        let table = exact_kernel::style::theme::table(plan.theme.iter().flat_map(|row| {
+            let (name, role, value) = (plan.str(row.name), plan.str(row.role), plan.str(row.value));
+            // A tint role stays the role in its row (`ColorValue::themed`).
+            let tint = roles::role(role).is_some_and(roles::tint);
+            (!tint)
+                .then_some((name, value, false))
+                .into_iter()
+                .chain((!role.is_empty() && !tint).then_some((role, value, true)))
+        }));
+        *cache = Some((at, table.clone()));
         table
     })
 }

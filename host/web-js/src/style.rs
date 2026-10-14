@@ -424,6 +424,12 @@ fn theme_map(plan: &Plan) -> Option<String> {
         else {
             continue;
         };
+        let role = plan.str(row.role);
+        // The tint's roles stay themselves (`ColorValue::themed`): the page's
+        // `--exact-accent` carries the theme's colour under an authored one.
+        if exact_kernel::style::roles::role(role).is_some_and(exact_kernel::style::roles::tint) {
+            continue;
+        }
         let mut css = String::new();
         exact_kernel::gradient::color_css(&mut css, colour);
         names.push(format!(
@@ -431,14 +437,7 @@ fn theme_map(plan: &Plan) -> Option<String> {
             serde_json::to_string(plan.str(row.name)).unwrap(),
             serde_json::to_string(&css).unwrap()
         ));
-        let role = plan.str(row.role);
-        // The tint's roles stay themselves (`ColorValue::themed`): the page's
-        // `--exact-accent` carries the theme's colour under an authored one.
-        let tint = exact_kernel::style::roles::role(role).is_some_and(|id| {
-            exact_kernel::style::roles::follows_accent(id, false)
-                || exact_kernel::style::roles::follows_accent(id, true)
-        });
-        if !role.is_empty() && !tint {
+        if !role.is_empty() {
             roles.push(format!(
                 "{}:{}",
                 serde_json::to_string(&role.to_ascii_lowercase()).unwrap(),
@@ -446,8 +445,11 @@ fn theme_map(plan: &Plan) -> Option<String> {
             ));
         }
     }
+    // A colour function's own text is left whole, as the kernel reads no
+    // name inside one (a `light-dark()` half, LLP 1095 D1); a gradient's
+    // stops and a shadow's colour are components, read as names.
     Some(format!(
-        r#"((N,R)=>v=>typeof v==="string"?v.replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
+        r#"((N,R)=>v=>typeof v==="string"?v.replace(/(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\((?:[^()]|\([^()]*\))*\)|url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
         names.join(","),
         roles.join(",")
     ))
@@ -954,7 +956,7 @@ pub(crate) mod tests {
     /// overridden role writes the entry's CSS, as the literal path does.
     #[test]
     fn a_bound_theme_name_writes_its_entry() {
-        let plan = contract::compile("theme\n  brand = \"#c8102e\"\n  ink = \"brand\"\n  -exact-secondary-label = \"light-dark(#111, #eee)\"\n\ncomponent App\n  view\n    text \"a\"\n").unwrap();
+        let plan = contract::compile("theme\n  brand = \"#c8102e\"\n  ink = \"brand\"\n  -exact-secondary-label = \"light-dark(#111, #eee)\"\n  AccentColor = \"#00ff00\"\n\ncomponent App\n  view\n    text \"a\"\n").unwrap();
         let values = [
             "brand",
             "ink",
@@ -964,6 +966,8 @@ pub(crate) mod tests {
             "BRAND",
             "CanvasText",
             "#123456",
+            "AccentColor",
+            "light-dark(brand, #000)",
         ];
         assert_eq!(
             run(&color_map(&plan), &values),
@@ -975,7 +979,11 @@ pub(crate) mod tests {
                 "0 1px 2px #c8102eff",
                 "BRAND",
                 run(&SYSTEM_COLOR_MAP, &["CanvasText"])[0].clone(),
-                "#123456"
+                "#123456",
+                // The tint's role stays itself, under an authored accent too;
+                // no name is read inside a colour function.
+                run(&SYSTEM_COLOR_MAP, &["AccentColor"])[0].clone(),
+                "light-dark(brand, #000)"
             ])
         );
     }

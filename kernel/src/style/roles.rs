@@ -281,7 +281,7 @@ pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
     let (changed, replaced) = OVERRIDES.with(|t| {
         let mut table = t.borrow_mut();
         let changed = *table != next;
-        let replaced = changed && !table.is_empty() && !next.is_empty();
+        let replaced = changed && !table.is_empty();
         *table = next;
         (changed, replaced)
     });
@@ -301,7 +301,7 @@ impl ColorValue {
     /// wins for its subtree (LLP 1095 D1, the author over the design).
     pub fn themed(self) -> ColorValue {
         match self {
-            ColorValue::Role(id) if follows_accent(id, false) || follows_accent(id, true) => self,
+            ColorValue::Role(id) if tint(id) => self,
             ColorValue::Role(id) => overridden(id).filter(|o| *o != self).unwrap_or(self),
             other => other,
         }
@@ -319,9 +319,19 @@ pub fn theme_css() -> String {
     for id in 0..=u8::MAX {
         let Some(role) = role_of(id) else { break };
         let Some(o) = overridden(id) else { continue };
+        // A CSS system colour's in kebab case, as the look's sheets spell
+        // them (`--exact-gray-text`).
         let name = match role.name {
             "AccentColor" => "accent".to_string(),
-            n if is_css_system(role) => n.to_ascii_lowercase(),
+            n if is_css_system(role) => {
+                n.chars().enumerate().fold(String::new(), |mut k, (i, c)| {
+                    if c.is_ascii_uppercase() && i > 0 {
+                        k.push('-');
+                    }
+                    k.push(c.to_ascii_lowercase());
+                    k
+                })
+            }
             n => n.to_string(),
         };
         out.push_str("--exact-");
@@ -330,7 +340,7 @@ pub fn theme_css() -> String {
         crate::gradient::color_css(&mut out, o);
         out.push(';');
         match role.name {
-            "CanvasText" => out.push_str("color:var(--exact-canvastext);"),
+            "CanvasText" => out.push_str("color:var(--exact-canvas-text);"),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
             _ => {}
         }
@@ -339,6 +349,33 @@ pub fn theme_css() -> String {
         return out;
     }
     format!(":root{{{out}}}")
+}
+
+/// A role an Apple platform draws in the view's tint (`AccentColor`,
+/// `LinkText`, `-exact-link`, `-exact-symbol`, `ButtonText`). Of these a
+/// theme may replace only `AccentColor`, which is the app's tint.
+pub fn tint(id: u8) -> bool {
+    follows_accent(id, false) || follows_accent(id, true)
+}
+
+/// What a painting host resolves for `c` under the theme: a replaced
+/// role's colour, and for a tint role the theme's `AccentColor` (an
+/// authored accent is the host's to apply).
+pub(crate) fn painted_override(c: ColorValue) -> Option<ColorValue> {
+    let ColorValue::Role(id) = c else { return None };
+    let accent = accent();
+    let id = if id != accent && tint(id) && overridden(accent).is_some() {
+        accent
+    } else {
+        id
+    };
+    overridden(id).filter(|o| *o != ColorValue::Role(id))
+}
+
+/// `AccentColor`'s id.
+pub fn accent() -> u8 {
+    static ID: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *ID.get_or_init(|| role("AccentColor").unwrap_or(u8::MAX))
 }
 
 /// What the theme replaces a role with, if it does.
@@ -511,12 +548,9 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
             // what they fall back to.
             let accent = mode == ColorText::Css && web_accent(r);
             match overridden(id) {
-                Some(o) if accent && !matches!(o, ColorValue::Role(_)) => {
-                    out.push_str("var(--exact-accent, ");
-                    crate::gradient::color_text(out, o, mode);
-                    out.push(')');
-                    return;
-                }
+                // The page's `--exact-accent` is the theme's (theme_css), so
+                // an accent role keeps reading it, an authored one first.
+                _ if accent || tint(id) => {}
                 Some(ColorValue::Role(next)) if next != id => {
                     return reference_css(out, ColorValue::Role(next), mode)
                 }

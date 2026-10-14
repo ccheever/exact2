@@ -726,10 +726,8 @@ impl ColorValue {
     /// host does not, because it hands the pair to the browser.
     pub fn resolve(self, dark: bool) -> Color {
         // @ref LLP 1095 D4 — a role the theme replaces is what replaces it.
-        if let ColorValue::Role(id) = self {
-            if let Some(o) = roles::overridden(id).filter(|o| *o != self) {
-                return o.resolve(dark);
-            }
+        if let Some(o) = roles::painted_override(self) {
+            return o.resolve(dark);
         }
         // @ref LLP 1095 D1 — a reference is what the host reported, else
         // its fallback pair.

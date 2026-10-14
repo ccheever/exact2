@@ -14,7 +14,10 @@ use std::sync::Arc;
 /// A plan's theme as a parse reads it: each entry's name (a role's spelling
 /// for an override) and the colour text it stands for, which names no entry.
 /// Built once per plan; binding one is a pointer swap.
-pub type Table = Arc<[(Box<str>, Box<str>)]>;
+/// A role's spelling (`true`) matches as roles do, without case; a name
+/// exactly. A role drawn in the view's tint is never in it: it stays the
+/// role in its row, and a host makes the theme's colour the app's tint.
+pub type Table = Arc<[(Box<str>, Box<str>, bool)]>;
 
 thread_local! {
     static ENTRIES: RefCell<Option<Table>> = const { RefCell::new(None) };
@@ -30,11 +33,11 @@ pub struct ThemeScope {
     thread: std::marker::PhantomData<std::rc::Rc<()>>,
 }
 
-/// A table from `(name, colour text)` pairs.
-pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str)>) -> Table {
+/// A table from `(name, colour text, a role's spelling)`.
+pub fn table<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> Table {
     entries
         .into_iter()
-        .map(|(n, v)| (n.into(), v.into()))
+        .map(|(n, v, r)| (n.into(), v.into(), r))
         .collect()
 }
 
@@ -47,7 +50,7 @@ pub fn bind(table: &Table) -> ThemeScope {
 }
 
 /// [`bind`] a table built from `entries`, for a caller that binds once.
-pub fn declarations<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str)>) -> ThemeScope {
+pub fn declarations<'a>(entries: impl IntoIterator<Item = (&'a str, &'a str, bool)>) -> ThemeScope {
     bind(&table(entries))
 }
 
@@ -69,21 +72,9 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
         return None;
     }
     let table = ENTRIES.with(|e| e.borrow().clone())?;
-    let role_key = |name: &str| name.starts_with('-') || name.starts_with(char::is_uppercase);
-    let (key, value) = table
+    let (_, value, _) = table
         .iter()
-        .find(|(name, _)| **name == *text || role_key(name) && name.eq_ignore_ascii_case(text))?;
-    // A role an Apple platform draws in the view's tint stays the role in
-    // its row: the host makes the theme's colour the app's tint, under which
-    // an authored `accent-color` still wins (`ColorValue::themed`). Asked
-    // only of a role's key the table holds, so other rows allocate nothing.
-    if role_key(key)
-        && super::roles::role(text).is_some_and(|id| {
-            super::roles::follows_accent(id, false) || super::roles::follows_accent(id, true)
-        })
-    {
-        return None;
-    }
+        .find(|(name, _, role)| **name == *text || *role && name.eq_ignore_ascii_case(text))?;
     INSIDE.with(|i| i.set(true));
     struct Out;
     impl Drop for Out {
