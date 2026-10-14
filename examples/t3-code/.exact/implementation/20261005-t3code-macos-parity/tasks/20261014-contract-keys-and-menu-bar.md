@@ -3,11 +3,11 @@ name: 20261014-contract-keys-and-menu-bar
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-contract-keys-and-menu-bar
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/587
 verified_commit: null
 inspected_base: a218ee78fec42b1a4590b199297f30667876de67
 framework_revision: 178ae7237edaf7b3b07aa419f0d32b98b7e5ee80
@@ -365,6 +365,9 @@ recorder repair) found no blocking defect and confirmed the disposition tables a
 
 ## Next action
 
-Implemented on 2026-10-15 and committed locally on `feat(example)/t3-code-contract-keys-and-menu-bar` (not pushed).
-Next: the parent's PR and review flow, then the final real-input session for the rows marked UNVERIFIED above (real
-menu-bar tracking, US and 2-Set chords, actual context menus by physical input, held-⌘ hints after a blur, VoiceOver).
+Merged as [#587](https://github.com/ccheever/exact2/pull/587), feature commit
+`aa4fd19c3` (squash). The task stays unverified for real menu-bar tracking, US and 2-Set
+chords, actual context menus by physical input, held-⌘ hints after a blur, the PR number
+menu, Send intent and VoiceOver. These go to the final real-input session after the eight
+serial follow-ups. Older known difference seen in the drive: the action editor hint shows
+"UseBackspace" and breaks the line after it.
