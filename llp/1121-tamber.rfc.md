@@ -983,8 +983,9 @@ for the web's JS target, whose TypeScript data module speaks `tamber/1` with the
   D5);
 - **the app's own screens**, as its connected development builds (a phone, the Mac, a
   browser tab), listed by `hello` and all changing together through the live table.
-  Embedding the app's screens inside the tool itself is later: a web JS-target app cannot
-  host another session today.
+  The tool embeds the app's web build in an `iframe` (LLP 1020): a second document at the
+  dev loop's URL, not a second session in the tool's runtime, which a web JS-target app
+  could not host. *Amended by LLP 1122 D3 (2026-10-13).*
 
 **Agents** use the same operations: `bun exact.mjs tamber op set-token surface.card …` is a
 protocol client with the local token.
