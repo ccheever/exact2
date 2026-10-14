@@ -317,6 +317,22 @@ impl Painter {
             !disabled && self.feedback.1 == Some(node.id),
         );
         let label = role("-exact-label", dark);
+        if node.is_neutral_tab()
+            && matches!(
+                node.props.str(PropId::ButtonStyle).unwrap_or("bordered"),
+                "bordered" | "gray"
+            )
+        {
+            return if disabled {
+                role("GrayText", dark)
+            } else if node.props.bool(PropId::AccessibilitySelected) == Some(true) {
+                look::accents(authored, dark).0
+            } else if hover {
+                label
+            } else {
+                role("-exact-secondary-label", dark)
+            };
+        }
         // A wash of a role where the fill is neutral, of the ink where it is
         // the accent's.
         let neutral_wash = || match (pressed, hover) {

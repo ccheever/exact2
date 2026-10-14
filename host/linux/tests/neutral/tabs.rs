@@ -139,6 +139,12 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
         let k = p.host().kernel();
         for name in ["tabs", "references", "own-bar", "broad"] {
             let node = k.node(id(&p, name)).unwrap();
+            assert_eq!(
+                node.computed_row(StyleId::BackgroundColor, |s| s.background_color),
+                Some(exact_kernel::ColorValue::Role(
+                    exact_kernel::style::roles::role("-exact-background").unwrap()
+                ))
+            );
             for row in [
                 StyleId::BackgroundColor,
                 StyleId::BorderWidthTop,
@@ -325,10 +331,90 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
                 }
             }
         }
+        let clear_rows = exact_kernel::StyleMask::of(StyleId::BackgroundColor)
+            .union(exact_kernel::StyleMask::of(StyleId::BorderStyleTop));
+        for written in [true, false] {
+            k.apply(
+                0,
+                1,
+                &[exact_kernel::Op::ClearStyle {
+                    id: broad,
+                    mask: clear_rows,
+                    written,
+                }],
+            )
+            .unwrap();
+            let bar = k.node(broad).unwrap();
+            assert_eq!(
+                bar.computed_row(StyleId::BackgroundColor, |s| s
+                    .background_color
+                    .map_or(0, |color| color.resolve(scheme == "dark").a())),
+                if written { 0 } else { 255 }
+            );
+            assert_eq!(
+                bar.computed_row(StyleId::BorderStyleTop, |s| s.border_style_top),
+                if written {
+                    exact_kernel::BorderStyle::None
+                } else {
+                    exact_kernel::BorderStyle::Solid
+                }
+            );
+            for row in [StyleId::BackgroundColor, StyleId::BorderStyleTop] {
+                assert!(!bar.style.mask.has(row));
+                assert_eq!(bar.style.written.has(row), written);
+            }
+        }
+        let receipt = k
+            .apply(0, 1, &[exact_kernel::Op::DestroyView { id: child }])
+            .unwrap();
+        let bar = k.node(broad).unwrap();
+        assert!(receipt.touched.contains(&bar.key));
+        assert_eq!(
+            bar.computed_row(StyleId::BorderStyleTop, |s| s.border_style_top),
+            exact_kernel::BorderStyle::None
+        );
+        assert!(bar.children().is_empty());
         assert_eq!(
             text_pixels(&mut p, "outside"),
             outside,
             "ordinary controls are unchanged"
         );
+    }
+    route_header_tab_bar_defaults_compose();
+}
+
+fn route_header_tab_bar_defaults_compose() {
+    use exact_kernel::{BorderStyle, StyleId};
+    let plan = contract::compile(
+        r##"component App
+  view
+    column navigationKey="route" width=320
+      header role="tablist" height=40 min-height=0 padding=0 testId="both"
+        text "" role="tab" aria-controls="" width=1 height=1
+"##,
+    )
+    .unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        (),
+        (320.0, 100.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(size(&mut p, "both"), (320.0, 42.0));
+    let node = p.host().kernel().node(id(&p, "both")).unwrap();
+    assert_eq!(
+        node.computed_row(StyleId::BorderStyleTop, |s| s.border_style_top),
+        BorderStyle::Solid
+    );
+    assert_eq!(
+        node.computed_row(StyleId::BorderStyleBottom, |s| s.border_style_bottom),
+        BorderStyle::Solid
+    );
+    for row in [StyleId::BorderWidthTop, StyleId::BorderWidthBottom] {
+        assert!(!node.style.mask.has(row) && !node.style.written.has(row));
     }
 }

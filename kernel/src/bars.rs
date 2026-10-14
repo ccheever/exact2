@@ -32,6 +32,21 @@ use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 use crate::props::PropValue;
 
+// Paint predicates are broader than the projection rules below.
+impl NodeRef<'_> {
+    /// The neutral sheet removes an ordinary bar button's edge anywhere
+    /// below a direct route header, including nested authored containers.
+    pub fn inside_neutral_header(&self) -> bool {
+        self.arena.inside_neutral_header(self.slot)
+    }
+
+    /// A direct controlled tab of the neutral sheet, independently of
+    /// whether a navigation host projects its tablist or resolves its target.
+    pub fn is_neutral_tab(&self) -> bool {
+        self.arena.is_neutral_tab(self.slot)
+    }
+}
+
 /// What the rule asks of a node: bits, with a heading's level above them
 /// ([`fact::LEVEL`]).
 pub mod fact {

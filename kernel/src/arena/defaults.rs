@@ -26,6 +26,42 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
     style
 });
 
+static TAB_BAR: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
+    let role =
+        |name| crate::ColorValue::Role(crate::style::roles::role(name).expect("schema role"));
+    let mut style = StyleProps {
+        background_color: Some(role("-exact-background")),
+        border_width_top: metrics::length_in(
+            crate::generated::metric::CONTROL_LINE,
+            Column::Neutral,
+            1.0,
+            1.0,
+        )
+        .expect("neutral separator width"),
+        border_style_top: crate::BorderStyle::Solid,
+        ..StyleProps::default()
+    };
+    // Keep role identities: a static default must not capture one app's theme.
+    style.border_color_top = Some(role("-exact-separator"));
+    for id in [
+        StyleId::BackgroundColor,
+        StyleId::BorderWidthTop,
+        StyleId::BorderStyleTop,
+        StyleId::BorderColorTop,
+    ] {
+        style.mask.set(id);
+    }
+    style
+});
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DefaultContext {
+    pub header: bool,
+    pub inside_header: bool,
+    pub tab_bar: bool,
+    pub tab: bool,
+}
+
 impl NodeArena {
     pub(crate) fn refresh_sticky(&mut self, slot: u32) {
         if self
@@ -61,38 +97,72 @@ impl NodeArena {
         false
     }
 
-    pub(crate) fn header_context(&self, slot: u32) -> (bool, bool) {
-        (
-            self.is_neutral_header(slot),
-            self.inside_neutral_header(slot),
-        )
+    pub(crate) fn is_neutral_tab_bar(&self, slot: u32) -> bool {
+        metrics::column() == Column::Neutral
+            && self.props(slot).str(PropId::AccessibilityRole) == Some("tablist")
+            && self.children(slot).iter().any(|child| {
+                self.is_live(*child)
+                    && self.props(*child).str(PropId::AccessibilityRole) == Some("tab")
+                    && self
+                        .props(*child)
+                        .get(PropId::AccessibilityControls)
+                        .is_some()
+            })
     }
 
-    pub(crate) fn header_rows() -> StyleMask {
-        HEADER.mask
+    pub(crate) fn is_neutral_tab(&self, slot: u32) -> bool {
+        metrics::column() == Column::Neutral
+            && self.props(slot).str(PropId::AccessibilityRole) == Some("tab")
+            && self
+                .props(slot)
+                .get(PropId::AccessibilityControls)
+                .is_some()
+            && self.parent(slot).is_some_and(|parent| {
+                self.props(parent).str(PropId::AccessibilityRole) == Some("tablist")
+            })
     }
 
-    pub(crate) fn style_start(&self, slot: u32) -> Option<&StyleProps> {
-        if self.is_neutral_header(slot) {
-            Some(&HEADER)
-        } else {
-            self.control_text_start(slot)
+    pub(crate) fn default_context(&self, slot: u32) -> DefaultContext {
+        DefaultContext {
+            header: self.is_neutral_header(slot),
+            inside_header: self.inside_neutral_header(slot),
+            tab_bar: self.is_neutral_tab_bar(slot),
+            tab: self.is_neutral_tab(slot),
         }
+    }
+
+    pub(crate) fn structural_rows() -> StyleMask {
+        HEADER.mask.union(TAB_BAR.mask)
+    }
+
+    fn structural_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
+        // A route header can also be a tablist. The later header rule wins
+        // shared rows while the tab bar's top edge still accompanies its bottom.
+        [
+            self.is_neutral_header(slot).then(|| &*HEADER),
+            self.is_neutral_tab_bar(slot).then(|| &*TAB_BAR),
+        ]
+        .into_iter()
+        .flatten()
+    }
+
+    pub(crate) fn style_starts(&self, slot: u32) -> impl Iterator<Item = &StyleProps> {
+        self.structural_starts(slot)
+            .chain(self.control_text_start(slot))
     }
 
     /// Effective own rows never alter stored ownership. Inherited text is
     /// resolved separately, including a written clear which bypasses a start.
     pub(crate) fn effective_style(&self, slot: u32) -> Cow<'_, StyleProps> {
         let own = self.style(slot);
-        if self.is_neutral_header(slot) {
-            let defaults = HEADER.mask.minus(own.mask.union(own.written));
+        let mut out = Cow::Borrowed(own);
+        for start in self.structural_starts(slot) {
+            let defaults = start.mask.minus(out.mask.union(own.written));
             if !defaults.is_empty() {
-                let mut style = own.clone();
-                style.copy_rows(&HEADER, defaults);
-                return Cow::Owned(style);
+                out.to_mut().copy_rows(start, defaults);
             }
         }
-        Cow::Borrowed(own)
+        out
     }
 
     /// The slot whose own row supplies `id` for `slot`: the slot itself when
@@ -106,8 +176,8 @@ impl NodeArena {
                 return Some(s);
             }
             if self
-                .style_start(s)
-                .is_some_and(|start| start.mask.has(id) && !self.styles[s as usize].written.has(id))
+                .style_starts(s)
+                .any(|start| start.mask.has(id) && !self.styles[s as usize].written.has(id))
             {
                 return None;
             }
@@ -123,8 +193,8 @@ impl NodeArena {
     /// logical ancestors: an own row stays; a missing inherited row takes the
     /// nearest ancestor's and is marked set; a row no ancestor sets keeps the
     /// initial value, unmarked. Rows outside `rows`, and rows the schema does
-    /// not mark inherited, keep the effective own rows, including neutral
-    /// header defaults below stored values and authored clears. One walk.
+    /// not mark inherited, keep the effective own rows, including structural
+    /// defaults below stored values and authored clears. One walk.
     pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
         let mut out = self.effective_style(slot).into_owned();
         self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
@@ -141,8 +211,8 @@ impl NodeArena {
                 return own;
             }
             if let Some(start) = self
-                .style_start(s)
-                .filter(|start| start.mask.has(id) && !own.written.has(id))
+                .style_starts(s)
+                .find(|start| start.mask.has(id) && !own.written.has(id))
             {
                 return start;
             }
@@ -191,7 +261,7 @@ impl NodeArena {
                 copy(ancestor, found);
                 pending = pending.minus(found);
             }
-            if let Some(start) = self.style_start(p) {
+            for start in self.style_starts(p) {
                 let stopped = pending.intersect(start.mask).minus(ancestor.written);
                 if !stopped.is_empty() {
                     copy(start, stopped);
