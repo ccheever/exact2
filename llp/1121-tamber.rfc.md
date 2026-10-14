@@ -1016,6 +1016,117 @@ checks and the same authority: the files.
   step through the API (an export after each accepted write, an import as proposals); its
   canvas stays Figma's.
 
+**Importers** (Charlie, 2026-10-13). Each importer is a `tamber/1` client that only
+**proposes** (D13 `propose`). It reads another system's theme and writes a transaction of
+`add-token` and `set-token` operations, with an **unmapped report** listing every source
+value it did not map and why. A person or agent accepts the proposal. Nothing is ever
+dropped silently: the source values number exactly the mapped ones plus the reported ones,
+and the importer checks that before it proposes.
+
+What every importer shares:
+- **Names.** A source's names become dotted Tamber names under a prefix the person picks
+  (`shadcn.` by default). A segment that starts with a digit takes `s`
+  (`blue-500` → `blue.s500`, D3).
+- **Role mappings are proposed separately.** Where a source token means a platform role
+  (`--background` is the page), the importer proposes the role override as a separate
+  item the person can decline, never folded into the token itself. A design stays the
+  platform's unless the person chooses otherwise (D1).
+- **Kinds not built yet are reported, not dropped.** Before stage 6, length, type, shadow
+  and motion values are reported as `kind pending (stage 6)`, with the token each would
+  become, and are proposed once that stage lands.
+- **Components and utility classes from these libraries are out of scope** (§4).
+
+**1. shadcn/ui** (first: the most common). Source: the `:root` and `.dark` blocks of a
+`globals.css`. The values are either v4's `oklch()` or v3's bare HSL channels
+(`222.2 84% 4.9%`, read as `hsl()`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--background`, `--foreground` | `shadcn.background`, `shadcn.foreground`; proposed role overrides `-exact-background`, `-exact-label` | `:root` is the light side and `.dark` the dark side: one `light-dark(a, b)` |
+| `--card`, `--popover` and their `-foreground` | `shadcn.card`, `shadcn.card-foreground` … ; proposed `-exact-secondary-background` for `--card` | same |
+| `--primary`, `--primary-foreground` | `shadcn.primary` …; proposed: the root `accent-color` names `shadcn.primary` (D9) | same |
+| `--secondary`, `--muted`, `--accent` and their `-foreground`; `--destructive` | `shadcn.*` | same |
+| `--border`, `--input`, `--ring` | `shadcn.*`; proposed `-exact-separator` for `--border` | same |
+| `--chart-1…5`, `--sidebar-*` | `shadcn.chart.s1…`, `shadcn.sidebar.*` | same |
+| `--radius` | `shadcn.radius` (length), with `radius.sm/md/lg/xl` as shadcn derives them (`calc(shadcn.radius - 4px)` …) | none |
+| a further theme class (`.theme-blue`, `[data-theme=x]`) | an app axis, proposed (`theme = default \| blue`) | `when theme=blue` |
+
+Gate: shadcn's default theme and one colour theme from its themes page import with every
+variable mapped or reported. Accepting the proposal and exporting gives back the same
+light and dark colours. Re-importing the unchanged source proposes nothing.
+
+**2. Tailwind CSS v4 `@theme`.** Source: the `@theme` block (and `@theme inline`), plus
+dark overrides wherever the stylesheet redefines the variables (`.dark { … }`,
+`@media (prefers-color-scheme: dark)`, `@variant dark`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--color-<name>`, `--color-<name>-<step>` | `tw.<name>`, `tw.<name>.s<step>` (colour) | a dark redefinition is the dark side of a `light-dark()` |
+| `--spacing`, `--spacing-<n>` | `tw.space.base`, `tw.space.<n>` (length) | — |
+| `--radius-<n>` | `tw.radius.<n>` | — |
+| `--font-<n>` | `tw.family.<n>` | — |
+| `--text-<n>`, `--text-<n>--line-height` | `tw.type.<n>` (size and line height) | — |
+| `--font-weight-<n>`, `--leading-<n>`, `--tracking-<n>` | numbers (`tw.weight.<n>` …) | — |
+| `--shadow-<n>`, `--inset-shadow-<n>`, `--text-shadow-<n>` | `box-shadow`, `box-shadow` (inset), `text-shadow` | a dark redefinition, if any |
+| `--ease-<n>` | `tw.ease.<n>` (easing) | — |
+| `--breakpoint-*`, `--container-*`, `--blur-*`, `--drop-shadow-*`, `--perspective-*`, `--aspect-*`, `--animate-*` | not mapped, reported (no Tamber kind; breakpoints are layout, CSS's own) | — |
+| `--*: initial`, `--color-*: initial` | resets, honoured: the reset names are not imported | — |
+
+Utility classes and `@utility` are out of scope. Gate: Tailwind v4's default theme imports
+(its palette, spacing, radii, fonts, shadows and easings) with every variable mapped or
+reported. A project with a `.dark` block maps its colours to `light-dark()`. Re-importing
+the unchanged source proposes nothing.
+
+**3. DTCG JSON** (Format 2025.10, with the Resolver Module where present), from Tokens Studio
+and from Figma Variables exports. This replaces stage 5's "DTCG import"; export stays in
+stage 5.
+
+| Source `$type` | Tamber kind |
+|---|---|
+| `color` | `color` |
+| `dimension` | `length` |
+| `fontFamily` | `family` |
+| `fontWeight`, `number` | `number` |
+| `duration`, `cubicBezier` | `duration`, `easing` |
+| `shadow` | `box-shadow` |
+| `typography` | `type` |
+| `border`, `transition`, `gradient`, `strokeStyle` | reported (a gradient's stops become colour tokens when they are references) |
+
+- **Names:** a group path becomes a dotted name, with the segments sanitised and
+  collisions reported.
+- **Aliases:** `{a.b}` becomes a reference to the token.
+- **Modes:** a Resolver modifier, Tokens Studio theme set, or Figma mode named `light` and
+  `dark` (or `Light` and `Dark`) is the scheme, and becomes `light-dark()`. Any other
+  modifier becomes an app axis, proposed, with its contexts as values and `when` lines for
+  their values.
+- **Our own export:** a file `tamber export dtcg` wrote carries
+  `$extensions["exact"]`, and re-import restores the source expressions from it (D14).
+
+Gate: a Tokens Studio sample set and a Figma Variables export with light and dark modes
+import with every token mapped or reported. Our own export round-trips with no proposed
+operations.
+
+**4. Astryx** (per exact1 LLP 0267). It is also a **probe for gaps in Tamber's token kinds**:
+its unmapped report is the evidence for new kinds, as it was for exact1's Proposal I.
+Source: a published theme package (`@astryxdesign/theme-neutral`, pinned to a version) or a
+`defineTheme()` result, read as resolved light and dark values (`resolveThemeTokens()`).
+
+| Source | Tamber | Modes |
+|---|---|---|
+| `--color-background-body/surface/card/popover/inverted` | `astryx.surface.*`; proposed role overrides (`-exact-background` for body) | light and dark values become `light-dark()` |
+| `--color-text-*`, `--color-icon-*` | `astryx.text.*`, `astryx.icon.*` | same |
+| `--color-accent`, `--color-on-accent`, status colours with muted and on variants | `astryx.*` | same |
+| `--color-overlay`, `--color-overlay-hover/pressed` | `astryx.overlay.*` (as colours; the pressed look is the author's state part, D8) | same |
+| `--spacing-*` | `astryx.space.*` | — |
+| `--radius-inner/element/container/full` | `astryx.radius.*` | — |
+| `--shadow-low/med/high`, inset rings | `box-shadow` (rings as `inset` shadows) | same |
+| `--duration-fast/medium/slow` | `duration`; their **min / nominal / max tiers** are reported (Tamber has one value per duration token) | — |
+| easing | `easing` | — |
+
+Gate: the pinned `theme-neutral` imports with every token mapped or reported. The unmapped
+report is attached to the stage's commit as the kinds probe; each gap it finds (the motion
+tiers, for one) becomes a §9 question or a later kind, never a silent omission.
+
 ### D15 — Component params: a component declares what the tool may tweak, and how
 
 **Ruled (Charlie, 2026-10-13):** a Contract component declares what is tweakable and how, as
@@ -1194,6 +1305,9 @@ icons
 - **No dial or param changes at run time in a shipped app.** A person's choice is an app axis.
 - **No side channel for any tool.** Every client, ours included, edits through `tamber/1`.
 - **No live two-way Figma canvas sync** (D14).
+- **No components or utility classes from imported libraries.** shadcn's components,
+  Tailwind's utilities and Astryx's components are not imported; importers bring tokens only
+  (D14).
 
 ## 5. Staging and gates
 
@@ -1229,6 +1343,14 @@ Android's reader and the terminal.
    request without the token is refused, and a `--lan` client or a forwarded request cannot
    obtain it; each inverse transaction undoes, including an `unset-param` restoring the
    component's default.
+   - **3a–3d. Importers** (D14, Charlie 2026-10-13). Each is a `tamber/1` client that only
+     proposes, after stage 3, in this order: **3a** shadcn, **3b** Tailwind v4 `@theme`,
+     **3c** DTCG (Tokens Studio, Figma Variables export), **3d** Astryx (also the
+     token-kinds probe). No digest break. Before stage 6, values of other kinds are reported
+     as pending. **Gate, each:** the known theme D14 names for it imports; every source
+     value is mapped or listed in the unmapped report with a reason, and a test counts
+     them; the accepted proposal, exported again, gives back the source's values;
+     re-importing the unchanged source proposes nothing.
 4. **The live table** (D13). Needs Charlie's §Runtime admission, and reclaimable live colour
    storage first: `Wide` entries are process-global, immutable and capped at 4,096
    (`kernel/src/style/wide.rs`); the policy says what a running transition keeps alive. No
@@ -1244,7 +1366,8 @@ Android's reader and the terminal.
    the sample host draws with `ExactTamber(view).color(…)` and follows `setMode`, a pin above
    it, a Dynamic Type change and the live table; two embedded sessions with different
    designs answer differently; a TypeScript data module returning an unknown token fails
-   `tsc`; a DTCG export re-imported unedited proposes no operations.
+   `tsc`; a DTCG export re-imported unedited proposes no operations (DTCG import itself is
+   stage 3c).
 6. **Length, number, type, shadow and motion tokens.** Prerequisite: LLP 1115.000 D12.2 (D6).
    Digest break: the new reference forms on those rows. Hosts: all. **Gate:** Expose's 48
    `font-family` writes and its radii become tokens with screens identical; under Bold Text a
