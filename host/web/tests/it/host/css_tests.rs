@@ -568,7 +568,7 @@ component App
     assert!(!css(&first, id("class")).contains("color:"));
     assert!(css(&first, id("placeholder")).contains("--exact-placeholder-color:initial;"));
     let set = host.dispatch(id("toggle"), Event::Press);
-    assert!(css(&set, id("bound")).contains("color:#abcdefff;"));
+    assert!(css(&set, id("bound")).contains("color:#abcdefff;"), "{set}");
     assert!(css(&set, id("placeholder")).contains("--exact-placeholder-color:#abcdefff;"));
     let cleared = host.dispatch(id("toggle"), Event::Press);
     assert!(css(&cleared, id("bound")).contains("color:unset;"));
