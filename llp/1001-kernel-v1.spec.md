@@ -1033,10 +1033,13 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**: the mask of the rows it sets, the mask of those its author wrote, then
-each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
-row marked written and not set is a typed rejection), `ClearStyle` (a mask),
-`SetChildren`, `AttachRoot`. There is no
+patch**: the mask of own values, the mask of authored declarations, then each
+present value; LLP 1115.000 D2). The patch affects the union of both masks. A
+written row without an own value is an explicit CSS clear: it removes the stored
+value and retains authored intent while resolving to inherited or initial value.
+`ClearStyle` takes a mask and a `written` boolean: true retains that intent;
+false removes both the own value and its authored declaration. `SetChildren`
+and `AttachRoot` complete the op list. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
