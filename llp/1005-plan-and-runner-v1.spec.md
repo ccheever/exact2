@@ -1216,6 +1216,32 @@ Live handler reentry follows rendering turns instead. Supply the existing
 command executor to the loop; do not add a second runner, clock or general
 scheduler.
 
+### Call paths the driver must also cover
+
+The fifth review (2026-10-13) named four paths this design does not yet
+settle; the implementation decides each with a regression before it lands:
+
+- **A scroll queued before `pump`.** `Presenter::pump` first flushes queued
+  scroll events through `dispatch_authored_scroll`, which calls
+  `Host::dispatch_at` at `Host::now()`. That flush is the earlier delivery:
+  it runs at the event's enqueue time, before the timers, completions,
+  `fulfill_all` and new input of the catch-up to this `wall()`.
+- **Input that carries no time.** `pointer::dispatch` drops `now_ms` for
+  keys and wheels (`hardware_key` reads `Host::now()`; `wheel_at` uses
+  `pointer_now()`), and Android's `Command::Scroll` samples `now` and then
+  calls `wheel_at` without it. The driver is given the event's sample
+  before the key or wheel is applied, so a completion and a timer due before
+  that sample are delivered first.
+- **The Android reader's scroll step.** `Owner.step` calls `Native.scrolled`
+  and `Native.scroll` before `produce()`, and `ExactView.scrolled` without an
+  owner calls `Native.scrolled` then `Native.frame()`. The carrier's wake
+  opens around that step and holds through `frame`/`frame_held`, so one
+  finger step has one allowance.
+- **An owner-less key.** Without an `Owner`, `Exact.key` calls `Native.key`
+  and returns with no frame; that key is a wake of its own. `Owner.sync`'s
+  trailing `produce()` is a live wake apart from `Native.agent` and
+  `Native.back`, so an agent seek does not share the frame's allowance.
+
 ### Regression reconciliation
 
 The supplied `target/parked/scrollend-order-regressions.rs` and `.log`
