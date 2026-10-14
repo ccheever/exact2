@@ -145,10 +145,40 @@ impl Closer {
 }
 
 /// Wake the thread from its `poll`: one byte, while none is already there.
-fn wake_thread(inbox: &mut Inbox, mut wake: &WakeStream) {
-    if !inbox.woken {
-        inbox.woken = wake.write(&[0]).is_ok();
+fn wake_thread(inbox: &mut Inbox, mut wake: impl Write) {
+    if inbox.woken {
+        return;
     }
+    loop {
+        match wake.write(&[0]) {
+            Ok(n) => {
+                inbox.woken = n > 0;
+                return;
+            }
+            Err(e) if e.kind() == ErrorKind::Interrupted => {}
+            Err(_) => return,
+        }
+    }
+}
+
+/// Consume the byte for a pending wake. A successful TCP write can precede
+/// readability, so WouldBlock or Interrupted leaves the notification pending.
+fn consume_wake(inbox: &mut Inbox, mut woken: impl Read) -> std::io::Result<()> {
+    if !inbox.woken {
+        return Ok(());
+    }
+    match woken.read(&mut [0u8; 8]) {
+        Ok(0) => {
+            return Err(std::io::Error::new(
+                ErrorKind::UnexpectedEof,
+                "the linger wake socket closed",
+            ));
+        }
+        Ok(_) => inbox.woken = false,
+        Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => {}
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 /// The closing thread, for as long as its server runs.
@@ -214,16 +244,19 @@ fn wake_pair() -> std::io::Result<(WakeStream, WakeStream)> {
     Ok((wake, woken))
 }
 
-fn run(inbox: &Mutex<Inbox>, mut woken: &WakeStream) {
+fn run(inbox: &Mutex<Inbox>, woken: &WakeStream) {
     let mut held = VecDeque::new();
     let mut fds = Vec::new();
     loop {
         {
             let mut inbox = inbox.lock().unwrap();
-            if inbox.woken {
-                // The lock orders this with the write: one byte is there.
-                let _ = woken.read(&mut [0u8; 8]);
-                inbox.woken = false;
+            if let Err(e) = consume_wake(&mut inbox, woken) {
+                // The internal wake channel cannot recover. End instead of
+                // polling a failed socket forever, and make future hand-offs
+                // drop their sockets.
+                inbox.gone = true;
+                eprintln!("render: close wake: {e}");
+                return;
             }
             for new in inbox.arrived.drain(..) {
                 admit(&mut held, new, HELD);
@@ -302,6 +335,81 @@ mod tests {
         let client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
         let (server, _) = listener.accept().unwrap();
         (server, client)
+    }
+
+    #[test]
+    fn a_delayed_wake_stays_pending_until_its_byte_is_consumed() {
+        struct DelayedWake {
+            delivered: usize,
+            writes: usize,
+            interrupt: bool,
+        }
+        impl Read for DelayedWake {
+            fn read(&mut self, into: &mut [u8]) -> std::io::Result<usize> {
+                if self.delivered == 0 {
+                    return Err(std::io::Error::from(ErrorKind::WouldBlock));
+                }
+                self.delivered -= 1;
+                into[0] = 0;
+                Ok(1)
+            }
+        }
+        impl Write for DelayedWake {
+            fn write(&mut self, from: &[u8]) -> std::io::Result<usize> {
+                if self.interrupt {
+                    self.interrupt = false;
+                    return Err(std::io::Error::from(ErrorKind::Interrupted));
+                }
+                self.writes += 1;
+                Ok(from.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut inbox = Inbox {
+            arrived: VecDeque::new(),
+            woken: false,
+            finish: false,
+            gone: false,
+        };
+        let mut wake = DelayedWake {
+            delivered: 0,
+            writes: 0,
+            interrupt: true,
+        };
+        // An interrupted write is retried; its accepted notification is
+        // coalesced while delivery is delayed.
+        wake_thread(&mut inbox, &mut wake);
+        assert!(inbox.woken);
+        assert_eq!(wake.writes, 1);
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(inbox.woken, "delivery is still pending");
+        wake_thread(&mut inbox, &mut wake);
+        assert_eq!(wake.writes, 1, "pending notifications coalesce");
+
+        wake.delivered = 1;
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(!inbox.woken, "the delivered byte was consumed");
+
+        // A later, independent notification starts the same pending cycle;
+        // its poll may block until this second byte becomes readable.
+        wake_thread(&mut inbox, &mut wake);
+        assert!(inbox.woken);
+        assert_eq!(wake.writes, 2);
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(inbox.woken, "the second delivery is also pending");
+        wake.delivered = 1;
+        consume_wake(&mut inbox, &mut wake).unwrap();
+        assert!(!inbox.woken);
+
+        inbox.woken = true;
+        let mut ended = &[][..];
+        let error = consume_wake(&mut inbox, &mut ended).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::UnexpectedEof);
+        assert!(inbox.woken, "EOF did not masquerade as consumption");
     }
 
     #[test]

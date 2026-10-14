@@ -290,6 +290,29 @@ cleared Q's code and pin adoption. Later evidence-only commits preserve Q's
 runtime and native proof attribution; their required gate receipts name their
 own clean revisions.
 
+### Windows render-host HTTP follow-up — 2026-10-14
+
+The completed follow-up at Exact
+`16347325632e431d7588764ef29be026f34419e7`, based on
+`a01c62241440300f3644ecde83592606262c58e7` and consuming Ibex
+`c4aa839ea35c3eef875de12309d048fa8df2123d`, closes the current Windows
+render-host boundary without changing Q's historical receipts. Windows now
+uses a private loopback TCP wake pair with WinSock `WSAPoll`; Unix keeps its
+existing `UnixStream` and `poll` path. Both retain LLP 1048.000 D10's two
+second deadline, 64 KiB read cap, 256 held-connection cap, bounded inbox,
+immediate half-close and `Stopper` drain.
+
+The native Windows focused loopback executor test passed, followed by 154
+render tests with nine ignored and no failures, all-target clippy, and caps.
+With `EXACT_HTTP_ASYNC` unset, the Hermes-backed Weatherlight renderer served
+its generated plan over loopback: health and `/` returned 200, and `/` carried
+113,075 bytes of rendered Weatherlight HTML. This run reused the authenticated
+v5 receipt and archive hashes recorded above. An independent native Linux run
+of the same commit passed 156 render tests with nine ignored and all-feature
+clippy. The source-attributed commands, hashes, retained failures, and app
+drive are recorded in the
+[closed Windows HTTP issue](../../issues/closed/20261013-exact-render-windows-http.md).
+
 ### Remaining rollout and device boundaries
 
 The physical iPhone fixture built and installed from Exact `32b88bbed4` with
