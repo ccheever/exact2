@@ -3,11 +3,11 @@ name: 20261014-timeline-and-window-hooks
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-timeline-and-window-hooks
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/584
 verified_commit: null
 ---
 
@@ -421,5 +421,9 @@ snapshot that switches the thread (observed in the drive: no override).
 
 ## Next action
 
-Push and open the PR (coordinator). Follow-up 8, `contract-keys-and-menu-bar`, waits for this task's merge; the real-input
-rows above go to the final real-input session.
+Merged as [#584](https://github.com/ccheever/exact2/pull/584), feature commit
+`47f3ed1bd` (squash). The task stays unverified for real full-screen entry and exit,
+real-time smooth motion, trackpad settling, reduced-motion animation, IME and Korean chords.
+Known differences: a click or scroll key does not cancel a pending restore; the visible-turn
+test uses the user-turn box, not the whole row; in emulated full screen the traffic lights still
+draw. Follow-up 8, `contract-keys-and-menu-bar`, starts from this feature head.
