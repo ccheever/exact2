@@ -40,17 +40,22 @@ Main adoption is tracked in [round 14](../tasks/closed/20261014-adopt-main-fixes
 
 All eleven first-wave PRs and adoption [#549](https://github.com/ccheever/exact2/pull/549) are merged. Required repository checks and the combined native drive passed at their recorded source revisions. The user unlocked the desktop and authorized temporary keep-awake on 2026-10-14; real-input qualifications remain open until individually demonstrated. PR #541's size/functionality choice is no longer needed after the measured reduction.
 
-The first three serial repairs are now delivered:
+The first four serial repairs are now delivered:
 
 | Task | Merge | Qualification status |
 | --- | --- | --- |
 | [Dialog focus](../tasks/20261014-dialog-focus-return-and-traps.md) | [#553](https://github.com/ccheever/exact2/pull/553), `6a7a3cad0cb5f66fb7b5d677d21f8e130356e5d7` | Bounded source delivered; task remains active for its recorded native qualifications. |
 | [Legacy sidebar](../tasks/20261014-legacy-sidebar-parity.md) | [#557](https://github.com/ccheever/exact2/pull/557), `4520b0124b36cf24481a973f59a414ae8753dab1` | Native-agent rename and selection passed; physical-input qualifications remain open. |
 | [Connections settings](../tasks/20261014-connections-network-settings.md) | [#566](https://github.com/ccheever/exact2/pull/566), `fbed7fadd8673ed58eaa98c585bccaf9f0bc5d16` | Final source, OS keyboard/focus and native-agent pointer passed. Normal relaunch, cross-process routes, physical OS drag, spoken VoiceOver and live tailnet remain unverified. |
+| [Menu keys](../tasks/20261014-menu-keys-popover-commands.md) | [#568](https://github.com/ccheever/exact2/pull/568), `b229a2658029a18584b2d5efb4528f4cc2af98ac` | Two native agent drives; three failures of the first drive fixed in repair round 2 and passed on the retry, including physical Tab. Normal-launch NSMenu, G2 Enter under the agent driver and spoken VoiceOver remain unverified. |
 
-Start the complete menu task from the refreshed feature head containing all three merges. The six held main features and #498 remain outside this authorization. Normal app activation repeatedly selected an older registered bundle even with PID targeting; use the successful isolated standalone path for subsequent native checks and retain the normal-launch limitation. The Connections task records complete restoration of the normal preferences and file roots.
+Start `browser-panel-parity` from the refreshed feature head containing all four merges. The six held main features and #498 remain outside this authorization. Normal app activation repeatedly selected an older registered bundle even with PID targeting; use the successful isolated standalone path for subsequent native checks and retain the normal-launch limitation. The Connections task records complete restoration of the normal preferences and file roots.
 
 Follow-up order (one task PR at a time): `dialog-focus-return-and-traps`,
 `legacy-sidebar-parity`, `connections-network-settings`, `menu-keys-popover-commands`,
 `browser-panel-parity`, `css-workaround-retirements`, `timeline-and-window-hooks`, then
 `contract-keys-and-menu-bar`.
+
+Evidence policy, 2026-10-14: the `t3-code-evidence` branch was deleted from the repository
+(Charlie, #99: heavy evidence stays out of the repository). Evidence logs stay in each task
+worktree's ignored `target/`; PR images are GitHub attachments (`gh issue comment --attach`).

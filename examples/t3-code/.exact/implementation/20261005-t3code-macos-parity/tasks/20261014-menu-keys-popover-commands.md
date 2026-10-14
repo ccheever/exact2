@@ -3,11 +3,11 @@ name: 20261014-menu-keys-popover-commands
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-menu-keys-popover-commands
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/568
 verified_commit: null
 ---
 
@@ -738,5 +738,7 @@ G2 rows under the agent driver (Space passes), spoken VoiceOver.
 
 ## Next action
 
-Publish the PR to `feat(example)/t3-code` and merge it, retaining the unverified rows above.
-Then start follow-up 5, `browser-panel-parity`, from the resulting feature head.
+Merged as [#568](https://github.com/ccheever/exact2/pull/568), feature commit
+`b229a2658029a18584b2d5efb4528f4cc2af98ac` (squash). The task stays unverified for real
+NSMenu tracking in a normal launch, G2 Enter under the agent driver and spoken VoiceOver.
+Follow-up 5, `browser-panel-parity`, starts from this feature head.
