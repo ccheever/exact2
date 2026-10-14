@@ -195,6 +195,11 @@ pub(super) fn narrow_tab_bars_follow_the_neutral_paint_rules() {
             p.host().kernel().bar_text(id(&p, "taps")).as_deref(),
             Some("Taps 1")
         );
+        assert_eq!(p.focus(), Some(id(&p, "tab-b")));
+        assert_eq!(pixel(&mut p, "tab-b", 32.0, 0.0), [0, 0x55, 0xcc]);
+        // Compare the selected face after observing and releasing its focus ring.
+        p.blur();
+        assert!(p.focus().is_none());
         for (target, reference) in [("tab-a", "ref-a"), ("tab-b", "ref-b")] {
             assert_eq!(
                 text_pixels(&mut p, target),
