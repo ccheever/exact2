@@ -940,6 +940,26 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         FrameClock.shared.drop(self)
     }
 
+    /// The selected tab's stack becomes the one navigation follows. Whether
+    /// navigation is in a transition is then whether UIKit is pushing or
+    /// popping on that stack (as `willShow` decides it: not a rotation's or an
+    /// enclosing presentation's coordinator). A transition on the stack left
+    /// behind finishes on its own, and its `didShow`, if UIKit sends one to a
+    /// hidden stack, is not navigation's.
+    func followStack(_ stack: UINavigationController) {
+        guard stack !== primaryNavigation else { return }
+        if navigation === primaryNavigation {
+            if changing { lastTransition = "idle" }
+            changing = stack.transitionCoordinator.map { $0.viewController(forKey: .to) === stack.topViewController } ?? false
+            interactiveTransition = false
+            interactiveSource = nil
+            keyboardDropped = false
+            droppedEditor = nil
+            if changing { startRevealing() } else { stopRevealing() }
+        }
+        primaryNavigation = stack
+    }
+
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
         guard navigationController === navigation,
               navigationController.topViewController === viewController else { return }

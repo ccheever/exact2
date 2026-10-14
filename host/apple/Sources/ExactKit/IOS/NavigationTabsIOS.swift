@@ -209,7 +209,7 @@ extension NavigationHost {
             routerTab = p.at
             if tabController == nil { presenter.session?.natives.tabsHatch(nil, event: 2, index: p.at) }
         }
-        primaryNavigation = navs[p.at]
+        followStack(navs[p.at])
         syncItems(tabs, navs: navs)
     }
 
