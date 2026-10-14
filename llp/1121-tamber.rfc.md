@@ -1343,8 +1343,9 @@ the implementation follows until Charlie rules otherwise.
    cascade)? *Provisional default:* bare names (D3).
 3. **DEFERRED admissions.** The protocol server and design tool (stage 3, against §Tooling)
    and the live table (stage 4, a development-only hot revision of values, against
-   §Runtime). Admit both? What take? *Provisional default:* not admitted until he rules;
-   stages 1 and 2 need neither.
+   §Runtime). **Ruled (Charlie, 2026-10-13): admitted, for development builds only,
+   together with LLP 1122 §9 Q2.** This is his waiver, so no take is named. Release builds
+   keep both refusals. The `rules/DEFERRED.md` text lands with LLP 1122.
 4. **Remote and collaborative clients.** D13 proposes pairing with scoped, revocable,
    attributed tokens, and leaves a hosted relay out. Is that the model, and does a team
    relay belong in this program? *Provisional default:* local clients only; pairing as D13
