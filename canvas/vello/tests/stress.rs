@@ -7,7 +7,6 @@ use exact_canvas_vello::surface::{make, IOSurfaceRef};
 use exact_canvas_vello::*;
 use std::ffi::c_void;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
 
 /// Whether this run has a canvas to drive. A stub module (built without the
 /// Metal toolchain) or no GPU is a missing prerequisite: skipped, and a
@@ -109,6 +108,9 @@ fn draw(ctx: &Context2d, seed: &mut u64, w: f64, h: f64) {
     }
 }
 
+/// Operations each hammer thread makes; nine in ten replay, so the eight make about 230 replays.
+const OPERATIONS_PER_THREAD: usize = 32;
+
 #[test]
 fn eight_threads_hammer_the_abi() {
     if !canvas_or_skip() {
@@ -116,7 +118,6 @@ fn eight_threads_hammer_the_abi() {
     }
     let slots: Arc<Vec<Mutex<Option<Slot>>>> =
         Arc::new((0..32).map(|_| Mutex::new(None)).collect());
-    let end = Instant::now() + Duration::from_secs(4);
     let replays = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let threads: Vec<_> = (0..8u64)
         .map(|t| {
@@ -130,7 +131,9 @@ fn eight_threads_hammer_the_abi() {
                         .wrapping_add(1442695040888963407);
                     seed >> 33
                 };
-                while Instant::now() < end {
+                // A fixed number of operations from each thread's own seed, not a time window: what
+                // runs, and so the replay count, is the same however loaded the machine is.
+                for _ in 0..OPERATIONS_PER_THREAD {
                     let i = (next() % 32) as usize;
                     let mut slot = slots[i].lock().unwrap();
                     match next() % 10 {

@@ -82,6 +82,7 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 }, 300000);
 
 import { spawn, spawnSync } from 'node:child_process';
+import { pinned } from './test-workspace.mjs';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -798,7 +799,7 @@ test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixtu
 }), 60_000);
 
 test.each([false, true])('ordinary buildBake with split directories=%s streams progress and retains product receipts', async split => {
-  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-')));
+  const dir = pinned(realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-'))));
   const write = (name, text) => { mkdirSync(dirname(resolve(dir,name)), {recursive:true}); writeFileSync(resolve(dir,name),text); };
   try {
     const target = bakeTarget('linux'), id = 'com.exact.plain';
@@ -854,7 +855,7 @@ test.each([false, true])('ordinary buildBake with split directories=%s streams p
 }, 180000);
 
 test('ordinary bake metadata follows intermediate directory A, B and the unset default', () => {
-  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact metadata directories-')));
+  const dir=pinned(realpathSync(mkdtempSync(resolve(tmpdir(),'exact metadata directories-'))));
   const previous=process.env.CARGO_BUILD_BUILD_DIR;
   delete process.env.CARGO_BUILD_BUILD_DIR;
   const write=(name,bytes)=>{mkdirSync(dirname(resolve(dir,name)),{recursive:true});writeFileSync(resolve(dir,name),bytes);};
@@ -1193,8 +1194,7 @@ test('device grants derive the plists, their translations and the release entitl
 
 
 test('locked metadata fetches a missing git checkout without rewriting the lock', async () => {
-  const { lockedMetadata } = await import('./app.mjs');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-metadata-fetch-'));
+  const { lockedMetadata } = await import('./app.mjs'), dir = pinned(mkdtempSync(resolve(tmpdir(), 'exact-metadata-fetch-')));
   const git = resolve(dir, 'source'), app = resolve(dir, 'app');
   const run = (cwd, cmd, args, env = process.env) => {
     const r = spawnSync(cmd, args, {cwd, env, encoding:'utf8'});
@@ -1493,7 +1493,7 @@ test('native resource snapshot preserves ignored scoped packages, executable bit
   try {
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.app.dir,'server/node_modules/@scope/pkg/index.js'),'utf8'),'captured ignored dependency');
-    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755);
+    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755&~process.umask(),'git keeps 755; the umask withholds the rest');
     assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
   } finally {disposeSnapshot(snapshot);}
 }),60000);
