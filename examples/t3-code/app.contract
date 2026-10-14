@@ -264,9 +264,8 @@ component T3Code
   task highlightPump when data.highlightPending or shell.highlightPending
     every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
-  // app-color-scheme: the scheme every surface draws in. Settings › Appearance decides it (useTheme's resolvedTheme):
-  // Light and Dark override macOS, System follows it. viewport.prefersColorScheme is the system's appearance, beneath
-  // the window's own (T3WindowChrome.setAppearance), so no view reads it for a palette; app-color-scheme.test.ts holds that.
+  // All surfaces use Appearance's resolved scheme. viewport.prefersColorScheme is only the system preference
+  // beneath T3WindowChrome's override; app-color-scheme.test.ts checks that palettes read the resolved scheme.
   derive scheme = (data.look.mode == "light" or data.look.mode == "dark") ? data.look.mode : (viewport.prefersColorScheme == "dark" ? "dark" : "light")
   state paletteOpen = false
   state paletteMode = "command"
@@ -422,9 +421,7 @@ component T3Code
         if result.message == "terminal:focus-composer"
           focus("composer")
       case none
-  // reply-links-reference-behavior RL-4: a Markdown `#fragment` link's click leaves for the new-thread draft (Electron's
-  // hash router reads the hash as the index route, IndexDraftLanding): the window shows it as a new thread's, the
-  // composer focused (commandCompleted's `sidebar:new-thread`).
+  // RL-4: the reference's hash router opens a draft for a Markdown #fragment; sidebar:new-thread focuses its composer.
   mutation fragmentChanged as shape Change refreshes data then fragmentOpened
   action fragmentOpened
     match fragmentChanged
@@ -496,8 +493,7 @@ component T3Code
     after(1, fdaTick)
   action fdaTick
     fdaPoll = fdaPoll + 1
-  // realinput-1010e-followups RE-4: however the import wizard closes (Cancel, Escape, Close, its X), Base UI's Dialog gives
-  // the focus back to Add profile, whose menu opened it (the reference over CDP: Cancel by mouse leaves BUTTON "Add profile").
+  // RE-4: every import-wizard close path returns focus to Add profile, as Base UI does in the reference.
   state importWizardShown = false
   task importWizardFocus when integrations.browserProfiles.wizard.open != importWizardShown
     after(1, importWizardFlip)
@@ -505,15 +501,10 @@ component T3Code
     if importWizardShown and not integrations.browserProfiles.wizard.open
       focus("browser-profiles-add")
     importWizardShown = integrations.browserProfiles.wizard.open
-  // import-wizard-initial-focus: as the wizard opens, Base UI's Dialog focuses the popup's first tabbable element
-  // (`openFocus`; the menu has given the focus back to Add profile, so an `autofocus` would not take it). After a change of
-  // screen or a grant on Full Disk Access, the focus moves to the popup itself only when the element that held it is gone
-  // (restoreFocus "popup" acts on a removed element): the step's buttons go with their step and Allow with the grant, while
-  // the close X stays between two steps that can close; the popup itself, or an element mounted since the change last seen
-  // (`mounted`), keeps it. `importWizardFocused` is the wizard element that holds the focus, from their focus and blur.
-  // The removal confirm (AlertDialog) focuses Cancel as it opens, and Cancel or Escape gives the focus back to the row's
-  // options button; once the profile is removed, that button is gone and Base UI falls back to the last element that held
-  // the focus as a popup opened, Add profile in the reference's run (the clone keeps no such history). The reference over CDP.
+  // Base UI focuses the wizard's first tabbable element on open. On step/grant changes it focuses the popup only if
+  // the focused control disappeared; the surviving X, popup or newly mounted control keeps focus.
+  // importWizardFocused tracks this via focus/blur. Removal confirmation starts on Cancel, then returns to the row's
+  // options button; after deletion that button is gone, so use Add profile (the reference's observed fallback).
   state importWizardAt = -1
   state importWizardFocused = ""
   action importWizardFocusMoved(id: string, on: bool)
@@ -609,10 +600,8 @@ component T3Code
   resource catalog = modelCatalog(browseProvider, modelQuery, data.revision, modelTarget.id) as shape PickerCatalog
   resource editor = composerEditor(data.revision, wallTime.epochAtZero + elapsed) as shape ComposerEditorView // composer-editor.ts
   resource chip = composerChip(data.revision) as shape ChipPopover // a skill chip's details popover (composer-chip-popover.ts)
-  // A composer chip's details close when Settings or a page covers the chat: there T3 Code's route change unmounts the
-  // composer with its popover, while the clone keeps the composer mounted under them, so ⌘, alone left it open over
-  // Settings. T3Window hides it at once; this closes the native press, so it does not come back on return. The palette
-  // and dialogs leave it open and under it, as T3 Code's (portaled last, it stays above them and open after Escape).
+  // Settings and pages unmount the reference composer; close its native chip details here because ours stays mounted.
+  // T3Window hides them immediately. Palette/dialog overlays preserve them, matching the reference's portal behavior.
   derive chipCovered = chip.open and chip.surface == "composer" and (settingsOpen or pageCover)
   task chipCover when chipCovered key=chip.seq
     after(1, chipCoverClose)
@@ -719,6 +708,14 @@ component T3Code
             settingsRefresh = settingsRefresh + 1
           if pendingModal == "theme-dialog"
             settingsThemeDialog = ""
+        if startsWith(result.message, "branch-restore-confirm:")
+          confirmTitle = `Switch to ${slice(result.message, 23)}?`
+          confirmBody = "You have uncommitted changes. They'll carry over to the other branch, or block the switch if they conflict."
+          confirmDestructive = false
+          confirmOp = "cc:branch-restore-confirmed"
+          confirmTarget = ""
+          confirmValue = ""
+          focus("app-confirm-cancel")
         if result.message == "terminal:focus-composer"
           focus("composer")
         if startsWith(result.message, "focus:") // usage-reset-and-feedback: the reset credit confirm takes the focus and gives it back
@@ -1123,9 +1120,8 @@ component T3Code
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
     send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
-  // r12-sidebar: a focused row's keys look for its menu key; Enter and Space stay its press. shell-sidebar-palette-keys
-  // (SH-1): a modifier's own press is no key of the row's either (the reference's row has no handler): ⌘ held
-  // before N set commandPending here, so chat.new's button, pressed next, found it set and did nothing.
+  // SH-1: row keys handle the menu shortcut only. Enter/Space stay presses; modifiers must not set commandPending
+  // before the following shortcut reaches its button.
   action sidebarRun(op: string, id: string, value: string)
     // sidebar-hover-archive-and-glyph R11-X63: a row's menu takes the composer's focus away, so ⌘Z after an Archive is
     // thread.undo, not the composer's undo: the reference's focus is the page there (its row is a focusable button).
@@ -1264,9 +1260,7 @@ component T3Code
   // markdown-links-and-files-preview PA-3: Files › Show rendered markdown is ChatMarkdown; audit-wave-followups-3 FW-2: so is a
   // sent attachment's rendered Markdown (the panel shows one of the two, so at most one source is asked).
   resource filesMarkdown = renderFileMarkdown(concat(shell.panel.files.markdownSource, shell.panel.attachment.markdownSource)) as shape TranscriptMarkdown
-  // audit-wave-followups FU-2: the right panel's open state is the thread's (rightPanelStore byThreadKey isOpen): the window
-  // holds it for the panel key it was opened on (shell.panel.key) until the client's own state answers, and the client
-  // keeps each thread's launcher open (shell.panel.launcher), so a fresh draft or another thread opens with it closed.
+  // FU-2: hold the panel's open state for shell.panel.key until the client answers. Fresh drafts/other threads start closed.
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
@@ -1275,9 +1269,8 @@ component T3Code
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  // The canvas reads nothing of `details`: the details source reads the popover shown (detailsShown, from the canvas's mode),
-  // and a cycle between them refuses the toggle that opens it ("refused: Cycle"). The docked card's own open state is the
-  // canvas's to read (chat-canvas-view.ts inlineOpen) where chat is wide and a project is open.
+  // Keep canvas independent of details: details reads detailsShown from canvas, so the reverse edge creates a cycle.
+  // Canvas reads its docked card's open state through chat-canvas-view.ts inlineOpen.
   resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, length(data.messages) > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
   // ThreadDetailsCard's mode: the header's popover where chat is narrow or the floating player left the card no placement;
   // a popover opened before the mode last switched stays closed (the inline mode closes it, rightPanelStore popoverOpen).
@@ -1383,6 +1376,9 @@ component T3Code
       commandPending = true
       send changed = command(op, target, value, 0)
       if op == "select-thread" or op == "new-thread"
+        settingsOpen = false
+        settingsThemeDialog = ""
+        utilityPage = ""
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   // right-panel-escape: the launcher's other keys come here as "key", Escape among them; it hides nothing (T3 Code's launcher

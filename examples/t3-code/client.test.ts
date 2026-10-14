@@ -208,7 +208,11 @@ describe('answer cancellation', () => {
   ];
   test.each(stages)('a snapshot abandoned during %s does not block the next answer', async (_stage, matches) => {
     const client = new T3Client(), native = new Backend();
-    const disk = storage({ version: 1, selections: { env1: { projectId: 'p1', threadId: 't1' } } });
+    const disk = storage();
+    await client.refresh(native, disk.files);
+    await client.command('select-thread', 't1', '', 0, native, disk.files);
+    client.shellLoaded = false; client.thread = null;
+    native.generation++; // a reconnect exercises every read while retaining this session's selected thread
     const abandoned = abandonNext(native, matches);
     void client.refresh(native, disk.files);
     await abandoned;
@@ -592,7 +596,7 @@ describe('commands and uncertain outcomes', () => {
     await command('send', '', 'Keep me');
     const restarted = new T3Client(); await restarted.refresh(native, disk.files);
     expect(restarted.pending?.payload.commandId).toBe(client.pending?.payload.commandId);
-    expect(restarted.pending?.uncertain).toBe(true); expect(restarted.draft).toBe('Keep me');
+    expect(restarted.pending?.uncertain).toBe(true); expect(restarted.threadId).toBe(''); expect(restarted.local.drafts['env1:t1']).toBe('Keep me');
   });
   test('stop targets the active run and holds the queue', async () => {
     const { client, native, command } = await opened();
@@ -888,4 +892,18 @@ describe('r13-store: Remove forgets the focused environment', () => {
     expect(context.client.threadId).toBe('t1');
     expect(context.client.shell.threads.length).toBe(2);
   });
+});
+
+
+test('a relaunch lands in the most recently active project draft and keeps saved draft content', async () => {
+  const disk = storage({ version: 1, selections: { env1: { projectId: 'p1', threadId: 't1' } },
+    drafts: { 'env1:new:p2': 'Saved home draft', 'env1:t1': 'Saved reply' } });
+  const native = new Backend(), client = new T3Client();
+  native.shell.projects = [...arr(native.shell.projects), { id: 'p2', title: 'Most recent', workspaceRoot: '/recent', updatedAt: '2026-10-14T00:00:00Z' }];
+  native.shell.threads = [...arr(native.shell.threads), { ...thread('t3'), projectId: 'p2', updatedAt: '2026-10-14T01:00:00Z' }];
+  await client.refresh(native, disk.files);
+  expect(client.threadId).toBe(''); expect(client.projectId).toBe('p2');
+  expect(client.draft).toBe('Saved home draft');
+  expect(client.local.drafts['env1:t1']).toBe('Saved reply');
+  expect(native.calls.some(call => str(call.path).includes('/bounded'))).toBe(false);
 });

@@ -1,0 +1,256 @@
+{
+  "implementationCommit": "6017cff6dccc5a2b0f4ee217f6f5ac2bb63310c5",
+  "method": "macOS scripts/agent.mjs over a temporary T3 server on port 16842; no provider message sent",
+  "stages": {
+    "branch-before": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "main",
+      "notice": "Branch changed \u2014 was feature",
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "branch-after": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "dirty-confirm": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "main",
+      "notice": "Branch changed \u2014 was feature",
+      "confirmation": "Switch to feature?",
+      "hasSwitchBranchAction": true,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "dirty-cancel": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "main",
+      "notice": "Branch changed \u2014 was feature",
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "dirty-restored": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "settings-before": {
+      "settingsOpen": true,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "clone-toast": {
+      "settingsOpen": true,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": true,
+      "welcomeShown": false
+    },
+    "settings-after-open-project": {
+      "settingsOpen": false,
+      "projectId": "a61cd03b-fda3-4b30-9cd2-11ca800e0bd7",
+      "threadId": "",
+      "draft": "",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    },
+    "before-relaunch-thread": {
+      "settingsOpen": false,
+      "projectId": "64c11d10-26c5-4822-a334-63c5d987412b",
+      "threadId": "eba49832-c95a-491f-b163-5a61b4bc62cf",
+      "draft": "Draft only: verify checkout restoration.",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": true,
+      "welcomeShown": false
+    },
+    "relaunch-home": {
+      "settingsOpen": false,
+      "projectId": "a61cd03b-fda3-4b30-9cd2-11ca800e0bd7",
+      "threadId": "",
+      "draft": "",
+      "checkoutBranch": "feature",
+      "notice": null,
+      "confirmation": null,
+      "hasSwitchBranchAction": false,
+      "hasOpenProjectAction": false,
+      "welcomeShown": false
+    }
+  },
+  "finalGitStatus": "## feature\n?? dirty.txt",
+  "uncommittedFile": "Preserve this uncommitted change.\n",
+  "screenshots": {
+    "branch-before": {
+      "size": [
+        2560,
+        1680
+      ],
+      "extrema": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    "branch-after": {
+      "size": [
+        2560,
+        1680
+      ],
+      "extrema": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    "dirty-confirm": {
+      "size": [
+        2560,
+        1680
+      ],
+      "extrema": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    "settings-after-open-project": {
+      "size": [
+        2560,
+        1680
+      ],
+      "extrema": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    },
+    "relaunch-home": {
+      "size": [
+        2560,
+        1680
+      ],
+      "extrema": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ]
+    }
+  },
+  "limits": [
+    "Screenshot files are entirely transparent; this proves no visual or physical-input parity.",
+    "External Git fixture mutation needed an explicit fixture vcs.refreshStatus request before the app received the dirty snapshot.",
+    "Agent credentials are deliberately transient. Relaunch used the same scratch store, paired to the same server again, and completed onboarding without a provider request.",
+    "Home project selection is within the focused environment; the reference compares all environment shells."
+  ]
+}
