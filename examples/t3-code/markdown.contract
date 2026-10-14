@@ -1187,7 +1187,7 @@ component TableMenuItem
   state lit = false
   action hover(over: bool)
     if over
-      focus(`${testId}-km`)
+      focus(testId)
     else if lit
       focus(keysId)
   action focused(on: bool)

@@ -43,7 +43,60 @@ function js(s: string, i = 0, untilBrace = false): [string, number] {
 
 export function value(expr: string, env: Env): unknown {
   const names = Object.keys(env);
-  return new Function(...names, `return (${js(expr)[0]});`)(...names.map(name => env[name]));
+  return new Function(...names, `return (${namedCalls(js(expr)[0])});`)(...names.map(name => env[name]));
+}
+
+/** Named call arguments become a trailing object: showPopover(id, { source }), KmItem({ id, label }). */
+function namedCalls(source: string): string {
+  const quotedEnd = (start: number): number => {
+    const quote = source[start];
+    for (let i = start + 1; i < source.length; i++) {
+      if (source[i] === '\\') { i++; continue; }
+      if (source[i] === quote) return i + 1;
+    }
+    throw new Error('unterminated string in Contract expression');
+  };
+  const group = (start: number): { text: string; end: number } => {
+    const args: string[] = [];
+    let part = '', depth = 0;
+    for (let i = start; i < source.length; i++) {
+      const c = source[i]!;
+      if (c === '"' || c === "'" || c === '`') {
+        const end = quotedEnd(i); part += source.slice(i, end); i = end - 1;
+      } else if (c === '(') {
+        const inner = group(i + 1); part += `(${inner.text})`; i = inner.end;
+      } else if (c === ')' && depth === 0) {
+        args.push(part);
+        const positional: string[] = [], named: string[] = [];
+        for (const arg of args) {
+          const field = /^\s*(\w+)\s*=(?!=|>)([\s\S]*)$/.exec(arg);
+          if (field) named.push(`${field[1]}: ${field[2]}`);
+          else {
+            if (named.length) throw new Error('positional argument after named Contract argument');
+            positional.push(arg);
+          }
+        }
+        return { text: named.length ? [...positional, `{ ${named.join(', ')} }`].join(', ') : args.join(','), end: i };
+      } else if (c === ',' && depth === 0) {
+        args.push(part); part = '';
+      } else {
+        if (c === '[' || c === '{') depth++;
+        if (c === ']' || c === '}') depth--;
+        part += c;
+      }
+    }
+    throw new Error('unterminated call in Contract expression');
+  };
+  let out = '';
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!;
+    if (c === '"' || c === "'" || c === '`') {
+      const end = quotedEnd(i); out += source.slice(i, end); i = end - 1;
+    } else if (c === '(') {
+      const inner = group(i + 1); out += `(${inner.text})`; i = inner.end;
+    } else out += c;
+  }
+  return out;
 }
 
 /** Runs statements: reads see `env` (the state from before the action, the props, the locals so far); writes go to `writes`. */
@@ -61,6 +114,19 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       }
       const taken = arms.find(arm => arm.cond === null || Boolean(value(arm.cond, env)));
       if (taken) run(taken.body, env, slots, writes, owner);
+    } else if (line.startsWith('match ')) {
+      // Option values use a value for some and null/undefined for none in the supplied scope.
+      const result = value(line.slice(6), env);
+      const present = result !== null && result !== undefined;
+      for (const arm of body) {
+        const some = /^case some\((\w+)\)$/.exec(arm.line);
+        if (!some && arm.line !== 'case none') throw new Error(`unsupported match arm: ${arm.line}`);
+        if (present && some) {
+          run(arm.body, { ...env, [some[1]!]: result }, slots, writes, owner);
+          break;
+        }
+        if (!present && arm.line === 'case none') { run(arm.body, env, slots, writes, owner); break; }
+      }
     } else if ((m = /^let (\w+) = (.+)$/.exec(line))) {
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);

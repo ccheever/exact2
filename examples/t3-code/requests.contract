@@ -169,7 +169,7 @@ component MenuChoice
   action setHover(over: bool)
     hovering = over
     if over
-      focus(`${testId}-km`)
+      focus(testId)
     else if focused
       focus(keysId)
   action setFocus(value: bool)

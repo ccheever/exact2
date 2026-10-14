@@ -498,7 +498,7 @@ describe('post-created provider traversal follows the Sign in content', () => {
       { name: 'credentials', patch: { details: true, credentials: [{ name: 'token', index: 0, label: 'Token', secret: true }] }, first: 'wizard-provider-auth-credential-example-token' },
     ];
     for (const sample of cases) {
-      const account = { ...base, ...sample.patch }, state = { methodId: '' }, scope = { account, busy: false, idPrefix: 'wizard-', wide: true };
+      const account = { ...base, ...sample.patch }, state = { methodId: '' }, scope = { account, busy: false, idPrefix: 'wizard-', wide: true, KmItem: (item: { id: string; label: string }) => item };
       const env = { ...scope, ...state, ...row.derives(state, scope) }, enabled: string[] = [];
       for (const line of rowLines) {
         const id = /testId=(`[^`]+`)/.exec(line)?.[1];

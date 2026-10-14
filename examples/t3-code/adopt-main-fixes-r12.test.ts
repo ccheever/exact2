@@ -19,7 +19,10 @@ describe('AD-1: the Mac\'s own presentations main gives what the clone writes st
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): an authored fallback row, `none`, so no NSPopover and no flip', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
     expect(popovers.length).toBeGreaterThanOrEqual(62);
-    for (const line of popovers) expect(line).toContain('popover="auto" position-try-fallbacks="none"');
+    for (const line of popovers) {
+      expect(line).toContain('popover="auto"');
+      expect(line).toContain('position-try-fallbacks="none"');
+    }
   });
 });
 

@@ -1,11 +1,40 @@
-// fix-keyboard-focus: the menus' keyboard (menu-keys.contract) and the real-input fixes of the batch report
-// (#298 bugs 4, 5, 6, 13 and 16), read from the Contract sources as dialog-focus.test.ts reads its dialogs.
-// These guard the wiring; the behavior is proven by the macOS drives in tasks/20261008-fix-keyboard-focus.md.
+// Run the Contract menu actions and retain the complete menu, row, dialog and state-owned wiring inventory.
+// Native focus/dispatch timing is covered separately by the task's macOS drives.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
+import { contractComponent, value, type Env } from './contract-action-fixture';
+import { contractFn } from './contract-fn-fixture';
 
 const dir = new URL('./', import.meta.url);
-const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+const sources = new Map<string, Promise<string>>();
+const source = (file: string) => {
+  if (!sources.has(file)) sources.set(file, Bun.file(new URL(`./${file}`, import.meta.url)).text());
+  return sources.get(file)!;
+};
+const files = readdirSync(dir).filter(name => name.endsWith('.contract'));
+const event = (extra: Env = {}) => ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, ...extra });
+const items = [{ id: 'alpha', label: 'Alpha' }, { id: 'beta', label: 'Beta' }, { id: 'again', label: 'Another' }];
+const helpers = (async () => {
+  const file = 'menu-keys.contract';
+  const first = (rows: unknown[]) => rows[0];
+  const kmIndex = await contractFn(file, 'kmIndex', ['items', 'current']);
+  const kmAfter = await contractFn(file, 'kmAfter', ['items', 'current'], { kmIndex });
+  const kmLetter = await contractFn(file, 'kmLetter', ['k']);
+  const kmTarget = await contractFn(file, 'kmTarget', ['items', 'current', 'k'], { kmIndex, kmAfter, kmLetter, first, none: undefined });
+  const kmOpenKey = await contractFn(file, 'kmOpenKey', ['k']);
+  const kmArrow = await contractFn(file, 'kmArrow', ['k']);
+  const kmTriggerKey = await contractFn(file, 'kmTriggerKey', ['k'], { kmOpenKey, kmArrow });
+  const kmTriggerTarget = await contractFn(file, 'kmTriggerTarget', ['items', 'k']);
+  const kmEnd = await contractFn(file, 'kmEnd', ['items', 'keyed'], { first });
+  const kmKeyEnd = await contractFn(file, 'kmKeyEnd', ['k'], { kmOpenKey });
+  const kmOpenTarget = await contractFn(file, 'kmOpenTarget', ['menuId', 'end']);
+  const kmEndKeyed = await contractFn(file, 'kmEndKeyed', ['end']);
+  return { first, kmIndex, kmTarget, kmOpenKey, kmArrow, kmTriggerKey, kmTriggerTarget, kmEnd, kmKeyEnd, kmOpenTarget, kmEndKeyed };
+})();
+function effects(calls: unknown[][]): Env {
+  return Object.fromEntries(['preventDefault', 'stopPropagation', 'focus', 'blur', 'showPopover', 'place', 'local', 'control', 'hoverCard', 'openMenu', 'leave']
+    .map(name => [name, (...args: unknown[]) => calls.push([name, ...args])]));
+}
 /** The lines of `component name` in `file`, up to the next top-level declaration. */
 async function component(file: string, name: string): Promise<string> {
   const lines = (await source(file)).split('\n');
@@ -16,31 +45,66 @@ async function component(file: string, name: string): Promise<string> {
 }
 
 describe('the shared menu keyboard (Base UI Menu)', () => {
-  test('the popup takes the focus as it opens, keeps it on a click, and hears the keys of its rows', async () => {
-    for (const name of ['KeyMenu', 'KeyMenuWatched']) {
-      const body = await component('menu-keys.contract', name);
-      expect(body).toContain('column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered');
-      // `${menuId}-first` and `${menuId}-last`: an owner that mounts the menu hands the focus on to its first or last item.
-      expect(body).toContain('column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast');
-      expect(body).toContain('column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst');
-      expect(body).toContain('match kmTarget(items, current, k)');
-      expect(body).toContain('preventDefault()\n          stopPropagation()\n          current = item.id\n          focus(item.id)');
-      // Opened from the keyboard (the trigger's count moved): the first item, or the last when ↑ opened it (a negative count).
-      expect(body).toContain('if keyed != seen\n      seen = keyed\n      match kmEnd(items, keyed)');
+  test('the popup owns its keys and observes row focus without consuming dialog lineage', async () => {
+    const body = await component('menu-keys.contract', 'KeyMenu');
+    expect(body).toContain('column id=menuId width="100%" tabindex=-1 autofocus=true retainFocus=true aria-modal=modal key=keys focus=entered focusin=rowEntered');
+    expect(body).toContain('column id=`${menuId}-last` width="100%" tabindex=-1 focus=enteredLast');
+    expect(body).toContain('column id=`${menuId}-first` width="100%" gap=gap tabindex=-1 focus=enteredFirst');
+    expect(body).not.toMatch(/\b(hover|pointerdown|pointerup|pointermove)=/);
+    const menu = contractComponent('menu-keys.contract', 'KeyMenu'), state = menu.state();
+    const calls: unknown[][] = [], scope = { ...await helpers, ...effects(calls), items, keyed: 0 };
+    menu.call('entered', state, scope, []);
+    expect(state).toEqual({ current: '', seen: 0 });
+    expect(calls).toEqual([]);
+    menu.call('rowEntered', state, scope, [{ target: 'beta', relatedTarget: 'alpha' }]);
+    expect(state.current).toBe('beta');
+    expect(calls).toEqual([]); // focusin must keep bubbling to the dialog owner.
+    for (const target of ['', 'nested-menu', 'nested-row', 'disabled-row']) {
+      menu.call('rowEntered', state, scope, [{ target }]);
+      expect(state.current).toBe('beta');
     }
-    expect(await component('menu-keys.contract', 'KeyMenuWatched')).toContain('blur=left');
+    menu.call('keys', state, scope, ['ArrowDown', event()]);
+    expect(state.current).toBe('again');
+    expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['focus', 'again']]);
+    calls.length = 0;
+    menu.call('entered', state, scope, []);
+    expect(state.current).toBe('');
+    expect(calls).toEqual([]);
   });
 
-  test('↓ ↑ wrap from the popup or an item, Home and End, a letter finds the next label', async () => {
-    const text = await source('menu-keys.contract');
-    const target = text.split('\n').find(line => line.startsWith('fn kmTarget('))!;
-    expect(target).toContain('k == "ArrowDown" ? first(kmAfter(items, current))');
-    expect(target).toContain('k == "ArrowUp" ? items.at(kmIndex(items, current) < 0 ? -1 : kmIndex(items, current) - 1)');
-    expect(target).toContain('k == "Home" ? first(items)');
-    expect(target).toContain('k == "End" ? items.at(-1)');
-    expect(target).toContain('item.label.toLowerCase().startsWith(k.toLowerCase())');
-    expect(text).toContain('fn kmAfter(items: KmItem[], current: string): KmItem[] = items.slice(kmIndex(items, current) + 1).concat(items.slice(0, kmIndex(items, current) + 1))');
-    expect(text).toContain('fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"');
+  test('arrows wrap, Home/End find endpoints, and typeahead continues from the focused row', async () => {
+    const menu = contractComponent('menu-keys.contract', 'KeyMenu');
+    const cases = [
+      ['', 'ArrowDown', 'alpha'], ['', 'ArrowUp', 'again'], ['again', 'ArrowDown', 'alpha'],
+      ['alpha', 'ArrowUp', 'again'], ['beta', 'Home', 'alpha'], ['beta', 'End', 'again'],
+      ['alpha', 'a', 'again'], ['again', 'A', 'alpha'], ['alpha', 'b', 'beta'],
+    ];
+    for (const [current, key, target] of cases) {
+      const state = { ...menu.state(), current }, calls: unknown[][] = [];
+      menu.call('keys', state, { ...await helpers, ...effects(calls), items }, [key, event()]);
+      expect(state.current).toBe(target);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['focus', target]]);
+    }
+    for (const key of ['z', 'Enter', ' ', 'Space', 'Escape', 'Tab', 'ArrowLeft', 'ArrowRight']) {
+      const state = { ...menu.state(), current: 'beta' }, calls: unknown[][] = [];
+      menu.call('keys', state, { ...await helpers, ...effects(calls), items }, [key, event()]);
+      expect(state.current).toBe('beta');
+      expect(calls).toEqual([]);
+    }
+    for (const modifier of ['metaKey', 'ctrlKey', 'altKey']) {
+      const state = menu.state(), calls: unknown[][] = [];
+      menu.call('keys', state, { ...await helpers, ...effects(calls), items }, ['ArrowDown', event({ [modifier]: true })]);
+      expect(state.current).toBe('');
+      expect(calls).toEqual([]);
+    }
+    const state = menu.state(), calls: unknown[][] = [];
+    menu.call('keys', state, { ...await helpers, ...effects(calls), items }, ['A', event({ shiftKey: true })]);
+    expect(state.current).toBe('alpha');
+    calls.length = 0;
+    for (const key of ['ArrowDown', 'ArrowUp', 'Home', 'End', 'a']) {
+      menu.call('keys', state, { ...await helpers, ...effects(calls), items: [] }, [key, event()]);
+    }
+    expect(calls).toEqual([]);
   });
 
   // Every painted menu of the clone; the native ones (a context menu, the panel tab's) keep AppKit's own keyboard.
@@ -60,12 +124,12 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   test.each(menus)('%s wraps its rows in the keyboard menu %s', async (file, menuId) => {
     const text = await source(file);
     const quoted = menuId.includes('${') ? `menuId=\`${menuId}\`` : `menuId="${menuId}"`;
-    expect(text).toMatch(new RegExp(`KeyMenu(Watched)?\\(${quoted.replace(/[$(){}`.]/g, ch => `\\${ch}`)}, items=.*, modal=(true|false)\\)`));
+    expect(text).toMatch(new RegExp(`KeyMenu\\(${quoted.replace(/[$(){}`.]/g, ch => `\\${ch}`)}, items=.*, modal=(true|false)\\)`));
   });
 
   test('a popover menu is modal while it shows, so Escape closes it before a page\'s own Escape shortcut (Usage\'s Back, Settings\')', async () => {
     for (const [file, line] of [['pages-usage.contract', 'KeyMenu(menuId="usage-environment-keys"'], ['pages-pr-actions.contract', 'KeyMenu(menuId="pr-more-keys"'],
-      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenuWatched(menuId=`snooze-${t.id}-keys`']] as const)
+      ['settings-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['settings-b-kit.contract', 'KeyMenu(menuId=`${menuId}-keys`'], ['sidebar-row.contract', 'KeyMenu(menuId=`snooze-${t.id}-keys`']] as const)
       expect((await source(file)).split('\n').find(l => l.includes(line))).toContain('modal=true)');
     // A menu its owner mounts from state keeps its backdrop's Escape (outside the menu): not modal.
     for (const [file, line] of [['shell-panels.contract', 'KeyMenu(menuId="title-menu-keys"'], ['diff.contract', 'KeyMenu(menuId="diff-scope-keys"']] as const)
@@ -76,7 +140,8 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     expect(scope).toContain('column aria-modal=true position="absolute"');
     // Its own Escape is a shortcut inside that scope, so it closes the menus even when nothing inside holds the focus.
     expect(scope).toContain('button press=closeMenus aria-keyshortcuts="Escape" aria-label="Close diff scope menu" tabindex=-1 aria-hidden=true');
-    expect(scope).toContain('  action closeMenus\n    command("diff-view", "menu", "", 0)\n    focus("diff-scope")');
+    expect(scope).toContain('  action closeMenus\n    dismiss()');
+    expect(await component('diff.contract', 'DiffPanelBody')).toContain('  action closeScope\n    scopeOpenedAt = -1\n    command("diff-view", "menu", "", 0)\n    focus("diff-scope")');
   });
 
   test('a row the keys move to has an id: every menuitem in a file with a keyboard menu', async () => {
@@ -85,7 +150,7 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
     let rows = 0;
     for (const file of files) {
       const text = await source(file);
-      if (!/\bKeyMenu(Watched)?\(/.test(text)) continue;
+      if (!/\bKeyMenu\(/.test(text)) continue;
       text.split('\n').forEach((line, index) => {
         if (!/^\s*(button|link)\b/.test(line) || !/role=(?:"menuitem|\(.*menuitem)/.test(line)) return;
         // The context menus (the sidebar's rows, a panel tab's) are AppKit menus on macOS (LLP 1021 §5.1): their keyboard
@@ -100,57 +165,124 @@ describe('the shared menu keyboard (Base UI Menu)', () => {
   });
 
   test('a menu opened by the data module: its trigger lets go of the focus, so the popup can take it', async () => {
-    for (const [file, comp, call] of [['diff.contract', 'DiffToolbar', 'command("diff-view", "menu", "scope", 0)'], ['r6-device.contract', 'R6DeviceWorkspaceView', 'local("surface-r6dev-menu", "", menu)'],
+    // Diff scope no longer waits for this (repair round 2): its panel shows the menu for the opening turn and focuses it.
+    for (const [file, comp, call] of [['r6-device.contract', 'R6DeviceWorkspaceView', 'local("surface-r6dev-menu", "", menu)'],
       ['r4-surfaces-files.contract', 'R4CrumbView', 'local("surface-files-crumb", crumb.path, "")'], ['r4-surfaces.contract', 'R4LinkedRowView', 'local("surface-pr-menu", row.key, "")'],
       ['markdown.contract', 'TableCopyButton', 'press()']] as const)
       expect(await component(file, comp)).toContain(`    blur()\n    ${call}`);
   });
 });
 
-describe('↓ and ↑ on a closed trigger open its menu at the first or the last item (Base UI Menu, coordinator ruling 2026-10-08)', () => {
-  test('the helpers: a keyboard opening\'s count carries its end in its sign; a mounted menu\'s owner names the end', async () => {
-    const text = await source('menu-keys.contract');
-    expect(text).toContain('fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"');
-    expect(text).toContain('fn kmBump(keyed: number, last: bool): number = last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1)');
-    expect(text).toContain('fn kmEnd(items: KmItem[], keyed: number): option<KmItem> = keyed < 0 ? items.at(-1) : first(items)');
-    expect(text).toContain('fn kmKeyEnd(k: string): string = k == "ArrowUp" ? "last" : (k == "ArrowDown" or kmOpenKey(k) ? "first" : "")');
-    expect(text).toContain('fn kmOpenTarget(menuId: string, end: string): string = end == "" ? menuId : `${menuId}-${end}`');
-    expect(text).toContain('fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 0)');
-    // kmBump, as written: every bump differs from the last, and its sign is the end asked for.
-    const bump = (keyed: number, last: boolean) => last ? (keyed < 0 ? keyed - 1 : 0 - keyed - 1) : (keyed < 0 ? 1 - keyed : keyed + 1);
-    let keyed = 0;
-    for (const last of [false, true, true, false, true, false, false]) {
-      const next = bump(keyed, last);
-      expect(next).not.toBe(keyed);
-      expect(next < 0).toBe(last);
-      keyed = next;
-    }
-  });
-
-  test('a popover menu: two invisible invokers over its trigger show it by ↓ and ↑ while the trigger holds the focus', async () => {
-    const open = await component('menu-keys.contract', 'KeyMenuOpen');
-    for (const [press, keys, test] of [['opened(false)', 'ArrowDown', 'open-first'], ['opened(true)', 'ArrowUp', 'open-last']])
-      expect(open).toContain(`button popovertarget=menuId popovertargetaction="show" press=${press} aria-keyshortcuts=(armed ? "${keys}" : "") aria-hidden=true tabindex=-1 pointer-events="none" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 opacity=0 testId=\`\${menuId}-${test}\``);
-    // Every popover menu's trigger that counts its keyboard openings has them, armed by its own focus.
-    // Not: the Icon submenu row (a row inside a menu), the colour picker (not a menu).
-    const skip = ['environment-icon-', 'theme-color-'];
-    const missing: string[] = [];
-    let triggers = 0;
-    for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
+describe('public popover triggers execute one ordered command sequence', () => {
+  // The complete migrated inventory, plus the Icon submenu's Enter/Space trigger (its arrows belong to its parent).
+  const openers: [string, string, string][] = [
+    ['legacy-sidebar.contract', 'LegacyOptions', 'triggerKey'], ['timeline-plan.contract', 'PlanCard', 'triggerKey'],
+    ['connections.contract', 'ThisMachineSection', 'triggerKey'], ['connections.contract', 'EnvironmentRow', 'triggerKey'],
+    ['connections.contract', 'EnvironmentIconMenu', 'triggerKey'], ['settings-b-kit.contract', 'CnSelect', 'triggerKey'],
+    ['pages-pr-stack.contract', 'PrdStackControls', 'triggerKey'], ['pages-hero.contract', 'HeroPicker', 'triggerKey'],
+    ['settings-rows.contract', 'ScopeSentence', 'projectKey'], ['settings-rows.contract', 'ScopeSentence', 'environmentKey'],
+    ['settings-rows.contract', 'CoreRowView', 'traitsKey'], ['settings-rows.contract', 'CoreSelect', 'triggerKey'],
+    ['pages-pr-code.contract', 'PrdCodeToolbar', 'triggerKey'], ['settings-a-hosts.contract', 'HostRowView', 'triggerKey'],
+    ['pages-pr-quick.contract', 'PrRowStack', 'triggerKey'], ['settings-kit.contract', 'SettingsSelect', 'triggerKey'],
+    ['pages-prs.contract', 'PrSortMenu', 'triggerKey'], ['pages-prs.contract', 'PrHostMenu', 'triggerKey'],
+    ['pages-prs.contract', 'PrFiltersMenu', 'triggerKey'], ['r7-device.contract', 'R7DevSelect', 'triggerKey'],
+    ['pages-usage.contract', 'UsageBreadcrumb', 'triggerKey'], ['pages-pr-handoffs.contract', 'PrdCheckoutMenu', 'triggerKey'],
+    ['browser-surface.contract', 'BrowserMore', 'triggerKey'], ['browser-surface.contract', 'BrowserLauncherProfiles', 'triggerKey'],
+    ['settings-keybindings.contract', 'KeybindingRow', 'triggerKey'], ['snapshot.contract', 'SnapshotPanel', 'triggerKey'],
+    ['browser-defaults.contract', 'BdViewportSelect', 'triggerKey'], ['r4-surfaces.contract', 'R4AddSurface', 'triggerKey'],
+    ['settings-projects.contract', 'GhostSelect', 'triggerKey'], ['settings-projects.contract', 'ProjectActionsSection', 'triggerKey'],
+    ['pages-pr-actions.contract', 'PrdActionsMenu', 'moreKey'], ['browser-profiles.contract', 'BrowserProfilesSetting', 'triggerKey'],
+    ['browser-profiles.contract', 'BrowserProfileRow', 'triggerKey'], ['sidebar-row.contract', 'ThreadRow', 'snoozeKey'],
+    ['settings-scheduled.contract', 'TaskRow', 'triggerKey'], ['settings-scheduled.contract', 'ScheduledEditor', 'environmentKey'],
+    ['providers-setup.contract', 'ProviderAccountRow', 'triggerKey'], ['r4-git.contract', 'R4GitRows', 'gitMenuKey'],
+    ['pages-usage-prices.contract', 'UsagePricesApply', 'triggerKey'],
+  ];
+  test('the inventory includes every opener and no retired invoker, focus redirect, watcher or counter remains', async () => {
+    const found: string[] = [];
+    for (const file of files) {
       const text = await source(file);
-      for (const line of text.split('\n')) {
-        const m = line.match(/^\s*button .*?popovertarget=("[^"]+"|`[^`]+`|[\w.]+) .*?key=(\w+)/);
-        if (!m || /popovertargetaction=/.test(line) || skip.some(s => m[1].includes(s))) continue;
-        triggers++;
-        if (!new RegExp(`focus=\\w+Arm\\(true\\) blur=\\w+Arm\\(false\\)`).test(line)) missing.push(`${file}: ${m[1]} not armed by its focus`);
-        if (!text.includes(`KeyMenuOpen(menuId=${m[1]}, armed=`)) missing.push(`${file}: ${m[1]} has no KeyMenuOpen`);
+      expect(text).not.toMatch(/\b(KeyMenuOpen|KmDoor|KeyMenuWatched|kmBump)\b|[-]km\b/);
+      for (const owner of text.matchAll(/^component (\w+)\n([\s\S]*?)(?=^component |$(?![\s\S]))/gm)) {
+        for (const action of owner[2]!.matchAll(/^  action (\w+)[^\n]*\n([\s\S]*?)(?=^  \S|$(?![\s\S]))/gm)) {
+          if (action[2]!.includes('kmTriggerTarget')) found.push(`${file}:${owner[1]}:${action[1]}`);
+        }
       }
     }
-    expect(missing).toEqual([]);
-    expect(triggers).toBeGreaterThanOrEqual(31); // and the snooze clock, whose `key=` comes first (pinned in the bug 4 test)
-    // Each owner bumps its count by the end the invoker reports.
-    for (const [file, comp, counter] of [['pages-prs.contract', 'PrSortMenu', 'keyed'], ['r4-git.contract', 'R4GitRows', 'gitMenuKeyed'], ['settings-rows.contract', 'ScopeSentence', 'projectOpens'], ['settings-kit.contract', 'SettingsSelect', 'keyed']] as const)
-      expect(await component(file, comp)).toMatch(new RegExp(`action \\w+Opened\\(last: bool\\)\\n    ${counter} = kmBump\\(${counter}, last\\)`));
+    expect(found.sort()).toEqual(openers.map(row => row.join(':')).sort());
+  });
+  test.each(openers)('%s %s.%s uses the real source, handles modifiers/repeat, and safely opens an empty menu', async (file, name, action) => {
+    const body = await component(file, name);
+    const actionBody = body.match(new RegExp(`^  action ${action}[^\\n]*\\n([\\s\\S]*?)(?=^  \\S|$(?![\\s\\S]))`, 'm'))![1]!;
+    const command = actionBody.match(/showPopover\((.+), source=(.+)\)/)!;
+    const itemName = actionBody.match(/kmTriggerTarget\((\w+), k\)/)![1]!;
+    const owner = contractComponent(file, name), calls: unknown[][] = [];
+    const scope: Env = { ...await helpers, ...effects(calls), [itemName]: items, section: 'models', rowId: 'model', rowRef: 'repo:42',
+      selectId: 'select', menuId: 'popup', popId: 'row-popup', idPrefix: 'account-', t: { id: 'thread' }, row: { id: 'row' },
+      environment: { environmentId: 'env' }, account: { instanceId: 'instance' }, message: { id: 'message' },
+      host: { id: 'host', menuId: 'host-popup' }, item: { id: 'task', environmentId: 'task-env' } };
+    const popup = value(command[1]!, scope), sourceId = value(command[2]!, scope);
+    expect(sourceId).not.toBe(popup);
+    const triggerOwner = name === 'ThreadRow' ? await component(file, 'SidebarCardActions') : body;
+    const trigger = triggerOwner.split('\n').find(line => /^\s*button /.test(line) && line.includes(` key=${action} `));
+    expect(trigger).toBeDefined();
+    expect(`${trigger} `).toContain(` id=${command[2]} `);
+    expect(trigger).toContain(` popovertarget=${command[1]} `);
+    // The same eligible rows drive the public opening and the menu's subsequent navigation.
+    expect(body).toContain(`items=${itemName},`);
+    const prep: unknown[][] = name === 'LegacyOptions' ? [['place']]
+      : name === 'BrowserProfilesSetting' ? [['local', 'browser-profiles-sources', '']]
+      : name === 'PrFiltersMenu' ? [['openMenu']]
+      : name === 'PrRowStack' ? [['control', 'quick-stack', 'repo:42']]
+      : name === 'ThreadRow' ? [['hoverCard', '', false]]
+      : name === 'R4GitRows' ? [['local', 'git-open', 'menu', '']] : [];
+    const keys = name === 'EnvironmentIconMenu' ? ['Enter', ' ', 'Space'] : ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space'];
+    for (const key of keys) {
+      calls.length = 0;
+      owner.call(action, {}, scope, [key, event()]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }], ['focus', key === 'ArrowUp' ? 'again' : 'alpha']]);
+      calls.length = 0;
+      owner.call(action, {}, scope, [key, event({ repeat: true })]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation']]);
+      for (const modifier of ['metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
+        calls.length = 0;
+        owner.call(action, {}, scope, [key, event({ [modifier]: true })]);
+        expect(calls).toEqual([]);
+      }
+      owner.call(action, {}, { ...scope, [itemName]: [] }, [key, event()]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ...prep, ['showPopover', popup, { source: sourceId }]]);
+    }
+    for (const key of ['Escape', 'Tab', 'Home', 'End', 'a', ...(name === 'EnvironmentIconMenu' ? ['ArrowDown', 'ArrowUp'] : [])]) {
+      calls.length = 0;
+      owner.call(action, {}, scope, [key, event()]);
+      expect(calls).toEqual([]);
+    }
+  });
+});
+
+describe('↓ and ↑ on a closed trigger open its menu at the first or the last item (Base UI Menu, coordinator ruling 2026-10-08)', () => {
+  test('state-owned menus retain root/first/last entry and mount-time endpoint selection', async () => {
+    const h = await helpers, menu = contractComponent('menu-keys.contract', 'KeyMenu');
+    for (const [key, end, keyed] of [['ArrowDown', 'first', 1], ['ArrowUp', 'last', -1], ['Enter', 'first', 1], [' ', 'first', 1], ['Space', 'first', 1], ['Escape', '', 0]] as const) {
+      expect(h.kmKeyEnd(key)).toBe(end);
+      expect(h.kmEndKeyed(end)).toBe(keyed);
+      expect(h.kmOpenTarget('menu', end)).toBe(end ? `menu-${end}` : 'menu');
+    }
+    for (const [action, keyed, expected] of [['entered', 1, 'alpha'], ['entered', -1, 'again'], ['enteredFirst', 0, 'alpha'], ['enteredLast', 0, 'again']] as const) {
+      const state = menu.state(), calls: unknown[][] = [], scope = { ...h, ...effects(calls), items, keyed };
+      menu.call(action, state, scope, []);
+      expect(state.current).toBe(expected);
+      expect(calls).toEqual([['focus', expected]]);
+      if (action === 'entered') {
+        expect(state.seen).toBe(keyed);
+        calls.length = 0;
+        menu.call(action, state, scope, []);
+        expect(state.current).toBe('');
+        expect(calls).toEqual([]);
+      }
+      calls.length = 0;
+      menu.call(action, menu.state(), { ...scope, items: [] }, []);
+      expect(calls).toEqual([]);
+    }
   });
 
   test('a menu its owner mounts from state: ↓ and ↑ on its trigger open it, at the first or the last item', async () => {
@@ -177,8 +309,9 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
     expect(files).toContain('key=editorsKey focus=menuEnd("")');
     expect(await source('r4-surfaces.contract')).toContain('R4LinkedMenu(row=row, local=local, command=command, keyed=kmEndKeyed(menuEnd))');
     const diff = await source('diff.contract');
-    expect(diff).toContain('DiffScopeMenu(data=data, command=command, keyed=kmEndKeyed(scopeEnd))');
+    expect(diff).toContain('DiffScopeMenu(data=data, command=command, dismiss=closeScope, keyed=kmEndKeyed(scopeEnd))');
     expect(diff).toContain('button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") ');
+    expect(await component('diff.contract', 'DiffToolbar')).not.toContain('blur()');
     // The table's Copy menu mounts at the window: the request itself carries the end, and the menu reads it as `menu.keyed`.
     const copy = await component('markdown.contract', 'TableCopyButton');
     expect(copy).toContain('button press=openMenu key=menuKey ');
@@ -189,25 +322,70 @@ describe('↓ and ↑ on a closed trigger open its menu at the first or the last
 });
 
 describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and ↓', () => {
-  test('the row keeps its hover actions shown while the snooze menu holds the focus (SnoozeMenuButton pins them)', async () => {
+  test('the open popup pins its trigger across descendant focus changes and unpins only when closed', async () => {
     const row = await component('sidebar-row.contract', 'ThreadRow');
-    expect(row).toContain('derive shown = hovering or snoozeFocus or snoozeHover');
     expect(row).toContain('if shown or swept\n                        SidebarCardActions(');
     expect(row).toContain('max-width=(shown ? "0px" : "15rem")');
     expect(row).toContain('max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)');
-    expect(row).toContain('KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)');
+    expect(row).toContain('KeyMenu(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=0, gap="0px", modal=true)');
     expect(row).toContain('[KmItem(id=`snooze-${t.id}-custom`, label="Custom…")]');
+    expect(row).toMatch(/id=`snooze-\$\{t.id\}` popover="auto" toggle=snoozeChanged/);
+    const owner = contractComponent('sidebar-row.contract', 'ThreadRow'), state = owner.state();
+    const shown = row.match(/^  derive shown = (.+)$/m)![1]!;
+    expect(value(shown, { ...state, hovering: false })).toBe(false);
+    owner.call('snoozeChanged', state, {}, [{ newState: 'open' }]);
+    const menu = contractComponent('menu-keys.contract', 'KeyMenu'), menuState = menu.state();
+    for (const target of ['alpha', 'beta', 'again', '']) {
+      menu.call('rowEntered', menuState, { ...await helpers, items }, [{ target }]);
+      expect(value(shown, { ...state, hovering: false })).toBe(true);
+    }
+    owner.call('snoozeChanged', state, {}, [{ newState: 'closed' }]);
+    expect(value(shown, { ...state, hovering: false })).toBe(false);
+    expect(value(shown, { ...state, hovering: true })).toBe(true);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
     expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
-    // FX-2: highlighted by its focus alone, which the pointer gives it (menu-keys.contract's doors).
     expect(item).toContain('background-color=(lit ?');
-    // A real click's press takes the focus from the popup before its release: the pointer on a row keeps the pin.
-    expect(item).toContain('action hover(value: bool)\n    if value\n      focus(`${itemId}-km`)\n    else if lit\n      focus(keysId)\n    pointer(value)');
-    expect(row).toContain('inside=snoozeInside, pointer=snoozePointer)');
+    expect(item).not.toMatch(/\b(inside|pointer): action|\b(inside|pointer)=/);
     const actions = await component('sidebar-row.contract', 'SidebarCardActions');
-    expect(actions).toContain('press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}`');
-    expect(actions).toContain('KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)');
-    expect(row).toContain('action snoozeOpened(last: bool)\n    snoozeKeyed = kmBump(snoozeKeyed, last)');
+    expect(actions).toContain('id=`snooze-trigger-${t.id}`');
+    expect(actions).toContain('press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}`');
+  });
+});
+
+describe('menu-keys repair round 2: Escape from the snooze menu with the pointer outside', () => {
+  test('the trigger the focus returns to keeps the actions shown after the closed toggle releases the pin', async () => {
+    // AFTER drive 11-snooze-pointer-out-escape: the closed toggle hid the actions (aria-hidden) under the
+    // returned focus and the macOS host dropped it. has-[:focus-visible] (Sidebar.tsx) keeps them shown.
+    const row = await component('sidebar-row.contract', 'ThreadRow');
+    const shown = row.match(/^  derive shown = (.+)$/m)![1]!;
+    const t = { id: 'thread' };
+    const actionIds = value(row.match(/^  derive actionIds = (.+)$/m)![1]!, { t });
+    expect(actionIds).toEqual(['discard-trigger-thread', 'snooze-trigger-thread', 'sweep-thread']);
+    const owner = contractComponent('sidebar-row.contract', 'ThreadRow'), state = owner.state(), scope: Env = { t, actionIds };
+    const isShown = () => value(shown, { ...state, hovering: false });
+    // ↓ on the focused trigger: the menu opens and its first row takes the focus.
+    owner.call('actionsIn', state, scope, []);
+    owner.call('snoozeChanged', state, scope, [{ newState: 'open' }]);
+    owner.call('actionsOut', state, scope, [{ target: 'snooze-trigger-thread', relatedTarget: 'snooze-thread-hour' }]);
+    expect(isShown()).toBe(true);
+    // Escape, the pointer on the composer: the host focuses the trigger, then the popup's toggle closes.
+    owner.call('actionsIn', state, scope, []);
+    owner.call('snoozeChanged', state, scope, [{ newState: 'closed' }]);
+    expect(state.snoozeOpen).toBe(false);
+    expect(isShown()).toBe(true);
+    // Moving between the actions keeps them; focus leaving them, or the window, releases them.
+    owner.call('actionsOut', state, scope, [{ target: 'snooze-trigger-thread', relatedTarget: 'sweep-thread' }]);
+    expect(isShown()).toBe(true);
+    owner.call('actionsOut', state, scope, [{ target: 'sweep-thread', relatedTarget: 'composer' }]);
+    expect(isShown()).toBe(false);
+    owner.call('actionsIn', state, scope, []);
+    owner.call('actionsOut', state, scope, [{ target: 'snooze-trigger-thread', relatedTarget: null }]);
+    expect(isShown()).toBe(false);
+    // Wiring: the actions' own row observes focus-within, and both card instances pass the row's actions.
+    const actions = await component('sidebar-row.contract', 'SidebarCardActions');
+    expect(actions).toContain('    row align-items="stretch" focusin=focusIn focusout=focusOut\n');
+    expect(actions).toContain('button cursor="pointer" id=`discard-trigger-${t.id}` press=run("discard-draft", t.id, "")');
+    expect(row.split('snoozeKey=snoozeKey, focusIn=actionsIn, focusOut=actionsOut)').length - 1).toBe(2);
   });
 });
 
@@ -240,15 +418,13 @@ describe('#298 bugs 6 and 5: Escape goes to the palette over Custom snooze, and 
 });
 
 describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog by keyboard', () => {
-  test('Enter or Space on "…" counts a keyboard opening; every enabled row, the hand-offs included, is an arrow stop', async () => {
+  test('More uses its real trigger and includes every enabled row, including handoffs', async () => {
     const menu = await component('pages-pr-actions.contract', 'PrdActionsMenu');
     expect(menu).toContain('button id="pull-request-more" popovertarget="pr-more-menu" hover=hover key=moreKey');
-    expect(menu).toContain('action moreKey(k: string)\n    if kmOpenKey(k)\n      keyed = kmBump(keyed, false)');
-    // ↓ and ↑ on "…" open it at the first or the last row (Base UI Menu's trigger).
-    expect(menu).toContain('KeyMenuOpen(menuId="pr-more-menu", armed=keyArmed, opened=keyOpened)');
+    expect(menu).toContain('showPopover("pr-more-menu", source="pull-request-more")');
     for (const id of ['pr-more-refresh', 'pr-more-ask', 'pr-more-explain', 'pr-more-fix-findings', 'pr-more-draft', 'pr-more-merge-now', 'pr-more-enable-auto-merge', 'pr-more-method-${item.method}', 'pr-more-open-host', 'pr-more-copy-link', 'pr-more-copy-number', 'pr-more-close', 'pr-more-reopen', 'pr-more-revert'])
       expect(menu).toContain(id);
-    expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=keyed, gap="0px", modal=true)');
+    expect(menu).toContain('KeyMenu(menuId="pr-more-keys", items=rows, keyed=0, gap="0px", modal=true)');
   });
 
   test('the Act on rows of More and of Check out have their own ids, so ↓ reaches the rows of the menu that is open', async () => {
@@ -282,41 +458,50 @@ describe('#298 bugs 13 and 16: the pull request More menu and its Close dialog b
 
 // audit-wave-followups-3: the Pull Requests Filters submenus, as PullRequestListFilters' Base UI Menu draws and keys them.
 describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
-  test('FW-3: Escape with a submenu open closes only the submenu and gives the focus back to its row', async () => {
-    const menu = await component('pages-prs.contract', 'PrFiltersMenu');
-    expect(menu).toContain('action subEscape(k: string)\n    if k == "Escape" and sub != ""\n      preventDefault()\n      closeSub()');
-    // The focus goes back to the submenu's row (FloatingFocusManager's return to the trigger), unless the pointer left
-    // that row after the submenu opened: the trigger's mouseleave stops the return and the focus drops (BODY on the
-    // reference, from a row or from "Search authors"). realinput-1010c-fixes RC-3: it drops onto the popup's rest box, not
-    // onto nothing: with the window itself the first responder, the host's popover Escape ignored a real second Escape.
-    // Main #446 fixed that (X73); the box stays (adopt-main-fixes-r10 RT-4, (b)) because the popover that closes with
-    // the focus inside it gives it back to Filters, as the reference does, which `blur()` cannot until X66 (#319).
-    expect(menu).toContain('action closeSub\n    if subLeft\n      focus("pr-filters-rest")\n    else\n      focus(`pr-filter-${sub}`)\n    sub = ""');
-    expect(menu).not.toMatch(/^\s+blur\(\)$/m);
-    // The rest box is the popover's own child, before the row that holds the submenu and both KeyMenus (so no `key`
-    // handler hears ↓ there), focusable by script only and never ringed (not pressable).
-    expect(menu).toContain('testId="pr-filters-layer"\n        box id="pr-filters-rest" tabindex=-1 aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId="pr-filters-rest"\n        row align-items="flex-start" key=subEscape');
-    expect(menu).toContain('action rowLeft(name: string)\n    if sub == name\n      subLeft = true');
-    // Each opening, by a press or by the keyboard, starts with the pointer on (or never off) the row.
-    expect(menu).toContain('    sub = sub == name ? "" : name\n    subPointer = true\n    subLeft = false\n');
-    expect(menu).toContain('      subPointer = false\n      subLeft = false\n');
-    for (const row of ['state', 'involvement', 'author', 'labels', 'draft', 'review', 'checks', 'project']) {
-      expect(menu).toContain(`press=open("${row}"), keys=subKey("${row}"), leave=rowLeft("${row}"),`);
+  test('FW-3: submenu Escape returns to its row until the pointer leaves; outer close restores Filters', async () => {
+    const body = await component('pages-prs.contract', 'PrFiltersMenu');
+    const menu = contractComponent('pages-prs.contract', 'PrFiltersMenu');
+    for (const left of [false, true]) {
+      const state = { ...menu.state(), sub: 'author', subLeft: left }, calls: unknown[][] = [];
+      const scope: Env = { ...await helpers, ...effects(calls) };
+      scope.closeSub = () => menu.call('closeSub', state, scope, []);
+      menu.call('subEscape', state, scope, ['Escape']);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation'], left ? ['blur'] : ['focus', 'pr-filter-author']]);
+      expect(state.sub).toBe('');
+      calls.length = 0;
+      menu.call('subEscape', state, scope, ['Escape']);
+      expect(calls).toEqual([]); // the next Escape is available to the public popup.
+      menu.call('menuChanged', state, scope, [{ newState: 'closed' }]);
+      expect(calls).toEqual([['focus', 'pull-requests-filters']]);
+      calls.length = 0;
+      menu.call('menuChanged', state, scope, [{ newState: 'open' }]);
+      expect(calls).toEqual([]);
     }
-    expect(await component('pages-prs.contract', 'PrSubTrigger')).toContain('action hover(value: bool)\n    if value\n      focus(`${testId}-km`)\n    else if lit\n      focus(keysId)\n    if not value\n      leave()');
-    // On the row that holds the submenu and the Filters rows, so an Escape from either reaches it; the author search
-    // stops its Escape and closes the submenu the same way.
-    expect(menu).toContain('row align-items="flex-start" key=subEscape');
-    expect(menu).toContain('searchEscape=closeSub, control=control)');
-    expect(menu).not.toContain('focus("pr-filters-keys")');
-    // The menu's keys then go on from that row (from Author, ↓ is Labels, as on the reference): a Filters row moves the
-    // focus from itself, since the popup's KeyMenu knows only the rows its own keys reached.
-    expect(menu).toContain('derive filterItems = [KmItem(id="pr-filter-state", label="State"), KmItem(id="pr-filter-involvement", label="Involvement"), KmItem(id="pr-filter-author", label="Author"), KmItem(id="pr-filter-labels", label="Labels"),');
-    expect(menu).toContain('KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=keyed, gap="0px", modal=true)');
-    expect(menu).toContain('  action subKey(name: string, k: string, e: KeyboardEvent)\n');
-    expect(menu).toContain('    else if not e.metaKey and not e.ctrlKey and not e.altKey\n');
-    expect(menu).toContain('      match kmTarget(filterItems, `pr-filter-${name}`, k)\n        case some(item)\n          preventDefault()\n          stopPropagation()\n          focus(item.id)\n        case none');
-    expect(await component('pages-prs.contract', 'PrFilterSub')).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
+    const state = { ...menu.state(), sub: 'author' };
+    menu.call('rowLeft', state, {}, ['state']);
+    expect(state.subLeft).toBe(false);
+    menu.call('rowLeft', state, {}, ['author']);
+    expect(state.subLeft).toBe(true);
+    const calls: unknown[][] = [], scope = { ...await helpers, ...effects(calls) };
+    menu.call('open', state, scope, ['state']);
+    expect(state).toMatchObject({ sub: 'state', subPointer: true, subLeft: false });
+    menu.call('subKey', state, scope, ['author', 'ArrowRight', event()]);
+    expect(state).toMatchObject({ sub: 'author', subPointer: false, subLeft: false });
+    expect(calls).toEqual([['preventDefault'], ['focus', 'pr-filters-sub-keys']]);
+    calls.length = 0;
+    const filterItems = value(body.match(/^  derive filterItems = (.+)$/m)![1]!, { KmItem: (item: unknown) => item });
+    menu.call('subKey', state, { ...scope, filterItems }, ['author', 'ArrowDown', event()]);
+    expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['focus', 'pr-filter-labels']]);
+    expect(body).not.toContain('pr-filters-rest');
+    expect(body).toContain('popover="auto" toggle=menuChanged');
+    expect(body).toContain('row align-items="flex-start" key=subEscape');
+    expect(body).toContain('searchEscape=closeSub, control=control)');
+    expect(body).toContain('KeyMenu(menuId="pr-filters-keys", items=filterItems, keyed=0, gap="0px", modal=true)');
+    for (const row of ['state', 'involvement', 'author', 'labels', 'draft', 'review', 'checks', 'project']) {
+      expect(body).toContain(`press=open("${row}"), keys=subKey("${row}"), leave=rowLeft("${row}"),`);
+    }
+    const searchBody = await component('pages-prs.contract', 'PrFilterSub');
+    expect(searchBody).toContain('if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
   });
   test('FW-4: the Author submenu tints its chosen row and ticks none; the radio submenus keep their tick', async () => {
     const sub = await component('pages-prs.contract', 'PrFilterSub');
@@ -331,21 +516,6 @@ describe('the Pull Requests Filters submenus (audit-wave-followups-3)', () => {
 // The behaviour (a hovered row takes the focus, ↓ goes on from it, leaving hands the keys back) is
 // menu-one-highlight.test.contract, which the agent runs against the app on a KeyMenu (Sort) and an owner-drawn menu (scope).
 describe('one highlight: the pointer and the keys move one focus (audit-wave-followups-4 FX-2; Base UI highlightedIndex)', () => {
-  test('a row\'s door makes it the menu\'s current row and hands it the focus, so the keys go on from the row the pointer rests on', async () => {
-    for (const name of ['KeyMenu', 'KeyMenuWatched']) {
-      const body = await component('menu-keys.contract', name);
-      expect(body).toContain('  action pointed(id: string)\n    current = id\n    focus(id)');
-      expect(body).toContain('      for item in items key=item.id\n        KmDoor(id=item.id, enter=pointed(item.id))');
-      // The popup hears no pointer and no hover of its own: a press inside it still reaches the window's light dismiss
-      // (popover-escape-parity), and the macOS host hovered one node at a time before main #327 (X62).
-      expect(body).not.toMatch(/\b(hover|pointerdown|pointerup|pointermove)=/);
-    }
-    // A node the host focuses has a size (PresenterMac.focusElement); the door is invisible, hidden from VoiceOver and no Tab stop.
-    expect(await component('menu-keys.contract', 'KmDoor')).toContain('box id=`${id}-km` tabindex=-1 focus=enter aria-hidden=true position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"');
-  });
-
-  const door = (id: string) => id.startsWith('`') || id.startsWith('"') ? `${id.slice(0, -1)}-km${id.slice(-1)}` : `\`\${${id}}-km\``;
-  const quote = (text: string) => text.replace(/[\\^$.*+?()[\]{}|]/g, ch => `\\${ch}`);
   // [file, row component, the row's own id]: every painted menu row in a KeyMenu (the title menu keeps ContextMenu's DOM
   // fallback, whose rows highlight on hover or focus).
   const rows: [string, string, string][] = [
@@ -366,13 +536,42 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     ['connections.contract', 'EnvironmentIconMenu', '`environment-icon-${environment.environmentId}`'],
     ['browser-defaults.contract', 'BdViewportItem', '`browser-default-viewport-option-${option.value}`'], ['r4-git.contract', 'R4GitMenuRow', '`details-git-menu-${item.id}`'],
   ];
-  test.each(rows)('%s %s: its focus alone highlights it; the pointer entering focuses its door, leaving hands the focus to the popup', async (file, name, id) => {
+  test.each(rows)('%s %s: pointer focus and arrows share the real row; leaving clears its highlight', async (file, name, id) => {
     const body = await component(file, name);
     expect(body).toContain('    keysId: string');
-    expect(body).toMatch(new RegExp(`    if (value|over|on)\\n      focus\\(${quote(door(id))}\\)\\n    else if lit\\n      focus\\(keysId\\)`));
     expect(body).not.toMatch(/\b(over|hovered|hovering) or lit\b|\blit or (over|hovered|hovering)\b/);
+    const row = contractComponent(file, name), state = row.state(), calls: unknown[][] = [];
+    const scope: Env = { ...effects(calls), keysId: 'menu-root', itemId: 'real-item', testId: 'real-test', id: 'real-id', test: 'real-test',
+      idPrefix: 'prefix-', person: { key: 'person' }, host: { label: 'host', unavailable: '' }, label: { key: 'label' }, profile: { id: 'profile' },
+      commit: { short: 'commit' }, editor: { id: 'editor' }, script: { name: 'script' }, item: { key: 'item-key', id: 'item', disabled: false },
+      surface: { id: 'surface', available: true }, environment: { environmentId: 'env' }, option: { value: 'viewport' }, view: { hasWebContents: true }, disabled: false };
+    const realId = value(id, scope);
+    const line = body.split('\n').find(line => /^\s*button /.test(line) && line.includes(` id=${id} `))!;
+    expect(line).toBeDefined();
+    const hover = line.match(/\bhover=(\w+)/)?.[1] ?? body.match(/^    box .*\bhover=(\w+)/m)?.[1];
+    expect(hover).toBeDefined();
+    expect(line).toContain('focus=focused(true) blur=focused(false)');
+    row.call(hover!, state, scope, [true]);
+    expect(calls).toEqual([['focus', realId]]);
+    row.call('focused', state, scope, [true]);
+    expect(state.lit).toBe(true);
+    const menu = contractComponent('menu-keys.contract', 'KeyMenu'), menuState = menu.state();
+    const menuScope = { ...await helpers, ...effects(calls), items: [{ id: realId, label: 'Current' }, { id: 'next-row', label: 'Next' }] };
+    calls.length = 0;
+    menu.call('rowEntered', menuState, menuScope, [{ target: realId }]);
+    expect(calls).toEqual([]);
+    menu.call('keys', menuState, menuScope, ['ArrowDown', event()]);
+    expect(calls).toEqual([['preventDefault'], ['stopPropagation'], ['focus', 'next-row']]);
+    calls.length = 0;
+    row.call(hover!, state, scope, [false]);
+    expect(calls).toEqual(name === 'PrSubTrigger' ? [['focus', 'menu-root'], ['leave']] : [['focus', 'menu-root']]);
+    row.call('focused', state, scope, [false]);
+    expect(state.lit).toBe(false);
+    calls.length = 0;
+    row.call(hover!, state, scope, [false]);
+    expect(calls).toEqual(name === 'PrSubTrigger' ? [['leave']] : []);
     // Every use passes the popup it sits in (the next test checks which).
-    for (const f of readdirSync(dir).filter(n => n.endsWith('.contract'))) {
+    for (const f of files) {
       for (const line of (await source(f)).split('\n').filter(l => new RegExp(`^\\s*${name}\\(`).test(l))) expect(line).toContain(`${name}(keysId=`);
     }
   });
@@ -383,7 +582,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     const indent = (line: string) => line.length - line.trimStart().length;
     // The popup a line opens: KeyMenu's own `menuId`, or the `-keys` KeyMenu of a wrapper (SkPopup, CnMenu) by its `menuId`.
     const popupOf = (line: string): string | null => {
-      const own = line.match(/^\s*KeyMenu(?:Watched)?\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
+      const own = line.match(/^\s*KeyMenu\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/);
       if (own) return own[1]!;
       const wrapped = line.match(/^\s*(?:SkPopup|CnMenu)\(menuId=(`[^`]*`|"[^"]*"|[\w.]+)/)?.[1];
       if (!wrapped) return null;
@@ -431,18 +630,18 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect([...besides]).toEqual([]);
   });
 
-  test('the menus whose rows their owner draws: one focused row, the door on entering, the popup on leaving', async () => {
+  test('the menus whose rows their owner draws focus the real row on entering and the popup on leaving', async () => {
     const cases: [string, string, string[]][] = [
-      ['pages-hero.contract', 'HeroMenu', ['action hover(id: string, rowId: string, over: bool)\n    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus("hero-project-keys")', 'background-color=(lit == project.id ?']],
-      ['r6-polish.contract', 'R6ScriptMenu', ['action hover(id: string, rowId: string, value: bool)\n    if value\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus("details-scripts-keys")', 'background-color=(lit == script.id ?', 'background-color=(lit == "add" ?']],
-      ['settings-rows.contract', 'ScopeMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == choice.id or choice.selected ?']],
-      ['settings-rows.contract', 'CoreMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == option.id or option.selected ?']],
-      ['settings-rows.contract', 'TraitsMenu', ['    if over\n      focus(`${rowId}-km`)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(option.selected or lit == option.id ?']],
-      ['r4-surfaces-files.contract', 'R4FilesSurface', ['  action editorHover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}-km`)\n    else if editorLit == id\n      focus("file-editors-keys")', 'background-color=(editorLit == editor.id ?']],
-      ['snapshot.contract', 'SnapshotPanel', ['  action soundHover(id: string, over: bool)\n    if over\n      focus(`${id}-km`)\n    else if soundLit == id\n      focus("snapshot-sound-keys")', 'background-color=(soundLit == "snapshot-sound-off" ?']],
-      ['r4-surfaces.contract', 'R4LinkedMenu', ['    if on\n      focus("linked-pr-menu-open-km")\n    else if openLit\n      focus("linked-pr-menu-keys")', 'background-color=(openLit ?']],
-      ['pages-pr-actions.contract', 'PrdActionsMenu', ['    if on\n      focus("pr-more-open-host-km")\n    else if hostLit\n      focus("pr-more-keys")', 'background-color=(hostLit ?']],
-      ['requests.contract', 'MenuChoice', ['    if over\n      focus(`${testId}-km`)\n    else if focused\n      focus(keysId)', 'background-color=(focused ?', 'color=(focused ? "light-dark(#18181b, #f5f5f5)"']],
+      ['pages-hero.contract', 'HeroMenu', ['action hover(id: string, rowId: string, over: bool)\n    if over\n      focus(rowId)\n    else if lit == id\n      focus("hero-project-keys")', 'background-color=(lit == project.id ?']],
+      ['r6-polish.contract', 'R6ScriptMenu', ['action hover(id: string, rowId: string, value: bool)\n    if value\n      focus(rowId)\n    else if lit == id\n      focus("details-scripts-keys")', 'background-color=(lit == script.id ?', 'background-color=(lit == "add" ?']],
+      ['settings-rows.contract', 'ScopeMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == choice.id or choice.selected ?']],
+      ['settings-rows.contract', 'CoreMenu', ['    if over and not disabled\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(lit == option.id or option.selected ?']],
+      ['settings-rows.contract', 'TraitsMenu', ['    if over\n      focus(rowId)\n    else if lit == id\n      focus(`${menuId}-keys`)', 'background-color=(option.selected or lit == option.id ?']],
+      ['r4-surfaces-files.contract', 'R4FilesSurface', ['  action editorHover(id: string, over: bool)\n    if over\n      focus(`file-editor-${id}`)\n    else if editorLit == id\n      focus("file-editors-keys")', 'background-color=(editorLit == editor.id ?']],
+      ['snapshot.contract', 'SnapshotPanel', ['  action soundHover(id: string, over: bool)\n    if over\n      focus(id)\n    else if soundLit == id\n      focus("snapshot-sound-keys")', 'background-color=(soundLit == "snapshot-sound-off" ?']],
+      ['r4-surfaces.contract', 'R4LinkedMenu', ['    if on\n      focus("linked-pr-menu-open")\n    else if openLit\n      focus("linked-pr-menu-keys")', 'background-color=(openLit ?']],
+      ['pages-pr-actions.contract', 'PrdActionsMenu', ['    if on\n      focus("pr-more-open-host")\n    else if hostLit\n      focus("pr-more-keys")', 'background-color=(hostLit ?']],
+      ['requests.contract', 'MenuChoice', ['    if over\n      focus(testId)\n    else if focused\n      focus(keysId)', 'background-color=(focused ?', 'color=(focused ? "light-dark(#18181b, #f5f5f5)"']],
     ];
     for (const [file, name, wanted] of cases) {
       const body = await component(file, name);
@@ -455,7 +654,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     const offenders: string[] = [];
     for (const file of readdirSync(dir).filter(name => name.endsWith('.contract'))) {
       const text = await source(file);
-      if (!/\bKeyMenu(Watched)?\(/.test(text)) continue;
+      if (!/\bKeyMenu\(/.test(text)) continue;
       text.split('\n').forEach((line, index) => {
         // The rows the keys reach (they carry an id); a list with no keyboard of its own (a branch picker's cursor, a
         // workspace select) has one highlight already.

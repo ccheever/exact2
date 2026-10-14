@@ -29,9 +29,7 @@ use ProviderPill from "./r4-polish-tip.contract"
 use SettingsConfirm from "./settings-rest-dialogs.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
-use KeyMenuOpen from "./menu-keys.contract"
-use kmBump from "./menu-keys.contract"
+use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 use FieldOpenSelect from "./dialog-trap.contract"
@@ -179,27 +177,35 @@ component LegacyOptions
     local: action
     viewportWidth: number
   state tail = 0
-  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract), over its radio rows.
-  state keyed = 0
-  state keyArmed = false
-  action keyArm(on: bool)
-    keyArmed = on
-  action keyOpened(last: bool)
-    keyed = kmBump(keyed, last)
+  derive items = [KmItem(id="legacy-sort-projects-updated_at", label="Last user message"), KmItem(id="legacy-sort-projects-created_at", label="Created at"), KmItem(id="legacy-sort-projects-manual", label="Manual"), KmItem(id="legacy-sort-threads-updated_at", label="Last user message"), KmItem(id="legacy-sort-threads-created_at", label="Created at")]
+  derive focusIds = items.map((item) => item.id).concat(["legacy-sidebar-options-keys", "legacy-sidebar-options-keys-first", "legacy-sidebar-options-keys-last", "legacy-preview-count", "legacy-preview-decrease", "legacy-preview-increase"])
   action place
     tail = max(0, viewportWidth - frame("legacy-options").x - frame("legacy-options").width)
-  action triggerKey(k: string)
-    if kmOpenKey(k)
-      keyed = kmBump(keyed, false)
+  action triggerKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        place()
+        showPopover("legacy-sidebar-options", source="legacy-options")
+        let target = kmTriggerTarget(items, k)
+        if target != ""
+          focus(target)
+  action left(e: FocusEvent)
+    match e.relatedTarget
+      case some(id)
+        if not focusIds.includes(id)
+          hidePopover("legacy-sidebar-options")
+      case none
+        hidePopover("legacy-sidebar-options")
   view
     column position="relative" flex-shrink=0
       Tip(label="Sidebar options", side="right", align="center", offset=30)
-        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place key=triggerKey aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
           LegacyIcon(name="arrow-up-down", size=14, color="light-dark(#71717b, #818181)")
-      KeyMenuOpen(menuId="legacy-sidebar-options", armed=keyArmed, opened=keyOpened)
-      row id="legacy-sidebar-options" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="legacy-sidebar-options-layer"
+      row id="legacy-sidebar-options" focusout=left popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="legacy-sidebar-options-layer"
         column width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Sidebar options" flex-shrink=0
-          KeyMenu(menuId="legacy-sidebar-options-keys", items=[KmItem(id="legacy-sort-projects-updated_at", label="Last user message"), KmItem(id="legacy-sort-projects-created_at", label="Created at"), KmItem(id="legacy-sort-projects-manual", label="Manual"), KmItem(id="legacy-sort-threads-updated_at", label="Last user message"), KmItem(id="legacy-sort-threads-created_at", label="Created at")], keyed=keyed, gap="0px", modal=true)
+          KeyMenu(menuId="legacy-sidebar-options-keys", items=items, keyed=0, gap="0px", modal=true)
             text "Sort projects" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             LegacyRadio(keysId="legacy-sidebar-options-keys", label="Last user message", checked=(legacy.projectSort == "updated_at"), press=local("legacy-sort-projects", "", "updated_at"), testId="legacy-sort-projects-updated_at")
             LegacyRadio(keysId="legacy-sidebar-options-keys", label="Created at", checked=(legacy.projectSort == "created_at"), press=local("legacy-sort-projects", "", "created_at"), testId="legacy-sort-projects-created_at")
@@ -208,9 +214,7 @@ component LegacyOptions
             LegacyRadio(keysId="legacy-sidebar-options-keys", label="Last user message", checked=(legacy.threadSort == "updated_at"), press=local("legacy-sort-threads", "", "updated_at"), testId="legacy-sort-threads-updated_at")
             LegacyRadio(keysId="legacy-sidebar-options-keys", label="Created at", checked=(legacy.threadSort == "created_at"), press=local("legacy-sort-threads", "", "created_at"), testId="legacy-sort-threads-created_at")
           text "Visible threads" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.25rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
-          // The field keeps what is typed until the clamped value lands, then starts over from it.
-          for n in [legacy.previewCount] key=n
-            LegacyCount(count=n, local=local)
+          LegacyCount(count=legacy.previewCount, local=local)
         box width=tail height=1 flex-shrink=0
 
 component LegacyRadio
@@ -224,7 +228,7 @@ component LegacyRadio
   state lit = false
   action hover(value: bool)
     if value
-      focus(`${testId}-km`)
+      focus(testId)
     else if lit
       focus(keysId)
   action focused(on: bool)
@@ -241,19 +245,31 @@ component LegacyCount
   props
     count: number
     local: action
-  state draft = `${count}`
-  action edit(value: string)
-    draft = value
-  action commit(value: string)
-    local("legacy-preview", "", value)
+  // NumberFieldIncrement/Decrement (Base UI 1.4.1 useNumberFieldButton: tabIndex -1): the steppers are no Tab
+  // stops and a press leaves the focus where it is, so Tab from the field leaves the popup (LS-3) and a clamp
+  // that disables a stepper never strands the focus on it.
+  state draft = ""
+  state dirty = false
+  derive value = dirty ? draft : `${count}`
+  action edit(text: string)
+    draft = text
+    dirty = true
+  action commit(text: string)
+    dirty = false
+    local("legacy-preview", "", text)
   action submitDraft
-    local("legacy-preview", "", draft)
+    let submitted = value
+    dirty = false
+    local("legacy-preview", "", submitted)
+  action step(delta: string)
+    dirty = false
+    local("legacy-preview-step", "", delta)
   view
     row margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" width="7rem" height="1.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" align-items="stretch" role="group" aria-label="Visible thread count"
-      button cursor="pointer" press=local("legacy-preview-step", "", "-1") disabled=(count <= 1) aria-label="Decrease visible thread count" testId="legacy-preview-decrease" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      button cursor="pointer" id="legacy-preview-decrease" press=step("-1") tabindex=-1 retainFocus=true disabled=(count <= 1) aria-label="Decrease visible thread count" testId="legacy-preview-decrease" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         SidebarIcon(name="minus", size=14, color="light-dark(#71717b, #818181)")
-      input value=draft input=edit change=commit submit=submitDraft inputmode="numeric" aria-label="Visible thread count" testId="legacy-preview-count" flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
-      button cursor="pointer" press=local("legacy-preview-step", "", "1") disabled=(count >= 15) aria-label="Increase visible thread count" testId="legacy-preview-increase" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+      input id="legacy-preview-count" value=value input=edit change=commit submit=submitDraft inputmode="numeric" aria-label="Visible thread count" testId="legacy-preview-count" flex=1 min-width=0 padding=0 border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+      button cursor="pointer" id="legacy-preview-increase" press=step("1") tabindex=-1 retainFocus=true disabled=(count >= 15) aria-label="Increase visible thread count" testId="legacy-preview-increase" width="1.75rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
         SidebarIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
 
 // SidebarProjectItem: the header button (a sortable handle in Manual) over SidebarProjectThreadList.

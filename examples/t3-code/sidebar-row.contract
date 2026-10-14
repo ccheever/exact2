@@ -1,3 +1,4 @@
+use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 // SidebarThreadRow (Sidebar.tsx; MIT, see LICENSE-T3): live threads are 78pt
 // cards, snoozed and settled threads 36pt slim rows. The card's top right
 // shows the status pill (Working, Waiting, Approval, Input, Limited, Failed,
@@ -16,10 +17,7 @@ use SidebarPrBadge from "./r4-integrate.contract"
 
 use Tip from "./shell-tip.contract"
 use KmItem from "./menu-keys.contract"
-use KeyMenuWatched from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
-use KeyMenuOpen from "./menu-keys.contract"
-use kmBump from "./menu-keys.contract"
+use KeyMenu from "./menu-keys.contract"
 
 // ThreadStatusIndicators.tsx: Lucide Terminal, teal, with the shared two-second status pulse.
 keyframes terminalStatusPulse
@@ -94,25 +92,36 @@ component ThreadRow
   // An armed row takes the selected surface and shows the action's badge in place of its status (dropVerbBadge; Wake for unsnooze).
   derive swept = sweepKeys != "" and sweepKeys.includes(`|${t.id}|`)
   derive sweptBadge = sweepVerb == "unsnooze" ? "wake" : sweepVerb
-  // fix-keyboard-focus: while the snooze menu holds the focus (its popup or a row) or the pointer (a row),
-  // the hover actions stay shown and the status hidden, as SnoozeMenuButton's open state pins them
-  // (Sidebar.tsx): the pointer leaving the row for the menu ended the hover, and the collapsing slot moved
-  // the menu from under it. The pointer counts too: a real click's press takes the focus from the popup
-  // before its release, which must still land on the row it went down on.
-  state snoozeFocus = false
-  state snoozeHover = false
-  state snoozeKeyed = 0
-  derive shown = hovering or snoozeFocus or snoozeHover
+  // Pin the trigger for the popup's complete logical lifetime, across row focus changes.
+  state snoozeOpen = false
+  // has-[:focus-visible] (Sidebar.tsx): an action holding the focus keeps the actions shown, so Escape
+  // from the snooze menu returns to a trigger that stays focusable after the toggle unpins it.
+  // exact2: focus is a local state from focusin/focusout (any focus, not only focus-visible).
+  state actionsFocused = false
+  derive shown = hovering or snoozeOpen or actionsFocused
+  derive actionIds = [`discard-trigger-${t.id}`, `snooze-trigger-${t.id}`, `sweep-${t.id}`]
+  action actionsIn
+    actionsFocused = true
+  action actionsOut(e: FocusEvent)
+    match e.relatedTarget
+      case some(id)
+        if not actionIds.includes(id)
+          actionsFocused = false
+      case none
+        actionsFocused = false
   derive snoozeItems = presets.map((preset) => KmItem(id=`snooze-${t.id}-${preset.id}`, label=preset.label)).concat([KmItem(id=`snooze-${t.id}-custom`, label="Custom…")])
-  action snoozeInside(on: bool)
-    snoozeFocus = on
-  action snoozePointer(on: bool)
-    snoozeHover = on
-  action snoozeKey(k: string)
-    if kmOpenKey(k)
-      snoozeKeyed = kmBump(snoozeKeyed, false)
-  action snoozeOpened(last: bool)
-    snoozeKeyed = kmBump(snoozeKeyed, last)
+  action snoozeChanged(e: ToggleEvent)
+    snoozeOpen = e.newState == "open"
+  action snoozeKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        hoverCard("", false)
+        showPopover(`snooze-${t.id}`, source=`snooze-trigger-${t.id}`)
+        let openingTarget = kmTriggerTarget(snoozeItems, k)
+        if openingTarget != ""
+          focus(openingTarget)
   view
     column id=`row-${t.id}` width="100%" position="relative" opacity=(lifted ? 0 : recede and t.status == "Working" and not hovering ? 0.7 : 1)
       column id=`row-${t.hoverKey}` hover=hoverCard(t.hoverKey) contextmenu=menu(t.id) contextPopover="thread-menu" dblclick=local("rename-start", t.id, "") width="100%" position="relative" padding-top=(t.card ? "0.125rem" : "0px") padding-bottom=(t.card ? "0.125rem" : "0px") box-sizing="border-box" testId=`row-${t.id}`
@@ -150,12 +159,12 @@ component ThreadRow
                     if t.woke
                       SidebarWokeButton(t=t, size=16, run=run, hoverCard=hoverCard, hoverId=hoverId)
                       if shown or swept
-                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozeOpened=snoozeOpened)
+                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, focusIn=actionsIn, focusOut=actionsOut)
                     else
                       row align-items="center" flex-shrink=0 max-width=(shown ? "0px" : "15rem") overflow="hidden" opacity=(shown ? 0 : 1)
                         SidebarStatusSlot(t=t, now=now)
                       row align-items="stretch" flex-shrink=0 max-width=(shown ? "15rem" : "0px") overflow=(shown ? "visible" : "hidden") opacity=(shown ? 1 : 0) pointer-events=(shown ? "auto" : "none") aria-hidden=(not shown)
-                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, snoozeOpened=snoozeOpened)
+                        SidebarCardActions(t=t, busy=busy, run=run, hoverCard=hoverCard, pressDown=pressDown, hoverId=hoverId, sweep=sweep, release=dragEnd, sweepKeys=sweepKeys, snoozeKey=snoozeKey, focusIn=actionsIn, focusOut=actionsOut)
                   if swept
                     SidebarDropVerb(verb=sweptBadge, ink="light-dark(#1b4ed8, #346bf1)")
               text t.title width="100%" font-size="0.875rem" line-height="1.25rem" margin-top="0.25rem" font-weight=weight color=ink opacity=(t.regenerating ? 0.55 : 1) line-clamp=1 text-align="left"
@@ -176,15 +185,15 @@ component ThreadRow
                     CnMachineIcon(kind=t.remoteMachine, size=14, color="light-dark(#71717bb3, #818181b3)")
                 SidebarProviderMark(driver=t.providerDriver, badge=t.providerBadge, accent=t.providerBadgeColor)
           if t.canSnooze
-            column id=`snooze-${t.id}` popover="auto" position-try-fallbacks="none" role="menu" aria-label="Snooze thread" position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
+            column id=`snooze-${t.id}` popover="auto" toggle=snoozeChanged position-try-fallbacks="none" role="menu" aria-label="Snooze thread" position="absolute" top=0 left=0 min-width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fffffff5, #111111f5)" box-shadow="0 16px 40px -18px #0000008c"
               // MenuPopup sizes to its content from one minimum (min-w-[min(10rem,…)]): "Next week" and its "Mon 9:00 AM" fit
               // (realinput-1010d RD-5; a fixed 10.8rem cut the time at the menu's edge). The glass's blur does not reach the
               // popover layer: a denser tint stands in for it.
-              KeyMenuWatched(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=snoozeKeyed, gap="0px", inside=snoozeInside, modal=true)
+              KeyMenu(menuId=`snooze-${t.id}-keys`, items=snoozeItems, keyed=0, gap="0px", modal=true)
                 for preset in presets key=preset.id
-                  SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""), inside=snoozeInside, pointer=snoozePointer)
+                  SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-${preset.id}`, label=preset.label, detail=preset.wakeLabel, popId=`snooze-${t.id}`, press=run(`snooze:${preset.id}`, t.id, ""))
                 box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-                SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""), inside=snoozeInside, pointer=snoozePointer)
+                SnoozeMenuItem(keysId=`snooze-${t.id}-keys`, itemId=`snooze-${t.id}-custom`, label="Custom…", detail="", popId=`snooze-${t.id}`, press=run("snooze:custom", t.id, ""))
         else
           if t.renaming
             row width="100%" height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.625rem" align-items="center" border-radius="0.5rem" background-color=surface
@@ -293,28 +302,25 @@ component SidebarCardActions
     sweep: action
     release: action
     sweepKeys: string
-    // fix-keyboard-focus: Enter or Space opens the snooze menu from the keyboard (the row's count, KeyMenuWatched),
-    // and ↓ or ↑ through the invisible invokers over the clock (KeyMenuOpen).
+    // The row owns popup lifetime and keyboard opening; this is the real invoker.
     snoozeKey: action
-    snoozeOpened: action
-  state snoozeArmed = false
-  action snoozeArm(on: bool)
-    snoozeArmed = on
+    // The row's focus-within over these actions (ThreadRow.actionsIn/actionsOut).
+    focusIn: action
+    focusOut: action
   // text-muted-foreground hover:text-foreground: the control under the pointer inks up.
   derive tool = "light-dark(#71717b, #a3a3a3)"
   derive lit = "light-dark(#27272a, #f1f3f7)"
   view
-    row align-items="stretch"
+    row align-items="stretch" focusin=focusIn focusout=focusOut
       if t.draft
         SidebarTip(tip=`${t.hoverKey}#discard`, hoverCard=hoverCard)
-          button cursor="pointer" press=run("discard-draft", t.id, "") aria-label="Discard draft" testId=`discard-draft-${t.id}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+          button cursor="pointer" id=`discard-trigger-${t.id}` press=run("discard-draft", t.id, "") aria-label="Discard draft" testId=`discard-draft-${t.id}` height="1.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
             SidebarIcon(name="x", size=14, color=(hoverId == `${t.hoverKey}#discard` ? lit : tool))
       if t.canSnooze
         SidebarTip(tip=`${t.hoverKey}#snooze`, hoverCard=hoverCard)
           box position="relative" display="flex"
-            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` pointerdown=pressDown disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            button cursor="pointer" id=`snooze-trigger-${t.id}` press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}` pointerdown=pressDown disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
-            KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)
       if t.canSettle
         SidebarTip(tip=`${t.hoverKey}#settle`, hoverCard=hoverCard)
           button cursor="pointer" id=`sweep-${t.id}` press=run("settle", t.id, "") focus=hoverCard("", false) pointerdown=pressDown pan=sweep(t.id, "settle") panrelease=release(`sweep|settle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Settle thread" testId=`settle-${t.id}` height="1.25rem" margin-right="-0.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
@@ -322,8 +328,7 @@ component SidebarCardActions
             text "Settle" font-size="0.75rem" line-height="1rem" color=(hoverId == `${t.hoverKey}#settle` ? lit : tool)
 
 // A snooze menu row (MenuItem: 28pt, 4/8 inset, radius 6), highlighted while the pointer is on it or it
-// has the keyboard's focus (data-highlighted:bg-accent). Its focus, blur and hover tell the row the menu
-// still holds the focus or the pointer (fix-keyboard-focus).
+// has the keyboard's focus (data-highlighted:bg-accent). Popup toggle owns the parent pin.
 component SnoozeMenuItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
@@ -333,18 +338,14 @@ component SnoozeMenuItem
     detail: string
     popId: string
     press: action
-    inside: action
-    pointer: action
   state lit = false
   action hover(value: bool)
     if value
-      focus(`${itemId}-km`)
+      focus(itemId)
     else if lit
       focus(keysId)
-    pointer(value)
   action focused(on: bool)
     lit = on
-    inside(on)
   view
     button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" testId=itemId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.5rem"
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
