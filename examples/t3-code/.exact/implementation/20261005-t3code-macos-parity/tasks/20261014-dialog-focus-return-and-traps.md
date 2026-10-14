@@ -429,6 +429,21 @@ stopped. Stub counters confirm zero update RPCs and zero prepared desktop update
 No provider message, real authentication, GitHub write, update, force-kill, or user-data
 deletion was used.
 
+Cleanup correction, 2026-10-14: the original cleanup missed three G2 connections
+and their Keychain accounts. The live standalone executable used the preferences
+domain `T3 Code (Exact)`; named agent storage did not isolate its native preferences.
+At 06:06:02 UTC, narrow cleanup removed only the three owned connection records and
+exact credential accounts, and restored the observed pre-test load-balancing value
+of false. The coordinator independently compared private before/after dictionaries
+and the live plist, confirming every unrelated value unchanged, then repeated the
+three metadata-only credential lookups. All returned not found. No secret data was
+requested. The original 16 evidence files still match their recorded hashes.
+
+[Corrective cleanup receipt and independent readback](https://github.com/ccheever/exact2/blob/3e804c72ed41291134918806d3f2b447af7a7556/dialog-focus-return-and-traps/20261014-cleanup-correction/README.md)
+are additive to the original proof. No raw preferences backup predates the live test,
+so complete historical domain restoration is not claimed. Future live-input tests
+must verify their actual process preferences domain and credential isolation.
+
 ## Next action
 
 Coordinator readback, 2026-10-14: implementation commit
