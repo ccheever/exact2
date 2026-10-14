@@ -1,12 +1,13 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-13. Round 1 was reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh), both RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r1.{astra,grok}.md`); r2 takes every finding (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
+**Status:** Draft r3, 2026-10-13. Reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh): rounds 1 and 2 both RIGHT WITH CHANGES, round 2 with no blocker (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2}.{astra,grok}.md`); r2 and r3 take every finding (§0). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". It needs DEFERRED admissions before any stage starts (§9 Q2).
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
-- The Tamber server (LLP 1121 D13): the build relay and its tile sessions (D3), the provenance join (D5), `set-row` (D6), held proposals (D10), `commit` (D9).
+- The Tamber server (LLP 1121 D13): the build relay and its tile sessions (D3), the provenance join (D5), scrubs and the live-or-rebuild answer (D6), `set-row` (D6), held proposals (D10), `commit` (D9).
 - The agent API (LLP 1012): two new forms, no new operation: `layout` at a point (D5), and a `tap` that holds a state (D8).
-- The compiler's source maps (`contract build --map`): a source digest per file (D6).
+- The compiler's source maps (`contract build --map`): a source digest per file, and the winning attribute's own span (D6).
+- The agent API's node explanation: a held state's overlay rows reported beside the base rows (D8).
 - The web JS target's runtime: a row's token reported beside its computed value (D5).
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -90,6 +91,49 @@ found the machinery underspecified. Each finding is taken:
   - every row source the runner reports is named (D5);
   - captures stay in private temporary storage (D13).
 
+**Round 2** (r2 → r3). Astra: RIGHT WITH CHANGES, no BLOCKER (9 MAJOR, 1 MINOR). Grok:
+RIGHT WITH CHANGES, no BLOCKER (7 MAJOR, 3 MINOR). Both confirmed the round-1 fixes: the
+host hit-test, the wasm fallback, source digests and the AST edit, the split relay,
+exact1's default, server-owned commit and proposals, web before native. Each finding is
+taken:
+- **Live is the closure's, not the rung's** (both): the server answers live or rebuild for
+  each candidate transaction from Tamber's dependency closure, and the chip shows that. A
+  scrub is a **scrub session**: previews on the tiles while the gesture lasts, and one write
+  on release; re-scope inverts that one transaction. The param rung moves to T3, where
+  params exist (D6, §4).
+- **`set-row`'s attribute** (Grok M2, Astra M5): the map records the winning attribute's
+  own span (a shorthand's when the row is an expansion); the style rung addresses `style
+  <Name>` and its row in the package; conditional `class:A/B` origins are refused; the
+  package compiles before writing; detaching a param's last reader removes the param in the
+  same transaction (D6).
+- **Fail closed, consistently** (Grok M3): the template and style rungs only for an
+  `authored` row of a single origin; token and dial rungs only when the node's own specified
+  value is the token; inherited, dynamic and boundary-implied rows read-only, their tokens
+  shown as links (D5).
+- **Observers don't drive** (both): settling and pins are the server's; `read` and `propose`
+  get captures, `layout` and `tree` only; `tap` and `type` carry no `ticket`, `path` or
+  `files` (D3).
+- **Captures travel on the authenticated socket** (both), so a paired client sees tiles;
+  native window captures map through the chrome inset (D3, D12).
+- **Holds are each their own state** (Grok M6), re-applied after a reload; **inspect shows
+  the held overlay's rows** (Astra M4) (D5, D8).
+- **The target branch** (Grok M7): an edit writes the branch that won on the tile; a new
+  `when` is an explicit "only this mode" (D6).
+- **Capture identity** (Astra M1): a capture is bound to the tile's carrier generation,
+  incarnation, epoch, clock and applied design digest, with a barrier pairing pixels and
+  geometry (D3).
+- **Re-scope transformations** (Astra M3) are enumerated; others are refused (D6).
+- **`commit`'s guard** (Astra M8) checks each file against the server's last written version
+  and HEAD, and commits through a temporary index, so unrelated staged work is untouched
+  (D9).
+- **Proposal acceptance** (Astra M9) keeps the reviewed bases; a stale or partial accept is
+  recomputed and shown again (D10).
+- **Minors:**
+  - the tool's URL and the tiles' URLs are named (D2);
+  - the web hit-test is `exact_geometry.point` (D5);
+  - a single mount is "this template · 1 instance" (D6);
+  - a rebuild carries what the dev reload carries (D6).
+
 ## 1. Motivation
 
 - **Tamber makes a design data that swaps live** (LLP 1121 D7, D13). Something has to put a
@@ -136,7 +180,9 @@ Structure, layout, data and behaviour stay with Contract source (D14).
   itself, and should not.
 - **No design state of its own.** The files are the design and git the history. Closing the
   tool loses the selection and the canvas layout, nothing else.
-- `bun exact.mjs tamber tool` opens it at the dev loop's local URL.
+- **Two URLs.** `bun exact.mjs tamber tool` opens the tool at its own local URL, served by
+  the Tamber server. Tiles open the app's development build at the URL of the dev loop that
+  built it: the wasm host's page until T2b, the JS target's after.
 
 ### D3 — The canvas: tiles the server launches and owns
 
@@ -151,11 +197,22 @@ modes, current plan digest and map, last capture.
   Mac app, launched with the platform's own chrome. Then a paired phone. A native tile comes
   only after the web canvas has passed its gate (§4).
 - **What a tile shows: a capture.** The server settles the tile (`clock settle`, bounded;
-  an unsettled tile is shown as unsettled, not hidden) and takes `screenshot` and `layout`
-  together. It tags them with the tile's epoch and plan digest, and serves the image to
-  the tool over a loopback URL at `--scale 1`, never as a `data:` URL, which is capped at
-  1 MiB. A capture is retaken after each commit the tile reports, a live-table batch
-  included.
+  an unsettled tile is shown as unsettled, not hidden), then takes `screenshot` and
+  `layout`.
+  - **Identity.** The pair is accepted only if both replies report the same carrier
+    generation, incarnation, epoch, clock and applied design digest. A JS page restarts at
+    incarnation 1 with a fresh epoch, so the carrier generation is the server's own
+    counter, bumped on every relaunch or reload.
+  - **The barrier.** While a capture is in flight, the server holds back live-table batches
+    for that tile, and it retakes the pair if either reply disagrees.
+  - **Retaken** after each commit the tile reports (a live-table batch included) and after
+    every driving request, so a scroll or a press never leaves a stale picture.
+  - **Delivery.** The image travels to the tool as bytes on its authenticated socket (at
+    `--scale 1`), never as a `data:` URL (capped at 1 MiB) and never on an unauthenticated
+    URL.
+  - **Native captures.** A native tile's capture is its window, platform chrome included.
+    The server records the chrome's inset and maps a point through it; a hit on chrome is
+    the platform's, and the tool offers no edit there.
 - **A continuous mirror is not in r1** (§9 Q5): the agent API has no frame stream, and
   DEFERRED §Agent API holds the count at ten.
 - **Modes side by side.** A tile is pinned to one combination of:
@@ -176,13 +233,18 @@ never a pass-through of LLP 1012:
 
 | Group | Forms | Who |
 |---|---|---|
-| **observe** | a capture (the server's screenshot and layout pair, by handle), `layout` of a node, `layout` at a point (D5), `tree`, `prefer` on the tile's pinned facts, `clock settle` | `read`, `propose`, `write` |
-| **drive** | `tap` (including D8's held state), `type` | `write` only, each journaled with its client |
+| **observe** | the tile's latest capture, `layout` of a node, `layout` at a point (D5), `tree` | `read`, `propose`, `write` |
+| **drive** | `tap` (including D8's held state) and `type`, with no `ticket`, `path` or `files` field | `write` only, each journaled with its client |
+
+Settling, recapturing and a tile's `prefer` pins are the server's own acts, done for its
+tiles. No client sends them: `clock settle` fires timers and commits their actions, and
+`prefer` changes device facts (`online`, `visibility-state` among them), so neither is an
+observation.
 
 Not relayed, ever:
 - a client-chosen `path`;
 - `logs`, `perf` and `state`;
-- file-picker answers;
+- a `ticket` (which answers a file picker or an auth prompt), or `files`;
 - any form that reads or writes a file.
 
 The server picks every file it writes and hands back handles.
@@ -201,10 +263,12 @@ preview screen is the tool's component workbench (D7).
 **Selecting.** A click on a tile becomes **`layout` at a point**, a new form of `layout`
 (DEFERRED: "a new question is answered from … `layout`"): `{"op":"layout","at":[x,y]}`. The
 host answers with the view id its own hit test finds front-most at that point:
-- the web, `elementsFromPoint` (`host/web/geometry-glue.js`);
+- the web, `exact_geometry.point` (`host/web/glue.js`): `elementsFromPoint`, then the
+  nearest `[data-view]`, answered as a view id (the geometry ABI's `id + 1` is converted);
 - native hosts, the same hit test `tap` uses.
 
-The point is in the capture's coordinates; the server converts for the capture's scale. If
+The point is in viewport space, not `tap`'s target-local `at`. The server converts it from
+the capture's coordinates, the scale and any chrome inset. If
 the tile's epoch has moved since the capture, the selection is refused and the tile
 recaptured. Boxes from `layout` are used for outlines only.
 
@@ -242,11 +306,14 @@ hands the tool provenance records:
    affected and isn't listed. The full impact of a change is computed from the tokens whose
    folded values it changes (the dependency closure) and shown as those tokens.
 
-**Fail closed.** An edit is offered only when:
-- the tile's map matches its plan digest;
-- the map's source digest matches the file on disk (D6);
-- the row's source is `authored` with an `own` or `class:` origin, or the row holds a
-  token.
+**Fail closed.** An edit is offered only when the tile's map matches its plan digest and
+the map's source digest matches the file on disk (D6), and then only these rungs:
+- **template or style:** the row is `authored`, from a single origin (`own`, or one
+  `class:<Name>`; a conditional `class:A/B` is refused);
+- **token or dial:** this node's own specified value is the token. A token reached through
+  inheritance, a boundary-implied row or a dynamic expression is shown as a link to the
+  token, never as this node's edit;
+- **state part:** while a hold is active, the held state's winning overlay row (D8).
 
 Everything else is shown read-only, with its reason ("inherited from
 `app.contract:12`", "computed", "the tag's default", "set at a mode boundary"). This is
@@ -254,53 +321,87 @@ exact1's rule: never write back through a value it cannot trace.
 
 ### D6 — The scope ladder
 
-Every edit has one scope and one **target branch**: the token's default, or one named
-`when` (a mode tuple). From narrowest to widest:
+Every edit has one scope and one **target branch**. The branch is the one `explain` says
+won on the tile the gesture is on: the token's default, or the `when` for that tile's mode
+tuple. The chip names it ("`surface.page` · Dim"), because on a Dim tile the default is
+hidden behind the Dim `when`, and editing it would change nothing the user is looking at.
+Adding a `when` that does not exist yet is an explicit action, "only this mode". From
+narrowest to widest:
 
 | Rung | Writes | Through | Applies | Available when |
 |---|---|---|---|---|
 | **template** | one paint row of this source node, in every expansion | `set-row` | rebuild | the row is `authored`, origin `own` |
-| **style** | the row in the `style` the node's `class` names | `set-row` on the style | rebuild | origin `class:<Name>` |
-| **param** | this component's param, for every instance | `set-param` (LLP 1121 D15) | live | the row reads a param |
-| **token** | the token, everywhere | `set-token` | live | the row holds a token |
-| **dial** | a dial, and every token folded from it | `set-dial` | live | the token depends on a dial |
+| **style** | the row in `style <Name>`, for every node using it | `set-row` on the style | rebuild | origin a single `class:<Name>` |
+| **param** | this component's param, for every instance | `set-param` (LLP 1121 D15) | the closure's | the row reads a param |
+| **token** | the token's branch, everywhere | `set-token` | the closure's | the node's own value is the token |
+| **dial** | a dial, and every token folded from it | `set-dial` | the closure's | the token depends on a dial |
+
+**Live or rebuild is the closure's, not the rung's.** Tamber rebuilds instead of applying
+the live table when the change reaches anything substituted at build: a `duration` or
+`easing` token, or any dial or param folded into one (LLP 1121 D13). So the tool asks the
+server: `propose` answers, for the candidate transaction, `live` or `rebuild` (a minor
+addition to `tamber/1`). The chip shows that answer before the gesture.
 
 - **The default, as exact1 set it** (0158 §3.1): the **param** when the row reads one,
   otherwise the **template** or **style** rung. **Token and dial are offered, never the
   default.** With the live table, a token edit repaints every use at once, and an
   accidental one is the mistake the ladder exists to prevent.
 - **"Just this" is not a rung.** There is no per-instance paint store: params are the
-  design's, not props (LLP 1121 D15). The template rung is labelled "this template", and
-  "just this" appears only for a node that renders once.
-- **The chip says live or rebuild before the gesture.** Live rungs scrub on every tile;
-  rebuild rungs apply on release, and the tile reloads, losing scroll and drafts as any
-  source edit does.
+  design's, not props (LLP 1121 D15). The template rung is labelled "this template", and a
+  node that renders once is "this template · 1 instance", since a second instance would
+  inherit the edit.
+- **A scrub is a scrub session**, a server addition to `tamber/1`:
+  - It begins with a transaction template.
+  - While the gesture lasts, each value is sent to the tiles as a live-table batch and
+    written to no file.
+  - On release, the server writes once, as one transaction. On cancel, a disconnect or a
+    crash, it sends the tiles their snapshot back.
+  - The files and the tiles differ only for the gesture's length, and the tool shows
+    "previewing" meanwhile.
+  - A rebuild-class edit has no scrub: it applies on release.
+- **A rebuild** carries what the dev reload carries (LLP 1007 §6: slots by name, settled
+  resources and the clock; the JS target's checkpoint also restores focus). What it does not
+  carry, such as scroll position, is lost, and the chip says "rebuilds" before the gesture.
 - **Act first, re-scope after** (0158 §3.2). The chip on the last edit re-applies it at
-  another rung as one transaction: the inverse, then the new write. The blast radius is
-  outlined as it happens.
-- **Promote and detach**, only where the source can express it:
-  - **Template to param:** one transaction adds the param (`add-param`) and rewrites the
-    row to read it, so `tamber-param-unused` never fires.
-  - **Template to token:** one transaction adds the token and rewrites the row.
-  - **Detach param to template:** writes the literal and leaves the param to its other
-    readers.
-
-  No re-scope to a dial is invented: a colour derived from several dials has no unique
-  dial value. The tool shows the dials as inputs instead.
+  another rung, as one transaction: the inverse of that edit's transaction, then the new
+  write. The blast radius is outlined as it happens.
+- **Re-scope and promotion are an enumerated set**, each one transaction. Anything else is
+  refused with the reason.
+  - **Template to param:** adds the param (`add-param`) and rewrites the row to read it.
+  - **Template to token:** adds a token whose default is the literal and rewrites the row.
+    Offered only for an unconditional value.
+  - **Param ↔ token:** between a param and the token it aliases directly
+    (`radius = "radius.md"`). A param whose value is an expression offers the expression's
+    inputs instead.
+  - **Detach param to template:** writes the literal at this source node. If this was the
+    param's last reader, the same transaction removes the param, so `tamber-param-unused`
+    never fires.
+  - **A `when`-specific value is never moved to an unconditional literal**, which would
+    change every mode.
+  - **No re-scope to a dial:** a colour derived from several dials has no unique dial value.
+    The tool shows the dials as inputs instead.
 - **Expressions are kept.** Editing a token whose value is an expression offers that
   expression's inputs. Overwriting it with a literal is an explicit "pin", marked as LLP
   1121 D14 marks a pinned override.
 
 **`set-row`**, the server's checked edit of one Contract row:
-- **Address.** Each source file's digest is recorded in the map at compile time (a compiler
-  addition). The edit names the file, the source span, the row and the digest the tool saw.
-  A plan digest is never the address: formatting moves spans without changing it
+- **Address.** The map today records an element's span and its winning rows' origins, not
+  an attribute's span (`contract/cli/src/map.rs`). So the compiler adds two things:
+  - each source file's digest;
+  - for each winning authored row, the span of the attribute it came from. When the row is
+    an expansion (`padding-right` from `padding`), that is the shorthand's span.
+
+  The edit names the file, that attribute span, the row and the digest the tool saw. A plan
+  digest is never the address: formatting moves spans without changing it
   (`docs/reference.md` "Source maps").
-- **Resolution.** The server finds the attribute in the file's syntax tree, not by span
-  text, and parses the value as that row's type. A shorthand (`border`, `font`) is edited as
-  the shorthand or refused, never split silently.
-- **Check.** The server compiles the candidate file before writing; a refused compile writes
-  nothing.
+- **Resolution.** The server finds the attribute in the file's syntax tree at that span,
+  checks that it is the one attribute the row came from (else it refuses), parses the new
+  value as the row's type, and splices that one value token. A shorthand is edited as the
+  shorthand or refused, never split silently. The style rung addresses `style <Name>` and
+  its row, resolved in the package (style names are unique in a program), not by a use
+  site's span. Its blast radius is every node whose row's origin is that style.
+- **Check.** The server compiles the candidate package before writing; a refused compile
+  writes nothing.
 - **Write.** Through LLP 1121 D13's journaled commit. The original bytes are kept, so its
   inverse restores the file byte for byte.
 - **Refused:** tag-origin rows, computed rows, layout rows (D14), and rows that LLP 1121 D8
@@ -334,13 +435,24 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
   **a held state**: `{"op":"tap","id":V,"hold":"active"|"hover"|"focus-visible"}`. It holds
   that host state on one node until cleared (`"hold":null`), in development builds only.
   DEFERRED: "a new input is a form of `tap`". Its semantics:
-  - **Ownership.** The relay session that set it; one held state per node.
-  - **Cleared** by an explicit clear, by the node's retirement, by a reload, and by real
-    input on that node, which always wins.
-  - **Precedence.** A disabled node takes no hold, as it takes no press; the hold applies
-    overlays, ease and Reduce Motion exactly as a real press does (LLP 1121 D8).
-  - **Unsupported:** a host that cannot hold a state answers so by name; iOS answers
-    `tap` phases `unsupported` today.
+    - **Each hold is its own state.** `active` holds the press on the node the press
+    resolves to, the innermost with a `press` handler (LLP 1121 D8). `hover` and
+    `focus-visible` hold those overlays on the named node, which needs no press handler.
+    Each applies only that state's overlay, with the host's ease, under Reduce Motion as
+    the real state would.
+  - **Ownership.** The server's tile session that set it; one held state per node.
+  - **Cleared** by an explicit clear, by the node's retirement, and by real input on that
+    node, which always wins. After a reload (a `set-state` rebuild among them), the server
+    re-applies its tile's holds to the same source node, so the strip shows the new look.
+  - **Disabled** nodes refuse all three holds, as they take none of those states.
+  - **Unsupported** on a host that cannot hold that state, answered by name. iOS has no
+    pointer, so it answers `hover` that way.
+- **Inspect shows what is held.** While a hold is active, the node's explanation reports
+  the held state's winning overlay rows beside the base rows: the state, the declaring state
+  part (its file and span, from the map) and any token. This is an addition to `layout`'s
+  node answer, since overlays live outside the runner's base rows (LLP 1121 D8). The
+  tool routes an edit of a held look to that state part (`set-state`). A host that cannot
+  report overlay rows leaves the held look read-only, marked "provenance incomplete".
 - **The states strip** uses one web tile per state, so pressed, hovered and default show at
   once. A native host shows them one after another on its one tile.
 - **Editing a state part** is `set-state` (LLP 1121 D13), a rebuild.
@@ -357,9 +469,12 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
 - **`commit`**, a server addition to `tamber/1`:
   - It commits the design files the session wrote, with a message listing the edits and
     their authors (person or agent).
-  - It refuses, naming the file, if any of them had changes before the session (a dirty or
-    staged file at its start), so a commit never sweeps in unrelated work. The developer
-    commits those by hand.
+    - **The guard.** Each file's current content must equal the version the server last
+    wrote; a hand edit made since means "commit by hand". The file's HEAD version must equal
+    the one at the session's start. Otherwise it refuses, naming the file, so a commit never
+    sweeps in unrelated work.
+  - **The index.** It commits through a temporary index holding HEAD plus exactly those
+    files, so whatever the developer has staged elsewhere stays staged and uncommitted.
   - It never pushes.
 - **History** is the git log of the design files, read as edits. "Revert" proposes a past
   commit's inverse.
@@ -373,8 +488,11 @@ An agent is a client with the same token, reads and writes.
   edits in its own colour.
 - **Held proposals**, a server addition. An agent's `propose` can be held: the server keeps
   the transaction in memory (with an expiry) and announces it on `subscribe`. The tool
-  shows it for review (D11's view): accept all, some, or none. Accepting applies it as one
-  write with fresh preconditions.
+  shows it for review (D11's view): accept all, some, or none.
+  - **Accepting** applies it with the base digests it was reviewed against.
+  - **If a file has moved since**, or only some items were accepted, the server recomputes
+    the transaction on the current files. The tool shows the recomputed diff, and the person
+    accepts that, never the old operations replayed onto new bases.
 - **Prompt-as-tweak** (0158 §9). A selection-scoped request goes to an agent with a bundle:
   - the selection's provenance;
   - the rungs;
@@ -393,17 +511,20 @@ Each import shows:
 - the role overrides, each off until ticked (LLP 1121 D1);
 - the unmapped values, each with its reason.
 
-Accepting writes the chosen items as one transaction, and undo is one step. There is no live
-preview before writing: the live table applies written values only (LLP 1121 D13), and a
-preview layer would be a second truth, which exact1 found costly. The review shows each
-value's swatch in each mode instead.
+Accepting writes the chosen items as one transaction, and undo is one step. An import is not
+previewed on the tiles before it is written. The only preview is a scrub's, which lasts as
+long as a gesture (D6); a standing preview layer would be a second truth, which exact1 found
+costly. Instead the review shows each value's swatch in each mode, and an accepted import
+is undone in one step.
 
 ### D12 — Collaboration
 
 - **Local first.** Several clients on one machine edit through one server, serialized by
   digests (LLP 1121 D13). The tool lists connected clients. Live presence (each client's
   selection) is not in v1.
-- **Remote, by pairing** (LLP 1121 D13). A paired client gets the observe group of the relay
+- **Remote, by pairing** (LLP 1121 D13). Captures reach it as bytes on its authenticated
+  socket, so it needs no URL on the developer's machine, and its access ends when its token
+  is revoked or expires. A paired client gets the observe group of the relay
   at `read` and `propose`, and the drive group only at `write`. It sees the developer's
   tiles.
 - **A team relay** for people who share no machine is open (§9 Q6).
@@ -419,7 +540,8 @@ value's swatch in each mode instead.
 - **Writes only through the server**, under its digests, compile check and journal (D6, LLP
   1121 D13). `set-row` writes only files inside the project root that the map names.
 - **Captures are private.** They go to a temporary directory created `0700` per session,
-  are served by handle over loopback, and are deleted when the session ends. `.exact/` is
+  reach clients only as bytes on their authenticated sockets, and are deleted when the
+  session ends. `.exact/` is
   not ignored by git, so nothing is kept there.
 - **Prompts** stay local unless a remote model is named (D10).
 
@@ -447,9 +569,11 @@ value's swatch in each mode instead.
 | build relay with tile sessions | this RFC D3 → LLP 1121 D13 | proposed |
 | `layout` at a point | this RFC D5 → LLP 1012 | proposed |
 | `tap` holding a state | this RFC D8 → LLP 1012 | proposed |
-| each build's own plan and map pair; source digests in maps | this RFC D5, D6 → the compiler and both dev loops | proposed |
+| each build's own plan and map pair | this RFC D5 → both dev loops | proposed |
 | the JS runtime reporting a row's token | this RFC D5 → the web JS target | proposed |
-| `set-row`, `commit`, held proposals | this RFC D6, D9, D10 → LLP 1121 D13 | proposed |
+| `set-row`, `commit`, held proposals, scrub sessions, `propose`'s live-or-rebuild answer | this RFC D6, D9, D10 → LLP 1121 D13 | proposed |
+| a held state's overlay rows in `layout`'s node answer | this RFC D8 → LLP 1035.002 | proposed |
+| attribute spans and source digests in maps | this RFC D6 → the compiler | proposed |
 | source maps; `layout <id>` with sources | `contract build --map`; LLP 1035.002 D1 | built |
 
 ## 4. Staging and gates
@@ -474,14 +598,17 @@ or after the Tamber stage it needs.
    - headless web tiles owned by the server, running the wasm host (D3);
    - `layout` at a point; captures paired with geometry;
    - provenance (D5);
-   - the param, token and dial rungs (D6).
+      - the token and dial rungs, scrub sessions and the live-or-rebuild answer (D6).
 
    **Gate:**
    - six web tiles in Light, Dim and Black at two text sizes;
    - a dial drag updates them all with no reload;
    - a click on an overlapped or clipped node selects the node the host hit-tests;
    - a stale capture's click is refused and recaptured;
-   - a token row shows its chain;
+      - a token row shows its chain;
+   - a scrub previews on every tile and writes once on release, and a cancelled or
+     disconnected scrub restores every tile;
+   - a capture whose screenshot and `layout` disagree on identity is retaken;
    - an inherited, dynamic or boundary-implied row is read-only with its reason;
    - an observe-only client cannot `tap`;
    - no client can name a capture path.
@@ -490,12 +617,14 @@ or after the Tamber stage it needs.
    Bluesky clone.
 5. **T2c, native tiles**: the iOS simulator and the Mac, then a phone, each owned by the
    server, with platform chrome. **Gate:** T2's inspect gate passes on each native host.
-6. **T3, components** (with Tamber stage 7): the component panel and workbench (D7). **Gate:**
-   `PostButton`'s params appear as declared; a param edit re-scoped to its token is one
-   transaction and one undo.
+6. **T3, components** (with Tamber stage 7): the param rung, the component panel and the
+   workbench (D6, D7). **Gate:** `PostButton`'s params appear as declared; a param edit
+   re-scoped to the token it aliases is one transaction and one undo; a duration param's
+   chip says "rebuilds".
 7. **T4, states** (with Tamber stage 8 and the held `tap`): D8. **Gate:** pressed, hovered,
    disabled and default show at once on web tiles; real input clears a hold; a disabled
-   node refuses one; editing `:active` rebuilds.
+   node refuses one; inspect on a held tile shows the state part's rows; editing `:active`
+   rebuilds and the hold is re-applied.
 8. **T5, template and style rungs** (with `set-row`): D6. **Gate:**
    - a template colour edit writes one line and rebuilds;
    - a stale source digest is refused;
@@ -530,11 +659,12 @@ or after the Tamber stage it needs.
 ## 7. Cost
 
 - **The tool:** one web JS-target app.
-- **The Tamber server:** the relay and its tile sessions, the provenance join, `set-row`,
-  `commit`, held proposals.
+- **The Tamber server:** the relay and its tile sessions, the provenance join, scrub
+  sessions and the live-or-rebuild answer, `set-row`, `commit`, held proposals.
 - **The agent API:** two forms, `layout` at a point and the held `tap`, on each host that
   answers them.
-- **The compiler:** source digests in maps. **The dev loops:** each build's own map pair.
+- **The compiler:** source digests and attribute spans in maps. **The dev loops:** each
+  build's own map pair. **The node explanation:** a held state's overlay rows.
 - **The JS runtime:** reporting a row's token.
 - **Docs:** the tool's page, and the protocol reference's new rows.
 
