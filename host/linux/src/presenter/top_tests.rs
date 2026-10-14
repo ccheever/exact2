@@ -147,7 +147,7 @@ impl SurfacePainter for Pixels {
 
 fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (400., 800.),
         1.,

@@ -171,7 +171,7 @@ component App
     #[test]
     fn a_markdown_link_to_a_route_navigates_and_one_out_of_the_app_is_logged() {
         let (mut p, error) = Presenter::boot_with(
-            &contract::compile(SRC).unwrap().encode(),
+            &crate::test_plan(SRC),
             (),
             (400., 300.),
             1.,

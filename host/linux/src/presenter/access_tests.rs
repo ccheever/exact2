@@ -150,7 +150,7 @@ const WINDOW: Window = Window {
 
 fn boot(source: &str, size: (f32, f32), books: usize) -> Presenter<Data> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Data(books),
         size,
         1.,

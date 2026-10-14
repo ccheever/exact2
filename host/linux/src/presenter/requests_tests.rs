@@ -80,7 +80,7 @@ component App
 
 fn boot() -> Presenter<Nothing> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Nothing,
         (400., 800.),
         1.,

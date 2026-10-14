@@ -32,7 +32,7 @@ fn boot(row: &str) -> Presenter<Rows> {
 }
 fn boot_source(source: &str) -> Presenter<Rows> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Rows,
         (400., 500.),
         1.,
@@ -821,8 +821,7 @@ fn height_projection_refines_real_25k_port_through_hold_ticks_resize_and_typing(
     settle(&mut p);
     assert!(!p.dirty());
     let old = p.height_begin(10_000.).unwrap().unwrap();
-    p.reload(&contract::compile(source).unwrap().encode(), Rows)
-        .unwrap();
+    p.reload(&crate::test_plan(source), Rows).unwrap();
     assert!(p.host.height_owner().is_none());
     assert!(!p.height_update(old.token, f64::NAN, f64::NAN).unwrap());
     assert!(!p.height_end(old.token, HoldEnd::Cancel, f64::NAN).unwrap());

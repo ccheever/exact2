@@ -24,7 +24,7 @@ const SOURCE: &str = r#"component App
 "#;
 fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         (),
         (400., 500.),
         1.,

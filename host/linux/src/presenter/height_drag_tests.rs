@@ -50,7 +50,7 @@ const APP: &str = r#"component App
 "#;
 fn boot(source: &str) -> Presenter<Rows> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Rows,
         (400., 500.),
         1.,
@@ -186,8 +186,7 @@ fn cancellation_disable_deletion_and_reload_never_dispatch_late_release() {
         match action {
             "cancel" => p.pointer_cancel(30.).unwrap(),
             "reload" => {
-                p.reload(&contract::compile(APP).unwrap().encode(), Rows)
-                    .unwrap();
+                p.reload(&crate::test_plan(APP), Rows).unwrap();
             }
             name => {
                 p.tap(id(&p, name)).unwrap();

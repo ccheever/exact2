@@ -471,7 +471,7 @@ mod tests {
     fn a_progress_paints_still_spokes_in_its_color_and_takes_no_press() {
         let app = "component App\n  view\n    column width=100 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"spin\" width=40 height=40 color=\"#ff0000\"\n";
         let (mut p, error) = super::Presenter::boot_with(
-            &contract::compile(app).unwrap().encode(),
+            &crate::test_plan(app),
             (),
             (100., 100.),
             1.,
@@ -516,7 +516,7 @@ mod tests {
     fn a_progress_bar_paints_its_value_in_the_accent_and_takes_no_press() {
         let app = "component App\n  view\n    column width=200 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"bar\" value=3 max=4 accent-color=\"#ff0000\"\n";
         let (mut p, error) = super::Presenter::boot_with(
-            &contract::compile(app).unwrap().encode(),
+            &crate::test_plan(app),
             (),
             (200., 100.),
             1.,

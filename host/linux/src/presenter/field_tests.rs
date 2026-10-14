@@ -55,7 +55,7 @@ const APP: &str = r#"component Forms
 
 fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (400., 600.),
         1.,
@@ -276,7 +276,7 @@ fn set_range_text_command_preserves_selection_and_reports_one_input() {
       text `${body}|${count}|${caret}` testId="result"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 600.),
         1.,
@@ -387,7 +387,7 @@ fn range_replacement_url_sanitization_and_select_events_match_chrome() {
       text heard testId="heard"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 600.),
         1.,
@@ -446,7 +446,7 @@ fn range_replacement_select_tasks_observe_both_commands() {
       text log testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 600.),
         1.,
@@ -482,7 +482,7 @@ fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
       text `${body}:${caret}:${kind}` testId="result"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         (),
         (400., 300.),
         1.,

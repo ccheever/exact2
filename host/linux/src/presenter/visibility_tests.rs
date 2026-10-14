@@ -13,7 +13,7 @@ const APP: &str = r##"component App
 
 fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         (),
         (200., 200.),
         1.,

@@ -158,7 +158,7 @@ const WINDOW: Window = Window {
 
 fn boot(source: &str) -> Presenter<Nothing> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Nothing,
         (412., 840.),
         1.,
