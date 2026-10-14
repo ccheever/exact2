@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–6 and 9 are on main; commits 7 (the CLI and docs) and 8 (the Bluesky port) remain, and then stage 2's gate. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–7 and 9 are on main; commit 8 (the Bluesky port, bsky5's, in the clone) remains, and then stage 2's gate. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -1852,3 +1852,27 @@ Built as D7's "The web" says, with these as-built details:
 - **Evidence:** conformance `tamber-modes` covers Black in Dim, inherited text, a Light card
   on a dark page, five accent cases, a bound pin and a cleared pin colour, over two axes,
   with no failures against the wasm host in Chrome and in WebKit.
+
+### Stage 2, commit 7: the CLI, `layout`'s tokens, no-tells, docs (`b7647aff8`..`f9c97d3ee`; core `6a95834c2`)
+
+- **The CLI (D2):** `contract tamber check | eval [--mode axis=value,…] | ir [-o tamber.json]`,
+  also run as `bun exact.mjs tamber …`. `check` runs the crate's check and then the
+  compiler's admission (the design compiled beside an empty view), so it refuses what a build
+  would. Deferred: `tamber fmt` to stage 3, where the protocol writes through it; `gen
+  <target>`, `export dtcg` and the TypeScript Token union to stage 5 (D12, D14).
+- **`layout <id>` reports the token beside each row** (D7; LLP 1122 D5).
+  - Each own row that read a token gets `token: {names, text, modes, implied}` from the
+    runner's index. The names are exact: the kernel records the entries a parse reads
+    (`theme::recorded`), and a role override read by its spelling maps back to the token's
+    name.
+  - `implied` marks a boundary's implied row.
+  - The JS target reports its axis-varying tokens; folded ones aren't properties there.
+- **no-tells (§7):** a token name is not a literal. A relative colour isn't a tell when its
+  origin is a token, a role or an expression over them and its channels are its keywords;
+  `rgb(from brand 255 0 0)` still is.
+- **Docs (§6):** a Tamber section in `docs/contract-for-agents.md`, `docs/recipes/tamber.md`, and
+  `docs/start-here.md`'s line: "a brand is an `app.tamber`; a colour names a role or one of
+  its tokens". The "colour or size" wording waits for stage 6's size tokens. A guide's
+  `tamber` fence is checked, by the crate only.
+- **Left open:** `contract tamber` doesn't resolve a profile colour (`color(--…)`), which
+  needs the app's Contract declarations; `contract build` checks it.
