@@ -117,6 +117,11 @@ opt-level = 3
 [profile.dev.package.exact-num]
 opt-level = 3
 
+# Keep URL encoding fast: the runner's tests encode strings at the 64 MiB
+# string limit, byte by byte.
+[profile.dev.package.exact-route]
+opt-level = 3
+
 # Keep PNG screenshot and image byte loops fast in the same development loop.
 [profile.dev.package.png]
 opt-level = 3
