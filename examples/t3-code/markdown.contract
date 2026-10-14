@@ -6,7 +6,7 @@ use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
 use MorphMaximize from "./shell-morph.contract"
-use CiteButton, CitePart from "./diff-cite.contract"
+use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
 use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
 use kmArrow from "./menu-keys.contract"
@@ -206,6 +206,17 @@ component AnswerMarkdown
     citeMessage: string
     citeQuote: string
     citeAt: number
+    // cite-selection-anchor: the window's Cite (diff-cite.contract CiteAction): the answer whose selection it offers while it
+    // shows, the offer and its withdrawal; and the window's press handlers, which a press on this answer reaches through this
+    // answer's own (the innermost node hearing a pointer holds it).
+    citeOffered: string
+    citeOfferSet: action
+    citeWithdraw: action
+    // A double-click's wait before Cite shows (SELECTION_MULTI_CLICK_INTERVAL_MS), and whether one runs.
+    citeHold: action
+    citeHolding: bool
+    outsidePressDown: action
+    outsidePressUp: action
   props
     document: ChatDocument
     local: action
@@ -215,36 +226,74 @@ component AnswerMarkdown
     copiedText: string
     copiedNonce: number
     env: MarkdownEnv
-    // diff-review (Cite): the assistant message id ("" for no Cite) and the command the quote goes through.
+    // diff-review (Cite): the assistant message id ("" for no Cite).
     source: string
-    cite: action
     // media-actions: signed URLs for the answer's host-path media (timeline-attachments.ts).
     urls: list<AttachmentUrl>
   // The selected part of each text of the answer, in the message's text stream (AssistantSelectionToolbar): a prose
   // block's, and (diff-cite-popover DC-2) each word or code span of a block laid out word by word and a code block's code.
   // `block` is the text's id suffix (`cite-<source>-<block>`): the block, the block and its run, or the block and "code".
-  state parts = filter([CitePart(block="", start=0, end=0)], (p) => p.end > 0)
-  state anchor = 0
+  state parts = filter([CitePart(block="", start=0, end=0, lx=0, ly=0, lw=-1, lh=0)], (p) => p.end > 0)
+  // cite-selection-anchor (observeSelectionActions): a primary button is down in this answer (Cite waits for its release),
+  // and the selection changed while it was.
+  state held = false
+  state moved = false
+  // A part's change: the selection made with the pointer is offered at the release (`up`); one made otherwise (a key, a
+  // select-all, a clear) at once, Cite at its last line's right and bottom + 4, or withdrawn when nothing is left.
   action selected(blockId: string, runId: string, s: Selection)
     let key = runId == "" ? blockId : `${blockId}-${runId}`
     let offset = citeOffset(document.blocks, code, blockId) + citeRunOffset(document.blocks, code, blockId, runId)
     let rest = filter(parts, (p) => p.block != key)
-    let row = frame(`cite-root-${source}`)
-    let block = frame(`cite-${source}-${key}`)
-    parts = s.text == "" ? rest : concat(rest, [CitePart(block=key, start=offset + s.start, end=offset + s.end)])
-    if s.text != "" and not row.unavailable and not block.unavailable
-      anchor = block.y + block.height - row.y + 4
-  action dismiss
-    parts = []
+    let box = frame(`cite-${source}-${key}`)
+    let next = s.text == "" ? rest : concat(rest, [citePart(key, offset + s.start, offset + s.end, s.rects, box)])
+    let endBox = frame(`cite-${source}-${citeEndKey(next)}`)
+    let bounds = frame("transcript")
+    parts = next
+    if held
+      moved = true
+    else if source != "" and length(next) == 0
+      citeWithdraw(source)
+    else if source != "" and length(next) > 0
+      citeOfferSet(citeOfferFor(source, next, citeStream(document.blocks, code), citeAxis(citeLineRight(next, endBox), bounds.x, bounds.width, bounds.unavailable), citeAxis(citeLineBottom(next, endBox) + 4, bounds.y, bounds.height, bounds.unavailable)))
+  // A press in the answer: the window hears it as before, and hides Cite there as for any press but Cite's own (the
+  // reference's "interaction" dismissal).
+  action down(e: PointerEvent)
+    outsidePressDown(e)
+    held = e.buttons == 1
+    moved = false
+  // The release of a press that changed the selection: Cite at the release point; within a double-click's wait (a third
+  // click) the wait begins again.
+  action up(e: PointerEvent)
+    let bounds = frame("transcript")
+    outsidePressUp()
+    held = false
+    moved = false
+    if held and moved and source != "" and length(parts) > 0
+      citeOfferSet(citeOfferFor(source, parts, citeStream(document.blocks, code), citeAxis(e.clientX, bounds.x, bounds.width, bounds.unavailable), citeAxis(e.clientY, bounds.y, bounds.height, bounds.unavailable)))
+      if citeHolding
+        citeHold()
+  // A double-click (after its release, which offered Cite): Cite shows once the wait is over.
+  action doubled
+    if source != ""
+      citeHold()
+  // G4-03a (AssistantSelectionToolbar.tsx:87-107): a plain Tab while this answer's Cite shows, enabled, and does not hold
+  // the focus (it is the window's, outside this box) focuses Cite; Escape hides it and keeps the selection.
+  action keys(k: string, e: KeyboardEvent)
+    if k == "Tab" and not e.shiftKey and not e.altKey and not e.ctrlKey and not e.metaKey and source != "" and citeOffered == source and citeSize(parts, citeStream(document.blocks, code)) <= 8000
+      preventDefault()
+      stopPropagation()
+      focus("cite-action")
+    // Dismiss the offer even while the double-click delay keeps it hidden. Other keys cancel a pending offer, as
+    // observeSelectionActions cancels its timer; a subsequent selection change can offer the new keyboard selection.
+    else if source != "" and (k == "Escape" or citeHolding)
+      citeWithdraw(source)
   // The quote's place in this answer while its comment is open (the reference resolves it with
   // resolveAssistantCitationRange), or -1.
   derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (indexOf(source, `${citeMessage}"]`) >= 0 or source == citeMessage)
   derive markStart = citeMarked ? (citeAt >= 0 ? citeAt : indexOf(citeStream(document.blocks, code), citeQuote)) : -1
   view
-    column width="100%" position="relative" id=`cite-root-${source}`
+    column width="100%" pointerdown=down pointerup=up dblclick=doubled keycapture=keys
       DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source=source, cite=selected, markStart=markStart, markEnd=(markStart < 0 ? -1 : markStart + length(citeQuote)))
-      when source != "" and length(parts) > 0
-        CiteButton(parts=parts, stream=citeStream(document.blocks, code), source=source, top=anchor, cite=cite, dismiss=dismiss)
 
 // UserMessageBody: the same Markdown in the message's own ink, single
 // newlines kept as line breaks and context references drawn as chips.
