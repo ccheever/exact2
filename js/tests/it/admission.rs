@@ -173,6 +173,14 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
             .filter(|i| !tree.contains(&format!("\"{source}-{i} after prefs+labelers #1\"")))
             .collect::<Vec<_>>()
     };
+    // Whether one row shows its text: a read of that row alone, not the whole tree
+    let loaded = |bridge: &mut Bridge<D>, i: usize| {
+        agent(
+            bridge,
+            &format!(r#"{{"op":"tree","target":"r{i}","shallow":true}}"#),
+        )
+        .contains(&format!("\"{source}-{i} after prefs+labelers #1\""))
+    };
     let every: Vec<usize> = (0..n).collect();
     let mut left = every.clone();
     let mut gate = false;
@@ -185,7 +193,11 @@ fn drive<D: DataSource>(data: D, source: &str, n: usize, within: Duration) -> Dr
             GATE.1.notify_all();
             gate = true;
         }
-        left = missing(&mut bridge, &left);
+        // The whole tree is read only once the first missing row has loaded, to drop every row
+        // that loaded with it; rows load in waves, so most pumps read one row
+        if left.first().is_some_and(|&i| loaded(&mut bridge, i)) {
+            left = missing(&mut bridge, &left);
+        }
         if left.is_empty() || begun.elapsed() > within {
             break;
         }
