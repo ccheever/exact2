@@ -124,6 +124,83 @@ fn a_list_whose_rows_link_to_a_route_splits_and_names_each_rows_detail() {
 }
 
 #[test]
+fn a_decorative_chevron_cannot_opt_out_another_rows_route_link() {
+    let rows = format!(
+        "{LINKS}\n              button press=pick(\"decoration\")\n                text \"Decoration\"\n                image \"symbol:forward-chevron\""
+    );
+    let mut r = boot(&app("", "", &rows));
+    assert_eq!(split(&r).unwrap().list, Some(view(&r, "rows")));
+    let root = r.kernel().roots()[0];
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    assert_eq!(
+        split(&r).unwrap().rows,
+        vec![(view(&r, "item-b"), view(&r, "row-b"))]
+    );
+}
+
+#[test]
+fn the_outer_press_owns_a_row_even_when_it_or_its_child_links_to_a_route() {
+    for rows in [
+        "              link href=\"/item/a\" press=pick(\"a\")\n                text \"A\"",
+        "              column press=pick(\"a\")\n                link href=\"/item/a\"\n                  text \"A\"",
+        "              column press=pick(\"a\")\n                button press=open(\"a\")\n                  text \"A\"",
+    ] {
+        let r = boot(&app("", "", rows));
+        assert_eq!(split(&r), None, "{rows}");
+    }
+}
+
+#[test]
+fn list_search_and_row_search_keep_their_distinct_boundaries_and_priority() {
+    let link = "                link href=\"/item/a\"\n                  text \"A\"";
+    let later = "            list testId=\"later\"\n              link href=\"/item/a\"\n                text \"A\"";
+    let cases = [
+        (
+            format!("            column navigationKey=\"nested\"\n              list testId=\"inner\"\n{link}"),
+            false,
+            None,
+        ),
+        (
+            format!("            list testId=\"rows\"\n              column navigationKey=\"nested\"\n{link}"),
+            false,
+            Some("rows"),
+        ),
+        (
+            format!("            list testId=\"rows\"\n              list testId=\"inner\"\n{link}"),
+            false,
+            Some("rows"),
+        ),
+        (
+            format!("            list testId=\"rows\" display=\"flex\" flex-direction=\"row\"\n              list testId=\"inner\"\n{link}"),
+            false,
+            Some("inner"),
+        ),
+        (
+            format!("            list testId=\"rows\"\n              button \"Pick\" press=pick(\"a\")\n{later}"),
+            false,
+            Some("later"),
+        ),
+        (
+            format!("            list testId=\"rows\"\n              text \"No Results\"\n{later}"),
+            true,
+            Some("later"),
+        ),
+    ];
+    for (lists, retain, expected) in cases {
+        let source =
+            app("", "", "").replace("            list testId=\"rows\" \n", &format!("{lists}\n"));
+        let r = boot(&source);
+        let retained = retain.then(|| view(&r, "rows"));
+        let found = r.stack_split(view(&r, "home"), retained);
+        assert_eq!(
+            found.and_then(|s| s.list),
+            expected.map(|name| view(&r, name)),
+            "{lists}"
+        );
+    }
+}
+
+#[test]
 fn a_row_whose_press_writes_the_router_splits_and_one_that_writes_none_does_not() {
     let pressed = |action: &str| {
         format!(

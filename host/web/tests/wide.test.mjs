@@ -36,14 +36,14 @@ const tabs = (bar) => `<main id="nav" navigationKey="2" navigationBack="back" st
     ${bar}
   </main>`;
 const BAR = `<div role="tablist" id="bar" style="display:flex;flex-direction:row"><button role="tab" id="tab1" aria-controls="p1" aria-selected="true" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>People</span></button><button role="tab" id="tab2" aria-controls="p2" aria-selected="false" data-button-style="bordered" data-native style="flex:1 1 0%"><img alt=""><span data-exact-text>Saved</span></button></div>`;
-const page = (body) => style + `<div id="exact-root">${body}</div><span id="secondary" style="position:absolute;color:var(--exact-secondary-label)"></span>
+const page = (body, routePaths = []) => style + `<div id="exact-root">${body}</div><span id="secondary" style="position:absolute;color:var(--exact-secondary-label)"></span>
 <script type="module">
   import { navigation, unselected } from './navigation.js';
   const root = document.getElementById('exact-root');
   window.calls = [];
-  navigation.connect(root, () => false, line => calls.push(line), id => calls.push('host back ' + id));
+  navigation.connect(root, () => false, line => calls.push(line), id => calls.push('host back ' + id), null, href => ${JSON.stringify(routePaths)}.includes(href));
   window.select = key => { document.getElementById('nav').setAttribute('navigationKey', key); navigation.project(root, () => {}); };
-  window.push = (key, url) => { navigation.apply({ top: Number(key), url, removed: [] }); select(key); };
+  window.push = (key, url, visits = [[Number(key), url]]) => { navigation.apply({ top: Number(key), url, removed: [], visits }); select(key); };
   window.box = id => { const b = document.getElementById(id).getBoundingClientRect(); return [b.x, b.y, b.width, b.height].map(Math.round); };
   window.shown = id => { const e = document.getElementById(id); return getComputedStyle(e).visibility === 'visible' && !e.closest('[inert]'); };
   window.off = () => unselected(document.getElementById('nav')).map(e => e.id);
@@ -213,6 +213,77 @@ check('navigationSplit opts a stack out, or names the width of a list the rule d
     expect(await evaluate(`[shown('r1'), box('r1'), box('r2'), back('r2')]`)).toEqual([true, [0, 0, 280, 800], [280, 0, 1000, 800], false]);
   });
 }, 60000);
+
+// Stage 6d's projection inputs. These DOM fixtures test navigation.js, not
+// whether either compiler emits the facts; compiled-plan coverage is separate.
+const ruleStack = body => `<main id="nav" navigationKey="2" navigationBack="back" style="width:100%;height:100%;position:relative">
+  <div id="r1" navigationKey="1" style="${abs}"><header><h1>People</h1></header>${body}</div>${detail('r2', 2)}</main>`;
+
+check('split admission reads list and outer press facts, not roles or decorative chevrons', () => {
+  const link = '<a href="/item/a">A</a>';
+  const cases = [
+    ['link without a chevron', `<div data-exact-list role="presentation">${link}</div>`, true],
+    ['link beside decoration', `<div data-exact-list>${link}<button data-exact-on="press" data-exact-router-press="false">Decorative${chevron}</button></div>`, true],
+    ['decorative list', `<div data-exact-list><button data-exact-on="press" data-exact-router-press="false">Decorative${chevron}</button></div>`, false],
+    ['press outside a list', `<button data-exact-on="press" data-exact-router-press="true">Open${chevron}</button>`, false],
+    ['handler beats href', `<div data-exact-list><a href="/item/a" data-exact-on="press" data-exact-router-press="false">Pick${chevron}</a></div>`, false],
+    ['outer press beats inner press', '<div data-exact-list><div data-exact-on="press" data-exact-router-press="false"><button data-exact-on="press" data-exact-router-press="true">Open</button></div></div>', false],
+    ['another route before a list', `<div navigationKey="nested"><div data-exact-list>${link}</div></div>`, false],
+    ['route key inside list rows', `<div data-exact-list><div navigationKey="nested">${link}</div></div>`, true],
+    ['sideways outer list', `<div data-exact-list style="display:flex;flex-direction:row"><div data-exact-list>${link}</div></div>`, true],
+  ];
+  return inChrome(page(ruleStack(''), ['/item/a']), async evaluate => {
+    const observed = [];
+    for (const [name, body] of cases) {
+      // A new root identity isolates each admission case from retained-list state.
+      const route = `<div id="r1" navigationKey="1" style="${abs}">${body}</div>`;
+      observed.push([name, await evaluate(`document.getElementById('r1').outerHTML = ${JSON.stringify(route)}; select(2); document.getElementById('r1').hasAttribute('data-exact-split')`)]);
+    }
+    expect(observed).toEqual(cases.map(([name, , splits]) => [name, splits]));
+  });
+}, 30000);
+
+check('a later pushing list wins over a retained empty list, whose identity alone can retain the split', () => {
+  const body = `<div data-exact-list id="first"><button data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>
+    <div data-exact-list id="later" style="display:none"><a id="later-row" href="/item/b">B</a></div>`;
+  return inChrome(page(ruleStack(body), ['/item/b']), async evaluate => {
+    expect(await evaluate(`document.getElementById('r1').hasAttribute('data-exact-split')`)).toBe(true);
+    await evaluate(`document.getElementById('first').textContent = 'No Results'; document.getElementById('later').style.display = 'block'; push(2, '/item/b', [[1, '/'], [2, '/item/b']])`);
+    expect(await evaluate(`document.getElementById('later-row').hasAttribute('data-exact-split-row')`)).toBe(true);
+    await evaluate(`document.getElementById('later').textContent = 'No Results'; select(2)`);
+    expect(await evaluate(`document.getElementById('r1').hasAttribute('data-exact-split')`)).toBe(true);
+    // The first empty list was not the retained candidate after the later one pushed.
+    await evaluate(`document.getElementById('later').remove(); select(2)`);
+    expect(await evaluate(`[document.getElementById('r1').hasAttribute('data-exact-split'), back('r2')]`)).toEqual([false, true]);
+  });
+}, 30000);
+
+check('a bare plan rechecks sideways admission on a resize that stays above the wide threshold', () => {
+  const body = `<div data-exact-list id="resize-list"><button data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>`;
+  const html = page(ruleStack(body)) + '<style>@media (min-width:1100px) { #resize-list { display:flex;flex-direction:row } }</style>';
+  // No exactViewport runtime and no authored or visible default placeholder.
+  return inChrome(html, async (evaluate, size) => {
+    expect(await evaluate(`[document.querySelector('[navigationSplit="placeholder"]') === null, document.querySelector('[data-exact-split-empty]') === null, document.getElementById('r1').hasAttribute('data-exact-split')]`)).toEqual([true, true, true]);
+    await size(1200);
+    expect(await evaluate(`[getComputedStyle(document.getElementById('resize-list')).flexDirection, document.getElementById('r1').hasAttribute('data-exact-split'), back('r2')]`)).toEqual(['row', false, true]);
+    await size(1000);
+    expect(await evaluate(`[document.getElementById('r1').hasAttribute('data-exact-split'), back('r2')]`)).toEqual([true, false]);
+  }, 1000);
+}, 30000);
+
+check('turning a split off clears its selected mark and stale row ownership cannot hide deeper Back', () => {
+  const body = `<div data-exact-list><button id="owned-row" data-exact-on="press" data-exact-router-press="true">Open${chevron}</button></div>`;
+  const html = ruleStack(body).replace('</main>', `${detail('r3', 3)}</main>`);
+  return inChrome(page(html), async evaluate => {
+    await evaluate(`push(2, '/item/a'); document.getElementById('owned-row').click(); push(3, '/item/b')`);
+    expect(await evaluate(`[document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([true, false]);
+    await evaluate(`document.getElementById('r1').setAttribute('navigationSplit', 'none'); select(3)`);
+    expect(await evaluate(`[document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
+    // Keep an explicit split width, but revoke the old row's router-writing fact.
+    await evaluate(`document.getElementById('r1').setAttribute('navigationSplit', '280'); document.getElementById('owned-row').setAttribute('data-exact-router-press', 'false'); select(3)`);
+    expect(await evaluate(`[box('r1')[2], document.getElementById('owned-row').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([280, false, true]);
+  });
+}, 30000);
 
 check('check advises on a bottom tab bar and an unsplit pushing list at a desktop width, and on neither at a phone\'s', () => {
   const positioned = BAR.replace('style="display:flex;flex-direction:row"', 'style="display:flex;flex-direction:row;position:absolute;left:0;right:0;bottom:0"');
