@@ -220,7 +220,18 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
         let rect = owner.inlineRects(run).reduce(CGRect.null) { $0.union($1) }
         return rect.isNull ? .zero : window.convertToScreen(owner.convert(rect, to: nil))
     }
-    override func accessibilityPerformPress() -> Bool { owner?.activateInline(id) ?? false }
+    /// An assistive app's press (VoiceOver's VO-Space, Switch Control) runs
+    /// the run's `press` or `href` once AppKit's request has returned, as
+    /// AppKit's own menu item runs its AXPress. AppKit answers the request
+    /// with the first accessibility error recorded while it is open, and the
+    /// update a press makes reads values back from views that lack them (a
+    /// paragraph's `accessibilitySubrole()`): run inside it, a press that
+    /// landed answered kAXErrorAttributeUnsupported.
+    override func accessibilityPerformPress() -> Bool {
+        guard owner?.canActivateInline(id) == true else { return false }
+        DispatchQueue.main.async { [weak owner, id] in _ = owner?.activateInline(id) }
+        return true
+    }
     // VoiceOver's show menu: the run's own `contextmenu`, offered only when it has one (X84).
     override func accessibilityPerformShowMenu() -> Bool { owner?.inlineContextMenu(id) ?? false }
     override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
