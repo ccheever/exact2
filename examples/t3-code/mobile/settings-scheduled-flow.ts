@@ -7,6 +7,14 @@ import { mobileScheduledTasks, mobileScheduledBegin, mobileScheduledPrepare, mob
 import { mobileScheduledNativeMenu, mobileScheduledTaskMenu, mobileScheduledNativeClose, mobileScheduledNativeRotate, mobileUsageNativeRedeem, mobileUsageNativeSelection } from './settings-scheduled-native';
 import { mobileUsage, mobileUsageSnapshot, mobileUsageWindow, mobileUsageAccount, mobileUsageReveal, mobileUsageCommand } from './settings-usage';
 import { mobileUsagePresentation } from './settings-usage-view';
+let scheduledClock: {entry:string;minuteToken:number;now:number}|null=null;
+/** Focus and its minute tick own time; task/scope refreshes only consume it. */
+export function mobileScheduledClockTime(active:boolean,entry:string,minuteToken:number,sampledEpoch:number):{now:number}{
+  if(!active){scheduledClock=null;return {now:0};}
+  if(!scheduledClock||scheduledClock.entry!==entry||scheduledClock.minuteToken!==minuteToken)
+    scheduledClock={entry,minuteToken,now:sampledEpoch};
+  return {now:scheduledClock.now};
+}
 export const MOBILE_AUTOMATION_ROUTES=['settingsScheduledTasks','settingsScheduledNew','settingsScheduledEdit','settingsScheduledModel','settingsScheduledBranch','settingsUsage','settingsUsageAccount'];
 const scheduledRoute=(route:string)=>route.startsWith('settingsScheduled');
 const usageRoute=(route:string)=>route==='settingsUsage'||route==='settingsUsageAccount';

@@ -47,7 +47,7 @@ import { mobilePreviewOwner, mobilePreviewPrepare, mobileBrowserPreviewStatus, m
 import { mobilePreviewColors } from './browser-mobile-colors';
 import { MOBILE_INFORMATION_ROUTES, mobileInformationPrepare, mobileInformationSnapshot, mobileInformationCommand, mobileInformationLegalConfiguration } from './settings-information';
 import { mobileAudioStatus, mobileAudioAction } from './attachment-audio';
-import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
+import { mobileScheduledClockTime, mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { mobileVoiceAction, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { mobileVoiceColors } from './voice-colors';
 import { mobileAttachmentDocument, EMPTY_ATTACHMENT_DOCUMENT, type AttachmentDocumentSnapshot } from './attachment-document';
@@ -354,6 +354,8 @@ const sources: Sources = {
     const native = sourceNative('audioAction', args, nativeInput);
     return mobileAudioAction(String(args[0] ?? ''), String(args[1] ?? ''), native);
   },
+  scheduledClockTime: args => mobileScheduledClockTime(
+    args[0] === true, String(args[1] ?? ''), Number(args[2]), Number(args[3])),
   automationPrepare: (args, _store, storage, nativeInput) => {
     const native = sourceNative('automationPrepare', args, nativeInput);
     return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
