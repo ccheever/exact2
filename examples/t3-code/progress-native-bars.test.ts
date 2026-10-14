@@ -75,9 +75,9 @@ describe('the markup', () => {
   test('theme colour picker: the stops and the hue slider carry the reference range values, no value in a description', async () => {
     const lines = await code('theme-color-picker.contract');
     const of = (id: string) => lines.find(row => row.line.includes(`testId=\`theme-color-\${row.id}-${id}\``))!.line;
-    expect(of('saturation')).toContain('role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
-    expect(of('brightness')).toContain('role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
-    expect(of('hue')).toContain('role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch)');
+    expect(of('saturation')).toContain('role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cs * 100) aria-valuetext=`${round(cs * 100)}%`');
+    expect(of('brightness')).toContain('role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cv * 100) aria-valuetext=`${round(cv * 100)}%`');
+    expect(of('hue')).toContain('role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch) aria-valuetext=`${round(ch)}`');
     for (const id of ['saturation', 'brightness', 'hue']) expect(of(id)).not.toContain('aria-description');
     expect(lines.find(row => row.line.includes('id=`theme-color-${row.id}-instructions`'))!.line.trim()).toStartWith(`text "${instructions}"`);
   });

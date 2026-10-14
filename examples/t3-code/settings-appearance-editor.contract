@@ -19,6 +19,8 @@ use ThemeColorSwatch from "./theme-color-picker.contract"
 // Settings; each session is a fresh panel (keyed by its id), as `key={session.id}`.
 component ThemeEditorHost
   props
+    inspecting: bool
+    inspectSet: action
     usage: list<ThemeRoleUsage>
     reveal: action
     kind: string
@@ -37,7 +39,7 @@ component ThemeEditorHost
   view
     when (kind == "create" or kind == "duplicate" or kind == "edit") and core.editor.open
       each editor in [core.editor] key=editor.session
-        ThemeEditorPanel(reveal=reveal, usage=usage, editor=editor, pal=core.palette, vw=viewport.width, vh=viewport.height, reduced=viewport.prefersReducedMotion, busy=busy, error=error, close=close, commit=commit, live=live, save=save, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
+        ThemeEditorPanel(inspecting=inspecting, inspectSet=inspectSet, reveal=reveal, usage=usage, editor=editor, pal=core.palette, vw=viewport.width, vh=viewport.height, reduced=viewport.prefersReducedMotion, busy=busy, error=error, close=close, commit=commit, live=live, save=save, outsideDown=outsideDown, outsideUp=outsideUp, outsideFocus=outsideFocus)
 
 // The panel's place and size are its own state (ThemeEditorPanel.tsx:296-360, 1073-1150):
 // null parks it bottom-right 16; a drag or the corner grip gives an explicit top-left,
@@ -50,6 +52,8 @@ component ThemeEditorPanel
     rem: number
   props
     editor: EditorView
+    inspecting: bool
+    inspectSet: action
     usage: list<ThemeRoleUsage>
     reveal: action
     pal: CorePalette
@@ -66,29 +70,31 @@ component ThemeEditorPanel
     outsideUp: action
     outsideFocus: action
   state selected = ""
-  state inspecting = false
   state hoveredId = ""
   state hoveredRole = ""
   derive selection = filter(usage, (group) => group.role == selected)
   action selectRole(role: string)
     selected = selected == role ? "" : role
-    inspecting = false
+    inspectSet(false)
   action pickRole(role: string)
     selected = role
-    inspecting = false
+    inspectSet(false)
   action toggleAdvanced
     if editor.advanced and selected != "canvas" and selected != "accent"
       selected = ""
     commit("theme-editor", "advanced", editor.advanced ? "false" : "true")
   action armInspect
-    inspecting = not inspecting
+    inspectSet(not inspecting)
     hoveredId = ""
     hoveredRole = ""
   action cancelInspect
-    inspecting = false
+    inspectSet(false)
     selected = ""
     hoveredId = ""
     hoveredRole = ""
+  action inspectUp(e: PointerEvent)
+    outsideUp()
+    inspectPointer(true, e)
   action inspectPointer(pick: bool, e: PointerEvent)
     let hits = elementsFromPoint(e.clientX, e.clientY)
     let matches = filter(hits, (id) => length(filter(usage, (group) => includes(map(group.nodes, (node) => node.id), id))) > 0)
@@ -100,7 +106,7 @@ component ThemeEditorPanel
     if pick and role != ""
       preventDefault()
       selected = role
-      inspecting = false
+      inspectSet(false)
       commit("theme-editor", "inspect", role)
       reveal(role)
   action inspectorKey(k: string, e: KeyboardEvent)
@@ -171,8 +177,8 @@ component ThemeEditorPanel
   view
     // The pane stays usable above the inspecting layer. Its hits have no paint tags.
     when inspecting
-      box position="absolute" left=0 top=0 width=vw height=vh z-index=109 cursor="crosshair" pointermove=inspectPointer(false) pointerdown=inspectPointer(false) pointerup=inspectPointer(true) key=inspectorKey tabindex=-1 autofocus id="theme-inspector" testId="theme-inspector" aria-label="Inspect app colors"
-      button press=cancelInspect aria-keyshortcuts="Escape" position="absolute" width=1 height=1 opacity=0 z-index=109 aria-label="Cancel color inspection" testId="theme-inspector-cancel"
+      box position="absolute" left=0 top=0 width=vw height=vh z-index=109 cursor="crosshair" pointermove=inspectPointer(false) pointerdown=outsideDown pointerup=inspectUp key=inspectorKey tabindex=-1 autofocus id="theme-inspector" testId="theme-inspector" aria-label="Inspect app colors"
+      button press=cancelInspect tabindex=-1 title="" aria-keyshortcuts="Escape" position="absolute" width=1 height=1 opacity=0 z-index=109 aria-label="Cancel color inspection" testId="theme-inspector-cancel"
     each group in usage key=group.role
       when (not inspecting and group.role == selected) or (inspecting and group.role == hoveredRole)
         each node in group.nodes key=node.id

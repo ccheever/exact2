@@ -25,7 +25,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     const owned = line(settings, 'derive escapeOwned =');
     // A field owns Escape only while it has the focus (its onKeyDown hears it); popups, menus and the recorder while shown.
-    for (const owner of ['settingsMenu != ""', 'modelsOpen', 'settingsRestoreOpen', 'settingsEscapeHeld', 'snapshotSetupOpen',
+    for (const owner of ['settingsMenu != ""', 'themeInspecting', 'modelsOpen', 'settingsRestoreOpen', 'settingsEscapeHeld', 'snapshotSetupOpen',
       '(settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter")))',
       '(settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search")',
       '(settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))']) expect(owned).toContain(owner);

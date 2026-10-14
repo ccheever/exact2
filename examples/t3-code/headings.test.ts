@@ -48,7 +48,7 @@ test('Settings section titles are h2 and row titles h3, as the reference', () =>
   // #451 (X74) keeps a heading inside a Mac button as its child; the sr-only heading beside the button is gone.
   const trigger = rows.findIndex(l => /^\s*button press=toggleLegacy .*aria-expanded=legacyOpen/.test(l));
   expect(trigger).toBeGreaterThan(0);
-  expect(rows[trigger + 1]!.trim()).toBe(sectionTitle);
+  expect(rows[trigger + 1]!.trim()).toStartWith(`${sectionTitle} `);
   expect(rows[trigger + 1]!.search(/\S/)).toBe(rows[trigger]!.search(/\S/) + 2);
   expect(rows.join('\n')).not.toContain('SettingsSrHeading');
   expect(line('settings-rows.contract', 'text row.title font-size="0.875rem" font-weight=500')).toContain('role="heading" aria-level=3');
