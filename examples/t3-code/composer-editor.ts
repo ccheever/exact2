@@ -117,7 +117,7 @@ export function chipContexts(client: T3Client, text: string): Record<string, str
   const out: Record<string, string> = {};
   for (const record of threadContextRecords(client, text)) out[`thread/${str(record.contextId)}`] = 'thread';
   // A line comment (diff-review.ts) draws as the review-comment chip; a pull request as its state's.
-  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}` : 'review-comment';
+  for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}\t\t${str(obj(record.pullRequest).title)}` : 'review-comment';
   // A terminal reference with a record draws as its excerpt (expired when the record holds no text); one with no record is
   // composerContextPresentation's UnresolvedContextChip, as any context with none (composer-chips-accessibility).
   for (const record of terminalDraftRecords(client, text)) out[`terminal/${str(record.contextId)}`] = `terminal\t\t${str(record.text)}`;

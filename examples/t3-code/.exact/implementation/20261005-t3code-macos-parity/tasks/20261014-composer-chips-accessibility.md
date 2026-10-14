@@ -1,14 +1,14 @@
 ---
 name: 20261014-composer-chips-accessibility
 plan: 20261005-t3code-macos-parity
-implementation: done
-verification: verified
-delivery: draft-pr
+implementation: in-progress
+verification: stale
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-composer-chips-accessibility'
 pr_url: https://github.com/ccheever/exact2/pull/534
-verified_commit: d5727019d
+verified_commit: null
 ---
 
 # The composer's chips to VoiceOver, the terminal chip's glyph, the context popover's order
@@ -83,7 +83,7 @@ therefore served the source as the text (`[Terminal 2 lines 1-738](t3-context://
 `[Assistant quote](t3-citation://…)`), and the module's chip buttons were the skill chips and the citations' comment
 buttons only, `AXButton`s. Fix, in `T3ComposerAccessibility.swift`:
 
-- Every chip is an accessibility element of the text view, in text order, with the role and name its node view has in
+- Every chip is an accessibility element of the text view, in text order, with the role its node view has in
   T3 Code, as Chromium serves them (the reference's own composer, read over CDP with the same draft): a terminal excerpt
   with text `AXPopUpButton` "Terminal excerpt, <label>. Show details" (expired: "…, expired"); a skill `AXPopUpButton`
   "Skill <label>. Show details"; a file mention `AXButton` "Preview <path>"; a citation its source link `AXLink` "View
@@ -131,10 +131,10 @@ names the chips' accessibility answers as a kept workaround.
 
 | Row | Result | Proof |
 | --- | --- | --- |
-| G1-8 | pass (module render on the tip's and this branch's modules; AppKit tests; agent drive; reference over CDP with the same draft): before, a speech bubble on a terminal excerpt and no element; after, TerminalIcon, an `AXPopUpButton` "Terminal excerpt, Terminal 2 lines 1-6. Show details" whose AXPress and pointer press open the details (the terminal's name, "Lines 1–6", the output) as the reference's ContextChipPopover; a reference with no record is the reference's CircleDashed "Unavailable context". The send half: real input (step 1) | [glyph](https://raw.githubusercontent.com/ccheever/exact2/c7eea9e2e683f5247b45db1b9a33b42d41872346/composer-chips-accessibility/g18-glyph.png), [details](https://raw.githubusercontent.com/ccheever/exact2/563f79e3d1310dad07d113728123e62a5dfe4d36/composer-chips-accessibility/g18-details.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
-| G5-D4 | pass in process and in the agent's tree (VoiceOver's half: real input, step 2): before, the text read `$frontend-design`; after, the Message area reads "Use Frontend Design on …" and the chip is an `AXPopUpButton` "Skill Frontend Design. Show details" child in navigation order whose AXPress opens its details | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
-| DCP-Gv | pass in process and in the agent's tree (VoiceOver: step 3): before, the text read `[Assistant quote](t3-citation://…)`; after, "… with Fixture answer now", the citation an `AXLink` "View cited assistant text: Fixture answer" and its `AXPopUpButton` "Add comment to citation", as the reference's composer | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
-| G5-D1 | pass on a one-file probe of the markup (AppKit's navigation order; VoiceOver: step 4): before, the popover's texts, bar and note were window children ordered by position with "Message" between the note and "Compact context"; after, one `AXApplicationDialog` group holding them in order | [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) §4 |
+| G1-8 | pass in module/agent checks; real-input and send checks open (module render on the tip's and this branch's modules; AppKit tests; agent drive; reference over CDP with the same draft): before, a speech bubble on a terminal excerpt and no element; after, TerminalIcon, an `AXPopUpButton` "Terminal excerpt, Terminal 2 lines 1-6. Show details" whose AXPress and pointer press open the details (the terminal's name, "Lines 1–6", the output) as the reference's ContextChipPopover; a reference with no record is the reference's CircleDashed "Unavailable context". The send half: real input (step 1) | [glyph](https://raw.githubusercontent.com/ccheever/exact2/c7eea9e2e683f5247b45db1b9a33b42d41872346/composer-chips-accessibility/g18-glyph.png), [details](https://raw.githubusercontent.com/ccheever/exact2/563f79e3d1310dad07d113728123e62a5dfe4d36/composer-chips-accessibility/g18-details.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| G5-D4 | pass in process and in the agent's tree; VoiceOver open (VoiceOver's half: real input, step 2): before, the text read `$frontend-design`; after, the Message area reads "Use Frontend Design on …" and the chip is an `AXPopUpButton` "Skill Frontend Design. Show details" child in navigation order whose AXPress opens its details | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| DCP-Gv | pass in process and in the agent's tree; VoiceOver open (VoiceOver: step 3): before, the text read `[Assistant quote](t3-citation://…)`; after, "… with Fixture answer now", the citation an `AXLink` "View cited assistant text: Fixture answer" and its `AXPopUpButton` "Add comment to citation", as the reference's composer | [drive](https://raw.githubusercontent.com/ccheever/exact2/09b12702e59215ac81450bb4097e1ba090229595/composer-chips-accessibility/chips-drive.png), [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) |
+| G5-D1 | pass in the AppKit markup probe; VoiceOver open (AppKit's navigation order; VoiceOver: step 4): before, the popover's texts, bar and note were window children ordered by position with "Message" between the note and "Compact context"; after, one `AXApplicationDialog` group holding them in order | [record](https://raw.githubusercontent.com/ccheever/exact2/c1370b7317340dc55d6af696b7b62e5f1ef2e79d/composer-chips-accessibility/cca-record.txt) §4 |
 | X30-ATTACH | pass: the cells name `3657d330a`; the NSOpenPanel move not made (above) | this record |
 | VoiceOver rows | implemented, not verified (the Mac's screen is locked; out-of-process AX reads of windows answer `AXApplication` under the lock): Real-input batch steps below | — |
 
@@ -174,22 +174,26 @@ provider.
 
 ## Tests
 
-- `macos/tests/composer/chipaccessibility.swift` (AppKit, 9): the text read as labels both ways (typed accessors and
+- `macos/tests/composer/chipaccessibility.swift` (AppKit, 13): the text read as labels both ways (typed accessors and
   attribute names: AXValue, characters, string, attributed string with the citation's AXLink element, a chip one unit,
   lines); ranges mapped both ways (selection read, AXSelectedTextRange set, bounds on the pill, range at a point); the
   chips as elements in text order with the reference's roles and names, in navigation order, on their pills; the
   terminal excerpt's AXPress and pointer press open its details (`kind` "terminal", the context id), no tooltip; an
   expired excerpt a plain shell; a reference with no record "Unavailable context"; the terminal glyph; a plain prompt and
   another text view keep their own answers; the read text follows an edit. `chippress.swift` and `citationpress.swift`
-  take the reference's roles and names (pop-up buttons, the citation's link). 74 tests in the composer binary.
-- `composer-chips-accessibility.test.ts` (Bun, 7): the terminal excerpt's popover (name, lines, output, rows; no record,
-  another kind or no text shows nothing); the contract branch's parts; the native press and glyph; G5-D1's dialog role,
-  empty label and the meter's `aria-haspopup`; a terminal reference with no record gets no context entry.
+  take the reference's roles and names (pop-up buttons, the citation's link). 78 tests in the composer binary.
+  The repair adds unchanged-draft skill/rich-text updates, PR state/title names, typed selection/shared ranges and RTF, and an offscreen fill check in light and dark appearance.
+- `composer-chips-accessibility.test.ts` (Bun, 4): the terminal excerpt's popover (name, lines, output, rows; no record,
+  another kind or no text shows nothing); a terminal reference with no record gets no context entry; the native PR
+  context payload preserves the state and title, including tabs and Unicode.
   `composer-chip-popover.test.ts` takes the shape's two new fields.
+- `macos/src/composer_accessibility_tests.rs` runs the compiled app plan with fixture replies. It checks the context
+  meter/dialog semantics and containment, and the terminal popover's title, name, lines and output. These replace the
+  four source-string checks removed from `composer-chips-accessibility.test.ts`.
 
 ## Checks
 
-On the final head (`origin/feat(example)/t3-code` `609f392d5` merged: already up to date):
+Historical checks before this review repair (`9d840b137`, code of `d5727019d`; base `609f392d5`):
 
 | Check | Exit | Note |
 | --- | --- | --- |
@@ -233,10 +237,78 @@ On the final head (`origin/feat(example)/t3-code` `609f392d5` merged: already up
 - Exact serves a `text` node's `aria-label` as its value too: the details' output reads "Captured terminal output" as its
   value, where Chromium's `pre` has that name and the output as its text (the timeline's terminal popover is the same).
 
+## Review repair, 2026-10-14
+
+The repair starts at draft head `168ce6a0c`. The two saved independent reviews identified a stale skill label,
+missing pull-request state/title in the chip name, a light-only unavailable-chip fill, source-string-only popover
+checks, and acceptance wording that treated the unrun VoiceOver checks as passes. Typed selection ranges and RTF
+already use the projection, but the new test found SharedCharacterRange still reporting source length 205 instead of
+the projected length 82. The existing range-wrapper loop now covers that accessor too.
+
+Guidance: implement workflow library `20261005-platforms-v3`, foundations, accessibility, platform and testing topics;
+this checkout's `docs/testing.md` and the parent spec's practical core-check direction. Only the macOS app is in scope.
+The branch already contains prepared base `609f392d5`. No framework files or shared plan indexes are changed.
+
+- Restyling invalidates the accessibility text projection. Provider skill names and the rich-text preference update
+  AXValue and AXStringForRange even when the source and parsed chips stay identical.
+- The native context payload retains the PR title. A PR chip now reads `Open Open pull request #12: Fix x`, or the
+  matching Draft, Merged, Closed or generic Pull request form, as `contextChipParts.tsx` names it.
+- An unavailable chip uses the dark accent fill in dark appearance. An offscreen bitmap check covers both appearances.
+- X30's issue row now says #116 is closed; its remaining codec/readback scope is deferred, bucket 6. The coordinator owns
+  removing #116 and correcting the count in STATUS bucket 5.
+- VoiceOver acceptance stays open. Attachment chip names still use their display labels rather than the record's full
+  filename; those attachment names are outside these finding rows and are not claimed as parity.
+
+The app-local accessibility method hooks remain the workaround recorded in X20. They delegate to the host for other
+text views. The existing typed range wrappers now include SharedCharacterRange. A future TextArea accessibility API
+change requires rechecking this seam.
+
+Regression evidence: before the repair, the expanded AppKit suite ran 77 tests with nine failed assertions in the new
+skill/rich-text and PR-name cases; the new Bun PR-payload test failed because its payload contained only `pr-open`.
+After the repair, the final AppKit run passed 78 tests and the final Bun run passed 4,860 tests with one skip.
+The focused Bun pair passed 14 tests after removing the four source-string checks.
+Strict TypeScript checking passed. The added runner tests exercise the actual compiled app plan with fixture resource
+replies, covering the context menu's dialog semantics and terminal popover content without a server or source-string
+assertions. The Rust app suite passes all 27 tests.
+
+Repair checks (pinned Bun 1.4.2 on PATH; log paths relative to `target/t3-tests/`):
+
+| Check | Result | Log |
+| --- | --- | --- |
+| AppKit composer, README build recipe | 78 passed, 0 failed | `composer-review-shared-range-swift.log` |
+| `bun test examples/t3-code --timeout 60000` | 4,860 passed, 1 skipped | `composer-review-bun-final.log` |
+| strict TypeScript, README command | exit 0 | `composer-review-tsc.log` |
+| `cargo test -p t3-code-macos --lib` | 27 passed | `composer-review-rust-final.log` |
+| `EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos --bundle` | exit 0, fresh native build | `composer-review-native-final.log` |
+| `cargo fmt --all -- --check` | exit 0 | `composer-review-fmt.log` |
+| `bun scripts/caps.mjs` after staging | exit 0 | `composer-review-caps.log` |
+| `bun scripts/boot.mjs` | exit 0 | `composer-review-boot.log` |
+| macOS agent launch, composer edit and unscoped `tree --ax` | exit 0 | `composer-review-agent-edit.jsonl` |
+
+The native drive uses isolated storage `t3-composer-review-534-20261014`, a 1280×840 window, and the app built
+from the final source. Its `type composer` operation delivers through the macOS platform. Given
+`Use [notes.md](notes.md) with [Assistant quote](t3-citation://v1/thread-1/message-1?text=Fixture+answer) now`,
+the Message AX value is `Use notes.md with Fixture answer now`. Its children are `Preview notes.md` (AXButton),
+`View cited assistant text: Fixture answer` (AXLink), and `Add comment to citation` (AXPopUpButton), in that order.
+The server is disconnected and the drive sends no message. This proves the native edit/projection path, not live
+VoiceOver traversal or provider behavior. The first agent launch was refused as stale because source changed during
+the earlier native build; the fresh rebuild and drive above passed without overriding the freshness check.
+
+Repository-wide build, test and clippy checks were not repeated for the repair; the coordinator owns those integration
+checks. The seven changed behavior/test files are bound by source fingerprint
+`c157e0b26c513dcb9c371c667184cdc6573a2bfa0ebd15409ec1ece920403159` in `composer-review-source.json`.
+
+Local logs are under `target/t3-tests/composer-review-*`; they are not published evidence. The reference source used
+for PR names is the pinned T3 Code `contextChipParts.tsx` and `lib/composerContextRecords.ts`, inspected read-only.
+
 ## Delivery
 
-Draft PR [#534](https://github.com/ccheever/exact2/pull/534) into `feat(example)/t3-code`; the coordinator reviews and merges. The checks ran on `9d840b137`'s tree (code of `d5727019d`).
+Draft PR [#534](https://github.com/ccheever/exact2/pull/534) into `feat(example)/t3-code`; the coordinator reviews and merges.
+The earlier gate results above belong to `9d840b137` (code of `d5727019d`); repair checks are listed separately.
+This worker does not push, publish the PR update, or merge.
 
 ## Next action
 
-The coordinator: review the draft PR; run Real-input batch steps 1-4 in the final session.
+Implementation is ready for independent verification. The coordinator owns integration checks, the PR update and
+final acceptance; the prior implementation verification remains stale until that handoff completes.
+Real-input batch steps 1-4 remain open acceptance rows.
