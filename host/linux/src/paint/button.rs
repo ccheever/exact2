@@ -368,7 +368,13 @@ impl Painter {
         for color in [fill, wash].into_iter().flatten() {
             self.backend.fill(shape, color, ts);
         }
-        if let Some(color) = edge {
+        let bar_button = node.props.str(PropId::ButtonStyle).unwrap_or("bordered") == "bordered"
+            && !matches!(
+                node.props.str(PropId::AccessibilityRole),
+                Some("tab" | "radio")
+            )
+            && node.inside_neutral_header();
+        if let Some(color) = edge.filter(|_| !bar_button) {
             super::neutral::edge(self.backend.as_mut(), shape, line, color, ts);
         }
         if disabled {

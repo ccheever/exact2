@@ -1343,7 +1343,7 @@ impl StyleProps {
 /// the arena's environment.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
-        .style(slot)
+        .effective_style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content

@@ -154,7 +154,7 @@ impl<'a> NodeRef<'a> {
                 || !id.inherited()
                 || self
                     .arena
-                    .control_text_start(slot)
+                    .style_start(slot)
                     .is_some_and(|start| start.mask.has(id))
             {
                 return false;
@@ -162,6 +162,12 @@ impl<'a> NodeRef<'a> {
             current = self.arena.parent(slot);
         }
         false
+    }
+
+    /// The neutral sheet removes an ordinary bar button's edge anywhere
+    /// below a direct route header, including nested authored containers.
+    pub fn inside_neutral_header(&self) -> bool {
+        self.arena.inside_neutral_header(self.slot)
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited

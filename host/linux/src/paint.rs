@@ -188,7 +188,8 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
 }
 impl BoxPaint {
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
-        let s = node.style;
+        let effective = node.computed_style(exact_kernel::StyleMask::EMPTY);
+        let s = &effective;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);

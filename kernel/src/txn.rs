@@ -21,6 +21,7 @@ use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
+mod header;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
 /// recurses once per level: a release build uses up to ~3.5 KiB of stack a
@@ -688,6 +689,7 @@ pub(crate) fn continue_document(
                     if arena.props(slot).get(*prop) == Some(value) {
                         continue;
                     }
+                    let headers = header::before_prop(arena, slot, *prop);
                     let old = arena.set_prop(slot, *prop, value.clone());
                     if *prop == PropId::TestId {
                         selectors.update(
@@ -725,11 +727,13 @@ pub(crate) fn continue_document(
                             invalidate_text_sources(arena, slot);
                         }
                     }
+                    header::after_prop(arena, layout, headers, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
+                    let headers = header::before_prop(arena, slot, *prop);
                     if let Some(old) = arena.remove_prop(slot, *prop) {
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
@@ -757,6 +761,7 @@ pub(crate) fn continue_document(
                                 invalidate_text_sources(arena, slot);
                             }
                         }
+                        header::after_prop(arena, layout, headers, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
                         touched.push(arena.key(slot));
                     }
@@ -815,7 +820,7 @@ pub(crate) fn continue_document(
                         .iter()
                         .copied()
                         .filter(|o| !retained.contains(o))
-                        .map(|o| (o, arena.computed_inherited(o)))
+                        .map(|o| (o, arena.computed_inherited(o), arena.header_context(o)))
                         .collect();
                     for o in &old {
                         if !retained.contains(o) {
@@ -831,13 +836,13 @@ pub(crate) fn continue_document(
                     // rows from its new ancestors: remember what it computed
                     // under the old ones, to propagate only what differs. Orphans
                     // and fresh nodes already compute their own/default rows too.
-                    let moved: Vec<(u32, InheritedStyle)> = new
+                    let moved: Vec<_> = new
                         .iter()
                         .copied()
                         .filter(|n| arena.parent(*n) != Some(slot))
                         .map(|n| {
                             let before = arena.computed_inherited(n);
-                            (n, before)
+                            (n, before, arena.header_context(n))
                         })
                         .collect();
                     // Each arriving child leaves its previous parent, and each
@@ -874,18 +879,20 @@ pub(crate) fn continue_document(
                     }
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
-                    for (orphan, before) in detached {
+                    for (orphan, before, context) in detached {
                         if arena.node_type(orphan) == NodeType::Text {
                             text_nodes.push(arena.key(orphan));
                         }
+                        header::changed(arena, layout, orphan, context, touched, receipt);
                         inherited_after_move(arena, layout, orphan, before, touched, receipt);
                     }
-                    for (m, before) in moved {
+                    for (m, before, context) in moved {
                         if arena.node_type(m) == NodeType::Text
                             && (earlier_creations || !created.contains(&m))
                         {
                             text_nodes.push(arena.key(m));
                         }
+                        header::changed(arena, layout, m, context, touched, receipt);
                         inherited_after_move(arena, layout, m, before, touched, receipt);
                     }
                 }
@@ -1348,11 +1355,9 @@ fn propagate_inherited(
         arena.children(slot).iter().map(|c| (*c, changed)).collect();
     while let Some((s, rows)) = stack.pop() {
         let pass = rows.minus(arena.style(s).mask).minus(
-            arena
-                .control_text_start(s)
-                .map_or(StyleMask::EMPTY, |start| {
-                    start.mask.minus(arena.style(s).written)
-                }),
+            arena.style_start(s).map_or(StyleMask::EMPTY, |start| {
+                start.mask.minus(arena.style(s).written)
+            }),
         );
         if pass.is_empty() {
             continue;

@@ -13,6 +13,7 @@ use crate::sorted::SlotSet;
 use std::rc::Rc;
 pub(crate) mod button;
 pub(crate) mod control_text;
+pub(crate) mod defaults;
 
 use taffy::NodeId;
 
@@ -517,113 +518,6 @@ impl NodeArena {
         self.node_types[slot as usize] == NodeType::Text
             && self.parents[slot as usize]
                 .is_some_and(|p| self.node_types[p as usize] == NodeType::Text)
-    }
-
-    /// The slot whose own row supplies `id` for `slot`: the slot itself when
-    /// it sets the row; for a row the schema marks inherited, the nearest
-    /// logical ancestor that does; `None` when the initial value applies
-    /// (CSS inheritance, LLP 1035.000 D1).
-    pub fn inherited_source(&self, slot: u32, id: StyleId) -> Option<u32> {
-        let mut cur = Some(slot);
-        while let Some(s) = cur {
-            if self.styles[s as usize].mask.has(id) {
-                return Some(s);
-            }
-            if self
-                .control_text_start(s)
-                .is_some_and(|start| start.mask.has(id) && !self.styles[s as usize].written.has(id))
-            {
-                return None;
-            }
-            if !id.inherited() {
-                return None;
-            }
-            cur = self.parents[s as usize];
-        }
-        None
-    }
-
-    /// The node's rows with the inherited rows in `rows` resolved through the
-    /// logical ancestors: an own row stays; a missing inherited row takes the
-    /// nearest ancestor's and is marked set; a row no ancestor sets keeps the
-    /// initial value, unmarked. Rows outside `rows`, and rows the schema does
-    /// not mark inherited, are the node's own. One walk, however many rows.
-    pub fn computed_style(&self, slot: u32, rows: StyleMask) -> StyleProps {
-        let mut out = StyleProps::clone(&self.styles[slot as usize]);
-        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
-        out
-    }
-
-    /// The style that supplies row `id` of [`NodeArena::computed_style`]:
-    /// one row read without copying a whole style.
-    pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
-        let mut cur = Some(slot);
-        while let Some(s) = cur {
-            let own = &self.styles[s as usize];
-            if own.mask.has(id) || !id.inherited() {
-                return own;
-            }
-            if let Some(start) = self
-                .control_text_start(s)
-                .filter(|start| start.mask.has(id) && !own.written.has(id))
-            {
-                return start;
-            }
-            cur = self.parents[s as usize];
-        }
-        if self.document_style.mask.has(id) {
-            return &self.document_style;
-        }
-        &self.styles[slot as usize]
-    }
-
-    /// The computed text style without copying unrelated rows.
-    pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
-        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
-            self.copy_inherited(slot, rows, take)
-        })
-    }
-
-    /// Inherited values for comparison across a topology change.
-    pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
-        let mut out = InheritedStyle::new(&self.styles[slot as usize]);
-        self.copy_inherited(slot, StyleMask::INHERITED, |from, mask| {
-            out.copy_rows(from, mask)
-        });
-        out
-    }
-
-    fn copy_inherited(
-        &self,
-        slot: u32,
-        rows: StyleMask,
-        mut copy: impl FnMut(&StyleProps, StyleMask),
-    ) {
-        let mut pending = rows
-            .intersect(StyleMask::INHERITED)
-            .minus(self.styles[slot as usize].mask);
-        let mut cur = Some(slot);
-        while !pending.is_empty() {
-            let Some(p) = cur else { break };
-            let ancestor: &StyleProps = &self.styles[p as usize];
-            let found = pending.intersect(ancestor.mask);
-            if !found.is_empty() {
-                copy(ancestor, found);
-                pending = pending.minus(found);
-            }
-            if let Some(start) = self.control_text_start(p) {
-                let stopped = pending.intersect(start.mask).minus(ancestor.written);
-                if !stopped.is_empty() {
-                    copy(start, stopped);
-                    pending = pending.minus(stopped);
-                }
-            }
-            cur = self.parents[p as usize];
-        }
-        let found = pending.intersect(self.document_style.mask);
-        if !found.is_empty() {
-            copy(&self.document_style, found);
-        }
     }
 
     /// What the leaf's string is (LLP 1045 D3): its `markup` prop.

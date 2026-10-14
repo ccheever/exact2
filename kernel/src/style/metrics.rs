@@ -243,6 +243,11 @@ mod tests {
                 "grouped-ground" => Text("-exact-grouped-background"),
                 "grouped-ground-plain" => Text("-exact-background"),
                 "grouped-card-radius" => Number(12.0),
+                "header-ground" => Text("-exact-background"),
+                "header-color" => Text("-exact-label"),
+                "header-edge-width" => Number(1.0),
+                "header-edge-style" => Text("solid"),
+                "header-edge-color" => Text("-exact-separator"),
                 _ => m.web,
             };
             assert_eq!(m.neutral, neutral, "{}", m.name);
@@ -309,6 +314,9 @@ mod tests {
             match name {
                 n if n.ends_with("-fill") || n.contains("-ground") => &[BackgroundColor],
                 "grouped-separator" => &[BorderColorBottom, BorderColorTop],
+                "header-edge-width" => &[BorderWidthBottom],
+                "header-edge-style" => &[BorderStyleBottom],
+                "header-edge-color" => &[BorderColorBottom],
                 n if n.ends_with("-color") => &[TextColor],
                 n if n.ends_with("-tint") => &[TintColor],
                 "grouped-section-width" => &[Width],
