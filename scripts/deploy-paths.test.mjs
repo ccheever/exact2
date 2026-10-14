@@ -8,6 +8,7 @@ import { dirname, isAbsolute, join, resolve, sep, toNamespacedPath } from 'node:
 import { pathToFileURL } from 'node:url';
 import { assertCapturedContractSources, contractCompiler, installedContractPackage, unrelocatableContractDependency } from './deploy.mjs';
 import * as asyncLane from './async.mjs';
+import { pinned } from './test-workspace.mjs';
 const {appleTouched, glueTests, retainSkippedFailures} = asyncLane;
 
 test('async retains only failures from checks skipped on this commit', () => {
@@ -142,6 +143,7 @@ function compilerRoot() {
   mkdirSync(join(root, 'src'));
   writeFileSync(join(root, 'Cargo.toml'), '[package]\nname="contract"\nversion="0.1.0"\nedition="2021"\n');
   writeFileSync(join(root, 'src/main.rs'), 'fn main() {}\n');
+  pinned(root);
   const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:root, encoding:'utf8'});
   expect(lock.status).toBe(0);
   return root;

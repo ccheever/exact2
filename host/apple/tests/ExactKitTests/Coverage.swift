@@ -16,3 +16,12 @@ struct MissingPrerequisite: Error, CustomStringConvertible {
     let message: String
     var description: String { "\(message) (EXACT_REQUIRED=1)" }
 }
+
+/// A fixture's plan, compiled from `scripts/fixtures/<name>.contract` at this commit by
+/// `build.mjs --test` and named in `EXACT_<KEY>_PLAN`.
+func fixturePlan(_ key: String) throws -> Data {
+    guard let path = ProcessInfo.processInfo.environment["EXACT_\(key)_PLAN"] else {
+        throw missing("fixture", "no EXACT_\(key)_PLAN: build.mjs --test compiles the fixtures in scripts/fixtures")
+    }
+    return try Data(contentsOf: URL(fileURLWithPath: path))
+}
