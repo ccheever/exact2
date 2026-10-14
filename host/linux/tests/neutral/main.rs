@@ -300,6 +300,8 @@ fn a_host_with_no_toolkit_under_it_draws_the_webs_neutral_look() {
         p.pointer_cancel(0.0).unwrap();
     }
     route_headers_keep_the_page_tree_and_take_the_neutral_defaults();
+    route_header_geometry_matches_the_browser();
+    route_header_sticky_geometry_and_hits_follow_the_browser();
     route_header_classes_restore_defaults();
     route_header_context_changes_invalidate_retained_nodes();
     route_header_effective_rows_reach_layout_admission_and_motion();
@@ -430,7 +432,14 @@ fn route_header_context_changes_invalidate_retained_nodes() {
         },
         Op::SetStyle {
             id: 2,
-            patch: Box::new(style(&[(StyleId::Height, StyleValue::Number(20.0))])),
+            patch: Box::new(style(&[
+                (StyleId::Height, StyleValue::Number(20.0)),
+                (StyleId::MinHeight, StyleValue::Number(0.0)),
+                (StyleId::PaddingTop, StyleValue::Number(0.0)),
+                (StyleId::PaddingRight, StyleValue::Number(0.0)),
+                (StyleId::PaddingBottom, StyleValue::Number(0.0)),
+                (StyleId::PaddingLeft, StyleValue::Number(0.0)),
+            ])),
         },
         Op::SetChildren {
             id: 2,
@@ -454,7 +463,10 @@ fn route_header_context_changes_invalidate_retained_nodes() {
     );
     let check = |k: &mut Kernel, height, says, source| {
         k.compute_layout(1, Offer::definite(320.0, 150.0)).unwrap();
-        assert_eq!(k.node(2).unwrap().frame.height, height);
+        let header = k.node(2).unwrap();
+        assert_eq!(header.frame.height, height);
+        assert_eq!(k.sticky_nodes().contains(&header.key), height == 21.0);
+        assert_eq!(k.sticky_constraint(header.key).is_some(), height == 21.0);
         let n = k.node(3).unwrap();
         assert_eq!(n.says(StyleId::TextColor), says);
         assert_eq!(n.source_of(StyleId::TextColor), source);
@@ -642,6 +654,10 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
                     (StyleId::Width, "100px"),
                     (StyleId::Height, "100px"),
                     (StyleId::PositionType, "relative"),
+                    (StyleId::PaddingTop, "0"),
+                    (StyleId::PaddingRight, "0"),
+                    (StyleId::PaddingBottom, "0"),
+                    (StyleId::PaddingLeft, "0"),
                     (StyleId::OverflowX, "hidden"),
                     (StyleId::OverflowY, "hidden"),
                     (
@@ -766,4 +782,237 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
     .unwrap();
     k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
     assert_eq!(k.fragment_refusal(header), None);
+}
+
+// Chrome 154, 2026-10-14: ordinary emitted app, two widths and both schemes.
+// These boxes distinguish a content minimum from a border-box minimum.
+const HEADER_GEOMETRY: &str = r##"style Own
+  padding="2px 4px"
+  min-height=0
+style Plain
+  opacity=1
+component App
+  state own = false
+  action toggle
+    own = !own
+  view
+    column navigationKey="route" width="100%" color-scheme="SCHEME" background-color="#abcdef"
+      button press=toggle testId="toggle" width=80 height=24
+        text "Toggle"
+      header testId="empty"
+      header testId="short"
+        row width=20 height=8 background-color="#008800" testId="short-child"
+      header testId="tall"
+        row width=20 height=60 background-color="#008800" testId="tall-child"
+      header height=8 testId="height-only"
+      header box-sizing="border-box" testId="border-box"
+        row width=20 height=8 testId="border-child"
+      header padding="3px 5px" padding-left=9 min-height=0 testId="authored"
+        row width=20 height=8 testId="authored-child"
+      header class=(own ? Own : Plain) testId="dynamic"
+        row width=20 height=8 testId="dynamic-child"
+      header padding=0 min-height=0 testId="zero"
+        row width=20 height=8
+      column
+        header testId="indirect"
+          row width=20 height=8
+      text (own ? "Own" : "Plain") testId="mode"
+"##;
+
+fn route_header_geometry_matches_the_browser() {
+    use exact_kernel::{Dimension, StyleId};
+    for scheme in ["light", "dark"] {
+        let plan = contract::compile(&HEADER_GEOMETRY.replace("SCHEME", scheme)).unwrap();
+        for width in [320.0, 640.0] {
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (width, 640.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            for authored in [false, true, false] {
+                for (name, height) in [
+                    ("empty", 45.0),
+                    ("short", 45.0),
+                    ("tall", 73.0),
+                    ("height-only", 45.0),
+                    ("border-box", 32.0),
+                    ("authored", 15.0),
+                    ("dynamic", if authored { 13.0 } else { 45.0 }),
+                    ("zero", 9.0),
+                    ("indirect", 8.0),
+                ] {
+                    assert_eq!(
+                        size(&mut p, name),
+                        (width, height),
+                        "{name}, {scheme}, authored={authored}"
+                    );
+                }
+                for (parent, child, left, top) in [
+                    ("short", "short-child", 16.0, 6.0),
+                    ("tall", "tall-child", 16.0, 6.0),
+                    ("border-box", "border-child", 16.0, 6.0),
+                    ("authored", "authored-child", 9.0, 3.0),
+                    (
+                        "dynamic",
+                        "dynamic-child",
+                        if authored { 4.0 } else { 16.0 },
+                        if authored { 2.0 } else { 6.0 },
+                    ),
+                ] {
+                    let a = p.rect_of(id(&p, parent)).unwrap();
+                    let b = p.rect_of(id(&p, child)).unwrap();
+                    assert_eq!((b.0 - a.0, b.1 - a.1), (left, top), "{parent}");
+                }
+                let k = p.host().kernel();
+                let node = k.node(id(&p, "empty")).unwrap();
+                for row in [
+                    StyleId::MinHeight,
+                    StyleId::PaddingTop,
+                    StyleId::PositionType,
+                    StyleId::Top,
+                ] {
+                    assert!(!node.style.mask.has(row) && !node.style.written.has(row));
+                    assert!(!node.says(row));
+                    assert_eq!(node.source_of(row), None);
+                }
+                assert_eq!(
+                    node.computed_row(StyleId::MinHeight, |s| s.min_height),
+                    Dimension::Points(32.0)
+                );
+                p.tap(id(&p, "toggle")).unwrap();
+            }
+        }
+    }
+}
+
+// A top bound to an absent optional value restores the same default as an
+// unwritten top above. Explicit static/auto stay authored opt-outs.
+const HEADER_STICKY: &str = r##"style Plain
+  opacity=1
+style Static
+  position="static"
+component App
+  state mode = 0
+  state taps = 0
+  action next
+    mode = mode == 3 ? 0 : mode + 1
+  action go
+    taps = taps + 1
+  view
+    column width="100%" color-scheme="SCHEME"
+      button press=next testId="next" width=80 height=24
+        text "Next"
+      scroll testId="port" width="100%" height=160 scrollbar-width="none"
+        column navigationKey="route" testId="section" height=300 display="block" background-color="#abcdef"
+          row height=20 background-color="#336699"
+          header testId="sticky" class=(mode == 1 ? Static : Plain) top=(mode == 2 ? "12px" : (mode == 3 ? "auto" : none))
+            button press=go width=40 height=20 testId="pinned"
+              text "Tap"
+          row height=220 background-color="#dd7755" testId="later"
+        row height=200 background-color="#3355aa" testId="tail"
+      text `Mode ${mode}` testId="mode"
+      text `Taps ${taps}` testId="taps"
+"##;
+
+fn route_header_sticky_geometry_and_hits_follow_the_browser() {
+    for (scheme, ground) in [("light", [255; 3]), ("dark", [18; 3])] {
+        let plan = contract::compile(&HEADER_STICKY.replace("SCHEME", scheme)).unwrap();
+        for width in [320.0, 640.0] {
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (width, 320.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            let (port, head, pinned) = (id(&p, "port"), id(&p, "sticky"), id(&p, "pinned"));
+            let mut taps = 0;
+            for phase in 0..5 {
+                let mode = phase % 4;
+                let key = p.host().kernel().node(head).unwrap().key;
+                assert_eq!(p.host().kernel().sticky_nodes().contains(&key), mode != 1);
+                let constraint = p.host().kernel().sticky_constraint(key);
+                assert_eq!(constraint.is_some(), mode != 1);
+                if let Some(c) = constraint {
+                    assert_eq!(c.scroller, port);
+                    assert_eq!(c.natural, [0.0, 20.0, width, 65.0]);
+                    assert_eq!(
+                        c.insets,
+                        [
+                            if mode == 3 {
+                                None
+                            } else {
+                                Some(if mode == 2 { 12.0 } else { 0.0 })
+                            },
+                            None,
+                            None,
+                            None
+                        ]
+                    );
+                }
+                for (scroll, expected) in [
+                    (0.0, 20.0),
+                    (
+                        60.0,
+                        match mode {
+                            1 | 3 => -40.0,
+                            2 => 12.0,
+                            _ => 0.0,
+                        },
+                    ),
+                    (270.0, if matches!(mode, 1 | 3) { -250.0 } else { -15.0 }),
+                ] {
+                    let dy = constraint.map_or(0.0, |c| c.offset((0.0, scroll)).1);
+                    assert_eq!(20.0 + dy - scroll, expected, "mode{mode}, scroll{scroll}");
+                    assert_eq!(p.scroll_to(port, (0.0, scroll)), Some((0.0, scroll)));
+                    p.frame();
+                    if scroll == 60.0 && matches!(mode, 0 | 2) {
+                        let port_rect = p.rect_of(port).unwrap();
+                        let head_rect = p.rect_of(head).unwrap();
+                        assert_eq!(
+                            (
+                                head_rect.0,
+                                head_rect.1 - port_rect.1,
+                                head_rect.2,
+                                head_rect.3
+                            ),
+                            (0.0, expected, width, 45.0)
+                        );
+                        assert_eq!(
+                            pixel(&mut p, "sticky", width - 2.0, 1.0),
+                            ground,
+                            "header paints above later in-flow content"
+                        );
+                        if mode == 0 {
+                            let (x, y, w, h) = p.rect_of(pinned).unwrap();
+                            assert!(p
+                                .pointer_down(x + w / 2.0, y + h / 2.0, phase as f64 * 100.0)
+                                .unwrap());
+                            p.pointer_up(x + w / 2.0, y + h / 2.0, phase as f64 * 100.0 + 1.0)
+                                .unwrap();
+                            taps += 1;
+                            let k = p.host().kernel();
+                            let text: String = k
+                                .node(id(&p, "taps"))
+                                .unwrap()
+                                .text_runs()
+                                .iter()
+                                .map(|r| &*r.text)
+                                .collect();
+                            assert_eq!(text, format!("Taps {taps}"));
+                        }
+                    }
+                }
+                p.tap(id(&p, "next")).unwrap();
+            }
+        }
+    }
 }
