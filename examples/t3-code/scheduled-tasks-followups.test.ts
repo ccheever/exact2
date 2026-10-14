@@ -193,7 +193,7 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     // No AppKit help tag beside the drawn tooltip.
     expect(button).toContain('title=""');
     const layer = await source('hover-layer.contract');
-    expect(layer).toContain('(kind == "tooltip" ? 600 : 0)');
+    expect(layer).toContain('(kind == "tooltip" or kind == "code" ? 600 : 0)');
     expect(layer).toContain('derive card = tip.kind != "tip" and tip.kind != "policy" and tip.kind != "tooltip"');
   });
   test('a press closes the tooltip before it acts, as TooltipTrigger closeOnClick (Base UI 1.5.0 default true)', async () => {
@@ -214,9 +214,10 @@ describe('ST-3: the Automations icon buttons show the reference tooltips', () =>
     // Manage sits at the panel's right edge: its tooltip ends at the button's right edge, where Base UI's shift keeps it
     // inside the window (the layer has no shift, X17 #112); the row buttons' tooltips fit centred.
     expect(tips).toEqual([['settings-2', 'Manage scheduled tasks', 'end'], ['pencil', 'Edit automation', 'center'], ['play', 'Run now', 'center']]);
-    // The layer's end placement: a 22.5rem row ending at the trigger's right edge, its bubble at the row's end.
+    // The layer's end placement: a 22.5rem row (a "code" tip's 32.5rem) ending at the trigger's right edge, its bubble at the row's end.
     const layer = await component('hover-layer.contract', 'HoverLayer');
-    expect(layer).toContain('derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - 22.5 * rem : tip.x + tip.width / 2 - 11.25 * rem)');
+    expect(layer).toContain('derive span = tip.kind == "code" ? 32.5 : 22.5');
+    expect(layer).toContain('derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)');
     expect(layer).toContain('derive justify = tip.align == "start" ? "flex-start" : (tip.align == "end" ? "flex-end" : "center")');
   });
 });

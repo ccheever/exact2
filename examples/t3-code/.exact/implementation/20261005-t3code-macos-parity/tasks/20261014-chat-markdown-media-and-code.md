@@ -206,6 +206,47 @@ beside it on the same seed. Never send a message.
   itself, past the runner's 100 ms answer budget (declared in `EXACT2-GAPS.md` "Shiki's line time limit"). Minified lines of
   20,000 characters or more in a chat fence take many short turns (katex.min.css 922 turns of at most 12 ms), since each long
   search is charged its whole rest.
-- Plan size: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); this branch's is PLAN_SIZE. Most of it is
+- Plan size: the feature tip's `app.contract` is 33,309,129 bytes (120,810 nodes); this branch's is 37,185,217 bytes (120,443 nodes), +3,876,088 bytes (+11.6%). Most of it is
   FlowRuns' 140 inlined uses of the media body, which now holds MediaPreviewActions beside MediaActions, and the copy buttons'
   MorphCopyCheck path data. `caps.mjs` sets no plan budget; #465's +4.9% was accepted by the coordinator for parity.
+
+## Checks
+
+Once, on `e867bef04` (the code of the final head; after it only `scheduled-tasks-followups.test.ts`'s two hover-layer text
+expectations and this record changed, and the Bun suite ran again on them):
+
+| Check | Exit | Note |
+| --- | --- | --- |
+| `bun test examples/t3-code --timeout 60000` | 0 | 4866 pass, 1 skip, 0 fail (329 files), on the final tests. The run on `e867bef04` exited 1: two `scheduled-tasks-followups.test.ts` tests read the hover layer's old delay and width text; updated |
+| strict `tsc` (README command) | 0 | |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | 0 | 37,185,217 bytes, 120,443 nodes; `app.contract` 1,466 lines |
+| AppKit `macos/tests/media-actions` (README recipe) | 0 | 13 run, 0 failed (6 new in `focus.swift`); with both guards disabled, 5 assertions in 2 tests fail |
+| `cargo test -p t3-code-macos --lib`, other AppKit binaries | not run | no Rust changed; the other binaries' module sources are compiled by the `media-actions` binary too (every file in `modules/apple/`) |
+| `git add -A && bun scripts/caps.mjs` | 0 | all budgets within cap |
+| `cargo build --all-targets --keep-going` | 0 | |
+| `cargo test --lib --bins --tests --no-fail-fast` | 0 | 4,353 passed, 0 failed, 46 ignored |
+| `cargo clippy --all-targets --keep-going -- -D warnings` | 0 | |
+| `cargo fmt --all -- --check` | 0 | |
+| `bun scripts/boot.mjs` | 0 | |
+| `host/apple/build.mjs t3-code-macos --bundle` | 0 | before the live drive, from `2c8d30b12`'s app code |
+
+## Decision needed
+
+The plan grows by 11.6% (37,185,217 bytes against the feature tip's 33,309,129): FlowRuns inlines the media body 140 times,
+and the body now holds the preview button beside MediaActions with its drawn tooltip, and the copy buttons carry
+MorphCopyCheck's path data. Accept it, as #465's +4.9% was accepted for parity, or ask for a reduction (for example MediaActions'
+failure, video and file media keeping AppKit's help tag, which only the inline image showed empty).
+
+## Not done / not verified
+
+- G4-05 (a click, the focus, a second right-click while the menu is open), MSU-1 (the tooltip under a real pointer) and
+  G4-09 (Shift+F10 after a media right-click) under real input: open, "Real-input batch steps" 1-4 for the coordinator's
+  final session (the Mac's screen is locked; agent drives and AppKit tests only).
+
+## Delivery
+
+Draft PR into `feat(example)/t3-code`; the coordinator reviews and merges.
+
+## Next action
+
+The coordinator: review the draft PR, decide the plan size, run the real-input steps.
