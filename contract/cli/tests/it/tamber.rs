@@ -806,3 +806,25 @@ fn set_mode_takes_one_axis_and_value_and_the_last_of_an_action_wins() {
         .is_err());
     assert_eq!(row(&r, "text", StyleId::TextColor), parsed("#111111"));
 }
+
+/// LLP 1121 stage 2's gate line: a `setMode` that changes only colour
+/// tokens on a 1,000-row list moves no geometry.
+#[test]
+fn a_colour_only_set_mode_on_a_thousand_rows_lays_nothing_out() {
+    let rows: Vec<String> = (0..1000).map(|i| i.to_string()).collect();
+    let view = format!("component App\n  state rows: number[] = [{}]\n  view\n    column\n      for i in rows key=i\n        row testId=`row-${{i}}` background-color=\"page\"\n          text `${{i}}` color=\"ink\" testId=`text-${{i}}`\n", rows.join(", "));
+    let path = app(
+        "set-mode-1000",
+        &[("app.tamber", MODES), ("app.contract", &view)],
+    );
+    let mut r = booted(contract::compile_path(&path).unwrap());
+    let started = std::time::Instant::now();
+    let receipt = r.set_mode("dark-style", "dim").unwrap().unwrap();
+    let took = started.elapsed();
+    assert!(!receipt.layout_invalidated, "a colour moves no geometry");
+    assert_eq!(
+        row(&r, "row-999", StyleId::BackgroundColor),
+        parsed("light-dark(#ffffff, #161e27)")
+    );
+    eprintln!("setMode over 1000 rows {took:?}");
+}
