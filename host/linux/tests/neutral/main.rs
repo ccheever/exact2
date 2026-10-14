@@ -599,6 +599,39 @@ fn route_header_context_changes_invalidate_retained_nodes() {
         assert!(r.touched.contains(&button));
         assert_eq!(k.node(6).unwrap().source_of(StyleId::TextColor), Some(5));
     }
+    // A written clear blocks the platform row while ordinary removal restores it.
+    for row in [StyleId::PositionType, StyleId::Top] {
+        for written in [true, false] {
+            k.apply(
+                0,
+                1,
+                &[Op::ClearStyle {
+                    id: 2,
+                    mask: StyleMask::of(row),
+                    written,
+                }],
+            )
+            .unwrap();
+            k.compute_layout(1, Offer::definite(320.0, 150.0)).unwrap();
+            let node = k.node(2).unwrap();
+            assert!(!node.style.mask.has(row));
+            assert_eq!(node.style.written.has(row), written);
+            let sticky = !(row == StyleId::PositionType && written);
+            assert_eq!(k.sticky_nodes().contains(&header), sticky);
+            let constraint = k.sticky_constraint(header);
+            assert_eq!(constraint.is_some(), sticky);
+            if let Some(c) = constraint {
+                assert_eq!(
+                    c.insets[0],
+                    if row == StyleId::Top && written {
+                        None
+                    } else {
+                        Some(0.0)
+                    }
+                );
+            }
+        }
+    }
 }
 
 // These public kernel seams must see the same defaults as Taffy and paint.

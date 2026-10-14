@@ -862,7 +862,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         return false;
     }
     let root = arena.style(parent);
-    let s = arena.style(owner);
+    let s = arena.effective_style(owner);
     let definite = |d| {
         matches!(d, Dimension::Points(n) | Dimension::Percent(n)
         if n.is_finite() && n >= 0.)

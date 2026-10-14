@@ -11,6 +11,13 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
         (StyleId::BorderWidthBottom, "-exact-header-edge-width"),
         (StyleId::BorderStyleBottom, "-exact-header-edge-style"),
         (StyleId::BorderColorBottom, "-exact-header-edge-color"),
+        (StyleId::MinHeight, "-exact-header-min-height"),
+        (StyleId::PaddingTop, "-exact-header-padding-block"),
+        (StyleId::PaddingBottom, "-exact-header-padding-block"),
+        (StyleId::PaddingLeft, "-exact-header-padding-inline"),
+        (StyleId::PaddingRight, "-exact-header-padding-inline"),
+        (StyleId::PositionType, "-exact-header-position"),
+        (StyleId::Top, "-exact-header-top"),
     ] {
         let metric = metrics::named(name).expect("schema header metric");
         let value = metrics::as_written(id, metric.neutral).expect("neutral header row");
@@ -20,6 +27,18 @@ static HEADER: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
 });
 
 impl NodeArena {
+    pub(crate) fn refresh_sticky(&mut self, slot: u32) {
+        if self
+            .computed_source(slot, StyleId::PositionType)
+            .position_type
+            == crate::PositionType::Sticky
+        {
+            self.sticky_slots.insert(slot);
+        } else {
+            self.sticky_slots.remove(slot);
+        }
+    }
+
     pub(crate) fn is_neutral_header(&self, slot: u32) -> bool {
         metrics::column() == Column::Neutral
             && self.props(slot).str(PropId::SemanticTag) == Some("header")

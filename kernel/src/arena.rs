@@ -910,17 +910,13 @@ impl NodeArena {
         } else {
             self.relative_slots.insert(slot);
         }
-        if style.position_type == crate::PositionType::Sticky {
-            self.sticky_slots.insert(slot);
-        } else {
-            self.sticky_slots.remove(slot);
-        }
         if crate::fragment::is_multicol(&style) {
             self.frag.containers.insert(slot);
         } else {
             self.frag.containers.remove(slot);
         }
         self.styles[slot as usize] = style;
+        self.refresh_sticky(slot);
     }
 
     /// Distinct styles the arena holds for its nodes, beyond the initial one.

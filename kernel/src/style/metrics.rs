@@ -248,9 +248,17 @@ mod tests {
                 "header-edge-width" => Number(1.0),
                 "header-edge-style" => Text("solid"),
                 "header-edge-color" => Text("-exact-separator"),
+                "header-min-height" => Number(32.0),
+                "header-padding-block" => Number(6.0),
+                "header-padding-inline" => Number(16.0),
+                "header-position" => Text("sticky"),
+                "header-top" => Number(0.0),
                 _ => m.web,
             };
             assert_eq!(m.neutral, neutral, "{}", m.name);
+            if m.name.starts_with("header-") {
+                assert_eq!([m.web, m.ios, m.mac], [Text("unset"); 3], "{}", m.name);
+            }
         }
     }
 
@@ -317,6 +325,8 @@ mod tests {
                 "header-edge-width" => &[BorderWidthBottom],
                 "header-edge-style" => &[BorderStyleBottom],
                 "header-edge-color" => &[BorderColorBottom],
+                "header-position" => &[PositionType],
+                "header-top" => &[Top],
                 n if n.ends_with("-color") => &[TextColor],
                 n if n.ends_with("-tint") => &[TintColor],
                 "grouped-section-width" => &[Width],

@@ -1184,10 +1184,10 @@ impl Painter {
 /// hit there too.
 fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
     let kernel = scene.kernel;
-    let Some(node) = kernel
-        .node(id)
-        .filter(|n| n.style.position_type == exact_kernel::PositionType::Sticky)
-    else {
+    let Some(node) = kernel.node(id).filter(|n| {
+        n.computed_row(exact_kernel::StyleId::PositionType, |s| s.position_type)
+            == exact_kernel::PositionType::Sticky
+    }) else {
         return offset;
     };
     let Some(c) = kernel.sticky_constraint(node.key) else {

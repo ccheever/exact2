@@ -86,7 +86,7 @@ impl Kernel {
     pub fn sticky_constraint(&self, key: NodeKey) -> Option<StickyConstraint> {
         let arena = &self.arena;
         let slot = arena.resolve(key)?;
-        let style = arena.style(slot);
+        let style = arena.effective_style(slot);
         // @ref LLP 1093 D10.6 — in a multi-column flow, sticky is relative.
         if style.position_type != PositionType::Sticky || crate::fragment::in_flow(arena, slot) {
             return None;

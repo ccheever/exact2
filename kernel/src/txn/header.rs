@@ -43,6 +43,7 @@ pub(super) fn changed(
         return;
     }
     if before.0 != after.0 {
+        arena.refresh_sticky(slot);
         let rows = NodeArena::header_rows();
         style_changed(arena, layout, slot, rows, receipt);
         propagate_inherited(arena, layout, slot, rows, touched, receipt);
