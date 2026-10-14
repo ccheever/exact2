@@ -50,6 +50,7 @@ use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
 use CitationCommentLayer from "./citation-comment.contract" // diff-cite-popover DC-1: a citation chip's comment
 use CiteAction, CiteOffer, citeLineFrame from "./diff-cite.contract" // cite-selection-anchor: Cite over the timeline
+use DialogFocusFrame, dialogFrame, dialogReturn, dialogLineage from "./dialog-trap.contract"
 component T3Window
   props
     // cite-selection-anchor: the root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
@@ -333,6 +334,12 @@ component T3Window
     clearModalError: action
     titleSend: action
   provide
+    dialogFocusId
+    dialogMenuEntered
+    dialogOpened
+    dialogEntered
+    dialogClosed
+    dialogFallback
     rem = data.look.fontSize
     still = viewport.prefersReducedMotion
     hoverTipAt
@@ -358,6 +365,75 @@ component T3Window
     citeScrolled
     outsidePressDown
     outsidePressUp
+  // Dialogs snapshot the actual focus before their first focusin. A pointer-opened Mac button does not take focus.
+  // The frames outlive popup subtrees; a nested confirm returns into its parent, and a replacement inherits its return.
+  state dialogFocusId = ""
+  state dialogFocusOwner = ""
+  state dialogFocusPopup = ""
+  state dialogFocusInvoker = ""
+  state dialogFrames: DialogFocusFrame[] = []
+  action windowFocused(e: FocusEvent)
+    dialogFocusId = e.target
+    dialogFocusOwner = ""
+    dialogFocusPopup = ""
+    dialogFocusInvoker = ""
+  // Capture the owning popup and its actual invoker before a menu command removes the popup.
+  // A menu within a live dialog retains that parent; a previously closed dialog is not its owner.
+  action dialogMenuEntered(popup: string, invoker: string, e: FocusEvent)
+    stopPropagation()
+    dialogFocusId = e.target
+    dialogFocusOwner = (frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) ? "" : dialogFocusOwner
+    dialogFocusPopup = popup
+    dialogFocusInvoker = invoker
+  action windowBlurred(e: FocusEvent)
+    if e.relatedTarget == none and querySelectorAll("[data-dialog-focus~=\"open\"]").length == 0
+      dialogFocusId = ""
+  action dialogOpened(owner: string)
+    if dialogFrames.filter(item => item.owner == owner).length == 0
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let previousBox = frame(dialogFocusOwner)
+      let mounted = dialogFocusOwner != "" and not previousBox.unavailable and previousBox.width > 0 and previousBox.height > 0
+      let returns = dialogFocusOwner == "" ? [dialogReturn("", dialogFocusId, dialogFocusPopup, dialogFocusInvoker)] : (mounted ? previous.concat([dialogReturn(dialogFocusOwner, dialogFocusId, dialogFocusPopup, dialogFocusInvoker)]) : previous)
+      dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
+  action dialogEntered(owner: string, e: FocusEvent)
+    stopPropagation()
+    if dialogFrames.filter(item => item.owner == owner).length == 0
+      let previous = dialogLineage(dialogFrames, dialogFocusOwner)
+      let previousBox = frame(dialogFocusOwner)
+      let mounted = dialogFocusOwner != "" and not previousBox.unavailable and previousBox.width > 0 and previousBox.height > 0
+      let returns = dialogFocusOwner == "" ? [dialogReturn("", dialogFocusId, dialogFocusPopup, dialogFocusInvoker)] : (mounted ? previous.concat([dialogReturn(dialogFocusOwner, dialogFocusId, dialogFocusPopup, dialogFocusInvoker)]) : previous)
+      dialogFrames = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).concat([dialogFrame(owner, returns)])
+    dialogFocusId = e.target
+    dialogFocusOwner = owner
+    dialogFocusPopup = ""
+    dialogFocusInvoker = ""
+  action dialogClosed(owner: string)
+    let live = querySelectorAll("[data-dialog-focus~=\"open\"]")
+    // A frame carries its entire lineage, so child/parent removal order cannot discard the outside return.
+    let current = dialogLineage(dialogFrames, dialogFocusOwner)
+    let owns = dialogFocusOwner == owner or ((frame(dialogFocusOwner).unavailable or frame(dialogFocusOwner).width == 0 or frame(dialogFocusOwner).height == 0) and current.filter(item => item.owner == owner).length > 0)
+    let returns = (owns ? current : dialogLineage(dialogFrames, owner)).filter(item => item.owner == "" or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)).slice(-1)
+    let back = returns.map(item => item.target).join("")
+    let parent = returns.map(item => item.owner).join("")
+    let unknown = live.filter(id => dialogFrames.filter(item => item.owner == id).length == 0)
+    let top = dialogFrames.filter(item => not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0).slice(-1).map(item => item.owner).join("")
+    // Keep a departing frame until an as-yet unfocused replacement can inherit it.
+    if unknown.length == 0 or not owns
+      dialogFrames = dialogFrames.filter(item => item.owner != owner and (not owns or (not frame(item.owner).unavailable and frame(item.owner).width > 0 and frame(item.owner).height > 0)))
+    if owns and unknown.length == 0 and top == parent and back != ""
+      let popup = returns.map(item => item.popup).join("")
+      let invoker = returns.map(item => item.invoker).join("")
+      let shown = querySelectorAll("[data-dialog-return~=\"menu\"]")
+      focus(popup != "" and not shown.includes(popup) ? invoker : back)
+  // A popup is a programmatic fallback, not a Tab stop. Its own Tab must still retry the eligible controls.
+  action dialogFallback(popup: string, targets: string[], k: string, e: KeyboardEvent)
+    if dialogFocusId == popup and k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
+      preventDefault()
+      stopPropagation()
+      let mounted = querySelectorAll("[data-focus-stop~=\"enabled\"]")
+      let available = targets.filter(id => mounted.includes(id))
+      let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
+      focus(target == "" ? popup : target)
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
   // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
   action linkOpen(kind: string, href: string)
@@ -746,7 +822,7 @@ component T3Window
       dragDx = 0
       dragDy = 0
   view
-    main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main testId="t3-code" focusin=windowFocused focusout=windowBlurred pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape, realinput-1010c-fixes RC-4); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.

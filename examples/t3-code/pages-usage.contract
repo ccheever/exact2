@@ -316,6 +316,8 @@ component UsageSidebarToggle
 
 // WorkspaceBreadcrumb: "Usage / All environments", the environment filter menu.
 component UsageBreadcrumb
+  inject
+    dialogMenuEntered: action
   props
     page: UsageView
     scheme: string
@@ -353,7 +355,7 @@ component UsageBreadcrumb
             else
               PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
         KeyMenuOpen(menuId="usage-environment-menu", armed=keyArmed, opened=keyOpened)
-        column id="usage-environment-menu" popover="auto" position-try-fallbacks="none" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer"
+        column id="usage-environment-menu" popover="auto" position-try-fallbacks="none" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer" data-dialog-return="menu" focusin=dialogMenuEntered("usage-environment-menu", "usage-environment")
           // MenuPopup sizes to its content (usage-and-pr-pages PG-5): the measured width (10rem at least) is its least width
           // and no row truncates, where that width as the width cut "Daehyeon's MacBook Pro" at a word. Its dropdown glass
           // blurs what is under it, which the macOS presenter cannot, so the glass sits on the popover colour itself, as in

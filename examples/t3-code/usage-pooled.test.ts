@@ -495,7 +495,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     expect(page).toContain('derive shown = hovered != "" ? hovered : held');
     expect(page).toContain('shown=shown, pinned=held,');
     const window = await component('app-window.contract', 'T3Window');
-    expect(window).toContain('main testId="t3-code" pointerdown=outsidePressDown pointerup=outsidePressUp');
+    expect(window.split('\n').find(line => line.trim().startsWith('main testId="t3-code"'))).toContain('pointerdown=outsidePressDown pointerup=outsidePressUp');
     expect(window).toContain('action outsidePressDown(e: PointerEvent)\n    outsideDown = e.buttons == 1');
     expect(window).toContain('action outsidePressUp\n    outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses\n    outsideDown = false');
     expect(window).toContain('PagesCover(pageCover=pageCover, outside=outsidePresses,');

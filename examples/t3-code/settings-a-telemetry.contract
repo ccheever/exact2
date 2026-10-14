@@ -227,7 +227,7 @@ component DxSignals
       if row.signal
         button press=signal("diag-signal", `${row.target}&signal=SIGINT`) disabled=(busy or row.busy) aria-label="Send SIGINT" testId=`signal-int-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1)
           text "INT" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
-        button press=signal("diag-signal", `${row.target}&signal=SIGKILL`) disabled=(busy or row.busy) aria-label="Send SIGKILL" testId=`signal-kill-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1)
+        button press=signal("diag-signal", `${row.target}&signal=SIGKILL`) disabled=(busy or row.busy) aria-label="Send SIGKILL" testId=`signal-kill-${row.id}` padding=0 border-width=0 background-color="#00000000" opacity=(row.busy ? 0.64 : 1) id=`signal-kill-${row.id}`
           text "KILL" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#fb2c36cc, #fb414acc)"
       else
         text "—" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b59, #81818159)"

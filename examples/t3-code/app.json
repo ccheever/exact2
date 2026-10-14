@@ -97,6 +97,9 @@
     "thread-key",
     "thread-open",
     "paint",
-    "pick"
+    "pick",
+    "dialog-focus",
+    "focus-stop",
+    "dialog-return"
   ]
 }

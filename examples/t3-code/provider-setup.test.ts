@@ -443,6 +443,6 @@ describe('provider setup in the clone', () => {
     expect(ids.filter(value => !value.includes('=`${idPrefix}'))).toEqual([]);
     const calls = [...setupLines, ...await contract('providers.contract')].filter(line => line.includes('ProviderAccountRow('));
     expect(calls.map(line => /idPrefix="([^"]*)"/.exec(line)?.[1])).toEqual(['', 'wizard-', '']);
-    expect((await contract('providers-wizard.contract')).join('\n')).toContain('focus(`wizard-provider-sign-out-${wizard.created}`)');
+    expect((await contract('providers-wizard.contract')).join('\n')).toContain('DialogFinalFocus(open=signOutOpen, owner="wizard-sign-out-confirm")');
   });
 });

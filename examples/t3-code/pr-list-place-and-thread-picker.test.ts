@@ -281,10 +281,10 @@ describe('PR-PICKER: "Link to thread" opens its own picker dialog (PullRequestTh
     // Inside the popup: the trap and the open focus on the field, the sr-only DialogTitle, no X and no footer.
     const inside = picker.slice(picker.indexOf(popup) + 1).filter(line => line.trim() !== '' && !line.trim().startsWith('//'));
     const direct = inside.filter(line => indent(line) === indent(inside[0]!)).map(line => line.trim());
-    expect(direct[0]).toBe('FocusGuard(guardId="pr-thread-picker-guard-start", target="palette-input")');
+    expect(direct[0]).toBe('FocusGuard(guardId="pr-thread-picker-guard-start", targets=dialogTargets, popup="pull-request-thread-picker")');
     expect(direct[1]).toBe('DialogOpenFocus(target="palette-input")');
     expect(direct[2]).toStartWith('text "Link pull request to a thread" role="heading" aria-level=2 position="absolute" width=1 height=1 overflow="hidden" opacity=0');
-    expect(direct.at(-1)).toBe('FocusGuard(guardId="pr-thread-picker-guard-end", target="palette-input")');
+    expect(direct.at(-1)).toBe('FocusGuard(guardId="pr-thread-picker-guard-end", targets=dialogTargets, popup="pull-request-thread-picker")');
     expect(inside.some(line => /^\s*button\b/.test(line))).toBe(false);
     expect(text).not.toContain('PaletteKbd(');
     // CommandInput (autofocus, disabled while a link is pending) and CommandList max-h-80 with p-2.

@@ -81,7 +81,7 @@ component R4GitRows
     if details.git.branch.show
       // The whole row is the combobox trigger; its chevron sits behind a hairline.
       box position="relative" width="100%"
-        button popovertarget="details-branch-menu" popovertargetaction="show" press=local("git-open", "branch", "") hover=hover("branch") disabled=details.git.branch.disabled aria-label=`Branch: ${details.git.branch.label}` testId="details-branch" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" opacity=(details.git.branch.disabled ? 0.64 : 1) background-color=(hovered == "branch" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+        button popovertarget="details-branch-menu" popovertargetaction="show" press=local("git-open", "branch", "") hover=hover("branch") disabled=details.git.branch.disabled aria-label=`Branch: ${details.git.branch.label}` testId="details-branch" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" opacity=(details.git.branch.disabled ? 0.64 : 1) background-color=(hovered == "branch" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch"
           box opacity=0.7 display="flex" flex-shrink=0
             ShellIcon(name="git-branch", size=16, color="light-dark(#71717b, #818181)")
           text details.git.branch.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-branch-label"
@@ -107,7 +107,7 @@ component R4GitRows
           if not details.git.progress and not details.git.success
             box position="absolute" left=0 top=0 bottom=0 width=0 pointer-events="none" aria-hidden=true hatch="t3-frame" data-frame="details-full-git"
           if not details.git.progress
-            button id="details-git-menu" popovertarget="details-git-options" key=gitMenuKey focus=gitMenuArm(true) blur=gitMenuArm(false) press=local("git-open", "menu", "") hover=hover("git-menu") disabled=details.git.menuDisabled aria-label="Git action options" testId="details-git-menu" position="absolute" left=0 top=0 bottom=0 width="100%" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-end" title=""
+            button id="details-git-menu" popovertarget="details-git-options" key=gitMenuKey focus=gitMenuArm(true) blur=gitMenuArm(false) press=local("git-open", "menu", "") hover=hover("git-menu") disabled=details.git.menuDisabled aria-label="Git action options" testId="details-git-menu" position="absolute" left=0 top=0 bottom=0 width="100%" padding=0 border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-end" title="" data-focus-stop=(details.git.menuDisabled ? "" : "enabled")
               box width="2rem" height="2rem" border-radius="0.625rem" border-top-left-radius=0 border-bottom-left-radius=0 background-color=(hovered == "git-menu" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" align-items="center" justify-content="center"
                 ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
             box position="absolute" right="2rem" top=0 bottom=0 display="flex" align-items="center" pointer-events="none"
@@ -133,7 +133,7 @@ component R4GitRows
                   text details.git.successDescription margin-left="1.625rem" padding-top="0.125rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
             else
               box position="relative" flex=1 min-width=0 margin-right="2.0625rem" hover=hover("git")
-                button id="details-git-action" press=act("shell:git-quick", details.cwd, "") disabled=details.git.quickDisabled testId="details-git-action" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=0 border-bottom-right-radius=0 opacity=(details.git.quickDisabled ? 0.64 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                button id="details-git-action" press=act("shell:git-quick", details.cwd, "") disabled=details.git.quickDisabled testId="details-git-action" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=0 border-bottom-right-radius=0 opacity=(details.git.quickDisabled ? 0.64 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center" data-focus-stop=(details.git.quickDisabled ? "" : "enabled")
                   R4Glyph(name=details.git.quickIcon, size=16, color="light-dark(#71717b, #818181)")
                   text details.git.quickLabel flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-git-action-label"
                 TipBubble(label=details.git.quickHint, side="bottom", align="start", offset=36, inset=0, shown=(hovered == "git" and details.git.quickHint != ""))
@@ -160,6 +160,8 @@ component R4GitLayers
 // BranchPicker's ComboboxPopup at the row's width: search, the refs, Create new
 // ref, Start from origin (choosing a new worktree's base), the status line.
 component R4BranchPicker
+  inject
+    dialogMenuEntered: action
   props
     git: R4GitCard
     width: number
@@ -174,7 +176,7 @@ component R4BranchPicker
   view
     // Popovers anchor at the invoker's bottom-left and ignore margins: the 4pt side offset is padding.
     // A ref picked by Return empties the popover until the row opens it again (its open state is the host's).
-    column id="details-branch-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width=width testId="details-branch-layer"
+    column id="details-branch-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width=width testId="details-branch-layer" data-dialog-return="menu" focusin=dialogMenuEntered("details-branch-menu", "details-branch")
       if not git.branch.picked
         column width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Refs" testId="details-branch-picker"
           column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box" flex-shrink=0
@@ -183,14 +185,14 @@ component R4BranchPicker
                 R4Glyph(name="search", size=16, color="light-dark(#71717a8c, #8181818c)")
               if git.branch.query == ""
                 text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true pointer-events="none"
-              input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=act(git.branch.enterOp, "enter", git.branch.enterValue) focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs" testId="details-branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+              input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=act(git.branch.enterOp, "enter", git.branch.enterValue) focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs" testId="details-branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" data-focus-stop="enabled"
           if git.branch.empty != ""
             text git.branch.empty font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
           scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:details-refs"
             column width="100%" gap=0 padding-left="0.5rem" padding-right="0.25rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box" role="listbox"
               // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
               for item in git.branch.checkout key=item.reference
-                button press=act("chatlocal:git-pr-open", "", item.reference) popovertarget="details-branch-menu" popovertargetaction="hide" hover=hover(0) role="option" aria-selected=false testId="details-branch-checkout-pr" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+                button press=act("chatlocal:git-pr-open", "", item.reference) popovertarget="details-branch-menu" popovertargetaction="hide" hover=hover(0) role="option" aria-selected=false testId="details-branch-checkout-pr" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch-checkout-pr"
                   row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"
                     R4Glyph(name=item.mark, size=14, color="light-dark(#71717b, #818181)")
                     column min-width=0 align-items="flex-start"
@@ -224,6 +226,8 @@ component R4Switch
 // GitActionsControl's MenuPopup (align end, the split group's width): Commit, Push,
 // Create PR, Publish repository..., then the warnings; a disabled item explains itself on hover.
 component R4GitMenu
+  inject
+    dialogMenuEntered: action
   props
     git: R4GitCard
     cwd: string
@@ -232,7 +236,7 @@ component R4GitMenu
     act: action
   view
     // Anchored at the row-wide trigger's bottom-left, at the row's width (MenuPopup align end, w-(--anchor-width)).
-    column id="details-git-options" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width=width testId="details-git-options-layer"
+    column id="details-git-options" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width=width testId="details-git-options-layer" data-dialog-return="menu" focusin=dialogMenuEntered("details-git-options", "details-git-menu")
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Git actions" testId="details-git-options"
         KeyMenu(menuId="details-git-options-keys", items=git.menu.filter((item) => not item.disabled).map((item) => KmItem(id=`details-git-menu-${item.id}`, label=item.label)), keyed=keyed, gap="0px", modal=true)
           for item in git.menu key=item.id
@@ -259,7 +263,7 @@ component R4GitMenuRow
     lit = on
   view
     box position="relative" width="100%" hover=hover
-      button id=`details-git-menu-${item.id}` press=act("shell:git-menu", cwd, item.id) popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=(lit and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      button id=`details-git-menu-${item.id}` press=act("shell:git-menu", cwd, item.id) popovertarget="details-git-options" popovertargetaction="hide" focus=focused(true) blur=focused(false) disabled=item.disabled role="menuitem" testId=`details-git-menu-${item.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color=(lit and not item.disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" data-focus-stop=(item.disabled ? "" : "enabled")
         box margin-left="-0.125rem" margin-right="-0.125rem" display="flex" flex-shrink=0 opacity=0.8
           R4Glyph(name=item.icon, size=16, color="light-dark(#71717b, #818181)")
         text item.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -272,6 +276,9 @@ component R4GitMenuRow
 // The shared dialog frame (ui/dialog.tsx DialogPopup): a blurred backdrop, a
 // rounded popup centred in the window, the corner close button.
 component R4Dialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
   props
     label: string
     maxWidth: number
@@ -280,17 +287,18 @@ component R4Dialog
     // The dialog's first Tab stop, for the focus trap (dialog-trap.contract); the X is its last.
     first: string
   slot
+  derive dialogTargets = [first, `${testId}-close`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${testId}-overlay`
       button press=close aria-label="Close" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId=`${testId}-backdrop` title=""
-      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=label testId=testId
+      column width="100%" max-width=maxWidth max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=label testId=testId id=testId tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(testId) key=dialogFallback(testId, dialogTargets)
         // The focus trap (dialog-trap.contract): the content, then the X (DialogPopup's last child).
-        FocusGuard(guardId="r4-dialog-guard-start", target=`${testId}-close`)
+        FocusGuard(guardId="r4-dialog-guard-start", targets=dialogTargets, popup=testId)
         DialogOpenFocus(target=first)
         children
-        button id=`${testId}-close` press=close aria-label="Close" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button id=`${testId}-close` press=close aria-label="Close" testId=`${testId}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
           ShellIcon(name="x", size=16, color="light-dark(#27272a, #f5f5f5)")
-        FocusGuard(guardId="r4-dialog-guard-end", target=first)
+        FocusGuard(guardId="r4-dialog-guard-end", targets=dialogTargets, popup=testId)
 
 component R4Button
   props
@@ -302,7 +310,7 @@ component R4Button
     // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
     elementId: string
   view
-    button id=elementId press=press disabled=disabled testId=testId display="flex" flex-direction="row" align-items="center" justify-content="center" min-height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(disabled ? 0.64 : 1) border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d"
+    button id=elementId press=press disabled=disabled testId=testId display="flex" flex-direction="row" align-items="center" justify-content="center" min-height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(disabled ? 0.64 : 1) border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" data-focus-stop=(disabled ? "" : "enabled")
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(primary ? "#ffffff" : "light-dark(#27272a, #f5f5f5)") text-align="center"
 
 component R4Checkbox
@@ -315,7 +323,7 @@ component R4Checkbox
     // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
     elementId: string
   view
-    button id=elementId press=press role="checkbox" aria-checked=checked aria-label=label testId=testId width="1rem" height="1rem" padding=0 flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : mixed ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center" title=""
+    button id=elementId press=press role="checkbox" aria-checked=checked aria-label=label testId=testId width="1rem" height="1rem" padding=0 flex-shrink=0 box-sizing="border-box" border-radius="0.25rem" border-style="solid" border-width=1 border-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : mixed ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") display="flex" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
       if checked
         ShellIcon(name="check", size=12, color="#ffffff")
       if mixed and not checked
@@ -359,7 +367,7 @@ component R4CommitDialog
                   if not git.allSelected and not git.editing
                     text `(${git.selectedCount} of ${git.fileCount})` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
                 if git.fileCount > 0
-                  button id="git-commit-edit" press=local("git-files-edit", "", "") testId="git-commit-edit" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(git.editing ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button id="git-commit-edit" press=local("git-files-edit", "", "") testId="git-commit-edit" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(git.editing ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" data-focus-stop="enabled"
                     text (git.editing ? "Done" : "Edit") font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
               if git.fileCount == 0
                 text "none" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
@@ -376,7 +384,7 @@ component R4CommitDialog
           column gap="0.25rem"
             text "Commit message (optional)" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
             box position="relative" width="100%" border-radius="0.5rem" background-color="light-dark(#ffffff, #ffffff07)"
-              textarea id="git-commit-message" value=message input=write aria-label="Commit message" autocorrect="off" testId="git-commit-message" width="100%" height="4.1875rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.4375rem" padding-bottom="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" spellcheck="false"
+              textarea id="git-commit-message" value=message input=write aria-label="Commit message" autocorrect="off" testId="git-commit-message" width="100%" height="4.1875rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.4375rem" padding-bottom="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" spellcheck="false" data-focus-stop="enabled"
               if message == ""
                 text "Leave empty to auto-generate" position="absolute" left="0.6875rem" top="0.375rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717a, #818181)" pointer-events="none" aria-hidden=true
       row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box"

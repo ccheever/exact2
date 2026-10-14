@@ -1,3 +1,4 @@
+use DialogFinalFocus from "./dialog-trap.contract"
 use R4Glyph from "./r4-git.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
@@ -93,6 +94,7 @@ component NetworkDialogs
       TailscaleSetupDialog(initialPort=net.servePort, baseUrl=net.tailscaleUrl, host=net.tailscaleHost, busy=busy, still=still, ask=ask, command=command)
     if remove == `pairing:create:${net.createSerial}`
       CreatePairingDialog(busy=busy, ask=ask, command=command)
+    DialogFinalFocus(open=net.reveal.open, owner="pairing-reveal-dialog")
     if net.reveal.open
       PairingRevealDialog(reveal=net.reveal, busy=busy, command=command)
 
@@ -375,6 +377,8 @@ component ScopeOption
 // The clipboard-failure reveal dialog: exactly the value that failed to copy, a 132 pt QR for a
 // link (never loopback), Done and Copy code.
 component PairingRevealDialog
+  inject
+    dialogEntered: action
   props
     reveal: NetReveal
     busy: bool
@@ -394,7 +398,7 @@ component PairingRevealDialog
       preventDefault()
   view
     column class=NdOverlay animation="ndFadeIn 200ms ease-in-out" -exact-exit-animation="ndFadeOut 200ms ease-in-out" testId="pairing-reveal-overlay"
-      column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label=reveal.title testId="pairing-reveal-dialog"
+      column class=NdPopup animation="ndPopupIn 200ms ease-in-out" -exact-exit-animation="ndPopupOut 200ms ease-in-out" role="dialog" aria-modal=true aria-label=reveal.title testId="pairing-reveal-dialog" id="pairing-reveal-dialog" data-dialog-focus="open" focusin=dialogEntered("pairing-reveal-dialog")
         DialogOpenFocus(target="pairing-reveal-value")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text reveal.title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2

@@ -102,6 +102,9 @@ shape ProviderWizardAuth
   description: string
   docsUrl: string
 
+// A wizard's optional account is a singleton in providerWizardAuth (provider-auth.ts).
+fn wizardCredentialStops(auth: ProviderWizardAuth): string[] = match auth.account.at(0) { case some(account) => account.credentials.map(field => `wizard-provider-auth-credential-${account.instanceId}-${field.name}`), case none => [] }
+
 // InlineButton (ui/button.tsx inlineButtonVariants, tone default): medium weight,
 // foreground, no wrap, underlined on hover; its text size is the sentence's.
 component ProviderSetupLink
@@ -127,7 +130,7 @@ component SetupButton
     testId: string
     press: action
   view
-    button press=press class=PvOutline disabled=disabled width=(full ? "100%" : "auto") opacity=(disabled ? 0.64 : 1) testId=testId
+    button id=testId data-focus-stop=(disabled ? "" : "enabled") press=press class=PvOutline disabled=disabled width=(full ? "100%" : "auto") opacity=(disabled ? 0.64 : 1) testId=testId
       text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 // One SettingsRow's frame (px-4, py-3, or pt-3 pb-1 with children under it); the
@@ -196,31 +199,31 @@ component ProviderAccountRow
         row flex-shrink=0 min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" justify-content=(wide ? "flex-end" : "flex-start")
           if account.pickMethod
             box position="relative" flex-shrink=0
-              button popovertarget=`${idPrefix}provider-auth-method-${account.instanceId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label="Sign-in method" disabled=off testId=`${idPrefix}provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1)
+              button popovertarget=`${idPrefix}provider-auth-method-${account.instanceId}-menu` key=triggerKey focus=keyArm(true) blur=keyArm(false) role="combobox" aria-label="Sign-in method" disabled=off testId=`${idPrefix}provider-auth-method-${account.instanceId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(off ? 0.64 : 1) id=`${idPrefix}provider-auth-method-${account.instanceId}` data-focus-stop=(off ? "" : "enabled")
                 text (methodLabel == "" ? "Provider default" : methodLabel) font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
                 CnGlyph(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
               KeyMenuOpen(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, armed=keyArmed, opened=keyOpened)
-              CnMenu(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=[KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-default`, label="Provider default")].concat(account.methods.map((method) => KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
+              CnMenu(menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, invoker=`${idPrefix}provider-auth-method-${account.instanceId}`, label="Sign-in method", width=176, endAlign=176, offsetX=0, offsetY=0, items=[KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-default`, label="Provider default")].concat(account.methods.map((method) => KmItem(id=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, label=method.name))), keyed=keyed)
                 CnMenuItem(keysId=`${idPrefix}provider-auth-method-${account.instanceId}-menu-keys`, label="Provider default", menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-default`, destructive=false, disabled=false, radio=false, highlighted=(methodValue == ""), note="", icon="", submenu="", choose=pickMethod(""))
                 for method in account.methods key=method.id
                   CnMenuItem(keysId=`${idPrefix}provider-auth-method-${account.instanceId}-menu-keys`, label=method.name, menuId=`${idPrefix}provider-auth-method-${account.instanceId}-menu`, itemId=`${idPrefix}provider-auth-method-${account.instanceId}-${method.id}`, destructive=false, disabled=false, radio=false, highlighted=(method.id == methodValue), note="", icon="", submenu="", choose=pickMethod(method.id))
           if account.url != ""
             SetupButton(label="Open browser", disabled=off, full=false, testId=`${idPrefix}provider-auth-open-${account.instanceId}`, press=op("setup:auth-open", account.instanceId, account.draftId, "", true))
             box position="relative" flex-shrink=0 hover=copyHover
-              button press=op("setup:auth-copy", account.instanceId, account.draftId, "", true) class=PvIconButton width="1.75rem" height="1.75rem" disabled=off opacity=(off ? 0.64 : 1) aria-label="Copy sign-in link" testId=`${idPrefix}provider-auth-copy-${account.instanceId}` title=""
+              button press=op("setup:auth-copy", account.instanceId, account.draftId, "", true) class=PvIconButton width="1.75rem" height="1.75rem" disabled=off opacity=(off ? 0.64 : 1) aria-label="Copy sign-in link" testId=`${idPrefix}provider-auth-copy-${account.instanceId}` title="" id=`${idPrefix}provider-auth-copy-${account.instanceId}` data-focus-stop=(off ? "" : "enabled")
                 PvIcon(name="copy", size=14, color="light-dark(#71717b, #818181)")
               if copyOver
                 CnTooltip(tip="Copy sign-in link", tipId=`${idPrefix}provider-auth-copy-tip-${account.instanceId}`, above=32)
           if account.docsUrl != ""
-            link href=account.docsUrl class=PvOutline testId=`${idPrefix}provider-auth-docs-${account.instanceId}`
+            link href=account.docsUrl class=PvOutline testId=`${idPrefix}provider-auth-docs-${account.instanceId}` id=`${idPrefix}provider-auth-docs-${account.instanceId}` data-focus-stop="enabled"
               text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           if account.showCancel
-            button press=op("setup:auth-cancel", account.instanceId, account.token, "", true) class=PvOutline border-width=0 background-color="#00000000" disabled=off opacity=(off ? 0.64 : 1) aria-label="Cancel sign-in" testId=`${idPrefix}provider-auth-cancel-${account.instanceId}`
+            button press=op("setup:auth-cancel", account.instanceId, account.token, "", true) class=PvOutline border-width=0 background-color="#00000000" disabled=off opacity=(off ? 0.64 : 1) aria-label="Cancel sign-in" testId=`${idPrefix}provider-auth-cancel-${account.instanceId}` id=`${idPrefix}provider-auth-cancel-${account.instanceId}` data-focus-stop=(off ? "" : "enabled")
               text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
           if account.showStart
             SetupButton(label=account.startLabel, disabled=(account.startDisabled or busy), full=false, testId=`${idPrefix}provider-sign-in-${account.instanceId}`, press=op("setup:auth-start", account.instanceId, account.token, methodValue, true))
           if account.showSignOut
-            button press=askSignOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}`
+            button press=askSignOut id=`${idPrefix}provider-sign-out-${account.instanceId}` class=PvOutline border-width=0 background-color="#00000000" disabled=(account.signOutDisabled or busy) opacity=(account.signOutDisabled or busy ? 0.64 : 1) testId=`${idPrefix}provider-sign-out-${account.instanceId}` data-focus-stop=((account.signOutDisabled or busy) ? "" : "enabled")
               text "Sign out" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       if account.details
         column width="100%"
@@ -236,10 +239,10 @@ component ProviderAccountRow
                 t3-terminal scheme=scheme auth-instance=account.instanceId auth-flow=account.flow auth-output=account.output auth-offset=account.offset read-only=false terminal-font-size=13 focus-request=0 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height="16rem" width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
           if account.credentials.length > 0
             for key in [account.formKey] key=key
-              ProviderCredentialsForm(account=account, off=off, op=op)
+              ProviderCredentialsForm(account=account, off=off, op=op, idPrefix=idPrefix)
           if account.callback
             for key in [account.formKey] key=key
-              ProviderCallbackForm(account=account, off=off, op=op)
+              ProviderCallbackForm(account=account, off=off, op=op, idPrefix=idPrefix)
           if account.error != ""
             text account.error padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId=`${idPrefix}provider-auth-error-${account.instanceId}`
 
@@ -247,6 +250,7 @@ component ProviderAccountRow
 // password-type when secret; Connect sends them; the drafts belong to this flow.
 component ProviderCredentialsForm
   props
+    idPrefix: string
     account: ProviderAccount
     off: bool
     op: action
@@ -302,17 +306,18 @@ component ProviderCredentialsForm
   // The values in field order, each URI-encoded and joined by "&" (provider-setup.ts decodes them).
   derive values = [f0, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15].map((v) => encodeURIComponent(v)).join("&")
   view
-    column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`provider-auth-credentials-${account.instanceId}`
+    column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`${idPrefix}provider-auth-credentials-${account.instanceId}`
       for field in account.credentials key=field.name
         column width="100%" gap="0.25rem"
           text field.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          input value=(field.index == 0 ? f0 : field.index == 1 ? f1 : field.index == 2 ? f2 : field.index == 3 ? f3 : field.index == 4 ? f4 : field.index == 5 ? f5 : field.index == 6 ? f6 : field.index == 7 ? f7 : field.index == 8 ? f8 : field.index == 9 ? f9 : field.index == 10 ? f10 : field.index == 11 ? f11 : field.index == 12 ? f12 : field.index == 13 ? f13 : field.index == 14 ? f14 : f15) input=set(field.index) submit=op("setup:auth-credentials", account.instanceId, account.draftId, values, not off) type=(field.secret ? "password" : "text") autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label=field.label class=PvField width="100%" disabled=off testId=`provider-auth-credential-${field.name}`
-      SetupButton(label="Connect", disabled=off, full=false, testId=`provider-auth-connect-${account.instanceId}`, press=op("setup:auth-credentials", account.instanceId, account.draftId, values, true))
+          input value=(field.index == 0 ? f0 : field.index == 1 ? f1 : field.index == 2 ? f2 : field.index == 3 ? f3 : field.index == 4 ? f4 : field.index == 5 ? f5 : field.index == 6 ? f6 : field.index == 7 ? f7 : field.index == 8 ? f8 : field.index == 9 ? f9 : field.index == 10 ? f10 : field.index == 11 ? f11 : field.index == 12 ? f12 : field.index == 13 ? f13 : field.index == 14 ? f14 : f15) input=set(field.index) submit=op("setup:auth-credentials", account.instanceId, account.draftId, values, not off) type=(field.secret ? "password" : "text") autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label=field.label class=PvField width="100%" disabled=off testId=`${idPrefix}provider-auth-credential-${account.instanceId}-${field.name}` id=`${idPrefix}provider-auth-credential-${account.instanceId}-${field.name}` data-focus-stop=(off ? "" : "enabled")
+      SetupButton(label="Connect", disabled=off, full=false, testId=`${idPrefix}provider-auth-connect-${account.instanceId}`, press=op("setup:auth-credentials", account.instanceId, account.draftId, values, true))
 
 // The paste-redirect form: a browser flow that accepts its callback (or the flow's own
 // authorization URL) takes the final localhost page's URL; Continue completes the flow.
 component ProviderCallbackForm
   props
+    idPrefix: string
     account: ProviderAccount
     off: bool
     op: action
@@ -320,11 +325,11 @@ component ProviderCallbackForm
   action edit(value: string)
     callback = value
   view
-    column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`provider-auth-callback-form-${account.instanceId}`
+    column width="100%" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" align-items="flex-start" testId=`${idPrefix}provider-auth-callback-form-${account.instanceId}`
       column width="100%" gap="0.25rem"
         text "If the final localhost page does not load, paste its full URL here." font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-        input value=callback input=edit submit=op("setup:auth-callback", account.instanceId, account.draftId, callback, not off and callback.trim() != "") type="url" autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label="If the final localhost page does not load, paste its full URL here." class=PvField width="100%" disabled=off testId=`provider-callback-${account.instanceId}`
-      SetupButton(label="Continue", disabled=(off or callback.trim() == ""), full=false, testId=`provider-auth-continue-${account.instanceId}`, press=op("setup:auth-callback", account.instanceId, account.draftId, callback, true))
+        input value=callback input=edit submit=op("setup:auth-callback", account.instanceId, account.draftId, callback, not off and callback.trim() != "") type="url" autocomplete="off" autocorrect="off" spellcheck="false" maxlength=16384 aria-label="If the final localhost page does not load, paste its full URL here." class=PvField width="100%" disabled=off testId=`${idPrefix}provider-callback-${account.instanceId}` id=`${idPrefix}provider-callback-${account.instanceId}` data-focus-stop=(off ? "" : "enabled")
+      SetupButton(label="Continue", disabled=(off or callback.trim() == ""), full=false, testId=`${idPrefix}provider-auth-continue-${account.instanceId}`, press=op("setup:auth-callback", account.instanceId, account.draftId, callback, true))
 
 // ProviderSetupActions' Runtime row: status, byte progress, notes, Install/Update/
 // Reinstall/Retry or Cancel installation, and the Remove icon (it confirms first).
@@ -464,5 +469,5 @@ component ProviderWizardAuthStep
             if auth.discovering
               SetupButton(label="Sign in", disabled=true, full=false, testId=`wizard-provider-sign-in-${auth.instanceId}`, press=op("setup:retry", auth.instanceId, "", "", false))
             if not auth.discovering and auth.docsUrl != ""
-              link href=auth.docsUrl class=PvOutline testId=`wizard-provider-auth-docs-${auth.instanceId}`
+              link href=auth.docsUrl class=PvOutline testId=`wizard-provider-auth-docs-${auth.instanceId}` id=`wizard-provider-auth-docs-${auth.instanceId}` data-focus-stop="enabled"
                 text "Open docs" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"

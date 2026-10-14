@@ -444,7 +444,7 @@ component PrActionLayers
     if actions.dialogOpen
       PrActionDialog(actions=actions, ref=ref, dark=dark, act=act, local=local)
     // The stack's Dialog gives the focus back to the stack menu's trigger (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=actions.stack.dialogOpen, target="pull-request-stack")
+    DialogFinalFocus(open=actions.stack.dialogOpen, owner="pr-stack-dialog")
     if actions.stack.dialogOpen
       PrStackDialog(stack=actions.stack, ref=ref, dark=dark, act=act, local=local)
 

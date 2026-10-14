@@ -130,7 +130,7 @@ describe('#246 bug 9: an unavailable model row says why beside the picker', () =
 describe('the layer and its timing', () => {
   test('T3Code holds the hover state; T3Window provides it and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
-    expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
+    expect(window).toMatch(/\n  provide\n(?:    dialog\w+\n)*    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
     expect(await source('app.contract')).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside

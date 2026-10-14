@@ -123,11 +123,11 @@ component BrowserProfilesSetting
           text "Browser profiles" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           text "Profiles separate cookies and logins. Incognito data is cleared when the app closes." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem"
         box position="relative" flex-shrink=0
-          button id="browser-profiles-add" press=local("browser-profiles-sources", "") popovertarget="browser-profiles-add-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=addHover disabled=view.writesDisabled aria-label="Add profile" aria-haspopup="menu" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") opacity=(view.writesDisabled ? 0.64 : 1)
+          button id="browser-profiles-add" press=local("browser-profiles-sources", "") popovertarget="browser-profiles-add-menu" key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=addHover disabled=view.writesDisabled aria-label="Add profile" aria-haspopup="menu" testId="browser-profiles-add" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(addOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0f)" : "light-dark(#ffffff, #ffffff07)") opacity=(view.writesDisabled ? 0.64 : 1) data-focus-stop=(view.writesDisabled ? "" : "enabled")
             LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
             text "Add profile" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
           KeyMenuOpen(menuId="browser-profiles-add-menu", armed=keyArmed, opened=keyOpened)
-          SkPopup(menuId="browser-profiles-add-menu", label="Add profile", width=216, list=false, endAlign=116, items=bpAddItems(view), keyed=keyed)
+          SkPopup(menuId="browser-profiles-add-menu", invoker="browser-profiles-add", label="Add profile", width=216, list=false, endAlign=116, items=bpAddItems(view), keyed=keyed)
             SkMenuItem(keysId="browser-profiles-add-menu-keys", label="Blank profile", menuId="browser-profiles-add-menu", itemId="browser-profiles-blank", selected=false, check=false, destructive=false, disabled=(not view.hydrated or view.atLimit), choose=local("browser-profiles-create", ""))
             if view.atLimit
               SkMenuItem(keysId="browser-profiles-add-menu-keys", label="You’ve reached the profile limit", menuId="browser-profiles-add-menu", itemId="browser-profiles-limit", selected=false, check=false, destructive=false, disabled=true, choose=local("browser-profiles-noop", ""))
@@ -183,10 +183,10 @@ component BrowserProfileRow
         if row.isDefault
           text "Default" flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.375rem" background-color="light-dark(#1b4ed8, #346bf1)" color="#ffffff" opacity=(view.writesDisabled ? 0.64 : 1) testId=`browser-profile-default-${row.id}`
       box position="relative" flex-shrink=0
-        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` aria-haspopup="menu" testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1) title=""
+        button id=`browser-profile-options-${row.id}` popovertarget=`browser-profile-menu-${row.id}` key=triggerKey focus=keyArm(true) blur=keyArm(false) hover=menuHover disabled=view.writesDisabled aria-label=`${row.name} options` aria-haspopup="menu" testId=`browser-profile-options-${row.id}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(menuOver and not view.writesDisabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") opacity=(view.writesDisabled ? 0.64 : 1) title="" data-focus-stop=(view.writesDisabled ? "" : "enabled")
           LucideEllipsisVertical(size=14, color="light-dark(#71717b, #818181)")
         KeyMenuOpen(menuId=`browser-profile-menu-${row.id}`, armed=keyArmed, opened=keyOpened)
-        SkPopup(menuId=`browser-profile-menu-${row.id}`, label=`${row.name} options`, width=272, list=false, endAlign=24, items=rowItems(row, view), keyed=keyed)
+        SkPopup(menuId=`browser-profile-menu-${row.id}`, invoker=`browser-profile-options-${row.id}`, label=`${row.name} options`, width=272, list=false, endAlign=24, items=rowItems(row, view), keyed=keyed)
           SkMenuItem(keysId=`browser-profile-menu-${row.id}-keys`, label="Set as default", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-set-default-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or row.isDefault), choose=local("browser-profiles-default", `id=${encodeURIComponent(row.id)}`))
           SkMenuItem(keysId=`browser-profile-menu-${row.id}-keys`, label="Clear cookies and cache", menuId=`browser-profile-menu-${row.id}`, itemId=`browser-profile-clear-${row.id}`, selected=false, check=false, destructive=false, disabled=(not view.hydrated or not view.removalAvailable), choose=local("browser-profiles-clear", `id=${encodeURIComponent(row.id)}`))
           if not row.builtIn
@@ -202,6 +202,9 @@ fn rowItems(row: BrowserProfileRowView, view: BrowserProfilesView): KmItem[] = v
 // app.contract's (removalFocus): Cancel as it opens, the row's options button after Cancel or Escape. `track` tells the
 // root which of the wizard's elements holds the focus (app.contract importWizardFocusMoved).
 component BrowserProfileDialogs
+  inject
+    dialogEntered: action
+    dialogFallback: action
   props
     view: BrowserProfilesView
     local: action
@@ -210,12 +213,13 @@ component BrowserProfileDialogs
   action cancelRemoval
     if not view.removalBusy
       local("browser-profiles-remove-cancel", "")
+  derive dialogTargets = ["browser-profile-remove-cancel", (view.removalBusy or not view.hydrated or not view.removalAvailable ? "browser-profile-remove-cancel" : "browser-profile-remove-confirm")]
   view
     if view.removalOpen
       column class=BpOverlay testId="browser-profile-remove-overlay"
-        column class=BpPopup role="alertdialog" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog"
+        column class=BpPopup role="alertdialog" aria-modal=true aria-label=`Remove “${view.removalName}”?` testId="browser-profile-remove-dialog" id="browser-profile-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("browser-profile-remove-dialog") key=dialogFallback("browser-profile-remove-dialog", dialogTargets)
           // The focus trap (dialog-trap.contract): Remove profile is the last stop while it is enabled.
-          FocusGuard(guardId="browser-profile-remove-guard-start", target=(view.removalBusy or not view.hydrated or not view.removalAvailable ? "browser-profile-remove-cancel" : "browser-profile-remove-confirm"))
+          FocusGuard(guardId="browser-profile-remove-guard-start", targets=dialogTargets, popup="browser-profile-remove-dialog")
           column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
             text `Remove “${view.removalName}”?` font-size="1.25rem" font-weight=600 line-height="1.5rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
             text "Its cookies and logins are deleted. Tabs already open in this profile stay open until you close them." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
@@ -226,7 +230,7 @@ component BrowserProfileDialogs
           row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
             BiButton(buttonId="browser-profile-remove-cancel", label="Cancel", tone="outline", disabled=view.removalBusy, keys="Escape", press=cancelRemoval, track=track)
             BiButton(buttonId="browser-profile-remove-confirm", label=(view.removalBusy ? "Removing…" : "Remove profile"), tone="destructive", disabled=(view.removalBusy or not view.hydrated or not view.removalAvailable), keys="", press=local("browser-profiles-remove", ""), track=track)
-          FocusGuard(guardId="browser-profile-remove-guard-end", target="browser-profile-remove-cancel")
+          FocusGuard(guardId="browser-profile-remove-guard-end", targets=dialogTargets, popup="browser-profile-remove-dialog")
     if view.wizard.open
       BrowserImportWizard(wizard=view.wizard, local=local, track=track, still=still)
 
@@ -235,11 +239,15 @@ component BrowserProfileDialogs
 // itself after a step change that removed the element holding the focus (initialFocus, restoreFocus "popup"); no button
 // autofocuses. Each focusable element and the popup tell the root when they take and lose the focus (`track`).
 component BrowserImportWizard
+  inject
+    dialogEntered: action
+    dialogFallback: action
   props
     wizard: BrowserImportWizardView
     local: action
     track: action
     still: bool
+  derive dialogTargets = [wizard.tabFirst, wizard.tabLast]
   view
     column class=BpOverlay testId="browser-import-overlay"
       // The focus trap (dialog-trap.contract) between the screen's first and last Tab stops (`wizardTabStops`). Its guards
@@ -247,8 +255,8 @@ component BrowserImportWizard
       // the popup itself (Base UI's `restoreFocus: "popup"` leaves the focus there) Tab goes on to its first stop and
       // Shift+Tab to the guard before it, which sends the focus round to its last. adopt-main-fixes-r11: the popup's own
       // `key` handler did both while the Mac had no Tab from a box that is no stop (X79, fixed on main by #490).
-      FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)
-      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}`
+      FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")
+      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true aria-label=(wizard.step == "quit" ? `Quit ${wizard.sourceName} to import` : wizard.step == "configure" ? `Import from ${wizard.sourceName}` : wizard.step == "fullDiskAccess" ? `Let T3 Code read ${wizard.sourceName}’s cookies` : wizard.step == "importing" ? "Importing cookies" : wizard.step == "checking" ? `Checking ${wizard.sourceName}` : wizard.step == "done" ? wizard.doneTitle : `Couldn’t import from ${wizard.sourceName}`) testId=`browser-import-step-${wizard.step}` data-dialog-focus="open" focusin=dialogEntered("browser-import-popup") key=dialogFallback("browser-import-popup", dialogTargets)
         if wizard.step == "quit"
           BiHeader(title=`Quit ${wizard.sourceName} to import`, description=`${wizard.sourceName} is open, so its cookies can’t be read yet. Quit it, then continue.`)
           BiFooter()
@@ -268,7 +276,7 @@ component BrowserImportWizard
                   LucideCheck(size=16, color="light-dark(#008236, #05df72)")
                   text "Allowed" font-size="0.75rem" line-height="1rem" color="light-dark(#008236, #05df72)"
               else
-                button id="browser-import-fda-allow" press=local("browser-import-fda-allow", "") focus=track("browser-import-fda-allow", true) blur=track("browser-import-fda-allow", false) disabled=wizard.fdaBusy testId="browser-import-fda-allow" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(wizard.fdaBusy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+                button id="browser-import-fda-allow" press=local("browser-import-fda-allow", "") focus=track("browser-import-fda-allow", true) blur=track("browser-import-fda-allow", false) disabled=wizard.fdaBusy testId="browser-import-fda-allow" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" opacity=(wizard.fdaBusy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" data-focus-stop=(wizard.fdaBusy ? "" : "enabled")
                   text "Allow" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
             if not wizard.fdaGranted
               text wizard.fdaNote margin-top="0.75rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" role="status" testId="browser-import-fda-note"
@@ -317,7 +325,7 @@ component BrowserImportWizard
               BiButton(buttonId="browser-import-retry", label="Try again", tone="default", disabled=false, keys="", press=local("browser-import-retry", ""), track=track)
         if wizard.canClose
           BiClose(press=local("browser-import-close", ""), track=track)
-      FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)
+      FocusGuard(guardId="browser-import-guard-end", targets=dialogTargets, popup="browser-import-popup")
 
 component BiHeader
   props
@@ -345,7 +353,7 @@ component BiButton
     press: action
     track: action
   view
-    button id=buttonId press=press focus=track(buttonId, true) blur=track(buttonId, false) disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)")
+    button id=buttonId press=press focus=track(buttonId, true) blur=track(buttonId, false) disabled=disabled aria-keyshortcuts=keys testId=buttonId display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) border-color=(tone == "outline" ? "light-dark(#d4d4d8, #ffffff14)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(tone == "outline" ? "light-dark(#ffffff, #ffffff07)" : tone == "destructive" ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") data-focus-stop=(disabled ? "" : "enabled")
       text label font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" color=(tone == "outline" ? "light-dark(#27272a, #f5f5f5)" : "#ffffff")
 
 // DialogPopup's Close (ghost icon button, top right).
@@ -354,7 +362,7 @@ component BiClose
     press: action
     track: action
   view
-    button id="browser-import-x" press=press focus=track("browser-import-x", true) blur=track("browser-import-x", false) aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title=""
+    button id="browser-import-x" press=press focus=track("browser-import-x", true) blur=track("browser-import-x", false) aria-label="Close" testId="browser-import-x" position="absolute" right="0.5rem" top="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
       LucideX(size=16, color="light-dark(#71717b, #818181)")
 
 // SelectableTile: a name, an optional detail line, and a check; the primary border and tint when selected.
@@ -368,7 +376,7 @@ component BiTile
   action hover(on: bool)
     over = on
   view
-    button id=tileId press=press focus=track(tileId, true) blur=track(tileId, false) hover=hover aria-pressed=tile.selected testId=`browser-import-tile-${tile.key}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(tile.selected ? "light-dark(#1b4ed8, #346bf1)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0a)") background-color=(tile.selected ? "light-dark(#1b4ed814, #346bf114)" : over ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000")
+    button id=tileId press=press focus=track(tileId, true) blur=track(tileId, false) hover=hover aria-pressed=tile.selected testId=`browser-import-tile-${tile.key}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.75rem" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(tile.selected ? "light-dark(#1b4ed8, #346bf1)" : over ? "light-dark(#e4e4e7, #ffffff14)" : "light-dark(#e4e4e799, #ffffff0a)") background-color=(tile.selected ? "light-dark(#1b4ed814, #346bf114)" : over ? "light-dark(#f4f4f566, #ffffff0a)" : "#00000000") data-focus-stop="enabled"
       column flex=1 min-width=0 align-items="flex-start"
         text tile.title max-width="100%" font-size="0.875rem" font-weight=500 line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" color="light-dark(#27272a, #f5f5f5)"
         if tile.subtitle != ""

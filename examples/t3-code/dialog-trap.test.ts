@@ -7,6 +7,7 @@
 // by the macOS drives in tasks/closed/20261011-dialog-trap-and-progress-value.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
+import { contractComponent, value } from './contract-action-fixture';
 
 const dir = new URL('./', import.meta.url);
 const files = readdirSync(dir).filter(name => name.endsWith('.contract')).sort();
@@ -69,7 +70,7 @@ const GUARDED: Record<string, string> = {
 // component and the focus each wrap sends.
 const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'codex-setup.contract "codex-picker"': { component: 'ChatGptAccountPicker', wraps: ['focus("codex-picker-connect-button")', 'focus(`codex-picker-option-${picker.first}`)'] },
-  'codex-setup.contract "chatgpt-plan-dialog"': { component: 'ChatGptPlanDialog', wraps: ['focus("chatgpt-plan-continue-button")', 'focus("chatgpt-plan-usage-button")'] },
+  'codex-setup.contract "chatgpt-plan-dialog"': { component: 'ChatGptPlanDialog', wraps: ['focus(busy ? "chatgpt-plan-usage-button" : "chatgpt-plan-continue-button")', 'focus("chatgpt-plan-usage-button")'] },
   'connections-network-dialogs.contract "network-access-dialog"': { component: 'NetworkAccessDialog', wraps: ['focus("network-access-confirm")', 'focus("network-access-cancel")'] },
   'connections-network-dialogs.contract "tailscale-disable-dialog"': { component: 'TailscaleDisableDialog', wraps: ['focus("tailscale-disable-confirm")', 'focus("tailscale-disable-cancel")'] },
   'connections-network-dialogs.contract "tailscale-setup-dialog"': { component: 'TailscaleSetupDialog', wraps: ['focus("tailscale-setup-close")', 'focus("tailscale-port")'] },
@@ -79,11 +80,11 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
   'pages-pr-actions.contract "pr-action-dialog"': { component: 'PrActionDialog', wraps: ['focus("pr-action-dialog-confirm")', 'focus("pr-action-dialog-cancel")'] },
   'pages-pr-stack.contract "pr-stack-dialog"': { component: 'PsDialogPopup', wraps: ['focus(e.shiftKey ? "pr-stack-dialog-confirm" : "pr-stack-dialog-cancel")'] },
   'providers-wizard.contract "chatgpt-account-dialog"': { component: 'ChatGptAccountDialog', wraps: ['focus("chatgpt-account-continue-button")', 'focus("chatgpt-account-name-field")'] },
-  'settings-rest-dialogs.contract dialogId': { component: 'SettingsConfirm', wraps: ['focus(`${dialogId}-confirm`)', 'focus(`${dialogId}-cancel`)'] },
-  'shell-panels.contract "app-confirm"': { component: 'AppConfirm', wraps: ['focus(`${confirmId}-confirm`)', 'focus(`${confirmId}-cancel`)'] },
+  'settings-rest-dialogs.contract dialogId': { component: 'SettingsConfirm', wraps: ['focus(busy ? dialogId : `${dialogId}-confirm`)', 'focus(busy ? dialogId : `${dialogId}-cancel`)'] },
+  'shell-panels.contract "app-confirm"': { component: 'AppConfirm', wraps: ['focus(busy ? confirmId : `${confirmId}-confirm`)', 'focus(busy ? confirmId : `${confirmId}-cancel`)'] },
   'sidebar-overlays.contract "sidebar-snooze"': { component: 'SidebarSnoozeDialog', wraps: ['focus("snooze-close")', 'focus(toggleId)'] },
   'this-machine.contract "local-environment-dialog"': { component: 'LocalEnvironmentDialog', wraps: ['focus("local-environment-confirm")', 'focus("local-environment-cancel")'] },
-  'usage-bars.contract "reset-credit-dialog"': { component: 'ResetCreditDialog', wraps: ['focus("reset-credit-confirm")', 'focus("reset-credit-cancel")'] },
+  'usage-bars.contract "reset-credit-dialog"': { component: 'ResetCreditDialog', wraps: ['focus(busy ? "reset-credit-dialog" : "reset-credit-confirm")', 'focus(busy ? "reset-credit-dialog" : "reset-credit-cancel")'] },
 };
 // No trap, as the reference has none: a Popover, Menu, hover card, toast, page or non-modal panel there.
 const NOT_MODAL: Record<string, string> = {
@@ -171,18 +172,79 @@ describe('every dialog is classified: a FocusGuard pair, its own key wraps, or n
 });
 
 describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', () => {
-  test('a guard is an invisible, aria-hidden Tab stop that sends the focus to its target', () => {
+  test('the guard intercepts bubbling focus before redirect, so the stale guard event cannot replace the popup owner', () => {
     const guard = source('dialog-trap.contract');
-    expect(guard).toContain('component FocusGuard');
-    expect(guard).toContain('action enter\n    if target != ""\n      focus(target)');
-    expect(guard).toContain('box id=guardId tabindex=0 aria-hidden=true focus=enter key=hold position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=guardId');
+    expect(guard).toContain('action enter\n    stopPropagation()');
+    expect(guard).toContain('tabindex=0 aria-hidden=true focusin=enter key=hold');
+    expect(guard).toContain('pointer-events="none" testId=guardId');
+    expect(guard).toContain('focus(target == "" ? popup : target)');
+  });
+  const guard = contractComponent('dialog-trap.contract', 'FocusGuard');
+  for (const enabled of [['first', 'middle', 'last'], ['middle', 'last'], ['first', 'middle'], ['middle'], []]) {
+    test(`enabled candidates ${JSON.stringify(enabled)}: both guards and both Tab directions stay inside`, () => {
+      for (const start of [false, true]) {
+        const focused: string[] = [], events: string[] = [];
+        const scope = { start, targets: ['first', 'middle', 'last'], popup: 'popup',
+          querySelectorAll: (q: string) => q.includes('dialog-focus') ? ['popup'] : enabled,
+          focus: (id: string) => focused.push(id), stopPropagation: () => events.push('stop'), preventDefault: () => events.push('prevent') };
+        guard.call('enter', {}, scope, []);
+        expect(focused.pop()).toBe((start ? enabled.at(-1) : enabled[0]) ?? 'popup');
+        expect(events.shift()).toBe('stop');
+        for (const shiftKey of [false, true]) {
+          guard.call('hold', {}, scope, ['Tab', { shiftKey, metaKey: false, ctrlKey: false, altKey: false }]);
+          expect(focused.pop()).toBe((shiftKey ? enabled.at(-1) : enabled[0]) ?? 'popup');
+        }
+        expect(events).toEqual(['prevent', 'stop', 'prevent', 'stop']);
+        for (const [k, modifiers] of [['Enter', {}], ['Tab', { metaKey: true }], ['Tab', { ctrlKey: true }], ['Tab', { altKey: true }]] as const)
+          guard.call('hold', {}, scope, [k, modifiers]);
+        expect(focused).toEqual([]);
+      }
+    });
+  }
+  test('an already removed popup cannot redirect a queued guard focus event', () => {
+    const focused: string[] = [];
+    guard.call('enter', {}, { start: false, targets: ['first'], popup: 'removed', querySelectorAll: () => ['first'], stopPropagation() {}, focus: (id: string) => focused.push(id) }, []);
+    expect(focused).toEqual([]);
   });
 
-  test('a guard whose target cannot take the focus keeps it: the key that would leave the dialog stays on the guard', () => {
-    const guard = source('dialog-trap.contract');
-    // Shift+Tab leaves from the start guard, Tab from the end guard; the other way goes on into the dialog.
-    expect(guard).toContain('derive start = guardId.includes("-guard-start")');
-    expect(guard).toContain('action hold(k: string, e: KeyboardEvent)\n    if k == "Tab" and e.shiftKey == start\n      preventDefault()\n      stopPropagation()\n      if target != ""\n        focus(target)');
+  test('SSH guards include the native password field while unlocked and fall back when it locks', () => {
+    const prompt = contractComponent('ssh-prompt.contract', 'SshPasswordPrompt');
+    const controls = source('ssh-prompt.contract').split('\n').filter(line => /\bid="ssh-password-(?:field|cancel|continue)"/.test(line));
+    for (const [responding, expired, first, last] of [
+      [false, false, 'ssh-password-field', 'ssh-password-continue'],
+      [false, true, 'ssh-password-cancel', 'ssh-password-cancel'],
+      [true, false, 'ssh-password-dialog', 'ssh-password-dialog'],
+    ] as const) {
+      const env = { responding, prompt: { expired } }, enabled = controls.flatMap(line => {
+        const marker = /data-focus-stop=(.+)$/.exec(line)?.[1];
+        return marker && value(marker, env) === 'enabled' ? [/\bid="([^"]+)"/.exec(line)![1]!] : [];
+      });
+      const targets = prompt.derives({}, env).dialogTargets;
+      for (const [start, expected] of [[false, first], [true, last]] as const) {
+        const focused: string[] = [];
+        guard.call('enter', {}, { start, targets, popup: 'ssh-password-dialog', querySelectorAll: (q: string) => q.includes('dialog-focus') ? ['ssh-password-dialog'] : enabled, stopPropagation() {}, focus: (id: string) => focused.push(id) }, []);
+        expect(focused).toEqual([expected]);
+      }
+    }
+  });
+
+  test.each([
+    ['r4-git-publish.contract', 'R4Step', 'r4-git.contract', 'R4Dialog', 'git-publish-step-0', 'git-publish-dialog', { index: 0, current: 0 }, { index: 0, current: 2 }],
+    ['settings-rows.contract', 'CoreSelect', 'settings-a-dialogs.contract', 'SaDialog', 'setting-background-policy', 'background-activity-dialog', { rowId: 'background-policy', disabled: false }, { rowId: 'background-policy', disabled: true }],
+    ['pages-usage-prices.contract', 'UsageGhostIcon', 'pages-usage-dialogs.contract', 'UsageDialogShell', 'usage-prices-add', 'usage-prices-dialog', { elementId: 'usage-prices-add', disabled: false }, { elementId: 'usage-prices-add', disabled: true }],
+  ] as const)('%s %s exposes its actual eligibility to the shared dialog guards', (file, component, frameFile, frameComponent, first, popup, on, off) => {
+    const lines = source(file).split('\n'), body = block(lines, lines.indexOf(`component ${component}`));
+    const control = body.find(line => /^\s*button\b/.test(line) && /\bid=/.test(line))!;
+    const marker = /data-focus-stop=(.+)$/.exec(control)?.[1];
+    const id = /\bid=(`[^`]+`|[A-Za-z]+)/.exec(control)![1]!;
+    for (const [env, eligible] of [[on, true], [off, false]] as const) {
+      expect(value(id, env)).toBe(first);
+      const enabled = marker && value(marker, env) === 'enabled' ? [first, `${popup}-close`] : [`${popup}-close`];
+      const targets = contractComponent(frameFile, frameComponent).derives({}, { first, testId: popup, dialogId: popup }).dialogTargets;
+      const focused: string[] = [];
+      guard.call('enter', {}, { start: false, targets, popup, querySelectorAll: (q: string) => q.includes('dialog-focus') ? [popup] : enabled, stopPropagation() {}, focus: (id: string) => focused.push(id) }, []);
+      expect(focused).toEqual([eligible ? first : `${popup}-close`]);
+    }
   });
 
   // A popup that takes the focus itself (the import wizard's, Base UI's `restoreFocus: "popup"`) has its guards beside it,
@@ -200,53 +262,36 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
       const depth = indent(children[0]!);
       const direct = children.filter(line => indent(line) === depth);
       if (beside) expect(direct.map(line => line.trim().split(/[ (]/)[0])).toEqual(['FocusGuard', 'column', 'FocusGuard']);
-      expect(direct[0]!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-start", target=`);
-      expect(direct.at(-1)!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-end", target=`);
+      expect(direct[0]!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-start", targets=`);
+      expect(direct.at(-1)!.trim()).toStartWith(`FocusGuard(guardId="${base}-guard-end", targets=`);
       expect(children.filter(line => line.includes('FocusGuard(')).length).toBe(2);
       // Every name a target can take is an element of the app (or a prop the shell's callers fill: `first`).
       for (const guard of [direct[0]!, direct.at(-1)!]) {
-        const target = /target=(.*)\)$/.exec(guard.trim())![1]!;
-        for (const name of named(target)) expect([name, declared(name)]).toEqual([name, true]);
+        const props = /targets=(\w+), popup=(.*)\)$/.exec(guard.trim())!;
+        expect(props).not.toBeNull();
+        expect(dialog.line).toContain(`id=${props[2]}`);
+        expect(dialog.line).toContain('data-dialog-focus="open"');
+        expect(dialog.line).toContain(`key=dialogFallback(${props[2]}, ${props[1]})`);
+        expect(source(dialog.file)).toContain(`derive ${props[1]} =`);
       }
     });
   }
 });
 
-describe('the guards name the reference\'s first and last Tab stops', () => {
-  // [file, start guard target, end guard target] for the dialogs whose stops are plain buttons and fields.
-  const pairs: [string, string, string][] = [
-    ['connections-routes.contract', '"route-remove-confirm"', '"route-remove-cancel"'],
-    ['connections.contract', '"environment-remove-confirm"', '"environment-remove-cancel"'],
-    ['settings-core-body.contract', '"restore-defaults-confirm"', '"restore-defaults-cancel"'],
-    ['timeline.contract', '"revert-keep"', '"revert-cancel"'],
-    ['timeline-plan.contract', '"plan-save-close"', '"plan-save-path"'],
-    ['providers-wizard.contract', '(busy ? "usage-hub-label" : "usage-hub-close")', '"usage-hub-url"'],
-    ['r6-pr.contract', '(merge.pending ? "pr-merge-cancel" : "pr-merge-confirm")', '"pr-merge-cancel"'],
-    ['r9-connect.contract', '"pr-checkout-close"', '"pr-checkout-input"'],
-    ['settings-a-hosts.contract', '(busy ? "device-host-options" : "device-host-close")', '(busy ? "device-host-options" : "device-host-name")'],
-    ['settings-appearance-import.contract', '"add-theme-close"', '"add-theme-query"'],
-    ['browser-profiles.contract', 'wizard.tabLast', 'wizard.tabFirst'],
-  ];
-  for (const [file, start, end] of pairs) {
-    test(`${file}: Shift+Tab before the first stop goes to ${start}, Tab past the last to ${end}`, () => {
-      const lines = source(file).split('\n').map(line => line.trim());
-      expect(lines.some(line => line.startsWith('FocusGuard(') && line.includes('-guard-start') && line.endsWith(`target=${start})`))).toBe(true);
-      expect(lines.some(line => line.startsWith('FocusGuard(') && line.includes('-guard-end') && line.endsWith(`target=${end})`))).toBe(true);
-    });
-  }
-
-  test('in the plain confirms the stops in tree order are the end guard\'s target first and the start guard\'s last', () => {
-    for (const [file, anchor] of [['connections-routes.contract', 'testId="route-remove-dialog"'], ['connections.contract', 'testId="environment-remove-dialog"'],
-      ['settings-core-body.contract', 'testId="restore-defaults-dialog"'], ['timeline.contract', 'testId="revert-dialog"'], ['timeline-plan.contract', 'testId="plan-save-dialog"'], ['providers-wizard.contract', 'testId="usage-hub-dialog"'],
-      ['settings-a-hosts.contract', 'testId="device-host-dialog"'], ['settings-appearance-import.contract', 'testId="add-theme-dialog"'], ['r9-connect.contract', 'testId="pr-checkout-dialog"']] as const) {
-      const lines = source(file).split('\n');
-      const body = block(lines, lines.findIndex(line => line.includes(anchor)));
-      const stops = body.filter(line => /^\s*(button|input|textarea)\b/.test(line) && !/tabindex=-1\b/.test(line)).map(line => /\bid="([^"]+)"/.exec(line)?.[1] ?? '?');
-      const guards = body.filter(line => line.includes('FocusGuard(')).map(line => named(/target=(.*)\)$/.exec(line.trim())![1]!));
-      // A busy fallback comes first (`busy ? <a stop still enabled> : <the stop>`): the last name is the idle one.
-      expect(guards[1]!.at(-1)).toBe(stops[0]!); // the end guard: Tab past the last stop goes to the first
-      expect(guards[0]!.at(-1)).toBe(stops.at(-1)!); // the start guard: Shift+Tab before the first goes to the last
-    }
+describe('the guards name ordered controls; mounted enabled filtering decides busy fallbacks', () => {
+  const targets = (file: string, component: string, scope: Record<string, unknown>) => {
+    const lines = source(file).split('\n'), from = lines.indexOf(`component ${component}`);
+    const line = lines.slice(from).find(line => line.startsWith('  derive dialogTargets ='))!;
+    return value(line.slice(line.indexOf(' = ') + 3), scope);
+  };
+  test('all-disabled confirms keep their popup as fallback, and editable fields stay available in busy dialogs', () => {
+    expect(targets('connections-routes.contract', 'RouteRemoveDialog', {})).toEqual(['route-remove-cancel', 'route-remove-confirm']);
+    expect(targets('connections.contract', 'EnvironmentRemoveDialog', {})).toEqual(['environment-remove-cancel', 'environment-remove-confirm']);
+    expect(targets('snapshot.contract', 'SnapshotSetup', {})).toEqual(['snapshot-setup-record', 'snapshot-permission-screen-allow', 'snapshot-permission-accessibility-allow', 'snapshot-setup-advanced', 'snapshot-setup-cancel', 'snapshot-setup-close']);
+    expect(targets('providers-wizard.contract', 'UsageHubDialog', {})).toEqual(['usage-hub-url', 'usage-hub-label', 'usage-hub-close']);
+    expect(targets('settings-a-hosts.contract', 'DeviceHostDialog', {})).toEqual(['device-host-name', 'device-host-options', 'device-host-close']);
+    expect(targets('r9-connect.contract', 'R9CheckoutDialog', {})).toEqual(['pr-checkout-input', 'pr-checkout-close']);
+    expect(targets('r4-surfaces.contract', 'R4DeviceSetup', {})).toEqual(['device-setup-step-0', 'device-setup-close']);
   });
 });
 
@@ -306,14 +351,15 @@ describe('review fixes (PR #431)', () => {
     expect(calls.map(line => /testId="([^"]+)"/.exec(line)![1])).toEqual(['palette-match-case', 'palette-whole-word', 'palette-regex']);
     expect(palette.findIndex(line => line.includes('testId="palette-input"'))).toBeLessThan(palette.indexOf(calls[0]!));
     expect(palette.find(line => line.includes('FocusGuard(guardId="palette-guard-start"'))!.trim())
-      .toBe('FocusGuard(guardId="palette-guard-start", target=(view.footerAction != "" ? "palette-footer-action" : (view.toggles ? "palette-regex" : "palette-input")))');
+      .toBe('FocusGuard(guardId="palette-guard-start", targets=dialogTargets, popup=view.testId)');
+    expect(source('palette.contract')).toContain('view.footerAction != "" ? "palette-footer-action"');
   });
 
   test('while a dialog is busy its guards name a stop that stays enabled, where one is left', () => {
     const guard = (file: string, id: string) => source(file).split('\n').find(line => line.includes(`FocusGuard(guardId="${id}"`))!.trim();
-    expect(guard('snapshot.contract', 'snapshot-setup-guard-start')).toContain('target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : "snapshot-setup-close")');
-    expect(guard('snapshot.contract', 'snapshot-setup-guard-end')).toContain('target=(busy ? (error != "" ? "snapshot-setup-advanced" : "") : ');
-    expect(guard('pages-welcome.contract', 'welcome-guard-start')).toContain('target=(step == "agents" ? (busy ? "welcome-step-1" : "welcome-agents-continue") :');
+    expect(guard('snapshot.contract', 'snapshot-setup-guard-start')).toContain('targets=dialogTargets, popup="snapshot-setup-dialog"');
+    expect(guard('snapshot.contract', 'snapshot-setup-guard-end')).toContain('targets=dialogTargets, popup="snapshot-setup-dialog"');
+    expect(guard('pages-welcome.contract', 'welcome-guard-start')).toContain('targets=dialogTargets, popup="welcome-dialog"');
     // The stops they fall back to take no `busy`: Advanced, the Connect step (held only while importing), the hub's label
     // field, the host editor's Advanced options.
     const line = (file: string, needle: string) => source(file).split('\n').find(text => text.includes(needle))!;
@@ -328,7 +374,7 @@ describe('review fixes (PR #431)', () => {
     // What a guard can name: its target's literals, and those of the `first` a shared frame's guard takes.
     const firsts = (line: string) => [...line.matchAll(/\bfirst=(\((?:[^()]|\([^()]*\))*\)|"[^"]*")/g)].flatMap(m => named(m[1]!));
     const targets = new Set([...sources.values()].flatMap(text => text.split('\n')).flatMap(line =>
-      [...named(/FocusGuard\(.*target=(.*)\)$/.exec(line.trim())?.[1] ?? '""'), ...firsts(line)]));
+      [...[...line.matchAll(/"([^"\n]*)"/g)].map(m => m[1]!), ...firsts(line)]));
     for (const component of shared) {
       const [file, text] = [...sources].find(([, text]) => text.includes(`\ncomponent ${component}\n`))!;
       const body = block(text.split('\n'), text.split('\n').indexOf(`component ${component}`));
@@ -402,7 +448,10 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
       const target = targets[0]!;
       for (const name of named(target)) expect([name, declared(name)]).toEqual([name, true]);
       if (dialog.key in NAMED) expect(target).toBe(NAMED[dialog.key]![0]);
-      else if (dialog.key in GUARDED) expect(target).toBe(/target=(.*)\)$/.exec(direct.at(-1)!.trim())![1]!); // the first stop
+      else if (dialog.key in GUARDED) {
+        const names = named(target);
+        for (const name of names) expect(source(dialog.file)).toContain(name);
+      }
       else expect([dialog.key, KEYED[dialog.key]!.wraps.some(wrap => wrap.includes(target))]).toEqual([dialog.key, true]);
       if (dialog.key in AUTOFOCUSED) expect(target).toBe(AUTOFOCUSED[dialog.key]!);
     });
@@ -422,131 +471,104 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
 // the focus as it opened. Once a dialog takes the focus as it opens (above), closing it removes the focused node, so each
 // modal dialog gives the focus back: a DialogFinalFocus beside the `when` that mounts it naming its opener, its own
 // focus() on close, or (listed in the task record's Known differences, X53) no opener the view can name.
-describe('every modal dialog gives the focus back as it closes (Base UI\'s finalFocus)', () => {
-  type Final = { final: [string, string] } | { own: [string, string] } | { none: string };
-  // A shared frame's callers each name their own: SettingsConfirm by dialogId, AppConfirm by confirmId.
-  const SETTINGS_CONFIRM: Record<string, Final> = {
-    'legacy-remove-project': { none: 'the legacy sidebar asks from a native context menu on a row, which holds no focus' },
-    'legacy-archive-many': { none: 'the legacy sidebar asks from a native context menu on a row, which holds no focus' },
-    'project-remove': { final: ['app-settings.contract', '"remove-project"'] },
-    'project-remove-member': { final: ['app-settings.contract', '`remove-checkout-${restSubject}`'] },
-    'archive-delete': { none: 'no control opens it: an archived row asks through archive-context-delete' },
-    'update-install': { final: ['app-settings.contract', '"setting-version-update"'] },
-    'signal-kill': { none: 'the confirm keeps only the process id, not the diagnostics row whose SIGKILL asked' },
-    'archive-context-delete': { none: 'asked from a native context menu on an archived row, which holds no focus' },
-    'theme-remove': { final: ['app-settings.contract', '`theme-remove-${settingsThemeSubject}`'] },
-    'theme-update': { final: ['settings-appearance-import.contract', '`theme-install-${data.pendingUpdate}`'] },
-    sidebar: { own: ['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'] }, // the sidebar's three (dialogId by its dialog)
+describe('every modal dialog gives focus back through a surviving observer or its existing close action', () => {
+  const owners: Record<string, [string, string[]]> = {
+    'app-overlays.contract "project-dialog"': ['app-overlays.contract', ['project-dialog']],
+    'connections-routes.contract "route-remove-dialog"': ['app-settings.contract', ['route-remove-dialog']],
+    'connections.contract "environment-remove-dialog"': ['app-settings.contract', ['environment-remove-dialog']],
+    'legacy-sidebar.contract label': ['legacy-sidebar.contract', ['legacy-rename-project', 'legacy-grouping']],
+    'pages-usage-dialogs.contract dialogId': ['app-main.contract', ['usage-prices-dialog', 'usage-model-dialog']],
+    'pages-welcome.contract "welcome-dialog"': ['app-overlays.contract', ['welcome-dialog']],
+    'providers-wizard.contract "add-provider-dialog"': ['app-settings.contract', ['add-provider-dialog']],
+    'providers-wizard.contract "usage-hub-dialog"': ['app-settings.contract', ['usage-hub-dialog']],
+    'providers-wizard.contract "usage-hub-remove-dialog"': ['app-settings.contract', ['usage-hub-remove-dialog']],
+    'providers-wizard.contract "chatgpt-account-dialog"': ['app-settings.contract', ['chatgpt-account-dialog']],
+    'r4-composer.contract "video-preview"': ['app-overlays.contract', ['video-preview']],
+    'r4-git.contract testId': ['app-overlays.contract', ['git-commit-dialog', 'git-confirm-dialog', 'git-publish-dialog']],
+    'r4-surfaces.contract "device-setup"': ['app-overlays.contract', ['device-setup']],
+    'r6-pr.contract "pr-merge-dialog"': ['r6-pr.contract', ['pr-merge-dialog']],
+    'r9-connect.contract "pr-checkout-dialog"': ['app-overlays.contract', ['pr-checkout-dialog']],
+    'settings-a-collections.contract "theme-remove-collection"': ['app-settings.contract', ['theme-remove-collection']],
+    'settings-a-dialogs.contract dialogId': ['app-settings.contract', ['background-activity-dialog']],
+    'settings-a-hosts.contract "device-host-dialog"': ['app-settings.contract', ['device-host-dialog']],
+    'settings-appearance-import.contract "add-theme-dialog"': ['app-settings.contract', ['add-theme-dialog']],
+    'settings-b-actions.contract "project-action-dialog"': ['app-settings.contract', ['project-action-dialog']],
+    'settings-b-actions.contract "action-delete-dialog"': ['settings-b-actions.contract', ['action-delete-dialog']],
+    'settings-b-icons.contract "project-icon-dialog"': ['app-settings.contract', ['project-icon-dialog']],
+    'settings-b-icons.contract "project-favicon-picker"': ['app-settings.contract', ['project-favicon-picker']],
+    'settings-core-body.contract "restore-defaults-dialog"': ['app-settings.contract', ['restore-defaults-dialog']],
+    'settings-scheduled.contract "scheduled-task-dialog"': ['app-settings.contract', ['scheduled-task-dialog']],
+    'snapshot.contract "snapshot-setup-dialog"': ['app-settings.contract', ['snapshot-setup-dialog']],
+    'timeline-attachments.contract "image-preview"': ['app-overlays.contract', ['image-preview']],
+    'timeline-mermaid.contract "diagram-preview"': ['app-overlays.contract', ['diagram-preview']],
+    'timeline-plan.contract "plan-save-dialog"': ['app-overlays.contract', ['plan-save-dialog']],
+    'timeline.contract "revert-dialog"': ['app-overlays.contract', ['revert-dialog']],
+    'codex-setup.contract "chatgpt-plan-dialog"': ['app-settings.contract', ['chatgpt-plan-dialog']],
+    'connections-network-dialogs.contract "pairing-reveal-dialog"': ['connections-network-dialogs.contract', ['pairing-reveal-dialog']],
+    'pages-pr-stack.contract "pr-stack-dialog"': ['pages-pr-actions.contract', ['pr-stack-dialog']],
+    'usage-bars.contract "reset-credit-dialog"': ['app-overlays.contract', ['reset-credit-dialog']],
   };
-  const APP_CONFIRM: Record<string, Final> = {
-    'server-update-confirm': { none: 'asked from a server update notice\'s action, which the confirm does not keep' },
-    'app-confirm': { own: ['app.contract', 'focus("thread-title")'] }, // the title menu's; a terminal close's gives it to the terminal
-    'wizard-sign-out-confirm': { own: ['providers-wizard.contract', 'focus(`wizard-provider-sign-out-${wizard.created}`)'] },
-    'acp-confirm': { own: ['providers-upkeep.contract', 'focus(what == "acp-delete" ? `acp-delete-${target}` : `acp-provider-disable-${target}`)'] },
-    'provider-setup-confirm': { own: ['providers-setup.contract', 'focus(what == "setup-logout" ? `provider-sign-out-${instanceId}` : `provider-runtime-remove-${instanceId}`)'] },
+  const own: Record<string, [string, string]> = {
+    'browser-profiles.contract "browser-profile-remove-dialog"': ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'],
+    'browser-profiles.contract `browser-import-step-${wizard.step}`': ['app.contract', 'focus("browser-profiles-add")'],
+    'palette.contract view.testId': ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'],
+    'palette.contract "pull-request-thread-picker"': ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'],
+    'ssh-prompt.contract "ssh-password-dialog"': ['app.contract', 'focus("ssh-connect")'],
+    'codex-setup.contract "codex-picker"': ['codex-setup.contract', 'focus(`codex-account-${picker.instanceId}`)'],
+    'connections-network-dialogs.contract "network-access-dialog"': ['connections-network-dialogs.contract', 'focus("network-access-switch")'],
+    'connections-network-dialogs.contract "tailscale-disable-dialog"': ['connections-network-dialogs.contract', 'focus("tailscale-https-switch")'],
+    'connections-network-dialogs.contract "tailscale-setup-dialog"': ['connections-network-dialogs.contract', 'focus("tailscale-https-switch")'],
+    'connections-network-dialogs.contract "create-pairing-dialog"': ['connections-network-dialogs.contract', 'focus("create-pairing-link")'],
+    'connections.contract "connection-dialog"': ['connections.contract', 'focus(routeTarget == "" ? "manage-connection" : `environment-route-add-${routeTarget}`)'],
+    'pages-pr-actions.contract "pr-action-dialog"': ['pages-pr-actions.contract', 'focus(opener)'],
+    'sidebar-overlays.contract "sidebar-snooze"': ['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'],
+    'this-machine.contract "local-environment-dialog"': ['this-machine.contract', 'focus("local-environment-switch")'],
   };
-  const FINAL: Record<string, Final | 'callers'> = {
-    'app-overlays.contract "project-dialog"': { none: 'opened from six controls (the sidebar\'s two, the legacy sidebar, the landing page, the empty pull request list, the palette) and the view keeps no record of which' },
-    'browser-profiles.contract "browser-profile-remove-dialog"': { own: ['app.contract', 'focus(`browser-profile-options-${removalAt}`)'] },
-    'browser-profiles.contract `browser-import-step-${wizard.step}`': { own: ['app.contract', 'focus("browser-profiles-add")'] },
-    'connections-routes.contract "route-remove-dialog"': { final: ['app-settings.contract', '`environment-route-remove-${environment.environmentId}-${route.id}`'] },
-    'connections.contract "environment-remove-dialog"': { final: ['app-settings.contract', '`environment-menu-${environment.environmentId}`'] },
-    'legacy-sidebar.contract label': { none: 'the legacy sidebar opens Rename and Group into… from a native context menu on a row, which holds no focus' },
-    'pages-usage-dialogs.contract dialogId': { final: ['app-main.contract', '(usage.detail.open ? `usage-model-${usage.detail.key}` : "usage-environment")'] },
-    'pages-welcome.contract "welcome-dialog"': { none: 'it opens at launch, before anything holds the focus' },
-    'palette.contract view.testId': { own: ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'] },
-    'palette.contract "pull-request-thread-picker"': { own: ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'] },
-    'providers-wizard.contract "add-provider-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
-    'providers-wizard.contract "usage-hub-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
-    'providers-wizard.contract "usage-hub-remove-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
-    'r4-composer.contract "video-preview"': { none: 'the view keeps the video, not which of the composer\'s tiles (or a message\'s) opened it' },
-    'r4-git.contract testId': { final: ['app-overlays.contract', 'details.git.dialogFrom'] },
-    'r4-surfaces.contract "device-setup"': { none: 'it opens itself when a Device surface is chosen before a device is ready, from either surface menu' },
-    'r6-pr.contract "pr-merge-dialog"': { final: ['r6-pr.contract', '`details-pr-merge-${details.prRows.merge.target}`'] },
-    'r9-connect.contract "pr-checkout-dialog"': { none: 'opened from either branch picker (the thread details\' or the composer\'s), and the view keeps no record of which' },
-    'settings-a-collections.contract "theme-remove-collection"': { final: ['app-settings.contract', '(settingsThemeDialog == "background-activity" ? "setting-background-activity" : (settingsThemeDialog == "import" ? "add-theme" : `theme-remove-${settingsThemeSubject}`))'] },
-    'settings-a-dialogs.contract dialogId': { final: ['app-settings.contract', '(settingsThemeDialog == "background-activity" ? "setting-background-activity" : (settingsThemeDialog == "import" ? "add-theme" : `theme-remove-${settingsThemeSubject}`))'] },
-    'settings-a-hosts.contract "device-host-dialog"': { final: ['app-settings.contract', '(settingsCore.hostEditor.title == "Add device host" ? "device-hosts-add" : `device-host-options-${settingsCore.hostEditor.id}`)'] },
-    'settings-appearance-import.contract "add-theme-dialog"': { final: ['app-settings.contract', '(settingsThemeDialog == "background-activity" ? "setting-background-activity" : (settingsThemeDialog == "import" ? "add-theme" : `theme-remove-${settingsThemeSubject}`))'] },
-    'settings-b-actions.contract "project-action-dialog"': { final: ['app-settings.contract', '`edit-project-action-${restSubject}`'] },
-    'settings-b-actions.contract "action-delete-dialog"': { final: ['settings-b-actions.contract', '"action-delete"'] },
-    'settings-b-icons.contract "project-icon-dialog"': { final: ['app-settings.contract', '"project-choose-icon"'] },
-    'settings-b-icons.contract "project-favicon-picker"': { final: ['app-settings.contract', '"project-choose-file"'] },
-    'settings-core-body.contract "restore-defaults-dialog"': { final: ['app-settings.contract', '"settings-restore-defaults"'] },
-    'settings-scheduled.contract "scheduled-task-dialog"': { final: ['app-settings.contract', '(restSubject == "" or restSubject.startsWith("new|") ? "new-scheduled-task" : `task-actions-${restSubject}`)'] },
-    'snapshot.contract "snapshot-setup-dialog"': { final: ['app-settings.contract', 'snapshotSetupFrom'] },
-    'ssh-prompt.contract "ssh-password-dialog"': { own: ['app.contract', 'focus("ssh-connect")'] },
-    'timeline-attachments.contract "image-preview"': { none: 'opened from a message\'s image, a video\'s play button or a context chip, and the view keeps only the image' },
-    'timeline-mermaid.contract "diagram-preview"': { none: 'opened from a transcript diagram or a file\'s fence, and the view keeps only the diagram\'s code' },
-    'timeline-plan.contract "plan-save-dialog"': { final: ['app-overlays.contract', '`plan-actions-${data.planSaveRow}`'] },
-    'timeline.contract "revert-dialog"': { final: ['app-overlays.contract', '`edit-from-${data.revertPending}`'] },
-    'codex-setup.contract "codex-picker"': { own: ['codex-setup.contract', 'focus(`codex-account-${picker.instanceId}`)'] },
-    'codex-setup.contract "chatgpt-plan-dialog"': { none: 'it shows itself once after a ChatGPT sign-in (ChatGptWelcomeCoordinator): nothing opened it' },
-    'connections-network-dialogs.contract "network-access-dialog"': { own: ['connections-network-dialogs.contract', 'focus("network-access-switch")'] },
-    'connections-network-dialogs.contract "tailscale-disable-dialog"': { own: ['connections-network-dialogs.contract', 'focus("tailscale-https-switch")'] },
-    'connections-network-dialogs.contract "tailscale-setup-dialog"': { own: ['connections-network-dialogs.contract', 'focus("tailscale-https-switch")'] },
-    'connections-network-dialogs.contract "create-pairing-dialog"': { own: ['connections-network-dialogs.contract', 'focus("create-pairing-link")'] },
-    'connections-network-dialogs.contract "pairing-reveal-dialog"': { none: 'it shows itself when copying a pairing link fails' },
-    'connections.contract "connection-dialog"': { own: ['connections.contract', 'focus(routeTarget == "" ? "manage-connection" : `environment-route-add-${routeTarget}`)'] },
-    'pages-pr-actions.contract "pr-action-dialog"': { own: ['pages-pr-actions.contract', 'focus(opener)'] },
-    'pages-pr-stack.contract "pr-stack-dialog"': { final: ['pages-pr-actions.contract', '"pull-request-stack"'] },
-    'providers-wizard.contract "chatgpt-account-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
-    'settings-rest-dialogs.contract dialogId': 'callers',
-    'shell-panels.contract "app-confirm"': 'callers',
-    'sidebar-overlays.contract "sidebar-snooze"': { own: ['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'] },
-    'this-machine.contract "local-environment-dialog"': { own: ['this-machine.contract', 'focus("local-environment-switch")'] },
-    'usage-bars.contract "reset-credit-dialog"': { own: ['app.contract', 'focus(result.message.slice(6))'] }, // the command's `focus:usage-reset-<n>` (composer-controls-usage.ts)
+  const shared: Record<string, string[]> = {
+    'app-settings.contract': ['project-remove', 'project-remove-member', 'archive-delete', 'signal-kill', 'archive-context-delete', 'theme-remove', 'update-install'],
+    'legacy-sidebar.contract': ['legacy-remove-project', 'legacy-archive-many'],
+    'app-overlays.contract': ['server-update-confirm', 'app-confirm'],
+    'providers-wizard.contract': ['wizard-sign-out-confirm'],
+    'settings-appearance-import.contract': ['theme-update'],
   };
   const finals = [...sources].flatMap(([file, text]) => text.split('\n').flatMap((line, index) =>
-    line.trim().startsWith('DialogFinalFocus(') ? [{ file, index, line: line.trim() }] : []));
-  const targetOf = (line: string) => /target=(.*)\)$/.exec(line)![1]!;
-  const check = (what: Final, label: string) => {
-    if ('final' in what) {
-      const [file, target] = what.final;
-      const uses = finals.filter(use => use.file === file && targetOf(use.line).includes(target));
-      expect([label, uses.length]).toEqual([label, 1]);
-      for (const name of named(targetOf(uses[0]!.line))) expect([label, name, declared(name)]).toEqual([label, name, true]);
-    } else if ('own' in what) expect([label, source(what.own[0]).includes(what.own[1])]).toEqual([label, true]);
-    else expect(what.none.length).toBeGreaterThan(0);
-  };
-
-  test('DialogFinalFocus stands outside the popup: 2 wide while its dialog is open, and gives the focus back once, as it shuts', () => {
-    const trap = source('dialog-trap.contract');
-    expect(trap).toContain('component DialogFinalFocus\n  props\n    open: bool\n    target: string\n  state shown = false\n  state back = ""\n  action laidOut(width: number, height: number)\n    if width >= 2 and not shown\n      shown = true\n      back = target\n    else if width == 1 and shown\n      shown = false\n      if back != ""\n        focus(back)');
-    expect(trap).toContain('box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=(open ? 2 : 1) height=1 opacity=0 pointer-events="none"');
-    // Never inside a modal popup: it would go with the popup it watches (the Add Action editor's stands in its overlay,
-    // beside the popup, as its Delete confirm does).
+    line.trim().startsWith('DialogFinalFocus(') ? [{ file, index, line: line.trim(), owner: /owner="([^"]+)"/.exec(line)![1]! }] : []));
+  const assertObserver = (file: string, owner: string) => expect(finals.filter(use => use.file === file && use.owner === owner)).toHaveLength(1);
+  test('every observer survives the popup it watches and snapshots its owner only once', () => {
+    const lifecycle = contractComponent('dialog-trap.contract', 'DialogFinalFocus');
+    const state = { shown: false, heldOwner: '' }, opened: string[] = [], closed: string[] = [];
+    const scope = { owner: 'first', dialogOpened: (id: string) => opened.push(id), dialogClosed: (id: string) => closed.push(id) };
+    for (const width of [0, 2, 2, 0, 2]) lifecycle.call('laidOut', state, scope, [width, 1]);
+    lifecycle.call('laidOut', state, { ...scope, owner: 'changed' }, [1, 1]);
+    lifecycle.call('laidOut', state, scope, [1, 1]);
+    expect(opened).toEqual(['first']); expect(closed).toEqual(['first']);
     for (const use of finals) {
       const inside = dialogs.filter(dialog => dialog.file === use.file && dialog.index < use.index && use.index <= dialog.index + block(source(dialog.file).split('\n'), dialog.index).length);
-      expect([use.file, use.line, inside.map(dialog => dialog.key)]).toEqual([use.file, use.line, []]);
+      expect([use.file, use.owner, inside.map(dialog => dialog.key)]).toEqual([use.file, use.owner, []]);
     }
   });
-
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED || dialog.key in KEYED)) {
-    test(`${dialog.key}: closing gives the focus back`, () => {
-      expect(dialog.key in FINAL).toBe(true);
-      const what = FINAL[dialog.key]!;
-      if (what !== 'callers') return check(what, dialog.key);
-      const [component, idProp, table] = dialog.key.startsWith('settings-rest') ? ['SettingsConfirm', 'dialogId', SETTINGS_CONFIRM] as const : ['AppConfirm', 'confirmId', APP_CONFIRM] as const;
-      const calls = [...sources].flatMap(([file, text]) => text.split('\n').filter(line => line.trim().startsWith(`${component}(`)).map(line => ({ file, id: new RegExp(`\\b${idProp}=("[^"]*"|[^,)]*)`).exec(line)![1]! })));
-      for (const call of calls) {
-        const id = call.file === 'sidebar-overlays.contract' ? 'sidebar' : JSON.parse(call.id) as string;
-        expect([call.file, id, id in table]).toEqual([call.file, id, true]);
-        check(table[id]!, `${call.file} ${id}`);
+    test(`${dialog.key}: closing has a qualified owner`, () => {
+      if (dialog.key in owners) {
+        const [file, list] = owners[dialog.key]!; list.forEach(owner => assertObserver(file, owner));
+        expect(dialog.line).toContain('data-dialog-focus="open"'); expect(dialog.line).toContain('focusin=dialogEntered(');
+      } else if (dialog.key in own) {
+        const [file, action] = own[dialog.key]!; expect(source(file)).toContain(action);
+      } else {
+        expect(['settings-rest-dialogs.contract dialogId', 'shell-panels.contract "app-confirm"']).toContain(dialog.key);
+        expect(dialog.line).toContain('data-dialog-focus="open"');
+        for (const [file, list] of Object.entries(shared)) list.forEach(owner => assertObserver(file, owner));
+        for (const [file, action] of [['sidebar-overlays.contract', 'focus(data.sidebar.dialogReturn)'], ['providers-upkeep.contract', 'focus(what == "acp-delete"'], ['providers-setup.contract', 'focus(what == "setup-logout"']] as const) expect(source(file)).toContain(action);
       }
     });
   }
-
-  test('every DialogFinalFocus is one a dialog above names', () => {
-    const listed = [...Object.values(FINAL), ...Object.values(SETTINGS_CONFIRM), ...Object.values(APP_CONFIRM)].flatMap(what => typeof what === 'object' && 'final' in what ? [what.final] : []);
-    for (const use of finals) expect([use.file, use.line, listed.some(([file, target]) => file === use.file && targetOf(use.line).includes(target))]).toEqual([use.file, use.line, true]);
-    expect(finals.length).toBe(17);
-  });
-
-  test('the openers it names: the snapshot setup\'s, and the git card\'s by the control that opened it', () => {
-    const window = source('app-window.contract');
-    expect(window).toContain('snapshotSetupFrom = snapshotSetupOpen ? snapshotSetupFrom : "snapshot-enabled"');
-    expect(window).toContain('snapshotSetupFrom = open and not snapshotSetupOpen ? "snapshot-setup" : snapshotSetupFrom');
-    for (const id of ['snapshot-enabled', 'snapshot-setup', 'details-git-menu', 'details-git-action']) expect([id, declared(id)]).toEqual([id, true]);
+  test('every observer is an inventoried owner, and row deletion cannot remove its only observer', () => {
+    const expected = Object.values(owners).flatMap(([file, list]) => list.map(owner => `${file}:${owner}`)).concat(Object.entries(shared).flatMap(([file, list]) => list.map(owner => `${file}:${owner}`)));
+    expect(finals.map(use => `${use.file}:${use.owner}`).sort()).toEqual([...new Set(expected)].sort());
+    const lines = source('app-settings.contract').split('\n');
+    for (const id of ['environment-remove-dialog', 'route-remove-dialog', 'signal-kill', 'archive-context-delete']) {
+      const observer = lines.find(line => line.includes('DialogFinalFocus(') && line.includes(`owner="${id}"`))!;
+      expect(indent(observer)).toBe(4);
+    }
   });
 });

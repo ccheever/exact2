@@ -326,7 +326,7 @@ component CoreSelect
       keyed = kmBump(keyed, false)
   view
     box position="relative" flex-shrink=0
-      button popovertarget=`select-${section}-${rowId}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000"
+      button popovertarget=`select-${section}-${rowId}` key=triggerKey focus=keyArm(true) blur=keyArm(false) disabled=disabled role="combobox" aria-label=value id=`setting-${rowId}` testId=`setting-${rowId}` border-width=0 padding=0 background-color="#00000000" data-focus-stop=(disabled ? "" : "enabled")
         SelectFace(rowId=rowId, value=value, icon=icon, width=width, pal=pal, dim=dim)
       KeyMenuOpen(menuId=`select-${section}-${rowId}`, armed=keyArmed, opened=keyOpened)
       CoreMenu(options=options, pal=pal, width=(menuWidth > 0 ? menuWidth : width), checks=(icon == "checks"), menuId=`select-${section}-${rowId}`, keyed=keyed, choose=choose, testId=`setting-${rowId}-menu`)

@@ -1,3 +1,4 @@
+use DialogFinalFocus from "./dialog-trap.contract"
 // T3's "Sidebar (legacy)" (LegacySidebar.tsx, sidebar/SidebarChrome.tsx, ui/sidebar.tsx; MIT,
 // see LICENSE-T3): the chrome header, the Search trigger, "Projects" with Sidebar options and
 // Add project, then each project row (chevron or collapsed status, favicon, name, "N projects",
@@ -190,7 +191,7 @@ component LegacyOptions
   view
     column position="relative" flex-shrink=0
       Tip(label="Sidebar options", side="right", align="center", offset=30)
-        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button cursor="pointer" id="legacy-options" popovertarget="legacy-sidebar-options" press=place key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label="Sidebar options" aria-haspopup="menu" testId="legacy-sidebar-options" width="1.5rem" height="1.5rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
           LegacyIcon(name="arrow-up-down", size=14, color="light-dark(#71717b, #818181)")
       KeyMenuOpen(menuId="legacy-sidebar-options", armed=keyArmed, opened=keyOpened)
       row id="legacy-sidebar-options" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="legacy-sidebar-options-layer"
@@ -226,7 +227,7 @@ component LegacyRadio
   action focused(on: bool)
     lit = on
   view
-    button id=testId cursor="pointer" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button id=testId cursor="pointer" press=press hover=hover focus=focused(true) blur=focused(false) role="menuitemradio" aria-checked=checked testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" data-focus-stop="enabled"
       box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         if checked
           box width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#27272a, #f5f5f5)"
@@ -296,7 +297,7 @@ component LegacyProject
         if legacy.manual
           box reorderFor="legacy-projects" touch-action="none" aria-label=`Drag ${p.name} to reorder` testId=`legacy-project-grip-${p.key}` width="0.875rem" height="2rem" margin-left="-0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 cursor="grab"
             LegacyIcon(name="grip-vertical", size=12, color=(pointed ? "light-dark(#71717b, #818181)" : "light-dark(#71717b4d, #8181814d)"))
-        button cursor="pointer" press=local("legacy-toggle", p.key, "") contextmenu=openMenu focus=within(true) blur=within(false) aria-expanded=p.expanded aria-label=p.name testId=`legacy-project-toggle-${p.key}` flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+        button cursor="pointer" press=local("legacy-toggle", p.key, "") contextmenu=openMenu focus=within(true) blur=within(false) aria-expanded=p.expanded aria-label=p.name testId=`legacy-project-toggle-${p.key}` flex=1 min-width=0 height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(pointed ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" id=`legacy-project-toggle-${p.key}`
           LegacyRowTip(label=p.statusLabel, side="top", align="start", tipId=`legacy-tip-status-${p.key}`, shown=(not p.expanded and p.statusLabel != ""), relay=innerHover)
             if not p.expanded and p.statusLabel != ""
               box width="0.875rem" height="0.875rem" margin-left="-0.125rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 role="img" aria-label=p.statusLabel testId=`legacy-project-status-${p.key}`
@@ -442,7 +443,7 @@ component LegacyThread
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.id data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center"
+        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.id data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", tipId=`legacy-tip-pr-${t.id}`, shown=(t.prIcon != ""), relay=innerHover)
@@ -559,6 +560,10 @@ component LegacyDialogs
     local: action
     run: action
   view
+    DialogFinalFocus(open=(data.legacy.dialog == "rename-project"), owner="legacy-rename-project")
+    DialogFinalFocus(open=(data.legacy.dialog == "grouping"), owner="legacy-grouping")
+    DialogFinalFocus(open=(data.legacy.dialog == "remove-project"), owner="legacy-remove-project")
+    DialogFinalFocus(open=(data.legacy.dialog == "archive-many"), owner="legacy-archive-many")
     if data.legacy.dialog == "rename-project"
       LegacyRenameProject(legacy=data.legacy, busy=busy, local=local, run=run)
     if data.legacy.dialog == "grouping"
@@ -569,6 +574,9 @@ component LegacyDialogs
       SettingsConfirm(title=data.legacy.dialogTitle, description="", confirmLabel=data.legacy.dialogConfirmLabel, destructive=false, busy=busy, error="", dialogId="legacy-archive-many", cancel=local("legacy-dialog-close", "", ""), confirm=run("legacy-dialog-confirm", "", ""))
 
 component LegacyDialogFrame
+  inject
+    dialogEntered: action
+    dialogFallback: action
   props
     title: string
     description: string
@@ -579,11 +587,12 @@ component LegacyDialogFrame
     cancel: action
     save: action
   slot
+  derive dialogTargets = [first, `${label}-close`]
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId=`${label}-overlay`
-      column position="relative" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=title testId=label
+      column position="relative" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-modal=true aria-label=title testId=label id=label tabindex=-1 data-dialog-focus="open" focusin=dialogEntered(label) key=dialogFallback(label, dialogTargets)
         // The focus trap (dialog-trap.contract): the field, Cancel, Save, then the X.
-        FocusGuard(guardId="legacy-dialog-guard-start", target=`${label}-close`)
+        FocusGuard(guardId="legacy-dialog-guard-start", targets=dialogTargets, popup=label)
         DialogOpenFocus(target=first)
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
@@ -591,14 +600,14 @@ component LegacyDialogFrame
           column gap="0.75rem" padding-top="0.5rem"
             children
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button id=`${label}-cancel` cursor="pointer" press=cancel disabled=busy aria-keyshortcuts="Escape" testId=`${label}-cancel` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+          button id=`${label}-cancel` cursor="pointer" press=cancel disabled=busy aria-keyshortcuts="Escape" testId=`${label}-cancel` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" data-focus-stop=(busy ? "" : "enabled")
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button id=`${label}-save` cursor="pointer" press=save disabled=busy testId=`${label}-save` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
+          button id=`${label}-save` cursor="pointer" press=save disabled=busy testId=`${label}-save` display="flex" flex-direction="row" align-items="center" justify-content="center" height="2.25rem" padding-left="0.8125rem" padding-right="0.8125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)" data-focus-stop=(busy ? "" : "enabled")
             text "Save" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X (LegacySidebar's dialogs keep showCloseButton), its last child.
-        button id=`${label}-close` press=cancel disabled=busy aria-label="Close" testId=`${label}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button id=`${label}-close` press=cancel disabled=busy aria-label="Close" testId=`${label}-close` position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop=(busy ? "" : "enabled")
           Icon(name="x", size=16, color="light-dark(#71717b, #818181)")
-        FocusGuard(guardId="legacy-dialog-guard-end", target=first)
+        FocusGuard(guardId="legacy-dialog-guard-end", targets=dialogTargets, popup=label)
 
 component LegacyRenameProject
   props
@@ -615,7 +624,7 @@ component LegacyRenameProject
     LegacyDialogFrame(title=legacy.dialogTitle, description=legacy.dialogDescription, label="legacy-rename-project", first="legacy-project-title", busy=busy, cancel=local("legacy-dialog-close", "", ""), save=save)
       column gap="0.375rem"
         text "Project title" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        input id="legacy-project-title" value=title input=edit submit=save autofocus=true aria-label="Project title" testId="legacy-project-title" height="2rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+        input id="legacy-project-title" value=title input=edit submit=save autofocus=true aria-label="Project title" testId="legacy-project-title" height="2rem" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.3125rem" padding-bottom="0.3125rem" line-height="1.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" data-focus-stop="enabled"
       if legacy.dialogDetail != ""
         text legacy.dialogDetail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 

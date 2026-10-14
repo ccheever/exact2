@@ -348,7 +348,8 @@ component PagesCover
       ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
     // Model prices and a model's dialog (which opens Model prices from its Set price) give the focus back to what opened
     // the first of them as the last closes (dialog-trap.contract DialogFinalFocus).
-    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and (usage.prices.open or usage.detail.open)), target=(usage.detail.open ? `usage-model-${usage.detail.key}` : "usage-environment"))
+    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.prices.open), owner="usage-prices-dialog")
+    DialogFinalFocus(open=(pageCover and utilityPage == "usage" and usage.detail.open), owner="usage-model-dialog")
     if pageCover and utilityPage == "usage" and usage.prices.open
       UsagePricesLayer(page=usage, scheme=scheme, viewportHeight=viewport.height, busy=commandPending, op=pagesOp)
     if pageCover and utilityPage == "usage" and usage.detail.open and not usage.prices.open
