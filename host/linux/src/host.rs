@@ -873,7 +873,6 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         let event = self.document_value(view, event);
-        // A host with no top layer refuses a press that would open one.
         let press = matches!(event, Event::Press | Event::PressWith(_));
         let refused = |host: &Self, dialog| {
             let refusal = if dialog && host.neutral_dialog_invoker(view) {
