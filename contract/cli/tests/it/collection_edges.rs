@@ -5,6 +5,7 @@ use exact_runner::{Advanced, CollectionFeedback, DataError, DataSource, Runner};
 
 #[test]
 fn edge_handlers_require_a_virtualized_collection() {
+    let mut repair_failures = Vec::new();
     for event in ["reachstart", "reachend"] {
         for node in [
             "list",
@@ -37,6 +38,25 @@ fn edge_handlers_require_a_virtualized_collection() {
                     "{explanation}: {error}"
                 );
             }
+            if node == "list" {
+                let keyword = error
+                    .message
+                    .split_once("one direct `")
+                    .and_then(|(_, rest)| rest.split_once('`'))
+                    .map(|(keyword, _)| keyword);
+                match keyword {
+                    Some(keyword) => {
+                        let repair = source
+                            .replacen("    list ", "    list virtualized=true ", 1)
+                            .replacen("      for x in", &format!("      {keyword} x in"), 1);
+                        if let Err(error) = contract::compile(&repair) {
+                            repair_failures
+                                .push(format!("{event}: advertised `{keyword}`: {error}"));
+                        }
+                    }
+                    None => repair_failures.push(format!("{event}: no advertised loop keyword")),
+                }
+            }
         }
     }
     for node in [
@@ -45,6 +65,7 @@ fn edge_handlers_require_a_virtualized_collection() {
     ] {
         contract::compile(&SOURCE.replace("list virtualized=true height=320", node)).unwrap();
     }
+    assert!(repair_failures.is_empty(), "{}", repair_failures.join("\n"));
 }
 
 #[derive(Default)]

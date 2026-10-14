@@ -32,9 +32,9 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("document", "`scroll`"),
     (
         "reachstart",
-        "`list virtualized=true` with one direct `each`",
+        "`list virtualized=true` with one direct `for`",
     ),
-    ("reachend", "`list virtualized=true` with one direct `each`"),
+    ("reachend", "`list virtualized=true` with one direct `for`"),
     ("text-transform", "any tag but `input` and `textarea`"),
     ("transform", "SVG elements, including `svg` and SVG `text`"),
     (
@@ -64,7 +64,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
 
 /// The compiler and target emitters share the collection-edge refusal.
 pub fn collection_edge_refusal(event: &str) -> String {
-    format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `each`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
+    format!("`{event}` belongs to a virtualized list (LLP 1010): write `list virtualized=true` with one direct `for`. Only a non-empty collection has edges in its geometric window; a plain list lays out all its children and has no collection window to report an edge. For a plain feed or masonry, use the web's `intersect=` on a marker at the end of the content, after the columns (docs/reference.md, \"Intersection visibility\"):\nview intersect=loadMore intersect-margin=\"0px 0px 800px 0px\"\n  height=1")
 }
 
 /// LLP 1055.000 D5's box refusal and the alternatives printed by `contract vocab`.

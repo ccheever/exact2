@@ -287,7 +287,7 @@ fn collection_edges_name_the_required_shape_and_the_plain_feed_alternative() {
     for event in ["reachstart", "reachend"] {
         let output = stdout(&vocab(&[event]));
         assert!(
-            output.contains("only on `list virtualized=true` with one direct `each`"),
+            output.contains("only on `list virtualized=true` with one direct `for`"),
             "{output}"
         );
         assert!(
