@@ -44,7 +44,7 @@ use ThemeEditorHost from "./settings-appearance-editor.contract"
 use SidebarOverlays from "./sidebar-overlays.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use TerminalDrawerView, TerminalDrawer from "./terminal.contract"
-use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode, noHoverTip, hoverDelay, hoverOpenDelay from "./hover-layer.contract" // fix-hover-cards
+use HoverTip, HoverLayer, HoverText, HoverScopes, HoverCode from "./hover-layer.contract" // fix-hover-cards
 use PaFreshnessCard from "./pages-pr-actions.contract"
 use PrLinkPreviewCard from "./pages-pr-links.contract" // pr-links-previews-and-routing
 use ChipPopover, ChipPopoverLayer, ChipPopoverEscape from "./composer-chip-popover.contract" // settings-appearance-and-skill-chip: a skill chip's details
@@ -321,9 +321,10 @@ component T3Window
     sshResponding: bool
     sshAnswer: action
     providerAuthPending: bool
-    // fix-hover-cards: the root's hover clock (hover-layer.contract).
-    hoverWait: number
-    hoverHold: action
+    // The root owns the hover state and clock; the window provides them to its triggers and draws the layer.
+    hoverTip: HoverTip
+    hoverShown: bool
+    hoverTipAt: action
     composerFocused: bool
     settingsEnvironmentId: string
     settingsProjectId: string
@@ -363,28 +364,6 @@ component T3Window
   // over the thread (the pull request page's detail) has no thread: its ChatMarkdown gets threadRef null ("page").
   action linkMenu(href: string)
     chatLocal("link-menu", pageCover ? "page" : "", href)
-  // fix-hover-cards: the hover layer's tooltip or card (hover-layer.contract). It shows once its trigger has had the
-  // pointer for its open delay (Base UI's delay, hoverOpenDelay; nothing is drawn before it, so a card still waiting
-  // takes no press) while the trigger or the card has it (hoverOn), then a card for its closeDelay (hoverDelay), so the
-  // pointer can cross into it. The clock stops where it opens (hoverOpen): a surface change, which moves it past, ends a
-  // tip whose trigger went with no leave. A close blocks it until the pointer enters again (Base UI's blockMouseMove).
-  state hoverTip = noHoverTip()
-  state hoverOn = ""
-  state hoverOpen = 0
-  state hoverUntil = 0
-  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
-  action hoverTipAt(tip: HoverTip, part: string, inside: bool)
-    if inside
-      let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
-      hoverTip = tip
-      hoverOn = part
-      hoverOpen = at
-      hoverHold(at)
-    else if tip.key == hoverTip.key and hoverOn == part
-      let until = hoverShown ? hoverWait + hoverDelay(tip.kind) : hoverWait
-      hoverOn = ""
-      hoverUntil = until
-      hoverHold(until)
   // popover-escape-parity: primary presses anywhere in the window outside the Usage page (which takes its
   // own, pages-usage.contract pressDown), counted as they end; a pinned usage popover closes on one, as
   // Base UI's outside press does (the sidebar, the theme editor, a toast all count).
