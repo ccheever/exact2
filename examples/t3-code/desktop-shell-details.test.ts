@@ -14,6 +14,9 @@ import { describeOversizedThemeFile, MAX_THEME_FILE_BYTES, readThemeFiles } from
 import { canPickExternalProjectFavicon, faviconPickLabel, localFileManagerName, pickProjectFavicon } from './desktop-shell-favicon';
 import { toasts } from './toast';
 import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width';
+import { T3Client } from './client';
+import { snapshot } from './presentation';
+import { readFileSync } from 'node:fs';
 
 const iso = (y: number, monthIndex: number, d: number, h: number, mi: number) => new Date(y, monthIndex, d, h, mi).toISOString();
 const plain = (text: string) => text.replace(/[\u202f\u00a0]/g, ' ');
@@ -168,5 +171,32 @@ describe('full-screen title row', () => {
   test('the sidebar minimum follows the inset (brand probe) in both states', () => {
     expect([12, 16, 20].map(size => sidebarMinimumWidth(size))).toEqual([208, 208, 223]);
     expect([12, 16, 20].map(size => sidebarMinimumWidth(size, true))).toEqual([208, 208, 208]);
+  });
+  // timeline-and-window-hooks KW-12c: the public display mode (exactViewport().displayMode) is the one source; the
+  // native full-screen fact (T3FullScreen.swift) and its t3.status field are gone.
+  test('the viewport display mode drives the shared inset and sidebar minimum, and windowed restores them', () => {
+    const client = new T3Client();
+    const at = (size: number, mode: string) => {
+      client.local.clientSettings = { ...client.local.clientSettings, fontSizeInterface: size };
+      const { controlsLeft, sidebarMinWidth } = snapshot(client, 0, mode);
+      return [controlsLeft, sidebarMinWidth];
+    };
+    for (const size of [12, 16, 20]) {
+      expect(at(size, 'standalone')).toEqual([90, sidebarMinimumWidth(size)]);
+      expect(at(size, 'fullscreen')).toEqual([0.75 * size, sidebarMinimumWidth(size, true)]);
+      expect(at(size, 'standalone')).toEqual([90, sidebarMinimumWidth(size)]);
+    }
+    // A stale native field no longer counts: only the viewport's mode does.
+    client.presentation = { ...client.presentation, fullScreen: true };
+    expect(snapshot(client, 0, 'standalone').controlsLeft).toBe(90);
+  });
+  test('the snapshot request carries the viewport display mode, and every title row reads the shared inset', () => {
+    const read = (file: string) => readFileSync(`${import.meta.dir}/${file}`, 'utf8');
+    expect(read('app.contract')).toContain('resource data = snapshot(wallTime.epochAtZero + elapsed, reconnectGraceKey, disconnectDelayKey, viewport.displayMode) as shape Snapshot');
+    expect(read('shapes.contract')).toMatch(/shape Viewport\n(?:  .*\n)*  displayMode: string/);
+    expect(read('app.ts')).toContain("snapshot(client, Number(args[0]) || 0, String(args[3] ?? ''))");
+    for (const file of ['chat.contract', 'sidebar.contract', 'legacy-sidebar.contract', 'pages-hero.contract', 'pages-prs.contract', 'pages-usage.contract', 'settings-core.contract'])
+      expect(read(file)).toMatch(/controlsLeft/);
+    expect(read('presentation.ts')).not.toContain('presentation.fullScreen');
   });
 });

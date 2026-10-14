@@ -29,3 +29,6 @@ mod legacy_sidebar_tests;
 
 #[cfg(test)]
 mod connections_settings_tests;
+
+#[cfg(test)]
+mod timeline_hooks_tests;

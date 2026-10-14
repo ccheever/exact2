@@ -4,7 +4,9 @@
 // and opens a glass preview of the message and the turn's final answer.
 // Pressing jumps to the turn; chevrons step to the previous and next turn.
 // The rail centres on the timeline viewport, which runs from under the 52pt
-// header to the window's bottom edge (the composer floats over it).
+// header to the window's bottom edge (the composer floats over it). Which turns
+// are on screen is ChatColumn's (`intersect=` on each user turn, timeline-and-window-hooks
+// KW-12a), and a jump is its keyed `scrollIntoView` (KW-12b): both app-main.contract.
 use Icon from "./icons.contract"
 use Tip from "./shell-tip.contract"
 
@@ -13,7 +15,7 @@ shape MinimapItem
   index: number
   label: string
   excerpt: string
-  inView: bool
+  row: number // the turn's index in data.messages
 
 // resolveTimelineMinimapHeightStyle: (n - 1) × 8pt, at most 100vh − 18rem.
 fn minimapHeight(count: number, windowHeight: number): number = max(1, min((count - 1) * 8, windowHeight - 288))
@@ -27,9 +29,10 @@ component TimelineMinimap
   props
     items: MinimapItem[]
     current: number
+    visible: string[] // ids of the turns on screen (ChatColumn turnsShown)
     gutter: number
     windowHeight: number
-    local: action
+    jump: action
   state active = -1
   state shown = -1
   state previewHover = false
@@ -52,13 +55,13 @@ component TimelineMinimap
     if count >= 2
       column position="absolute" top=0 left=0 width="4.5rem" height=(windowHeight - 52) pointer-events="none" justify-content="center" padding-left="0.75rem" box-sizing="border-box" opacity=(persistent or open ? 1 : 0) testId="timeline-minimap"
         column position="relative" width=(open ? 22 * rem : hitWidth) height=railHeight pointer-events=(hitWidth > 0 ? "auto" : "none")
-          MinimapStep(label="Previous turn", icon="chevron-up", target=(current > 0 ? current - 1 : -1), interactive=(hitWidth >= 14), top=(0 - 1.375 * rem), local=local)
+          MinimapStep(label="Previous turn", icon="chevron-up", target=(current > 0 ? current - 1 : -1), interactive=(hitWidth >= 14), top=(0 - 1.375 * rem), jump=jump)
           box position="absolute" left="0.75rem" top=0 width=1 height=railHeight background-color="light-dark(#e4e4e726, #ffffff03)"
           for item in items key=item.id
             box position="absolute" left=0 top=(minimapTop(item.index, count, railHeight) - 1) width=stripWidth(focusIndex < 0 ? 3 : max(item.index - focusIndex, focusIndex - item.index)) height=2 border-radius=1 background-color=(focusIndex == item.index ? "light-dark(#71717bbf, #818181bf)" : "light-dark(#71717b59, #81818159)") pointer-events="none"
-              box width="100%" height="100%" border-radius=1 opacity=(item.inView ? 1 : 0) background-color="light-dark(#27272ae6, #f5f5f5e6)"
+              box width="100%" height="100%" border-radius=1 opacity=(visible.includes(item.id) ? 1 : 0) background-color="light-dark(#27272ae6, #f5f5f5e6)"
           for item in items key=item.id
-            button press=local("jump", item.id, "") hover=setActive(item.index) aria-label=`Jump to message: ${item.label}` testId=`minimap-${item.index}` position="absolute" left=0 top=(minimapTop(item.index, count, railHeight) - 4) width=max(1, hitWidth) height="0.5rem" padding=0 border-width=0 background-color="#00000000" title=""
+            button press=jump(item.id, -1) hover=setActive(item.index) aria-label=`Jump to message: ${item.label}` testId=`minimap-${item.index}` position="absolute" left=0 top=(minimapTop(item.index, count, railHeight) - 4) width=max(1, hitWidth) height="0.5rem" padding=0 border-width=0 background-color="#00000000" title=""
           if focusIndex >= 0
             for item in items.filter((entry) => entry.index == focusIndex) key=item.id
               column position="absolute" left="2rem" width="20rem" height=0 top=minimapTop(item.index, count, railHeight) justify-content=(item.index == 0 ? "flex-start" : item.index == count - 1 ? "flex-end" : "center")
@@ -66,7 +69,7 @@ component TimelineMinimap
                   text item.label font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
                   if item.excerpt != ""
                     text item.excerpt margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" line-clamp=3 color="light-dark(#71717b, #818181)"
-          MinimapStep(label="Next turn", icon="chevron", target=(current >= 0 and current < count - 1 ? current + 1 : -1), interactive=(hitWidth >= 14), top=(railHeight + 0.125 * rem), local=local)
+          MinimapStep(label="Next turn", icon="chevron", target=(current >= 0 and current < count - 1 ? current + 1 : -1), interactive=(hitWidth >= 14), top=(railHeight + 0.125 * rem), jump=jump)
 
 // TimelineMinimapNavigationButton: a 20pt chevron centred 4pt into the strip,
 // visible only while it is itself hovered.
@@ -77,12 +80,22 @@ component MinimapStep
     target: number
     interactive: bool
     top: number
-    local: action
+    jump: action
   state hovered = false
   action hover(over: bool)
     hovered = over
   view
     box position="absolute" left="-0.375rem" top=top width="1.25rem" height="1.25rem" opacity=(hovered ? 1 : 0) pointer-events=(interactive ? "auto" : "none")
       Tip(label=label, side=(label == "Previous turn" ? "top" : "bottom"), align="center", offset=24)
-        button press=local("jump", "", target.toString()) hover=hover disabled=(target < 0) aria-label=label testId=(label == "Previous turn" ? "minimap-previous" : "minimap-next") width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+        button press=jump("", target) hover=hover disabled=(target < 0) aria-label=label testId=(label == "Previous turn" ? "minimap-previous" : "minimap-next") width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
           Icon(name=icon, size=16, color="light-dark(#27272ae6, #f5f5f5e6)")
+
+// resolveTimelineMinimapCurrentIndex over the intersect reports (KW-12a). `first` is the list's first visible row
+// (ScrollEvent firstVisibleKey as an index in data.messages, -1 before any report). The turns on screen are one run
+// of consecutive strips from the first turn at or after that row, each reported intersecting; a report outside the
+// run is a row the virtual window let go before its leave (removal sends none). Before a scroll report, the run
+// starts at the first reported turn.
+fn turnRunStart(items: MinimapItem[], seen: string[], first: number): number = match items.filter((item) => first >= 0 ? item.row >= first : seen.includes(item.id)).at(0) { case some(item) => item.index, case none => items.length }
+fn turnRunEnd(items: MinimapItem[], seen: string[], start: number): number = match items.filter((item) => item.index >= start and not seen.includes(item.id)).at(0) { case some(item) => item.index, case none => items.length }
+// With no turn on screen (a long answer fills it), the last turn at or before the first visible row; none without one.
+fn turnBefore(items: MinimapItem[], first: number): number = first < 0 ? -1 : match items.filter((item) => item.row <= first).at(-1) { case some(item) => item.index, case none => -1 }

@@ -1,0 +1,21 @@
+// The transcript's remembered position per thread (timeline-and-window-hooks KW-12b), adapted from T3 Code
+// (MIT, see LICENSE-T3): timelineScrollAnchoring.ts RememberedTimelinePosition and its scoped-thread session
+// cache of at most 100 entries, and MessagesTimeline.tsx's handleScroll / restoration. ChatColumn
+// (app-main.contract) keeps them from the list's ScrollEvent and restores with `scrollIntoView` (LLP 1070.000 §13).
+
+// A scoped thread (`composerOwner`, `${serverUrl}:${projectId}:${threadId}`), the first visible row's key and the
+// signed CSS pixels from that row wrapper's start to the port's start, the scroll offset (the fallback when the
+// key is gone), and whether the reader was at the end.
+shape TimelineAnchor
+  owner: string
+  key: string
+  offset: number
+  top: number
+  end: bool
+
+// The saved position of `owner`, or none yet: the end.
+fn anchorOf(anchors: TimelineAnchor[], owner: string): TimelineAnchor = match anchors.filter((saved) => saved.owner == owner).at(0) { case some(saved) => saved, case none => TimelineAnchor(owner=owner, key="", offset=0, top=0, end=true) }
+// rememberTimelinePosition: the entry replaces its owner's and becomes the newest; the oldest goes past 100.
+fn anchorKept(anchors: TimelineAnchor[], entry: TimelineAnchor): TimelineAnchor[] = entry.owner == "" ? anchors : anchors.filter((saved) => saved.owner != entry.owner).concat([entry]).slice(-100)
+// A ScrollEvent's firstVisibleKey: none on an empty or padding-only port.
+fn anchorKey(key: option<string>): string = match key { case some(text) => text, case none => "" }

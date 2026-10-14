@@ -31,7 +31,8 @@ use ScrollToEnd from "./chat.contract"
 use TranscriptMarkdown, ChatDocument from "./markdown.contract"
 use TimelineRow from "./timeline.contract"
 use TimelineFade from "./timeline.contract"
-use TimelineMinimap from "./timeline-minimap.contract"
+use TimelineMinimap, turnRunStart, turnRunEnd, turnBefore from "./timeline-minimap.contract"
+use TimelineAnchor, anchorOf, anchorKept, anchorKey from "./timeline-anchor.contract"
 use TimelineAttachmentUrls from "./timeline-attachments.contract"
 use RequestBanner from "./requests.contract"
 use RequestActions from "./requests.contract"
@@ -135,6 +136,64 @@ component ChatColumn
   action hoverPart(row: string, part: string, over: bool)
     rowHover = over ? row : (rowHover == row ? "" : rowHover)
     partHover = over ? part : (partHover == part ? "" : partHover)
+  // timeline-and-window-hooks KW-12a: the user turns reported intersecting the transcript (UserRow's `intersect=`), for
+  // the owner they were reported under, and the list's first visible row from its last ScrollEvent (timeline-minimap.contract).
+  state turnsSeen: string[] = []
+  state turnsOwner = ""
+  state firstKey = ""
+  derive turnIds = data.messages.map((message) => message.id)
+  derive turnFirst = firstKey == "" ? -1 : turnIds.indexOf(firstKey)
+  derive turnSeenNow = turnsOwner == composerOwner ? turnsSeen : []
+  derive turnStart = turnRunStart(data.minimap, turnSeenNow, turnFirst)
+  derive turnEnd = turnRunEnd(data.minimap, turnSeenNow, turnStart)
+  derive turnsShown = data.minimap.filter((item) => item.index >= turnStart and item.index < turnEnd).map((item) => item.id)
+  derive turnCurrent = turnEnd > turnStart ? turnStart : turnBefore(data.minimap, turnFirst)
+  action turnSeen(id: string, entry: IntersectionObserverEntry)
+    let kept = turnsOwner == composerOwner ? turnsSeen.filter((seen) => seen != id and turnIds.includes(seen)) : []
+    turnsSeen = entry.isIntersecting ? kept.concat([id]) : kept
+    turnsOwner = composerOwner
+  // KW-12b: the open thread's last position (`anchor`, kept only from the reader's own scrolling: not while a command
+  // such as a thread switch runs, nor before the thread's restoration) and the other threads' (`anchors`, at most 100).
+  state anchor = TimelineAnchor(owner="", key="", offset=0, top=0, end=true)
+  state anchors: TimelineAnchor[] = []
+  // A restoration whose row is gone lands on its saved offset through the list's scrollTop (MessagesTimeline's
+  // scrollToOffset fallback), until the next jump to the end.
+  state fallbackTop = 0
+  state fallbackJump = -1
+  action transcriptScrolled(left: number, top: number, e: ScrollEvent)
+    citeScrolled(left, top)
+    // A turn whose row the virtual window let go sends no leave: its box is gone (KW-12a).
+    turnsSeen = turnsSeen.filter((seen) => not frame(`turn-${seen}`).unavailable)
+    let key = anchorKey(e.firstVisibleKey)
+    let end = e.scrollHeight - e.scrollTop - e.clientHeight <= 2
+    firstKey = key
+    if anchor.owner == composerOwner and not commandPending and (end or turnIds.includes(key))
+      anchor = TimelineAnchor(owner=composerOwner, key=key, offset=e.firstVisibleOffset, top=e.scrollTop, end=end)
+  // The transcript of `owner` is laid out (the keyed marker beside the list mounted; intersect= reports on mount):
+  // the thread left keeps its position, and this one returns to its own unless it was left at the end or a citation
+  // places it (r5-composer-citation.ts).
+  action transcriptOpened(owner: string, entry: IntersectionObserverEntry)
+    if owner == composerOwner
+      let kept = anchorKept(anchors, anchor)
+      let saved = anchorOf(kept, owner)
+      anchors = kept
+      anchor = saved
+      let restore = not saved.end and not data.citing
+      fallbackTop = saved.top
+      fallbackJump = restore and not turnIds.includes(saved.key) ? jumpRequest : -1
+      if restore and turnIds.includes(saved.key)
+        scrollIntoView("transcript", saved.key, offset=saved.offset, behavior="instant")
+  // The minimap's strip or chevron: the turn's row 24pt under the top edge (scrollToIndex viewOffset 24; offset is the
+  // port's start into the row wrapper), smooth unless reduced motion asks otherwise. It ends a citation's native hold
+  // first (T3TimelineTurns.swift), so one writer moves the transcript.
+  action turnJump(id: string, index: number)
+    let target = id != "" ? id : data.minimap.filter((item) => item.index == index).map((item) => item.id).join("")
+    if target != ""
+      chatLocal("timeline-release", "", "")
+    if target != "" and viewport.prefersReducedMotion
+      scrollIntoView("transcript", target, offset=-24, behavior="instant")
+    else if target != ""
+      scrollIntoView("transcript", target, offset=-24, behavior="smooth")
   // resolveChatCanvasLayout (chat-canvas-view.ts) places the lane: centred, moved left and then narrowed for the docked
   // workspace card (32pt clear of it) and for the floating player. Every lane container keeps its own 20pt padding and
   // adds the canvas's insetEnd (`--chat-lane-inset-end`) on its end side; the composer stack is the lane itself. Until
@@ -165,12 +224,14 @@ component ChatColumn
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
           // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
-          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=citeScrolled scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
           if not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
-          TimelineMinimap(items=data.minimap, current=data.minimapCurrent, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * rem)) / 2), windowHeight=viewport.height, local=chatLocal)
+          TimelineMinimap(items=data.minimap, current=turnCurrent, visible=turnsShown, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * rem)) / 2), windowHeight=viewport.height, jump=turnJump)
+          for owner in [composerOwner] key=owner
+            box intersect=transcriptOpened(owner) position="absolute" top=0 left=0 width=0 height=0 pointer-events="none"
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
           if data.transcriptAway
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)

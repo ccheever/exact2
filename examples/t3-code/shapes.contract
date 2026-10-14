@@ -448,7 +448,7 @@ shape Snapshot
   historyError: string
   revertPending: string
   minimap: MinimapItem[]
-  minimapCurrent: number
+  citing: bool // timeline-and-window-hooks: a citation is placing its answer (ChatColumn restores nothing meanwhile)
   imagePreviewId: string
   imagePreviewName: string
   imagePreviewPosition: string
@@ -487,6 +487,7 @@ shape Viewport
   height: number
   prefersColorScheme: string
   prefersReducedMotion: bool
+  displayMode: string // "fullscreen" while the window is in full screen (LLP 1039; timeline-and-window-hooks KW-12c)
 
 style Ink
   color="light-dark(#27272a, #ededed)"

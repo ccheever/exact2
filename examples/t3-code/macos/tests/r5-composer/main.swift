@@ -94,7 +94,9 @@ final class R5ComposerTests: XCTestCase {
         XCTAssertEqual(ends.ends.count, 1, "plain anchors are not lists")
     }
 
-    func testCitationJumpPlacesTheAssistantRowAndKeepsItOffTheMinimap() {
+    /// The citation's own jump (KW-12a/b moved the minimap's to Contract): the cited answer lands at its
+    /// lead whatever other rows the registry holds.
+    func testCitationJumpPlacesTheAssistantRowAtItsLead() {
         let fixture = Fixture()
         let scroll = fixture.scroll(height: 300, content: 3000)
         let transcript = ExactElement(hatch: .t3Transcript, id: "transcript", node: 6, hatches: fixture.hooks)
@@ -105,10 +107,8 @@ final class R5ComposerTests: XCTestCase {
             let row = ExactElement(hatch: .t3Turn, id: id, node: node, hatches: fixture.hooks)
             row.view = view; row.data = ExactData(["turn": id]); return row
         }
-        let turns = T3TimelineTurns(changed: { _ in })
+        let turns = T3TimelineTurns()
         turns.install(transcript); rows.forEach(turns.install)
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertEqual(turns.status["turnsInView"] as? [String], ["u1"], "an assistant row is a jump target, not a turn")
         let done = expectation(description: "jump")
         turns.jump(["op": "timelineJump", "id": "cite:a1", "index": 1, "count": 2, "lead": "citation", "inset": 2.0, "generation": 1]) { reply in
             XCTAssertEqual(reply["ok"] as? Bool, true); done.fulfill()
@@ -117,7 +117,18 @@ final class R5ComposerTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.6))
         // min(120, 300 / 3) = 100 above the cited Markdown, which starts 2pt into the row.
         XCTAssertEqual(scroll.contentView.bounds.minY, 1800 + 2 - 100, accuracy: 0.5)
-        XCTAssertEqual(turns.status["turnAbove"] as? String, "u1")
+        // A relayout above the answer (rows measured as they mount) places it again within the hold.
+        answer.frame.origin.y += 300
+        scroll.documentView!.setFrameSize(NSSize(width: 300, height: 3300))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(scroll.contentView.bounds.minY, 2100 + 2 - 100, accuracy: 0.5, "the relayout correction keeps the cited answer at its lead")
+        // A minimap jump (Contract's scrollIntoView) cancels the hold first: a later relayout leaves the port alone.
+        turns.cancel()
+        scroll.contentView.setBoundsOrigin(NSPoint(x: 0, y: 500)); scroll.reflectScrolledClipView(scroll.contentView)
+        answer.frame.origin.y += 100
+        scroll.documentView!.setFrameSize(NSSize(width: 300, height: 3400))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertEqual(scroll.contentView.bounds.minY, 500, accuracy: 0.5, "no native writer after cancel")
         turns.destroy()
     }
 }

@@ -1,7 +1,7 @@
 ---
 name: 20261014-timeline-and-window-hooks
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: complete
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -291,8 +291,11 @@ images before making a visual claim. No repeated full pixel matrix is required.
 | First wave / r14 delivery | Actual remote merges and local ancestry verified. |
 | Six serial predecessors / fresh base | Merged; prepared from `97f3fbb23` on 2026-10-15. |
 | Implementation branch/worktree | `feat(example)/t3-code-timeline-and-window-hooks` in `t3-code-timeline-and-window-hooks`. |
-| Tests, builds, launch, native/global input | Not run for this preparation. |
-| Draft | Only ignored `target/fix-wave/timeline-and-window-hooks-task.md`. |
+| KW-12a, KW-12b, KW-12c | Implemented 2026-10-15 (below); no framework gap blocked a row. |
+| Tests, builds, checks | All pass (below). |
+| Native AFTER drive | Run once (agent mode) plus one supplementary 840×620 segment; agent rows PASS, real-input rows UNVERIFIED. |
+| Independent review | Done before commit (below). |
+| Verification | Unverified: the final real-input session after follow-up 8 owns full-screen entry/exit, real-clock motion and trackpad settlement, IME. |
 
 ## Attempts and evidence
 
@@ -309,11 +312,114 @@ smoke was not rerun. Future attempts must record source/framework/binary identit
 fixture/reset commands, assertions, outputs, limitations and accessible evidence.
 Preserve failures and the repository's three-round fix-loop limit.
 
+## Implementation and verification, 2026-10-15
+
+Base `1225616f0` (feature head `97f3fbb23` + ticket). App-only: every change is under `examples/t3-code`.
+
+### Per row
+
+- **KW-12a (visible turns).** `timeline.contract` UserRow: `intersect=seen(message.id) intersect-margin="-1px 0px"` on the
+  user-turn box; the user-turn `hatch="t3-turn"` is removed (the assistant `cite:` hatch stays). The -1px root margin makes
+  edge contact (threshold-0 `isIntersecting` with ratio 0) count as off screen, and an overlapping box report on entry, so
+  no second ratio callback is needed. ChatColumn (`app-main.contract`) keeps `turnsSeen`/`turnsOwner` and the list's
+  `firstKey`; `timeline-minimap.contract` `turnRunStart`/`turnRunEnd`/`turnBefore` derive the strips on screen (one
+  consecutive run from the first turn at or after the first visible row, so rows recycled without a leave never survive)
+  and the current turn (the first on screen, else the last turn before the first visible row, else none). Owner changes
+  reset the set. `timeline-minimap.ts` keeps only the strip items (now with `row`); `nativeTurns`, `minimapCurrent`,
+  `jumpToTurn`, the `jump` op, `data.minimapCurrent` and the `turnsInView`/`turnAbove` status merge in `T3Module.swift`
+  are gone. `T3TimelineTurns.swift` no longer measures or observes bounds.
+- **KW-12b (position and jumps).** `timeline-anchor.contract` (shape `TimelineAnchor`, `anchorOf`, `anchorKept` ≤ 100,
+  `anchorKey`). ChatColumn `transcriptScrolled(left, top, e)` calls `citeScrolled` first, then keeps
+  `{key, offset, top, end}` only while the open owner's restoration has run and no command (a thread switch's end jump)
+  is pending; absent or stale keys never overwrite. A keyed zero-size marker beside the list
+  (`for owner in [composerOwner] key=owner`, `intersect=transcriptOpened(owner)`) reports when each owner's transcript is
+  laid out, including when the list stays mounted; tasks are root-only and `app.contract` is at 1,500 lines, so this
+  component-local mount report replaces a root task. `transcriptOpened` files the left owner's anchor and restores this
+  owner's with `scrollIntoView("transcript", key, offset=…, behavior="instant")`; a gone row falls back to its saved offset
+  through `scrollTop` until the next end jump; a thread left at its end, and a citation in flight (`data.citing`, set by
+  `chip-citation` in `timeline-presentation.ts`), restore nothing. `turnJump` gives strips and chevrons
+  `scrollIntoView(…, offset=-24, behavior="smooth")`, `"instant"` under reduced motion. `R9Input.swift` keeps composer
+  focus, marked-text commit and chord helpers; its transcript cache, samplers, settling and restore are deleted (with
+  its `agent` flag and `remove`). Citation jumps, `timelineSleep` and the two-second relayout hold stay native.
+- **KW-12c (full screen).** `Viewport` gains `displayMode`; `app.contract` passes `viewport.displayMode` to `snapshot`, and
+  `presentation.ts` derives `controlsLeft`/`sidebarMinWidth` from it (one source for chat, sidebar, legacy sidebar, Home,
+  PRs, Usage and Settings title rows). `T3FullScreen.swift` is deleted; `T3WindowChrome.swift` keeps the 52-point toolbar,
+  x=16 traffic lights, appearance and `systemLocale`. `T3Timeline`'s composer-rest observer is untouched.
+
+### Tests and checks
+
+| Check | Result |
+| --- | --- |
+| Focused Bun (minimap 11, anchor 11, desktop-shell-details 34, citation 5, cite-selection-anchor 24, timeline, r4-composer-overlay, r12-sidebar) | all pass |
+| Full app Bun suite, 336 tracked `.test.ts` files (explicit `./` paths) | 5,222 pass, 1 skip, 0 fail (base 5,201 / 1 / 0 at css-workaround-retirements) |
+| Strict `tsc` on `app.ts` | exit 0 |
+| `contract build app.contract` | exit 0 (warnings only, as before) |
+| `cargo test -p t3-code-macos --lib --no-fail-fast` | 45 passed (new `timeline_hooks_tests`: the snapshot request follows `displayMode` standalone → fullscreen → standalone) |
+| AppKit binaries (README recipe) | r9-input 6/6 (composer and IME cases kept; its 7 restoration cases ported to `timeline-anchor.test.ts`), r5-composer 3/3 (citation lead, the relayout hold, and no native writer after `cancel()`), menus 47/47 (full-screen fact test replaced by a window-chrome status/title-row test), composer 78/78. `real-key-chords` does not compile at the base either (`R10Connect.install`, pre-existing, untouched) |
+| `git add -A examples/t3-code && bun scripts/caps.mjs` | all budgets within cap; `app.contract` 1,500, `app-main.contract` 451 |
+| `cargo fmt --all -- --check` | exit 0 |
+| `cargo check --workspace --all-targets --keep-going` | exit 0 |
+| Native bundle `build.mjs t3-code-macos --bundle` | exit 0, twice (before and after the review repair); final executable SHA-256 prefix `6d8f83ae897e1075` |
+
+Test changes: `timeline-minimap.test.ts` (rewritten: ChatColumn's actions/derives through `contract-action-fixture.ts`),
+`timeline-anchor.test.ts` (new, the R9 restoration cases), `desktop-shell-details.test.ts`, `r5-composer-citation.test.ts`,
+`cite-selection-anchor.test.ts` (Cite still hides on the composed scroll handler); `contract-fn-fixture.ts` now holds the
+`match`-aware `contractFns` helper the cite test had (deduplicated); `contract-action-fixture.ts` `state()` takes a scope.
+All checks above were rerun after the review repair with the results shown.
+
+### Native AFTER drive
+
+Agent mode (`scripts/agent.mjs` `open`, storage `timeline-hooks-a`), the bundle's executable (`EXACT_MAC_BIN`) with its own
+embedded 0.0.46-nightly runtime staged by `stage-runtime.mjs --offline`, port 16650, telemetry off, isolated homes copied
+from the existing audit lane `ri1012-b10` into `target/timeline-hooks/lane` (a 4-turn and a 2-turn thread plus the
+verification thread). Fixture setup: the copied home's `q2` user message text was given a `[Assistant quote](t3-citation://…)`
+link to thread B's first answer (one SQL update in the copy; no provider message, no new generator). Evidence:
+`target/timeline-hooks/drive/after/` (1280×840, light then dark), `drive/after-840/` (a supplementary 840×620 segment for
+the unclamped 24-point lead) and `drive/retry/` (the one retry, on the bundle after the review repair: every row below
+reproduced with identical numbers). The app and its server were stopped by the driver each time; port 16650 is free.
+
+| Row | Result | Evidence |
+| --- | --- | --- |
+| Scroll thread A partway, switch to B and back: same place | PASS: A saved row a1 +411.9 (top 526.65); after B and back, the same anchor and identical user-turn tops [-502.65, 321.5, 501, 680.5]; `scrollIntoView` done | `A02`, `A05` readouts and PNGs |
+| Each thread keeps its own | PASS: B saved a1 +116.9; restored identically after A | `A04`, `A06` |
+| Minimap marks visible turns while scrolling | PASS: at the end and scrolled, u2–u4 bright, u1 dim; after a jump to the top only u1 (stale reports dropped); dark too | `pr-images/02`, `A01`, `A02`, `A07-*` |
+| Minimap click with the 24-point lead | PASS: strip 0 → first turn at y=24; at 840×620 strip 1 → its turn at y=24 (1280×840 clamps middle turns at the end, as expected); chevrons previous/next jump at 1280×840 | `A07-strip-0`, `C02-strip-1`, `A07-previous`, `A07-next` |
+| Citation jump | PASS (agent): View source opened B with the cited answer at its lead (clamped at the top: row start 114.75 < 118), held for 2.6 s; no remembered position overrode it | `A08`, `pr-images/04` |
+| Title row windowed / `prefer display-mode fullscreen` / windowed | PASS (consumer wiring): `controlsLeft` 90 → 12 → 90, toggle x 91 → 13 → 91, `sidebarMinWidth` 208 | `title-*` log rows, `pr-images/03` |
+| 840×620 and dark | PASS: restored thread and strips render | `B01`–`B03`, `C04` |
+| Minimap jump right after View source (one writer) | Inconclusive live: the strip press landed on thread A before the cited thread opened (`A08b`). Covered by the r5-composer AppKit test (`cancel()` leaves the port alone) and `timeline-minimap.test.ts` (`turnJump` sends `timeline-release` first) | `drive/retry/A08b-*` |
+| Real full-screen entry/exit, real-clock smooth motion and trackpad settlement, reduced-motion animation, IME/Korean chords | UNVERIFIED: final real-input session | — |
+
+PR images (local): `target/timeline-hooks/pr-images/01-each-thread-keeps-its-place.png`,
+`02-minimap-visible-turns-and-jump.png`, `03-title-row-windowed-fullscreen.png`, `04-citation-lands.png`.
+
+### Gaps and known differences
+
+- Framework gaps: none blocked a row. Tasks are root-only and the root is at its line cap, so restoration is triggered by a
+  keyed marker's `intersect=` mount report rather than a task.
+- Known differences: a press or scroll key does not cancel a pending restoration (the runner cancels on reader travel; the
+  instant request settles within a few reports). The reference's whole-row in-view test is the user-turn box here, so a
+  turn showing only its 16pt gap is off screen. Under `prefer display-mode fullscreen` the window is not really in full
+  screen, so the real traffic lights still draw over the 12pt inset (emulation only). At 840×620 with the sidebar open the
+  minimap is hidden and its chevrons inert, as in the reference (gutter < 48).
+
+### Independent review
+
+A fresh reviewer read the ticket and the staged diff and reported two blocking defects, both fixed and retested:
+
+1. A recycled row next to the new run stayed lit (no leave is sent). Fix: UserRow's box has
+   ``id=`turn-${message.id}` ``, and `transcriptScrolled` drops reported turns whose `frame()` is `unavailable` (scroll reports
+   precede the intersect reports of the same pass). Test: the adjacent-stale case in `timeline-minimap.test.ts`.
+2. A minimap jump no longer ended the citation's native hold (two writers). Fix: `turnJump` first sends
+   `chatLocal("timeline-release")` → `timelineRelease` → `T3TimelineTurns.cancel()`, which releases the hold and bumps a
+   placement number that the pending retries and the animation completion check.
+
+Non-blocking notes taken: a stale `fallbackJump` is now cleared whenever another owner opens; the X22 rows of
+`EXACT2-GAPS.md` say the minimap uses `intersect=`. Left as noted: the marker's own enter/leave reports would rerun
+restoration with the current anchor (the marker sits at a fixed place, so none were seen); `data.citing` arrives with the
+snapshot that switches the thread (observed in the drive: no override).
+
 ## Next action
 
-Prepared on 2026-10-15 from feature head `97f3fbb23` in the isolated checkout
-`t3-code-timeline-and-window-hooks` (branch `feat(example)/t3-code-timeline-and-window-hooks`).
-Implement this complete one-PR unit, verify with one agent drive at the end (at most one
-retry), and obtain an independent review. No repeated pixel-polish matrices. Evidence stays
-local in `target/`; PR images are GitHub attachments. Follow-up 8, `contract-keys-and-menu-bar`,
-waits for this task's merge.
+Push and open the PR (coordinator). Follow-up 8, `contract-keys-and-menu-bar`, waits for this task's merge; the real-input
+rows above go to the final real-input session.

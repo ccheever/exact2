@@ -424,23 +424,19 @@ final class MenuTests: XCTestCase {
         T3Menus().pickProjectFavicon(startingAt: root.path, importsRoot: imports) { picked = .some($0) }
         XCTAssertEqual(picked.flatMap { $0 }.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, imports.appendingPathComponent("icon.png").resolvingSymlinksInPath().path)
     }
-    /// The full-screen fact: the style mask at attach, then did-enter / did-exit, each published.
-    func testFullScreenFactFollowsTheWindowNotifications() {
+    /// timeline-and-window-hooks KW-12c: full screen is Contract's `exactViewport().displayMode`, so the
+    /// window chrome publishes only the Mac's locale; it still owns the title row and the traffic lights.
+    func testWindowChromeStatusIsTheLocaleAndKeepsTheTitleRow() {
         _ = NSApplication.shared
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
-        let fact = T3FullScreen()
-        var published = 0
-        fact.changed = { published += 1 }
-        fact.attach(window)
-        XCTAssertFalse(fact.fullScreen)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        XCTAssertTrue(fact.fullScreen)
-        NotificationCenter.default.post(name: NSWindow.didEnterFullScreenNotification, object: window)
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: NSWindow())
-        XCTAssertTrue(fact.fullScreen, "another window's exit is not this one's")
-        NotificationCenter.default.post(name: NSWindow.didExitFullScreenNotification, object: window)
-        XCTAssertFalse(fact.fullScreen)
-        XCTAssertEqual(published, 3, "attach, enter, exit")
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 200), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        let chrome = T3WindowChrome()
+        XCTAssertEqual(Array(chrome.status.keys), ["systemLocale"], "no native full-screen fact")
+        let toolbar = T3WindowChrome.titleRow(window)
+        XCTAssertTrue(window.toolbar === toolbar)
+        XCTAssertEqual(window.toolbarStyle, .unified)
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        T3WindowChrome.positionControls(in: window)
+        XCTAssertEqual(window.standardWindowButton(.closeButton)?.frame.minX ?? 0, 16, accuracy: 0.5)
         XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "ko_KR")), "ko-KR")
         XCTAssertEqual(T3Locale.systemLocale(Locale(identifier: "en_GB")), "en-GB")
     }
