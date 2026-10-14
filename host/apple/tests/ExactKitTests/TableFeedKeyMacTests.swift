@@ -91,6 +91,64 @@ final class TableFeedKeyMacTests: XCTestCase {
     /// How far a colour is from grey: the accent's fill is far, the unemphasized one is grey.
     private func chroma(_ c: NSColor) -> CGFloat { max(c.redComponent, c.greenComponent, c.blueComponent) - min(c.redComponent, c.greenComponent, c.blueComponent) }
 
+    /// Stable keyed rows whose data can change while their selected row is
+    /// outside the runner's window and the table has no keyboard focus.
+    private static let selectionChanges = """
+    component Rows
+      state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+      derive d1 = seed.concat(seed)
+      derive d2 = d1.concat(d1)
+      derive d3 = d2.concat(d2)
+      derive d4 = d3.concat(d3)
+      derive base = d4.map((x, i) => i)
+      state inserted = false
+      state rotated = false
+      state missing = false
+      state label = "Row"
+      state opened = 0 - 1
+      state presses = 0
+      derive withInsertion = inserted ? [0 - 1].concat(base) : base
+      derive moved = withInsertion.slice(20).concat(withInsertion.slice(0, 20))
+      derive ordered = rotated ? moved : withInsertion
+      derive rows = missing ? ordered.filter(r => r != 12) : ordered
+      action open(r: number)
+        opened = r
+        presses = presses + 1
+      action rename
+        label = "Changed"
+      action insertBefore
+        inserted = true
+      action removeBefore
+        inserted = false
+      action moveRows
+        rotated = true
+      action removeSelected
+        missing = true
+      action readdSelected
+        missing = false
+      view
+        column width="100%" height="100%"
+          row gap=8 padding=4
+            text `opened ${opened} presses ${presses} label ${label}` testId="status"
+            button press=rename testId="rename"
+              text "Rename"
+            button press=insertBefore testId="insert-before"
+              text "Insert"
+            button press=removeBefore testId="remove-before"
+              text "Remove"
+            button press=moveRows testId="move-rows"
+              text "Move"
+            button press=removeSelected testId="remove-selected"
+              text "Delete"
+            button press=readdSelected testId="readd-selected"
+              text "Re-add"
+          list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
+            for r in rows key=`k${r}`
+              row press=open(r) testId=`row-${r}` padding="6px 0" width="100%"
+                text (r == 12 ? `${label} ${r}` : `Row ${r}`) testId=`title-${r}`
+
+    """
+
     func testTheSelectionStaysWithItsItemAcrossARowsReuseAndTheKeyboard() throws {
         let f = try keyed()
         // A click on a row: nothing while the button is down, as in a
@@ -165,6 +223,60 @@ final class TableFeedKeyMacTests: XCTestCase {
         XCTAssertEqual(f.table.numberOfRows, 10_001)
         XCTAssertEqual(f.table.selectedRow, 13, "the selection moved with its item")
         XCTAssertEqual(f.cells[13]?.row.map(f.item), 12)
+    }
+
+    func testAnUnmountedSelectionFollowsItsKeyWhileTheTableIsUnfocused() throws {
+        let f = try keyed(count: 160, source: Self.selectionChanges)
+        click(try f.node("title-12"), in: f)
+        XCTAssertEqual(f.table.selectedRow, 12)
+        XCTAssertEqual(f.status, "opened 12 presses 1 label Row")
+        let selected = try XCTUnwrap(f.cells[12]?.row)
+        let key = try XCTUnwrap(f.feed.selectedKey)
+        XCTAssertEqual(selected.props["listItemKey"], key)
+
+        // With the keyboard elsewhere, leaving the runner's window destroys
+        // the row. Subsequent data changes must use its key, without bringing
+        // the row or the table's port back to it.
+        XCTAssertTrue(f.window.makeFirstResponder(nil))
+        f.scroll(to: 3_000)
+        XCTAssertNil(f.presenter.views[selected.id])
+        XCTAssertNil(f.table.rowView(atRow: 12, makeIfNecessary: false))
+        XCTAssertGreaterThan(f.clip.bounds.minY, 2_000)
+
+        func change(_ control: String, selectedRow: Int, count: Int, _ note: String) throws {
+            f.presenter.press(try f.node(control).id)
+            f.settle()
+            XCTAssertEqual(f.table.numberOfRows, count, note)
+            XCTAssertEqual(f.table.selectedRow, selectedRow, note)
+            XCTAssertEqual(f.feed.selectedKey, key, note)
+            XCTAssertFalse(f.mounted.values.contains { $0.props["listItemKey"] == key }, "\(note): the selected item stayed unmounted")
+            XCTAssertNil(f.table.rowView(atRow: selectedRow, makeIfNecessary: false), "\(note): AppKit made no row view for the selection")
+            XCTAssertGreaterThan(f.clip.bounds.minY, 2_000, "\(note): the port did not reveal the selection")
+            XCTAssertEqual(f.status, "opened 12 presses 1 label Changed", "\(note): no row action ran")
+        }
+
+        try change("rename", selectedRow: 12, count: 160, "a payload change")
+        try change("insert-before", selectedRow: 13, count: 161, "an insertion before the key")
+        try change("remove-before", selectedRow: 12, count: 160, "removing the item before the key")
+        try change("move-rows", selectedRow: 152, count: 160, "a data reorder")
+
+        f.presenter.press(try f.node("remove-selected").id)
+        f.settle()
+        XCTAssertEqual(f.table.numberOfRows, 159)
+        XCTAssertEqual(f.table.selectedRow, -1, "the item now at the old index was not adopted")
+        XCTAssertNil(f.feed.selectedKey, "the vanished key ended the selection")
+        XCTAssertGreaterThan(f.clip.bounds.minY, 2_000)
+        XCTAssertEqual(f.status, "opened 12 presses 1 label Changed", "removing the selected item pressed nothing")
+
+        f.presenter.press(try f.node("readd-selected").id)
+        f.settle()
+        XCTAssertEqual(f.table.numberOfRows, 160)
+        XCTAssertEqual(f.presenter.onListIndex?(f.list.id, key), 152, "the same key exists again")
+        XCTAssertEqual(f.table.selectedRow, -1, "re-adding the key did not restore an ended selection")
+        XCTAssertNil(f.feed.selectedKey)
+        XCTAssertFalse(f.mounted.values.contains { $0.props["listItemKey"] == key })
+        XCTAssertGreaterThan(f.clip.bounds.minY, 2_000)
+        XCTAssertEqual(f.status, "opened 12 presses 1 label Changed", "re-adding the item pressed nothing")
     }
 
     func testThePageKeysScrollTypingSelectsAMountedRowAndReturnSpaceAndEscapePressNothing() throws {
