@@ -305,6 +305,9 @@ final class NavigationRulesTests: XCTestCase {
     func testDeferredGeometryReplaysFramesBeforeContentsInIdOrder() {
         let order = NavigationRules.replayOrder(deferred: [7: ["content", "frame"], 3: ["frame"], 12: ["content"]])
         XCTAssertEqual(order.map { "\($0.id):\($0.kind)" }, ["3:frame", "7:frame", "7:content", "12:content"])
+        // A content box follows the frames, and a scene comes last
+        let boxes = NavigationRules.replayOrder(deferred: [7: ["svg", "content", "fieldContent", "frame"]])
+        XCTAssertEqual(boxes.map(\.kind), ["frame", "fieldContent", "content", "svg"])
     }
 
     /// D5: a session answers a keyboard only for its own editor, or while it

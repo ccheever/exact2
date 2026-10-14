@@ -187,11 +187,11 @@ component App
         text "Log out"
       button press=paid aria-label="Paid" testId="paid"
         text "Paid"
-      when busy
+      if busy
         text "Logging in…" testId="busy"
       match session
         case some(s)
-          when s.ok
+          if s.ok
             text `Signed in as ${s.username}` testId="signed-in"
           else
             text s.error testId="error"
@@ -646,7 +646,7 @@ shape Effect
 
 component App
   state trigger = 0
-  resource items = items(trigger) as shape list<Item>
+  resource items = items(trigger) as shape Item[]
   mutation effect as shape Effect
 
   action go
@@ -656,7 +656,7 @@ component App
 
   view
     column testId="root"
-      each item in items key=item.id
+      for item in items key=item.id
         text item.id + item.id
 "#;
 

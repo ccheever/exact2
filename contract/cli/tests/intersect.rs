@@ -29,7 +29,7 @@ fn native_intersect_mount_scroll_margin_clip_and_remount() {
   view
     column width=200 height=100 overflow=(rooted ? "auto" : "visible") id="root"
       box height=150 flex-shrink=0
-      when mounted
+      if mounted
         box width=100 height=50 flex-shrink=0 id="target" intersect=seen intersect-margin="10% 0px 20px"
       box height=300 flex-shrink=0
 "#).unwrap();

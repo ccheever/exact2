@@ -266,7 +266,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         try authoredTabs(session, true)
         XCTAssertNil(agent.substituted(tab), "platform touch must target the visible authored tab")
         let reply = agent.aim(["id": Int(tab.id), "aim": ["press": true]])
-        if (reply["error"] as? String)?.contains("foreground") == true { throw XCTSkip("test host is in the background") }
+        if (reply["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "test host is in the background") }
         let aim = try XCTUnwrap(reply["aim"] as? [String: Any], "\(reply)")
         let point = try XCTUnwrap(aim["window"] as? [Double])
         let hit = try XCTUnwrap(window?.hitTest(CGPoint(x: point[0], y: point[1]), with: nil))

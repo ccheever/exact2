@@ -64,7 +64,7 @@ const FORM: &str = r##"component Form
   action picked(e: InputEvent)
     heard = `${heard}<${e.selectionStart}-${e.selectionEnd}>`
   action hush(value: string)
-    low = toLowerCase(value)
+    low = value.toLowerCase()
   action send
     sent = `sent ${name}`
   action jump
@@ -82,10 +82,10 @@ const FORM: &str = r##"component Form
 
 /// Twelve fields with nothing bound to them, in a scroller that shows six.
 const LONG: &str = r#"component Long
-  derive rows = split("0 1 2 3 4 5 6 7 8 9 10 11", " ")
+  derive rows = "0 1 2 3 4 5 6 7 8 9 10 11".split(" ")
   view
     scroll testId="list" width=300 height=200
-      each n in rows key=n
+      for n in rows key=n
         input testId=`f${n}` height=20
 "#;
 

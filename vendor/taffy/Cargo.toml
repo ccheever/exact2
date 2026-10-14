@@ -137,3 +137,6 @@ version = "1.0.93"
 [profile.release]
 lto = true
 panic = "abort"
+
+# EXACT: keep this path dependency out of enclosing workspaces.
+[workspace]

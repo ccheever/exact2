@@ -6,8 +6,8 @@
 //! The grammar is indentation-structured. A file is a sequence of `shape` and
 //! `component` declarations; a component holds `props`, `state`, `derive`,
 //! `resource`, `action`, `task`, and `view` sections; a view is a tree of
-//! elements, component uses, and the three region constructs `when`/`else`,
-//! `each … in … key=…`, and `match … case some(x) / case none`. Expressions
+//! elements, component uses, and the three region constructs `if`/`else`,
+//! `for … in … key=…`, and `match … case some(x) / case none`. Expressions
 //! are closed: literals, template strings, names, member access, calls,
 //! arithmetic, comparison, boolean logic, the conditional operator, `some`,
 //! `none`, and inline `match`.
@@ -164,3 +164,14 @@ pub const HOST_COMMANDS: &[&str] = &[
     "playSounds",
     "stopSounds",
 ];
+
+/// A written type as the author writes it: `Item[]`, `option<number>`.
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
+            TypeExpr::List(t, _) => write!(f, "{t}[]"),
+        }
+    }
+}

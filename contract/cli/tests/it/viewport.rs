@@ -193,7 +193,7 @@ component App
   view
     column
       text `${m.devicePosture} ${m.horizontalViewportSegments}x${m.verticalViewportSegments}` testId="fold"
-      when two
+      if two
         text "two panes" testId="panes"
 "#;
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();

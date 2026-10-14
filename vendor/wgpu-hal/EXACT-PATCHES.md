@@ -168,3 +168,9 @@ pristine archive is about 500 lines), and run `cargo test -p exact-gpu` on
 macOS: `frame.rs` fails if a frame commits more than one buffer a canvas.
 Patches 6 and 7 show only in an Android profile of an animated canvas (no
 `RGXAddRenderTarget` or `vkmem_free` per frame, one submit per frame).
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

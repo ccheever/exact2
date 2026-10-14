@@ -1,6 +1,6 @@
-// `else if` and `else when`: `else` around one nested branch, so the same
-// tree as if-else.contract's and when-else.contract's nesting. Conditions
-// that read state the action wrote see the starting snapshot.
+// `else if`, in an action and in a view: `else` around one nested branch, so
+// the same tree as if-else.contract's and when-else.contract's nesting.
+// Conditions that read state the action wrote see the starting snapshot.
 component App
   state n = 0
   state msg = ""
@@ -19,11 +19,11 @@ component App
   view
     column
       text `${n} ${msg}` testId="r"
-      when n < 0
+      if n < 0
         text "below" testId="below"
-      else when n == 0
+      else if n == 0
         text "zero" testId="zero-row"
-      else when n < 10
+      else if n < 10
         text "few" testId="few"
       else
         text "many" testId="many"

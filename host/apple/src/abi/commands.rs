@@ -312,6 +312,37 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// Whether the stack whose root route is `view` splits (`exact_stack_split`;
+    /// `Runner::stack_split`, LLP 1115.002 D4), as JSON in the output buffer:
+    /// `{"list":view|null,"width":number|null,"rows":[[route,row]...]}`, the
+    /// list whose row pushes, the list column's width where `navigationSplit`
+    /// names one, and each route above the root that is a row's detail with
+    /// that row; `null` for a stack that pushes. Not a batch: nothing changes.
+    pub fn stack_split(&mut self, view: u32, retained: u32) -> u32 {
+        let json = self
+            .host
+            .as_ref()
+            .and_then(|h| {
+                h.runner()
+                    .stack_split(view, (retained != 0).then_some(retained))
+            })
+            .map(|split| {
+                let rows: Vec<String> = split
+                    .rows
+                    .iter()
+                    .map(|(route, row)| format!("[{route},{row}]"))
+                    .collect();
+                format!(
+                    "{{\"list\":{},\"width\":{},\"rows\":[{}]}}",
+                    split.list.map_or("null".into(), |v| v.to_string()),
+                    split.width.map_or("null".into(), |w| w.to_string()),
+                    rows.join(",")
+                )
+            });
+        self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
+        self.output.len() as u32
+    }
+
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",

@@ -54,16 +54,16 @@ pub const MAX_LIST_STEPS: u32 = 1 << 16;
 const REMEMBERED: u64 = 64;
 
 /// An instance's own slots — the values of the `state` a child component
-/// declared, one set per keyed row or shown `when`/`match` arm (LLP 1017
+/// declared, one set per keyed row or shown `if`/`match` arm (LLP 1017
 /// P4c) — shared by the instance and every frame that reaches it, so a
 /// read during an update and a write applied after an action's commit see
 /// one storage.
 pub type RowSlots = Rc<RefCell<BTreeMap<u32, Value>>>;
 
-/// One instance scope: what an `each` row or a `match` arm binds.
+/// One instance scope: what a `for` row or a `match` arm binds.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Frame {
-    /// The `each` item, when this scope is a keyed row.
+    /// The `for` item, when this scope is a keyed row.
     pub item: Option<Value>,
     /// The row's position in its list, from 0 (LLP 1062 D8).
     pub index: Option<usize>,

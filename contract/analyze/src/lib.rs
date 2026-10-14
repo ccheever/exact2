@@ -326,7 +326,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 66] = [
+pub const HANDLERS: [&str; 67] = [
     "press",
     "change",
     "input",
@@ -368,6 +368,7 @@ pub const HANDLERS: [&str; 66] = [
     // DOM's `beforeunload` (studio diary R17): the window closing or the app
     // quitting; an action calling `preventDefault()` keeps it open.
     "beforeunload",
+    "beforeinput",
     // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
     // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
     "wheel",
@@ -616,7 +617,12 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let valid = handler_accepts(attr, given, params);
+        let checked_attr = if attr == "selectionchange" && control == Some("field") {
+            "beforeinput"
+        } else {
+            attr
+        };
+        let valid = handler_accepts(checked_attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);
             let params: Vec<(String, Ty)> = declared

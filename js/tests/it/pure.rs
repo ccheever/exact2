@@ -10,10 +10,11 @@ fn pure_utilities_match_the_web_executor() {
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !std::path::Path::new(&chrome).exists() {
+        // EXACT_REQUIRED=1 (the async lane): a missing prerequisite fails (scripts/coverage.mjs).
         assert_ne!(
-            std::env::var("EXACT_PURE_CHROME_REQUIRED").as_deref(),
+            std::env::var("EXACT_REQUIRED").as_deref(),
             Ok("1"),
-            "Chrome utility oracle unavailable: set CHROME to its executable"
+            "missing chrome: Chrome utility oracle unavailable: set CHROME to its executable"
         );
         eprintln!("pure utility browser sweep unavailable: set CHROME");
         return;
@@ -111,7 +112,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
     use exact_js::{from_json, to_json, Shape};
     use exact_plan::Value;
     let script = concat!(env!("OUT_DIR"), "/pure.js");
-    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: list<Branch>\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: list<Leaf>\n  reads: number\n";
+    let declarations = "shape Leaf\n  text: string\nshape Pair\n  first: string\n  second: string\nshape Branch\n  left: Leaf\n  right: Leaf\nshape Branches\n  first: Branch\n  second: Leaf\n  last: Branch[]\n  reads: number\nshape Object\n  first: string\n  second: string\n  aliases: Leaf[]\n  reads: number\n";
     let mut module = Module::loaded(
         include_bytes!(concat!(env!("OUT_DIR"), "/pure.hbc")).to_vec(),
         "test.pure",
@@ -123,7 +124,7 @@ fn large_native_strings_preserve_json_semantics_and_call_ownership() {
         ("boxed", "string"),
         ("object", "Object"),
         ("branches", "Branches"),
-        ("nullable", "list<option<number>>"),
+        ("nullable", "option<number>[]"),
         ("extra", "Pair"),
         ("missing", "Pair"),
         ("throw", "Pair"),

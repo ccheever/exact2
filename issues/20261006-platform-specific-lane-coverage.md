@@ -30,3 +30,9 @@ cross-check reached `ibex2`'s target C++ binding after the pinned Linux Hermes
 bundle and frozen Bun dependencies were installed, then failed because the Mac
 has no `x86_64-linux-gnu-g++`. A target `CXX` setting or a stub-engine compile
 may resolve it, but neither was verified within the three-round fix limit.
+
+**2026-10-14:** #532 fixes the cross-check half: tier 2's Linux step sets
+`CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu` and checks
+`-p '*-linux'` (the host and all 23 app crates; ibex2's and exact-js's C++
+compiles for the target), green on this Mac. Remaining: native window, KMS and
+input-device runs on Linux, and the Windows carrier on Windows.

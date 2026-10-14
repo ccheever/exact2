@@ -231,6 +231,7 @@ package final class ChainingScrollView: NSScrollView {
     }
 
     package override func scrollWheel(with event: NSEvent) {
+        (superview as? NodeView)?.cancelElementScroll()
         // Precise deltas (a trackpad) are in points; a wheel's are in lines,
         // of the height AppKit scrolls a line by (10 points unless set; it
         // was 40 here, a browser's tick).

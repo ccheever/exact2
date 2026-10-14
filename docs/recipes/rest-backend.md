@@ -11,7 +11,7 @@ routes nav
 shape Items
   ok: bool
   error: string
-  titles: list<string>
+  titles: string[]
 
 shape Reply
   ok: bool
@@ -33,20 +33,20 @@ component Shared
   action edit(v: string)
     draft = v
   action add
-    if trim(draft) != "" and not pending(added)
-      send added = addItem(persona, trim(draft))
+    if draft.trim() != "" and not pending(added)
+      send added = addItem(persona, draft.trim())
   action afterAdd
     if addError == ""
       draft = ""
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
           header display="flex" align-items="center" padding="8px 16px"
             text "Shared List" role="heading" aria-level=2
           column padding="0 16px 8px"
             row role="radiogroup" aria-label="Signed in as"
-              each p in ["Ada", "Grace"] key=p
+              for p in ["Ada", "Grace"] key=p
                 button role="radio" aria-checked=(persona == p) press=signIn(p) testId=`persona-${p}` flex=1
                   text p
           list id="list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
@@ -54,9 +54,9 @@ component Shared
               row
                 column flex=1 min-width=0 gap=4
                   input value=draft input=edit submit=add placeholder="Add an item" testId="draft"
-                  when listError != ""
+                  if listError != ""
                     text listError font="-exact-footnote" color="-exact-system-red" testId="error"
-              each t in items.titles key=t
+              for t in items.titles key=t
                 row
                   text t testId=`item-${t}`
 ```

@@ -433,7 +433,7 @@ final class NativeFieldsMacTests: XCTestCase {
               input testId="bare" appearance="none" value="Inherited"
               button testId="more" press=show
                 text "More"
-              when expanded
+              if expanded
                 input testId="new-font" font-size=31 value="New font"
 
         """

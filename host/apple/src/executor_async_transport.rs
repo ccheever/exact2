@@ -36,14 +36,9 @@ impl AsyncTransport for Tracked {
             origin: Some(origin.clone()),
             sends,
         });
-        let exchange = match self.inner.start(request, sink) {
-            Ok(exchange) => Arc::new(exchange),
-            Err(error) => {
-                self.machine
-                    .post(self.lane, Event::Ended(self.run, Some(origin), sends));
-                return Err(error);
-            }
-        };
+        // The sink owns the physical hold before calling opaque transport
+        // code, including refusal or unwind before an exchange is returned.
+        let exchange = Arc::new(self.inner.start(request, sink)?);
         let first = self.deadline.lock().unwrap().take();
         let (machine, lane, run) = (self.machine.clone(), self.lane, self.run);
         let activate = exchange.clone();
@@ -58,7 +53,14 @@ impl AsyncTransport for Tracked {
                         machine.timer.arm(ms, lane, run, abort);
                     }
                 }
-                activate.activate();
+                if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    activate.activate();
+                })) {
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        activate.cancel();
+                    }));
+                    std::panic::resume_unwind(panic);
+                }
             },
             move || {
                 cancelled.store(true, std::sync::atomic::Ordering::Release);
@@ -88,12 +90,25 @@ impl Sink for TrackedSink {
     fn end(&mut self, result: Result<(), HostError>) {
         // The release is the finisher's; posted before the task hears the
         // end, so a next hop is queued after it.
-        let origin = self.origin.take();
-        self.machine
-            .post(self.lane, Event::Ended(self.run, origin, self.sends));
+        self.release();
         self.inner.end(result);
     }
     fn metrics(&mut self, metrics: HopMetrics) {
         self.inner.metrics(metrics);
+    }
+}
+
+impl TrackedSink {
+    fn release(&mut self) {
+        if let Some(origin) = self.origin.take() {
+            self.machine
+                .post(self.lane, Event::Ended(self.run, Some(origin), self.sends));
+        }
+    }
+}
+
+impl Drop for TrackedSink {
+    fn drop(&mut self) {
+        self.release();
     }
 }

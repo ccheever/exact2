@@ -1,6 +1,111 @@
 use super::*;
 
 #[test]
+fn complex_svg_attributes_stay_omitted_across_state_and_segment_changes() {
+    for length in [
+        "env(viewport-segment-height 1 0)",
+        "calc(env(viewport-segment-height 1 0) + 10%)",
+        "min(env(viewport-segment-height 1 0), 50%)",
+        "max(5px, env(viewport-segment-height 1 0))",
+        "clamp(1px, env(viewport-segment-height 1 0), 100px)",
+        "env(viewport-segment-height 1 0, 25%)",
+        "ENV(viewport-segment-height 1 0, 25%)",
+        "env(safe-area-inset-top)",
+        "calc(10vh + 10px)",
+        "min(10vw, 50%)",
+        "max(5px, 10vw)",
+        "clamp(1px, 10vw, 100px)",
+    ] {
+        let plan = contract::compile(&format!(
+            r##"
+component App
+  state finite = false
+  action toggle
+    finite = not finite
+  view
+    column
+      button "Toggle" testId="toggle" press=toggle
+      svg width=200 height=400
+        defs
+          radialGradient id="gradient" testId="gradient" cx=(finite ? "0px" : "{length}")
+            stop offset="0%" stop-color="#14b8a6"
+        svg testId="static" height="{length}"
+        svg testId="nested" height=(finite ? "0px" : "{length}")
+          rect width="100%" height="100%" fill="url(#gradient)"
+"##
+        ))
+        .unwrap();
+        exact_web::link(exact_web_capabilities::ALL);
+        let flat = exact_runner::Viewport::sized(800.0, 600.0);
+        let (mut host, first) =
+            Host::boot(&plan.encode(), caltrain_data::Caltrain, flat, "/").unwrap();
+        let first: serde_json::Value = serde_json::from_str(&first).unwrap();
+        let ids: Vec<_> = [
+            ("static", "height"),
+            ("nested", "height"),
+            ("gradient", "cx"),
+        ]
+        .into_iter()
+        .map(|(test_id, attr)| {
+            let op = first["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["props"]["data-testid"] == test_id)
+                .unwrap();
+            assert!(op["props"][attr].is_null(), "{length}: {op}");
+            (op["id"].clone(), attr)
+        })
+        .collect();
+        let folded = exact_runner::Viewport {
+            fold: exact_runner::Fold {
+                cols: 2,
+                ..Default::default()
+            },
+            ..flat
+        };
+        for viewport in [folded, flat] {
+            let batch: serde_json::Value =
+                serde_json::from_str(&host.resize(viewport, 0.0)).unwrap();
+            assert!(
+                batch["ops"].as_array().unwrap().is_empty(),
+                "{length}: {batch}"
+            );
+            for finite in [true, false] {
+                let button = view_with_test_id(&host, "toggle");
+                let batch: serde_json::Value =
+                    serde_json::from_str(&host.dispatch(button, Event::Press)).unwrap();
+                for (id, attr) in &ids[1..] {
+                    let op = batch["ops"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|op| op["op"] == "props" && &op["id"] == id)
+                        .unwrap();
+                    if finite {
+                        assert_eq!(op["set"][attr], "0", "{length}: {batch}");
+                    } else {
+                        assert_eq!(op["clear"], serde_json::json!([attr]), "{length}: {batch}");
+                    }
+                }
+                let document = exact_web::document::project(host.runner()).unwrap();
+                assert!(
+                    !document.root.contains("env("),
+                    "{length}: {}",
+                    document.root
+                );
+                assert_eq!(
+                    document.root.contains("cx=\"0\""),
+                    finite,
+                    "{}",
+                    document.root
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn style_rows_lower_to_css_by_their_names() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
     let mut s = StyleProps::default();

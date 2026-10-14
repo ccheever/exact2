@@ -262,7 +262,7 @@ fn a_selected_image_loads_from_its_verified_generation() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      if delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let png = std::fs::read(concat!(
@@ -370,7 +370,7 @@ fn a_corrupt_selected_asset_falls_back_before_first_pixel() {
         .unwrap()
         .encode();
     let selected =
-        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      when delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
+        contract::compile("shape Delivery\n  seq: number\ncomponent App\n  resource delivery = exactDelivery() as shape Delivery\n  view\n    column\n      if delivery.seq > 0\n        image \"assets/mark.png\" width=96\n      else\n        text \"embedded\"\n")
             .unwrap()
             .encode();
     let dir = std::env::temp_dir().join(format!(

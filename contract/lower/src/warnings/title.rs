@@ -59,10 +59,10 @@ impl Walk<'_> {
     /// A heading of `nodes` that says the title and is the first heading
     /// the page shows under the bar. Past one that is always shown before
     /// it, or inside a `section`, it is a section's own name, not the
-    /// screen's. A `when`, `each` or `match` may show nothing, so a heading
+    /// screen's. An `if`, `for` or `match` may show nothing, so a heading
     /// under one is passed only within it. What the page never shows with
     /// the bar is skipped: a hidden node, a popover or dialog (over the
-    /// page when opened) and another route. Under an `each` or `match`, a
+    /// page when opened) and another route. Under a `for` or `match`, a
     /// bound expression may name another value: the benefit of the doubt.
     fn walk(&mut self, nodes: &[Node], bound: bool, section: bool, passed: &mut bool) {
         for node in nodes {

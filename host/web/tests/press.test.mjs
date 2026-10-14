@@ -13,11 +13,11 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // The stylesheet a default build's page has (look.mjs), with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
@@ -63,6 +63,7 @@ const unsaid = sheet + `
   <button id="native" type="button" data-button-style="filled" data-native="" data-exact-on="press"><span>native</span></button>
   <button id="action" type="button" data-action="jump">action</button>
   <button id="off" type="button" disabled data-exact-on="press">off</button>
+  <button id="ownoff" type="button" disabled data-exact-on="press" data-disabledstyled="true">its own disabled look</button>
   <div role="list" data-listrows="true">
     <div id="row" data-exact-on="press" tabindex="0">row</div>
     <div id="swipe"><div><a id="content" data-view="" href="#book"><span>a row's content</span></a></div></div>
@@ -300,6 +301,7 @@ check('a pressable that declares no feedback dims while pressed; a row, a native
       return seen;
     };
     expect(await shown('box', 'custom', 'link', 'off')).toBe('1,1,1,0.5'); // at rest only a disabled custom button is dimmed
+    expect(await shown('ownoff')).toBe('1'); // not one whose author styles its own disabled state (Contract's mark, LLP 1115.000 D6)
 
     // The browser's `:active`: this piece marks nothing.
     expect(await held('box', 'box')).toBe('0.65');

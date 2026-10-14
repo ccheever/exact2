@@ -572,7 +572,7 @@ fn the_now_screen_fixture_compiles_and_behaves_like_the_hand_built_plan() {
         "keyed rows keep their views"
     );
 
-    // Search flips the `when`; the timer ticks under the clock.
+    // Search flips the `if`; the timer ticks under the clock.
     let search = ids(&r, "search")[0].1;
     r.dispatch(search, Event::Input("pal".into())).unwrap();
     assert_eq!(text_of(&r, "searching").as_deref(), Some("searching"));
@@ -1208,7 +1208,7 @@ fn the_motion_fixtures_after_task_fires_once_and_its_timer_is_then_spent() {
 #[test]
 fn every_frame_lowers_to_a_frame_timer_the_frame_source_drives() {
     let plan = contract::compile(
-        "component App\n  state n = 0\n  action step\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text toString(n) testId=\"n\"\n",
+        "component App\n  state n = 0\n  action step\n    n = n + 1\n  task ticker mount\n    every(frame, step)\n  view\n    text n.toString() testId=\"n\"\n",
     )
     .unwrap();
     assert_eq!(plan.timers.len(), 1);
@@ -1266,20 +1266,20 @@ fn a_child_binder_never_captures_a_name_its_parent_passes_in() {
 #[test]
 fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
     let app = |expr: &str| {
-        format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource items = stations() as shape list<Station>\n  view\n    text toString({expr}) testId=\"out\"\n")
+        format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource items = stations() as shape Station[]\n  view\n    text ({expr}).toString() testId=\"out\"\n")
     };
     for (expr, expects) in [
         (
-            "length(5)",
-            "argument 1 of `length` expects `string | list`, given `number`",
+            "(5).length",
+            "the value before `.length` expects `string | list`, given `number`",
         ),
         (
-            "isEmpty(true)",
-            "argument 1 of `isEmpty` expects `string | list`, given `bool`",
+            "true.isEmpty()",
+            "the value before `.isEmpty` expects `string | list`, given `bool`",
         ),
         (
-            "toString(items)",
-            "argument 1 of `toString` expects `number | string | bool`, given `list<Station>`",
+            "items.toString()",
+            "the value before `.toString` expects `number | string | bool`, given `Station[]`",
         ),
     ] {
         let error = contract::compile(&app(expr)).unwrap_err();
@@ -1294,10 +1294,10 @@ fn roster_calls_the_runner_cannot_answer_are_refused_while_checking() {
         "{error}"
     );
     for (expr, shown) in [
-        ("length(\"héllo\")", "5"),
-        ("length(items)", "2"),
-        ("isEmpty(\"\")", "true"),
-        ("toString(true)", "true"),
+        ("\"héllo\".length", "5"),
+        ("items.length", "2"),
+        ("\"\".isEmpty()", "true"),
+        ("true.toString()", "true"),
     ] {
         let r = Runner::boot(
             contract::compile(&app(expr)).unwrap(),

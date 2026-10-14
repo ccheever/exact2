@@ -448,7 +448,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertNotNil(host(p).activate(try XCTUnwrap(p.views[13]))?["error"])
         p.apply(wireBatch([["op": "props", "id": 13, "set": [String: String](), "clear": ["disabled"]]]))
         XCTAssertTrue(s.isEnabled)
-        // A `when` replaced the control: the same switch flips the new one.
+        // An `if` replaced the control: the same switch flips the new one.
         target = 14
         p.apply(wireBatch([["op": "create", "id": 14, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch"], "handlers": ["input"], "style": [:]],
                            ["op": "children", "id": 12, "ids": [14]], ["op": "destroy", "id": 13]]))
@@ -806,7 +806,7 @@ final class GroupedListIOSTests: GroupedListFixture {
             return try XCTUnwrap(l.cell(10)).frame.minY - l.collection.contentOffset.y
         }
         let top = try shown()
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]], contentOp(1, 402, 200, padding: [12, 0, 83, 0])]))
         XCTAssertEqual(l.collection.contentInset.top - before.top, 12, accuracy: 0.5)
         XCTAssertEqual(l.collection.contentInset.bottom - before.bottom, 83, accuracy: 0.5)
         XCTAssertEqual(try shown() - top, 12, accuracy: 0.5, "the room shows at rest, not only past the top")
@@ -816,7 +816,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         // A reader among the rows keeps them where they are as the padding goes.
         l.collection.contentOffset.y = 60
         let reading = try shown()
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll"]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll"]], ["op": "fieldContent", "id": 1, "rect": NSNull()]]))
         XCTAssertEqual(l.collection.contentInset, before, "and none once it is gone")
         XCTAssertEqual(try shown(), reading, accuracy: 0.5, "the rows stay put")
     }

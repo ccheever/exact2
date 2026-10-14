@@ -656,6 +656,14 @@ uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
  * whether the app left the bar's placement unsaid (the web's rule for its sidebar,
  * LLP 1116.004 D1.1); null for one stack. */
 uint32_t exact_root_tabs(ExactRuntime rt, uint32_t view);
+/* Whether the stack whose root route is `view` shows that route as a list beside
+ * its detail, by the runner's rule (LLP 1115.002 D4), JSON in the output buffer,
+ * not a batch: {"list":view|null,"width":number|null,"rows":[[route,row]...]}, the
+ * list whose row pushes, the list column's width where `navigationSplit` names one,
+ * and each route above the root that is a row's detail with that row; null for a
+ * stack that pushes. */
+/* `retained` is a previous list to keep while empty and still eligible, or 0. */
+uint32_t exact_stack_split(ExactRuntime rt, uint32_t view, uint32_t retained);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */

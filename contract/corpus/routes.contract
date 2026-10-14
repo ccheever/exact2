@@ -28,9 +28,9 @@ component Interview
   derive current = top(nav)
   derive count = depth(nav)
   derive query = searchParam(current, "q")
-  resource questions = loadQuestions(params(nav, "question")) as shape list<string>
-  resource posts = loadPosts(params(nav, "post")) as shape list<Post>
-  resource people = loadPeople(params(nav, "person")) as shape list<Person>
+  resource questions = loadQuestions(params(nav, "question")) as shape string[]
+  resource posts = loadPosts(params(nav, "post")) as shape Post[]
+  resource people = loadPeople(params(nav, "person")) as shape Person[]
   action openPost(id: string)
     nav = push(nav, path("post", id))
   action openQuestion(id: number)
@@ -54,7 +54,7 @@ component Interview
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink testId="navigation" width="100%" height="100%"
       text nav.tab testId="tab"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.id}` position="absolute" top=0 bottom=0 left=0 right=0 padding=16 gap=12 box-sizing="border-box" background-color="#ffffff" display="flex" flex-direction="column"
           row gap=8 padding=8 height=44 box-sizing="border-box" role="tablist"
             button role="tab" aria-selected=(nav.tab == "home") press=selectTab("home") testId=`select-home-${e.id}`
@@ -73,42 +73,42 @@ component Interview
             text "Open write"
           button appearance="none" press=push("/prompts/new") testId=`push-modal-${e.id}` padding=8
             text "Push modal"
-          when e.name == "home"
+          if e.name == "home"
             text "Home"
             scroll testId=`feed-scroll-${e.id}` flex=1 min-height=0 width="100%"
               column gap=16
-                each p in posts key=p.id
+                for p in posts key=p.id
                   button press=openPost(p.id) testId=`feed-post-${p.id}` height=450 padding=16 background-color="#eeeeee"
                     text p.title font-size=24
-          when e.name == "notifications"
+          if e.name == "notifications"
             text "Notifications"
-          when e.name == "post"
-            each p in posts key=p.id
-              when p.id == e.params.post
+          if e.name == "post"
+            for p in posts key=p.id
+              if p.id == e.params.post
                 text p.title testId=`post-title-${e.id}` font-size=28
                 button appearance="none" press=push(path("person", p.person)) testId=`post-person-${e.id}` padding=16
                   text "Read author"
-          when e.name == "prompts"
+          if e.name == "prompts"
             text "Prompts"
-          when e.name == "ask"
+          if e.name == "ask"
             text "Ask"
-          when e.name == "question"
+          if e.name == "question"
             text e.params.question
-          when e.name == "write"
+          if e.name == "write"
             text `Write ${e.params.question}`
-          when e.name == "messages"
+          if e.name == "messages"
             text "Messages"
-          when e.name == "search"
+          if e.name == "search"
             text searchParam(e, "q")
-          when e.name == "profile"
+          if e.name == "profile"
             text "Profile"
-          when e.name == "settings"
+          if e.name == "settings"
             text "Settings"
-          when e.name == "person"
-            each p in people key=p.id
-              when p.id == e.params.person
+          if e.name == "person"
+            for p in people key=p.id
+              if p.id == e.params.person
                 text p.name testId=`person-name-${e.id}` font-size=28
                 button appearance="none" press=openPost(p.post) testId=`person-post-${e.id}` padding=16
                   text "Read another post"
-          when e.name == "notfound"
+          if e.name == "notfound"
             text "Not found"

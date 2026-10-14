@@ -29,7 +29,7 @@ component Router
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=go testId="navigation" width="100%" height="100%"
       column testId="bar" gap=4 padding=8
-        text `${nav.tab} · ${current.name} · ${current.url} · depth ${depth(nav)} · q=${searchParam(current, "q")} · ${join(params(nav, "question"), ",")}` testId="where"
+        text `${nav.tab} · ${current.name} · ${current.url} · depth ${depth(nav)} · q=${searchParam(current, "q")} · ${params(nav, "question").join(",")}` testId="where"
         row gap=4 flex-wrap="wrap"
           button press=selectTab("home") testId="tab-home"
             text "home"
@@ -53,6 +53,6 @@ component Router
             text "refused"
           button press=back testId="back"
             text "back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationPresentation=(e.name == "ask" ? "modal" : "") testId=`route-${e.name}` padding=8
           text `${e.id} ${e.name} ${e.url} ${e.tab}` testId=`entry-${e.name}`

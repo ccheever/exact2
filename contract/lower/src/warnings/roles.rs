@@ -30,7 +30,7 @@ enum Says {
     Words,
 }
 
-/// The most any of `nodes` says. A `when`, `each` or `match` says what its
+/// The most any of `nodes` says. An `if`, `for` or `match` says what its
 /// most telling arm does; a use or a slot, and an element this walk does
 /// not know, are given the benefit of the doubt.
 fn says(nodes: &[Node], in_svg: bool) -> Says {

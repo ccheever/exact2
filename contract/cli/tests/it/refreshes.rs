@@ -18,8 +18,8 @@ component App
   mutation like as shape Msg
   mutation fav as shape Msg refreshes feed
   mutation star as shape Msg refreshes feed
-  resource chats = chats() as shape list<Msg>
-  resource feed = feed(page, token) as shape list<Msg>
+  resource chats = chats() as shape Msg[]
+  resource feed = feed(page, token) as shape Msg[]
 
   action say(t: string)
     send dm = say(t)
@@ -38,8 +38,8 @@ component App
 
   view
     column
-      text `${length(chats)}` testId="chats"
-      text `${length(feed)}` testId="feed"
+      text `${chats.length}` testId="chats"
+      text `${feed.length}` testId="feed"
 "#;
 
 /// A chat whose sent messages show at once (its overlay) and a feed whose

@@ -58,7 +58,7 @@ const APP: &str = r#"component App
     draft = value
   view
     box width="100%" height="100%"
-      when showing
+      if showing
         box testId="clip" position="absolute" left=left top=40 width="60%" height=160 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
           box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
             box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="target" transformgeometry=geometry transformrelease=release touch-action="none" disabled=disabled
@@ -297,7 +297,7 @@ fn unrelated_typing_preserves_contact_and_negative_pan_velocity_is_parent_space(
 
 #[test]
 fn ancestor_scroll_changes_mapping_without_repeating_identical_dimensions() {
-    let start = APP.find("      when showing").unwrap();
+    let start = APP.find("      if showing").unwrap();
     let end = APP.find("      column position").unwrap();
     let body = APP[start..end]
         .lines()

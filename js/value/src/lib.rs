@@ -25,7 +25,7 @@ pub enum Shape {
     Unit,
     /// `option<T>`.
     Option(Box<Shape>),
-    /// `list<T>`.
+    /// `T[]`.
     List(Box<Shape>),
     /// A record: named fields in declared order.
     Record(Vec<(String, Shape)>),

@@ -111,7 +111,13 @@ enum ButtonConfigurationIOS {
 
     /// `destructive`: the platform's destructive role, its red (`accent` is then that red): on a filled style
     /// the tint is the fill and UIKit draws white ink; on the others the ink is red, unless the author painted it.
-    static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?, destructive: Bool = false) {
+    /// `padding` (top, right, bottom, left) is the presented node's applied
+    /// content box's (`NodeView.kernelPadding`), `nil` on a side its author
+    /// left unsaid: what a sheet or a failed layout holds, values and sides
+    /// both, where the face was resolved against the latest layout. Measuring
+    /// has none and takes the face's.
+    static func apply(_ face: ButtonFace, to button: UIButton, traits: UITraitCollection, accent: UIColor?, destructive: Bool = false,
+                      padding: [CGFloat?]? = nil) {
         let rows = face.rows
         var (config, drawn, _) = ControlHost.configuration(face)
         config.title = face.title
@@ -144,11 +150,12 @@ enum ButtonConfigurationIOS {
         // Physical CSS sides map to directional UIKit insets for the current layout direction.
         var insets = config.contentInsets
         let rtl = button.effectiveUserInterfaceLayoutDirection == .rightToLeft
-        if let n = rows.button["padding_top"]?.number { insets.top = CGFloat(n) }
-        if let n = rows.button["padding_bottom"]?.number { insets.bottom = CGFloat(n) }
-        if let n = rows.button["padding_left"]?.number { if rtl { insets.trailing = CGFloat(n) } else { insets.leading = CGFloat(n) } }
-        if let n = rows.button["padding_right"]?.number { if rtl { insets.leading = CGFloat(n) } else { insets.trailing = CGFloat(n) } }
-        if rows.button.keys.contains(where: { $0.hasPrefix("padding_") }) { config.contentInsets = insets }
+        let sides = padding ?? ["top", "right", "bottom", "left"].map { rows.button["padding_" + $0]?.number.map { CGFloat($0) } }
+        if let n = sides[0] { insets.top = n }
+        if let n = sides[2] { insets.bottom = n }
+        if let n = sides[3] { if rtl { insets.trailing = n } else { insets.leading = n } }
+        if let n = sides[1] { if rtl { insets.leading = n } else { insets.trailing = n } }
+        if sides.contains(where: { $0 != nil }) { config.contentInsets = insets }
         let foreground = color(rows.title["text_color"], traits: traits, accent: accent)
         if let foreground { config.baseForegroundColor = foreground }
         // LLP 1116.007 D3.10: the ink on an accent fill is chosen for contrast, as the web draws it (LLP 1116.003

@@ -259,7 +259,7 @@ impl Gen<'_> {
         let shown = self.show(&name, t);
         let reset = self.lit(t, true);
         out.push_str(&format!(
-            "{pad}let {name} = {e}\n{pad}{slot} = ((length({shown}) > {GROWTH_CAP}) ? {reset} : {name})\n"
+            "{pad}let {name} = {e}\n{pad}{slot} = ((({shown}).length > {GROWTH_CAP}) ? {reset} : {name})\n"
         ));
     }
 }

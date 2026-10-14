@@ -28,7 +28,11 @@ final class NativeButtonIOS: UIButton {
         var pressed: String?
         var traits: FieldChromeCache.Traits
         var interactive: Bool
+        /// The applied padding (`NodeView.kernelPadding`, shared, not copied)
+        var padding: [CGFloat?]
     }
+    /// A native button sent no padding: every side UIKit's
+    static let unsaid: [CGFloat?] = [nil, nil, nil, nil]
     var written: Written?
     /// Its natural size, kept for what it was measured with: UIKit lays the
     /// configuration out again for each ask, and every batch asks.
@@ -163,7 +167,8 @@ extension ControlHost {
             selected: owner.props["accessibilitySelected"] == "true" || owner.checkedRole.map { $0.role == "radio" && $0.checked } == true,
             expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState, traits: .init(button.traitCollection),
-            interactive: owner.style["pointer_events"]?.string != "none")
+            interactive: owner.style["pointer_events"]?.string != "none",
+            padding: owner.kernelPadding ?? NativeButtonIOS.unsaid)
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style ?? "")` is not a button style; drawing bordered")
@@ -172,7 +177,8 @@ extension ControlHost {
         let (_, drawn, glass) = Self.configuration(face)
         button.isEnabled = written.enabled
         button.isUserInteractionEnabled = written.interactive
-        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive)
+        ButtonConfigurationIOS.apply(face, to: button, traits: button.traitCollection, accent: accent, destructive: destructive,
+                                     padding: written.padding)
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }

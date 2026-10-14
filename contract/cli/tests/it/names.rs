@@ -10,18 +10,18 @@ shape Step
   key: string
   state: string
 shape Steps
-  items: list<Step>
+  items: Step[]
 component App
   resource steps = steps() as shape Steps
   view
     column
-      each s in steps.items key=s.key
+      for s in steps.items key=s.key
         Mark(state=s.state)
 component Mark
   props
     state: string
   view
-    when state == "done"
+    if state == "done"
       text "done"
     else
       text state
@@ -32,7 +32,7 @@ component Mark
 
 /// LLP 1088 D5: the 23 contextual keywords are names at every binder —
 /// a prop, a state, a derive, an action and its parameters, a `fn` and its
-/// parameters, a `let`, an `each` item and index, a `match` binding, an
+/// parameters, a `let`, a `for` item and index, a `match` binding, an
 /// arrow parameter — and read as names in expressions; `refresh` starts a
 /// statement only before a name (kanban F13, shop F6, hn-reader F1,
 /// calendar F16).
@@ -69,7 +69,7 @@ fn every_contextual_word_is_a_name_at_every_binder() {
 shape Item
   name: string
 component App
-  resource items = loadItems() as shape list<Item>
+  resource items = loadItems() as shape Item[]
   state {w} = "a"
   derive d{w} = {w}
   action a{w}({w}: string)
@@ -81,7 +81,7 @@ component App
     column
       Row({w}="x")
       button "go" press=a{w}("x")
-      each {w}x, i in map(items, ({w}) => {w}.name) key={w}x
+      for {w}x, i in items.map(({w}) => {w}.name) key={w}x
         text {w}x
       match some({w})
         case some(m{w})
@@ -100,7 +100,7 @@ component Row
     }
     // `action refresh`, `press=refresh` and `refresh feed` each have one parse.
     let plan = contract::compile(
-        "component App\n  resource feed = loadFeed() as shape list<string>\n  action refresh\n    refresh feed\n  view\n    button \"r\" press=refresh\n",
+        "component App\n  resource feed = loadFeed() as shape string[]\n  action refresh\n    refresh feed\n  view\n    button \"r\" press=refresh\n",
     );
     assert!(plan.is_ok(), "{plan:?}");
     // A state named `refresh` is assigned, not refreshed.
@@ -116,8 +116,8 @@ component Row
 #[test]
 fn reserved_words_are_refused_at_binders_and_admitted_as_fields() {
     const RESERVED: [&str; 16] = [
-        "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not",
-        "true", "false", "none", "some",
+        "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+        "false", "none", "some",
     ];
     for w in RESERVED {
         let why = if matches!(w, "true" | "false" | "none" | "some") {
@@ -143,7 +143,7 @@ fn reserved_words_are_refused_at_binders_and_admitted_as_fields() {
             );
         }
         let src = format!(
-            "shape Flags\n  {w}: number\ncomponent App\n  state f = Flags({w}=1)\n  view\n    text toString(f.{w})\n"
+            "shape Flags\n  {w}: number\ncomponent App\n  state f = Flags({w}=1)\n  view\n    text (f.{w}).toString()\n"
         );
         let plan = contract::compile(&src);
         assert!(plan.is_ok(), "{w}: {plan:?}");

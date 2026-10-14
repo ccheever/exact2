@@ -14,16 +14,16 @@
 // case: {lines} (the observation), {outside} (exact-web-js refused the
 // program: outside the JS target) or {error} (the driver failed).
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 import { createDocument } from '../../../host/web-js/dom.js';
-import { localImports, stageHostGlue } from '../../../host/web-js/glue.mjs';
+import { driverRuntime, localImports } from '../../../host/web-js/glue.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../../..');
-const webJs = resolve(root, 'host/web-js'), web = resolve(root, 'host/web');
+const webJs = resolve(root, 'host/web-js');
 
 // ---------------------------------------------------------------- values
 const bits = new DataView(new ArrayBuffer(8));
@@ -31,8 +31,9 @@ const hex = n => { bits.setFloat64(0, n); return bits.getBigUint64(0).toString(1
 const fromHex = h => { bits.setBigUint64(0, BigInt('0x' + h)); return bits.getFloat64(0); };
 /** A batch value (numbers as their bits) as a runtime value. */
 const decode = v => v === null || typeof v !== 'object' ? v : Array.isArray(v) ? v.map(decode) : fromHex(v.$);
-/** A runtime value's key, numbers by their bits (the oracle's `canonical`). */
-const key = v => typeof v === 'number' ? 'n' + hex(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
+/** A runtime value's key, numbers by their bits, NaN canonical (the oracle's `canonical`):
+ * the runner's NaN and the module's may differ in sign. */
+const key = v => typeof v === 'number' ? number(v) : Array.isArray(v) ? '[' + v.map(key).join(',') + ']' : JSON.stringify(v ?? null);
 const quote = s => '"' + [...s].map(c => c === '"' ? '\\"' : c === '\\' ? '\\\\' : c === '\n' ? '\\n' : c === '\r' ? '\\r' : c === '\t' ? '\\t'
   : c.codePointAt(0) < 0x20 ? '\\u00' + c.codePointAt(0).toString(16).padStart(2, '0') : c).join('') + '"';
 const number = n => 'n' + (n !== n ? '7ff8000000000000' : hex(n));
@@ -88,10 +89,7 @@ const fire = (e, type) => { for (const f of [...(e.$listeners?.[type] ?? [])]) f
 function runtime(dir) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
-  for (const f of readdirSync(webJs)) if (f.endsWith('.js')) cpSync(resolve(webJs, f), resolve(dir, f));
-  stageHostGlue(root, dir);
-  // The whole of navigation.js and its grant admission: build.mjs splits them for chunking.
-  for (const f of ['navigation.js', 'grant-admission.js']) cpSync(resolve(web, f), resolve(dir, f));
+  for (const f of driverRuntime(root)) cpSync(resolve(root, f), resolve(dir, basename(f)));
   for (const f of ['admission.js', 'agent.js']) writeFileSync(resolve(dir, f), localImports(readFileSync(resolve(webJs, f), 'utf8')));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
   writeFileSync(resolve(dir, 'path2d.js'), 'export const browserPath2D = globalThis.Path2D;\n');

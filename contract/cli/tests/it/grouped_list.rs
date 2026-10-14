@@ -87,7 +87,7 @@ const SETTINGS: &str = "list appearance=\"auto\" testId=\"list\" flex=1
       input type=\"checkbox\" switch checked=on input=flip testId=\"toggle\"
     button press=go testId=\"dark\"
       text \"Dark\"
-      when dark
+      if dark
         image \"symbol:checkmark\"
     button press=go testId=\"custom\"
       image \"avatar.png\" width=40 height=40
@@ -268,7 +268,7 @@ fn liststyle_names_the_style_and_is_checked() {
 fn a_grouped_list_holds_sections_and_a_section_its_texts_at_its_ends() {
     assert!(refused("list appearance=\"auto\"\n  text \"x\"").contains("`section`"));
     assert!(
-        refused("list appearance=\"auto\"\n  when on\n    row\n      text \"x\"")
+        refused("list appearance=\"auto\"\n  if on\n    row\n      text \"x\"")
             .contains("`section`")
     );
     assert!(refused(
@@ -310,7 +310,7 @@ fn a_class_replaces_the_sheet_as_an_attribute_does() {
 
 #[test]
 fn a_symbol_under_a_condition_moves_the_text_with_it() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:person\"\n      text \"Profile\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\"");
     let x = |r: &Runner<NoData>| r.kernel().node(id(r, "row")).unwrap().frame.x;
     assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
     let row = id(&r, "row");
@@ -357,7 +357,7 @@ fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
 
 #[test]
 fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
     assert_eq!(
@@ -378,7 +378,7 @@ fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them(
 
 #[test]
 fn a_text_after_a_condition_is_styled_by_the_condition() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
     let grow = |r: &Runner<NoData>| r.kernel().node(id(r, "title")).unwrap().style.flex_grow;
     assert_eq!(grow(&r), 1.0, "the title while `dark` is false");
     let row = id(&r, "row");
@@ -393,7 +393,7 @@ fn a_text_after_a_condition_is_styled_by_the_condition() {
 
 #[test]
 fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      when dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      if dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 60.0,
@@ -414,7 +414,7 @@ fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
 
 #[test]
 fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        when dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        if dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 45.0,
@@ -439,7 +439,7 @@ fn round_three_shapes() {
         .unwrap_or_else(|e| panic!("a class-made native button row compiles: {e}"));
     // A conditional first subtitle line, a text field beside a column,
     // and a hidden leading symbol.
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
     let size = |r: &Runner<NoData>| r.kernel().node(id(r, "second")).unwrap().frame.height;
     let title = size(&r);
     assert!(
@@ -525,7 +525,7 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     // and its buttons the separator, on every host. A hand-built cell keeps
     // its content inside the content view's margins: 15 above and below, as
     // a `column` row has them.
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"card\"\n      column flex=1 min-width=0 gap=8 testId=\"stack\"\n        text \"Ada task one\" testId=\"title\"\n        text \"Ada\" testId=\"by\"\n        row gap=8 testId=\"actions\"\n          button press=go\n            text \"To Doing\"\n          button press=go\n            text \"Delete\"\n    row testId=\"item\"\n      input type=\"checkbox\" checked=on input=flip\n      when on\n        column flex=1 min-width=0 testId=\"lines\"\n          text \"Milk\"\n          text \"Added by Alice\"\n          text \"Checked by Bob\"\n      button press=go\n        text \"Delete\"\n    row testId=\"one\"\n      text \"No cards yet.\"\n    row testId=\"field\"\n      input value=\"\" placeholder=\"Card title\" flex=1\n      button press=go\n        text \"Add\"\n    row testId=\"pair\"\n      column\n        text \"Title\"\n        text \"Detail\"\n    row testId=\"cover\"\n      column width=44 height=66\n      text \"Untitled\"\n    button press=go testId=\"profile\"\n      row width=56 height=56 margin-top=10 margin-bottom=10\n      column\n        text \"Maya Chen\"\n        text \"+1 415 555 0134\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    row testId=\"card\"\n      column flex=1 min-width=0 gap=8 testId=\"stack\"\n        text \"Ada task one\" testId=\"title\"\n        text \"Ada\" testId=\"by\"\n        row gap=8 testId=\"actions\"\n          button press=go\n            text \"To Doing\"\n          button press=go\n            text \"Delete\"\n    row testId=\"item\"\n      input type=\"checkbox\" checked=on input=flip\n      if on\n        column flex=1 min-width=0 testId=\"lines\"\n          text \"Milk\"\n          text \"Added by Alice\"\n          text \"Checked by Bob\"\n      button press=go\n        text \"Delete\"\n    row testId=\"one\"\n      text \"No cards yet.\"\n    row testId=\"field\"\n      input value=\"\" placeholder=\"Card title\" flex=1\n      button press=go\n        text \"Add\"\n    row testId=\"pair\"\n      column\n        text \"Title\"\n        text \"Detail\"\n    row testId=\"cover\"\n      column width=44 height=66\n      text \"Untitled\"\n    button press=go testId=\"profile\"\n      row width=56 height=56 margin-top=10 margin-bottom=10\n      column\n        text \"Maya Chen\"\n        text \"+1 415 555 0134\"");
     let k = r.kernel();
     let frame = |t: &str| k.node(id(&r, t)).unwrap().frame;
     let rows = &k.grouped_list(id(&r, "list")).unwrap().sections[0].rows;
@@ -591,7 +591,7 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     // sizes are text styles (LLP 1115.000 D3.3), read here at the kernel's
     // own root, CSS's 16: the body is 16 and the subheadline 14, where iOS's
     // 17 reads 17 and 15 (`the_sheets_text_follows_the_root_font_size`).
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        when on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        if on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
     let k = r.kernel();
     let hex = |h: &str| Color::parse_hex(h).unwrap();
     let look = |t: &str| {
@@ -681,7 +681,7 @@ fn the_sheets_text_follows_the_root_font_size() {
 
 #[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
     assert!(
         r.kernel().node(id(&r, "stack")).unwrap().frame.height > 60.0,
         "two shown lines: the subtitle cell's padding"
@@ -822,7 +822,7 @@ fn a_negative_margin_collapses_as_css_has_it() {
 
 #[test]
 fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:sf/chevron.right\"\n    button press=go testId=\"dark\"\n      text \"Dark\"\n      when dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"delete\" destructive=true\n      text \"Delete Account\"\n    row testId=\"device\"\n      text \"Device\"\n      button press=go testId=\"info\" aria-label=\"Info\"\n        image \"symbol:sf/info.circle\"";
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:sf/chevron.right\"\n    button press=go testId=\"dark\"\n      text \"Dark\"\n      if dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"delete\" destructive=true\n      text \"Delete Account\"\n    row testId=\"device\"\n      text \"Device\"\n      button press=go testId=\"info\" aria-label=\"Info\"\n        image \"symbol:sf/info.circle\"";
     let mut r = boot(body);
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("grouped-default.contract");
     let (plan, map) = contract::compile_path_source_mapped(&path, &app(body)).unwrap();
@@ -1152,7 +1152,7 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
             true,
         ),
     ] {
-        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go {row}\n      image \"symbol:person\" testId=\"symbol\"\n      column {stack}\n        when dark\n          text \"Sure?\"\n        text \"Delete\" {text} testId=\"delete\"");
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go {row}\n      image \"symbol:person\" testId=\"symbol\"\n      column {stack}\n        if dark\n          text \"Sure?\"\n        text \"Delete\" {text} testId=\"delete\"");
         let mut r = boot_source(&format!("style Ink\n  color=\"#00ff00\"\n{}", app(&body)));
         let mut shown = false;
         for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
@@ -1202,7 +1202,7 @@ fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
             }
         }
     }
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when on\n          when dark\n            text \"Sure?\"\n          else\n            text \"Confirm\"\n        text \"Delete\" testId=\"delete\"");
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        if on\n          if dark\n            text \"Sure?\"\n          else\n            text \"Confirm\"\n        text \"Delete\" testId=\"delete\"");
     let mut shown = false;
     for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
         r.act("flip", vec![Value::Bool(on)]).unwrap();
@@ -1306,7 +1306,7 @@ fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
 /// blue. The chevron keeps its tertiary grey.
 #[test]
 fn the_sheets_symbol_and_checkmark_take_the_accent() {
-    let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      when dark\n        image \"symbol:checkmark\"",
+    let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      if dark\n        image \"symbol:checkmark\"",
         "    button press=go testId=\"dark\"\n      text \"Dark\"\n      image \"symbol:checkmark\" testId=\"check\"\n    row\n      image \"symbol:sf/star\" -exact-tint-color=\"AccentColor\" testId=\"accent\"\n      text \"Accent\""));
     let k = r.kernel();
     let tint = |t: &str| {

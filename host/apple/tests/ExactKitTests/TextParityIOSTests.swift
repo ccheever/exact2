@@ -14,7 +14,7 @@ import CExact
 ///   bun host/apple/build.mjs --test --ios
 final class TextParityIOSTests: XCTestCase {
     func testRuntimeInstalledFamilyUsesItsOwnFace() throws {
-        guard !TextEngine.installedFaces("Menlo").isEmpty else { throw XCTSkip("Menlo unavailable") }
+        guard !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Menlo unavailable") }
         let engine = TextEngine(resolve: { _ in nil })
         let name = Array("Menlo".utf8)
         name.withUnsafeBufferPointer { n in

@@ -27,6 +27,7 @@ mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
+mod disabled_look;
 mod edits;
 mod error;
 pub mod expr;
@@ -498,7 +499,7 @@ fn lower_with_sites(
     if !matches!(view[0], Node::Element { .. }) {
         return Err(err_one(
             "lower-root-region",
-            "the root of a view is a node; a `when`, `each`, or `match` cannot be the root (LLP 1010 §1: a keyed root could not reorder) — put it inside a `column` or a `main`",
+            "the root of a view is a node; an `if`, `for`, or `match` cannot be the root (LLP 1010 §1: a keyed root could not reorder) — put it inside a `column` or a `main`",
             view[0].span(),
         ));
     }
@@ -911,7 +912,7 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
-        if tag != "text" && a.name == "selectionchange" {
+        if !matches!(tag, "text" | "input" | "textarea") && a.name == "selectionchange" {
             return err(
                 "lower-attr-tag",
                 format!("`selectionchange` belongs to `text`: it reports the part of the reader's text selection inside one paragraph, not `{tag}`"),
@@ -932,13 +933,6 @@ impl<'a> Lowerer<'a> {
                     a.span,
                 );
             }
-        }
-        if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
-            return err(
-                "lower-attr-tag",
-                format!("`{}` belongs to `list`", a.name),
-                a.span,
-            );
         }
         match target {
             tags::AttrTarget::Shorthand => self.bind_shorthand(a, scope, locals, font, bindings)?,

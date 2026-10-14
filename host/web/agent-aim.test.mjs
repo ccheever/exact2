@@ -11,6 +11,8 @@ import { open } from '../../scripts/agent.mjs';
 import { namedRefusal, pageAim } from '../../scripts/agent-aim.mjs';
 import { tapWords } from '../../scripts/agent-keys.mjs';
 import { serveBuildTree } from './serve.mjs';
+import { browserMissing } from '../../scripts/agent-playwright.mjs';
+import { need } from '../../scripts/coverage.mjs';
 
 const CONTRACT = `component AimFixture
   state post = 0
@@ -102,8 +104,7 @@ test('a plain web tap presses what it names: beside the card, never Like in a bo
   } finally { await session.close(); }
 }, 900000);
 
-const { firefox } = await import('playwright-core');
-test.skipIf(!existsSync(firefox.executablePath()))('the same on Firefox (Playwright; install it: bunx playwright@1.63.0 install firefox webkit)', async () => {
+need('firefox', await browserMissing('firefox'))('the same on Firefox (Playwright)', async () => {
   const session = await open({ host: 'web', browser: 'firefox', url: await built() });
   try { await drive(session); } finally { await session.close(); }
 }, 900000);

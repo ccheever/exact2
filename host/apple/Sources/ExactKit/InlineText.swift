@@ -252,12 +252,19 @@ extension NodeView {
         if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
         session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
     }
-    func activateInline(_ id: UInt32) -> Bool {
+    /// Whether `activateInline` acts on run `id`: it is enabled and has a
+    /// `press`, or an `href` and a session to follow it. An assistive app's
+    /// press answers with this and activates later (TextInteraction.swift).
+    func canActivateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
+        return run.handlers.contains("press") || (presenter.session != nil && !(run.props["href"] ?? "").isEmpty)
+    }
+    func activateInline(_ id: UInt32) -> Bool {
+        guard canActivateInline(id), let presenter, let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
         // A route in the note navigates; anything else is the app's to open
         // (session.follow). A button's own `href` uses `activateLink`.
-        if let url = run.props["href"], !url.isEmpty, let session = presenter.session { return session.follow(url) }
-        return false
+        guard let url = run.props["href"], let session = presenter.session else { return false }
+        return session.follow(url)
     }
 }

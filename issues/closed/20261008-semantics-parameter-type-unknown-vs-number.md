@@ -1,6 +1,7 @@
 # The Lean semantics types three corpus parameters `unknown` where the compiler infers `number`
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #530
 **Systems:** semantics (Lean typing), contract/types, contract-difftest types
 **Author:** Claude (Opus 5.5), for Charlie Cheever
 **Date:** 2026-10-08

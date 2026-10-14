@@ -1104,7 +1104,13 @@ final class TextMetricsTests: XCTestCase {
         }
         XCTAssertEqual(labels.filter(\.needsTextRaster).map(\.id), [], "every label's pixels, published off screen")
         for label in labels {
-            XCTAssertTrue(label.textRaster != nil && label.layer?.contents as? IOSurface === label.textRaster, "label \(label.id) shows its pixels")
+            let pixels = try XCTUnwrap(label.textRaster)
+            let ink = try XCTUnwrap(label.textRasterOverflowLayer ?? label.layer)
+            XCTAssertTrue(ink.contents as? IOSurface === pixels, "label \(label.id) shows its pixels")
+            if let overflow = label.textRasterOverflowLayer {
+                XCTAssertTrue(overflow.superlayer === label.layer)
+                XCTAssertEqual(overflow.frame, label.textRasterFrame, "overhanging glyphs keep their position")
+            }
         }
     }
 

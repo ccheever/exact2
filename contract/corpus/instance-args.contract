@@ -19,7 +19,7 @@ component App
     send outcome = command("profile", name)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}`
           Screen(entry=e, data=data, save=save)
 component Screen

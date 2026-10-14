@@ -27,7 +27,7 @@ component Heads
   view
     column testId="page" width="100%" height="100%" box-sizing="border-box" padding=10 gap=6 background-color="#ffffff"
       column testId="outer"
-        when deep
+        if deep
           column testId="deep"
             head description=`Deep ${label}`
       head title="Shallow" description="Shallow" robots=`early ${label}`
@@ -45,8 +45,8 @@ component Heads
         button press=rename testId="rename"
           text "rename"
       main navigationKey=`${current.id}` navigationBack="back" testId="navigation" flex=1
-        each e in stack(nav) key=e.id
+        for e in stack(nav) key=e.id
           column navigationKey=`${e.id}` testId=`route-${e.name}` padding=8
             text e.name testId=`entry-${e.name}`
-            when e.name == "detail"
+            if e.name == "detail"
               head title=`Detail ${e.params.item} ${label}` canonical=`/detail/${e.params.item}` status=404
