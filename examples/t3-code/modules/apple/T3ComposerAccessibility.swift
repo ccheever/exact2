@@ -102,7 +102,10 @@ enum T3ComposerChipNames {
         case "image": return [(.chip, .button, "Image attachment, \(sized)", false)]
         case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", false)]
         case "preview-annotation": return [(.chip, .popUpButton, "Preview annotation, \(label). Show details", false)]
-        case "pull-request", "pr-open", "pr-draft", "pr-merged", "pr-closed": return [(.chip, .button, "Open pull request \(label)", false)]
+        case "pull-request", "pr-open", "pr-draft", "pr-merged", "pr-closed":
+            let state = ["pr-open": "Open", "pr-draft": "Draft", "pr-merged": "Merged", "pr-closed": "Closed"][kind]
+            let kindLabel = state.map { "\($0) pull request" } ?? "Pull request"
+            return [(.chip, .button, "Open \(kindLabel) \(label): \(styler.pullRequestTitle(chip))", false)]
         default: return [(.chip, .group, label, false)]
         }
     }
@@ -203,6 +206,7 @@ final class T3ComposerAccessibleText: NSObject {
     private static var key = 0
 
     init(styler: T3ComposerStyler) { self.styler = styler }
+    func invalidate() { cache = nil }
 
     static func attach(_ styler: T3ComposerStyler, to view: NSTextView) {
         T3ComposerAccessibleTextHooks.install(on: view)
@@ -409,7 +413,8 @@ enum T3ComposerAccessibleTextHooks {
             } as @convention(block) (AnyObject) -> NSString?
         }
         for (selector, name) in [(#selector(NSTextView.accessibilitySelectedTextRange), NSAccessibility.Attribute.selectedTextRange),
-                                 (#selector(NSTextView.accessibilityVisibleCharacterRange), NSAccessibility.Attribute.visibleCharacterRange)] {
+                                 (#selector(NSTextView.accessibilityVisibleCharacterRange), NSAccessibility.Attribute.visibleCharacterRange),
+                                 (#selector(NSTextView.accessibilitySharedCharacterRange), NSAccessibility.Attribute.sharedCharacterRange)] {
             hook(cls, selector, as: (@convention(c) (AnyObject, Selector) -> NSRange).self) { own in
                 { object in
                     if case let .some(got) = answer(object, name), let value = got as? NSValue { return value.rangeValue }

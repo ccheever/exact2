@@ -216,6 +216,8 @@ final class T3ComposerStyler {
         storage.endEditing()
         view.typingAttributes = base
         styled = string
+        // Skill display names and rich-text markers can change without changing the source or parsed chips.
+        T3ComposerAccessibleText.of(view)?.invalidate()
         underlay?.needsDisplay = true
         tips.refresh()
         press.validate()
@@ -376,6 +378,10 @@ final class T3ComposerStyler {
     }
     func terminalText(_ chip: T3ComposerChip) -> String? {
         guard chipKind(chip) == "terminal", let value = contextPath(chip).flatMap({ contexts[$0] }) else { return nil }
+        return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
+    }
+    func pullRequestTitle(_ chip: T3ComposerChip) -> String {
+        guard let value = contextPath(chip).flatMap({ contexts[$0] }) else { return "" }
         return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
     }
     /// composer-chips-accessibility: a context reference the draft holds no record for (composerContextPresentation's
@@ -717,7 +723,7 @@ final class T3ComposerUnderlay: NSView {
         let palette = image?.palette ?? T3ComposerUnderlay.palette[missing ? "neutral" : styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
         let ink = resolved ? NSColor(t3Hex: dark ? palette[1] : palette[0]) : (styler.baseInk ?? .textColor)
         let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: size * 0.5, yRadius: size * 0.5)
-        NSColor(t3Hex: palette[2]).setFill(); path.fill()
+        NSColor(t3Hex: missing && dark ? "#ffffff04" : palette[2]).setFill(); path.fill()
         NSColor(t3Hex: dark ? palette[4] : palette[3]).setStroke()
         path.lineWidth = 1
         if !resolved { path.setLineDash([3, 2], count: 2, phase: 0) }

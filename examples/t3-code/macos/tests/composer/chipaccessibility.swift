@@ -149,6 +149,26 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         XCTAssertEqual(fixture.legacy(.value) as? String, "Terminal 1 lines 1-2 now ")
     }
 
+    func testUnavailableContextFillFollowsAppearance() throws {
+        let fixture = AccessibilityFixture(text: "[Missing](t3-context://v1/terminal/missing) now ")
+        let content = try XCTUnwrap(fixture.base.window.contentView)
+        let underlay = try XCTUnwrap(content.subviews.compactMap { $0 as? T3ComposerUnderlay }.first { !$0.selectedOnly })
+        let pill = fixture.view.convert(try XCTUnwrap(fixture.styler.chipRect(fixture.styler.chips[0])), to: underlay)
+        for (appearance, alpha) in [(NSAppearance.Name.aqua, 0.4), (.darkAqua, 4.0 / 255.0)] {
+            underlay.appearance = NSAppearance(named: appearance)
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(underlay.bounds.width)),
+                pixelsHigh: Int(ceil(underlay.bounds.height)), bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+            underlay.draw(underlay.bounds)
+            NSGraphicsContext.restoreGraphicsState()
+            // The top of the pill, inside the border and above the glyph and label.
+            let pixel = try XCTUnwrap(bitmap.colorAt(x: Int(pill.midX), y: bitmap.pixelsHigh - Int(pill.minY + 3) - 1))
+            XCTAssertEqual(pixel.alphaComponent, alpha, accuracy: 0.02, "\(appearance.rawValue)")
+        }
+    }
+
     func testTheTerminalExcerptDrawsTheTerminalGlyph() {
         let fixture = AccessibilityFixture()
         let terminal = fixture.styler.chips[0]
@@ -165,6 +185,49 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         other.string = "[x](t3-context://v1/terminal/terminal_abc) $skill "
         XCTAssertEqual(other.accessibilityValue() as? String, other.string)
         XCTAssertEqual(other.accessibilityAttributeValue(.value) as? String, other.string)
+    }
+
+    func testTheReadTextFollowsSkillNamesAndRichTextWithoutAnEdit() {
+        let fixture = AccessibilityFixture(text: "Use $imagegen and **bold** now ")
+        XCTAssertEqual(fixture.view.accessibilityValue() as? String, "Use Imagegen and bold now ")
+        fixture.styler.skills = ["imagegen": "Image Gen"]
+        XCTAssertEqual(fixture.view.accessibilityValue() as? String, "Use Image Gen and bold now ")
+        XCTAssertEqual(fixture.legacy(.value) as? String, "Use Image Gen and bold now ")
+        XCTAssertEqual(fixture.view.accessibilityString(for: NSRange(location: 4, length: 9)), "Image Gen")
+        XCTAssertEqual(fixture.styler.press.accessibilityElements[0].accessibilityLabel(), "Skill Image Gen. Show details")
+        fixture.styler.richText = false
+        XCTAssertEqual(fixture.view.accessibilityValue() as? String, "Use Image Gen and **bold** now ")
+        fixture.styler.richText = true
+        fixture.styler.skills = [:]
+        XCTAssertEqual(fixture.view.accessibilityValue() as? String, "Use Imagegen and bold now ")
+        XCTAssertEqual(fixture.view.string, "Use $imagegen and **bold** now ")
+    }
+
+    func testPullRequestNamesIncludeStateAndFullTitle() {
+        let fixture = AccessibilityFixture(text: "Review [#12](t3-context://v1/review-comment/pr12) now ")
+        for (kind, name) in [("pr-open", "Open"), ("pr-draft", "Draft"), ("pr-merged", "Merged"), ("pr-closed", "Closed"), ("pull-request", "")] {
+            fixture.styler.contexts = ["review-comment/pr12": "\(kind)\t\tFix tabs\tand Unicode 한글"]
+            let kindLabel = name.isEmpty ? "Pull request" : "\(name) pull request"
+            XCTAssertEqual(fixture.styler.press.accessibilityElements[0].accessibilityLabel(),
+                           "Open \(kindLabel) #12: Fix tabs\tand Unicode 한글")
+            XCTAssertEqual(fixture.styler.press.accessibilityElements[0].accessibilityRole(), .button)
+            XCTAssertEqual(fixture.view.accessibilityValue() as? String, "Review #12 now ")
+        }
+    }
+
+    func testTypedSelectionRangesUseTheProjection() throws {
+        let fixture = AccessibilityFixture()
+        let shown = fixture.range("notes.md")
+        fixture.view.setAccessibilitySelectedTextRanges([NSValue(range: shown)])
+        XCTAssertEqual(fixture.view.selectedRange(), (prompt as NSString).range(of: "[notes.md](notes.md)"))
+        XCTAssertEqual(fixture.view.accessibilitySelectedTextRanges(), [NSValue(range: shown)])
+        XCTAssertEqual(fixture.legacy(.selectedTextRanges) as? [NSValue], [NSValue(range: shown)])
+        XCTAssertEqual(fixture.view.accessibilitySharedCharacterRange(),
+                       try XCTUnwrap(fixture.legacy(.sharedCharacterRange) as? NSValue).rangeValue)
+        let whole = NSRange(location: 0, length: (display as NSString).length)
+        let rtf = try XCTUnwrap(fixture.view.accessibilityRTF(for: whole))
+        XCTAssertEqual(try NSAttributedString(data: rtf, options: [.documentType: NSAttributedString.DocumentType.rtf],
+                                             documentAttributes: nil).string, display)
     }
 
     func testTheReadTextFollowsAnEdit() {
