@@ -158,7 +158,7 @@ struct WindowHeader {
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
         guard let name = button.props["popovertarget"],
               let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return false }
-        return presenter.alerts.plan(of: pop) != nil
+        return presenter.alerts.plan(of: pop, popover: true) != nil
     }
 
     /// Whether a toolbar item can show all of a button's face: a native

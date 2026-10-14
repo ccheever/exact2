@@ -332,7 +332,7 @@ extension NodeView {
     /// from the one it hit up; `activationTarget` resolves it.
     var takesPress: Bool {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || isSurfaceControl
-            || isNativeButton && (props["commandfor"]?.isEmpty == false || props["popovertarget"]?.isEmpty == false)
+            || isNativeButton && presenter?.invocation(of: self) != nil
     }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {

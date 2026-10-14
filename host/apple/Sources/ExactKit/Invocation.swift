@@ -19,6 +19,11 @@ struct Invocation {
 
     /// Whether it can put its target up (`show`, `toggle`, `show-modal`)
     var opens: Bool { action != .hide && action != .close }
+    /// Whether it closes `target` while that shows modally or as a popover:
+    /// HTML's dialog `close` closes a modal dialog, and `hide-popover` a popover.
+    func closes(_ target: NodeView, modally: Bool) -> Bool {
+        self.target === target && action == (modally && target.props["semanticTag"] == "dialog" ? .close : .hide)
+    }
 
     /// What an `id` names in the session: a view, or an element that has
     /// none (a run of a paragraph), which no command acts on.

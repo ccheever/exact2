@@ -56,6 +56,9 @@ enum ShareAnchorCase {
         // A menu row off screen anchors to the invoker of its popover.
         p.views[3]!.isHidden = true
         XCTAssertTrue(p.shareAnchor(4).0 === p.views[5])
+        // So does one that invokes it by command alone.
+        p.views[5]!.props = ["commandfor": "more", "command": "toggle-popover"]
+        XCTAssertTrue(p.shareAnchor(4).0 === p.views[5])
         // No input: the content, centred.
         let (content, centre) = p.shareAnchor(nil)
         #if canImport(UIKit)

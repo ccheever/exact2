@@ -135,6 +135,41 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         XCTAssertFalse(p.menus.isOpen(pop), "a later hide cancels a queued reopen too")
     }
 
+    /// A menu row that opens a confirmation opens it once the menu has gone,
+    /// and only for the row and the target the menu showed, while the row is
+    /// enabled.
+    func testAMenuRowOpensItsConfirmationOnlyWhileItAndItsTargetSurvive() throws {
+        let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        p.apply(wireBatch([["op": "create", "id": 30, "kind": "view", "props": ["id": "menu", "popover": "auto"], "handlers": [], "style": ["text_color": [0, 0, 0, 255]]],
+                           ["op": "frame", "id": 30, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]]
+            + native(31, ["popovertarget": "confirm", "popovertargetaction": "show"], press: false)
+            + [["op": "children", "id": 30, "ids": [31]], ["op": "roots", "ids": [1, 2, 30]]]))
+        func row() throws -> UIAction { try XCTUnwrap(p.menus.items(of: try XCTUnwrap(p.views[30])).first as? UIAction) }
+        func choose(_ action: UIAction) { action.performWithSender(nil, target: nil); spin(0.3) { false } }
+
+        let recycledRow = try row()
+        try XCTUnwrap(p.views[31]).incarnation = NodePool.issue()
+        choose(recycledRow)
+        XCTAssertFalse(p.menus.isOpen(pop), "the row it showed was recycled")
+
+        let action = try row()
+        action.performWithSender(nil, target: nil)
+        pop.incarnation = NodePool.issue()
+        spin(0.3) { false }
+        XCTAssertFalse(p.menus.isOpen(pop), "its target was recycled before it opened")
+
+        let disabledRow = try row()
+        try XCTUnwrap(p.views[31]).props["disabled"] = "true"
+        choose(disabledRow)
+        XCTAssertFalse(p.menus.isOpen(pop), "the row became disabled")
+        try XCTUnwrap(p.views[31]).props["disabled"] = nil
+
+        choose(try row())
+        XCTAssertTrue(p.menus.isOpen(pop))
+    }
+
     /// Native invokers queue and cancel a reopen while the alert is still
     /// leaving, as the imperative commands above do.
     func testANativeShowDuringDismissalReopensAndAHideCancelsIt() throws {
