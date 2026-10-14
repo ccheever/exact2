@@ -300,7 +300,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
     await live(settled);
-    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(chooseScheme\)/.test(l)).length;
     expect(await presses()).toBe(1);
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
     // After adoption a press is the runtime's own: once.

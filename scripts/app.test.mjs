@@ -34,7 +34,7 @@ test('runner-owned sources never warn that native app code is retained', () => {
 
 // Opt in because this exercises three real Cargo bakes, not a mocked driver.
 test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots rebakes once and then stays fresh', async () => {
-  const { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync, readFileSync, readdirSync } = await import('node:fs');
+  const { mkdtempSync, mkdirSync, writeFileSync, statSync, rmSync, readFileSync } = await import('node:fs');
   const { resolve } = await import('node:path');
   const { tmpdir } = await import('node:os');
   const { spawnSync } = await import('node:child_process');
@@ -48,7 +48,7 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
     writeFileSync(resolve(dir, 'web/build.rs'), 'fn main() { exact_game_app::bake("web", ".."); }');
     writeFileSync(resolve(dir, 'web/src/lib.rs'), 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));');
     writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "assets"\n');
-    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Asset roots', app: { id: 'com.exact.assetroots', name: 'Asset roots' }, rust: false, deploy: { store: { web: '0' } } }));
+    for (const path of ['app.json', '.shells/app.json']) { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), JSON.stringify({ name: 'Asset roots', app: { id: 'com.exact.assetroots', name: 'Asset roots' }, rust: false, deploy: { store: { web: '0' } } })); }
     const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], { cwd: dir, encoding: 'utf8' });
     assert.equal(lock.status, 0, lock.stderr);
     const manifest = readManifest(dir, 'asset-roots');
@@ -56,14 +56,11 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
     const output = resolve(dir, 'bakes'), target = 'wasm32-unknown-unknown';
     const bake = () => buildBake(app, 'web', target, { output, profile: 'dev', env: { EXACT_UPDATE_TRUST: 'development' } });
     const receiptPath = resolve(output, `web-${target}.json`);
-    bake();
+    const first = bake();
     // Packaging recopies receipts even for a cache hit; measure Cargo's actual OUT_DIR.
-    const builds = resolve(app.target, target, 'debug/build');
-    const unit = readdirSync(builds).find(name => name.startsWith('asset-roots-web-') && (() => {
-      try { return readFileSync(resolve(builds, name, 'output'), 'utf8').includes(dir); } catch { return false; }
-    })());
-    assert.ok(unit);
-    const bakedPath = resolve(builds, unit, 'out/compat.json');
+    const entries = first.binary.inputs.filter(input => input.name === `generated:asset-roots-web:${target}/entry.rs`);
+    assert.equal(entries.length, 1);
+    const bakedPath = resolve(dirname(entries[0].path), 'compat.json');
     let before = statSync(bakedPath, { bigint: true }).mtimeNs;
     for (const [directory, prefix] of [['assets', 'assets'], ['deck', 'deck'], ['gpu/shaders', 'shaders']]) {
       mkdirSync(resolve(dir, directory), { recursive: true });
@@ -124,10 +121,13 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and ret
       std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
       std::fs::write(out.join("app.plan"), b"fixture").unwrap();
     }`);
-    const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:dir, encoding:'utf8'});
-    assert.equal(lock.status, 0, lock.stderr);
+    // A game receipt watches absent art and runs its named logic through determinism lints.
+    write('.shells/Cargo.toml', '[workspace]\n[package]\nname="cache-logic"\nversion="0.1.0"\nedition="2021"\n'); write('.shells/src/lib.rs', 'pub fn fixture() -> bool { true }\n');
+    for (const cwd of [dir, resolve(dir,'.shells')]) {
+      const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd, encoding:'utf8'}); assert.equal(lock.status, 0, lock.stderr);
+    }
     const app = {dir, workspace:dir, target:resolve(dir,'target'), id, hasGpu:true,
-      manifest:{app:{id, name:'Cache fixture'}, game:{}, rust:false}, crate:kind=>`cache-${kind}`};
+      manifest:{app:{id, name:'Cache fixture'}, game:{crate:'cache-logic'}, rust:false}, crate:kind=>`cache-${kind}`};
     const bake = (value, executable = value) => buildBake(app, 'linux', target, {profile:'dev', output:resolve(dir,'bakes'),
       env:{EXACT_UPDATE_TRUST:'development', CACHE_FIXTURE_VALUE:value, CACHE_EXEC_VALUE:executable, EXACT_RUST_BUNDLE:'', EXACT_UPDATE_RECEIPT:''}});
     const modified = receipt => receipt.products.filter(p=>/libcache_module\.|\/cache-runner$/.test(p.path))
