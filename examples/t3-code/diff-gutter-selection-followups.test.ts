@@ -44,13 +44,13 @@ describe('GS-1: a drag that starts on the gutter selects no text', () => {
   test('every row draws its numbers after all of its code, so a copy across the list\'s rows reads the code where the host placed it', () => {
     const line = branch('line'), split = branch('split');
     expect(line).toContain('row width="100%" align-items="stretch" position="relative"');
-    expect(line.indexOf('DiffNumber(number=item.number, tone=item.tone, selected=item.selected,')).toBeGreaterThan(line.lastIndexOf('DiffCell('));
+    expect(line.indexOf('DiffNumber(family=family, number=item.number, tone=item.tone, selected=item.selected,')).toBeGreaterThan(line.lastIndexOf('DiffCell('));
     expect(line).toContain('left="0%")');
     expect(split).toContain('row width="100%" align-items="stretch" position="relative"');
     const firstNumber = split.indexOf('DiffNumber(');
     expect(firstNumber).toBeGreaterThan(split.lastIndexOf('DiffCell('));
-    expect(split).toContain('DiffNumber(number=item.leftNumber, tone=item.leftTone, selected=item.leftSelected, gutter=item.gutter, size=size, scheme=scheme, left="0%")');
-    expect(split).toContain('DiffNumber(number=item.rightNumber, tone=item.rightTone, selected=item.rightSelected, gutter=item.gutter, size=size, scheme=scheme, left="50%")');
+    expect(split).toContain('DiffNumber(family=family, number=item.leftNumber, tone=item.leftTone, selected=item.leftSelected, gutter=item.gutter, size=size, scheme=scheme, left="0%")');
+    expect(split).toContain('DiffNumber(family=family, number=item.rightNumber, tone=item.rightTone, selected=item.rightSelected, gutter=item.gutter, size=size, scheme=scheme, left="50%")');
     // The two cells split the row evenly, so the additions side's gutter starts at 50%.
     expect(cell).toContain('row id=`dl:${side}:${line}:${path}` flex=1 min-width=0');
     expect(row).not.toContain('number=item.leftNumber, segments');

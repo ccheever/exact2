@@ -90,7 +90,7 @@ describe('one resolved colour scheme', () => {
   test('the theme editor opens on the resolved scheme', async () => {
     expect(await source('app.contract')).toContain('settingsThemeDialog, settingsThemeSubject, delivery.stream, delivery.staged, scheme) as shape SettingsCore');
     expect(await source('app.ts')).toContain("String(args[11] || 'embedded'), args[12] === true, String(args[13] || 'light'));");
-    const native = { available: true } as unknown as Native;
+    const native = { available: true, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) } as unknown as Native;
     const opened = async (mode: string, scheme: string, kind: string, subject: string) => {
       const client = { local: { deviceSettings: { appearanceMode: mode }, clientSettings: decodeClientPrefs({}), customThemes: [] }, ready: true, environmentId: 'env1', revision: 0,
         config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;

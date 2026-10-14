@@ -57,7 +57,7 @@ const native = { available: true, watch: () => {}, later: async () => ({ ok: tru
 function wakingNative() {
   const wakes: string[] = [], watched: string[] = [];
   const module = { available: true, watch: (topic: string) => { watched.push(topic); },
-    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
   return { module, wakes, watched };
 }
 const KEY = 'new'; // a new task's dialog key, whatever its environment (scheduled-tasks-followups ST-1)
@@ -207,7 +207,7 @@ describe('FV-3: a theme with one palette', () => {
       ready: true, environmentId: 'env1', revision: 0, config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;
     expect([look(client).mode, windowAppearanceMode(client)]).toEqual(['dark', 'dark']);
     const wakes: string[] = [];
-    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
     const core = (kind: string) => settingsCore(client, module, '', '', '', '', 'appearance', '', true, kind, kind ? '#1' : '', 'embedded', false, look(client).mode);
     await core('');
     expect(wakes).toEqual([]);
