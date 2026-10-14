@@ -496,11 +496,11 @@ theme
   `setScheme`, which stays the host's appearance command. The new slice applies in the
   action's own commit, refreshed by D7's per-use domains: repainted, and laid out only where
   a selected value is in a layout row. Undeclared axes and values are refused at compile.
-- **A subtree pins app modes** with `-exact-mode="dark-style:dim"` (several, comma-separated),
+- **A subtree pins app modes** with `-exact-mode="dark-style=dim"` (several, space- or comma-separated; `axis=value` is the one spelling, as in a `when`),
   as `color-scheme` pins the scheme (LLP 1034 §8). A pin inherits the axes it does not name
   from above. A mode pin never changes the scheme: a settings screen previews the three
   appearances side by side as `color-scheme="light"`, and `color-scheme="dark"` with
-  `-exact-mode="dark-style:dim"` or `"dark-style:black"`. The editor shows one screen in
+  `-exact-mode="dark-style=dim"` or `"dark-style=black"`. The editor shows one screen in
   every mode the same way.
 - **Bluesky:** its three-way appearance is `setScheme` for light, dark or system, and
   `setMode("dark-style", …)` for Dim or Black. No palette is threaded; the 244 literals
@@ -618,7 +618,7 @@ Android's reader repaint from the kernel's resolved rows (`host/linux/src/paint.
   at the using element against its inherited `color-scheme` and `prefers-contrast`;
 - **every mode boundary declares its whole slice.** The runtime gives the root and each
   element with `-exact-mode` a `data-x-modes` attribute holding its full app tuple (its pins
-  over the inherited ones), in one canonical order (axes as declared, `axis:value`
+  over the inherited ones), in one canonical order (axes as declared, `axis=value`
   joined by commas). The page has one rule per tuple the app can reach (at most 64),
   selected by exact match, and each rule declares **every** token that varies by any app
   axis, default values included. So a Black pin inside a Dim page restores Black, and no
