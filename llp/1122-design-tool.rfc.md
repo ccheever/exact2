@@ -10,7 +10,7 @@
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-13
-**Implementer:** none yet; each stage follows the Tamber stage it needs (§7).
+**Implementer:** none yet; each stage follows the Tamber stage it needs (§4).
 **Related:**
 - LLP 1121 (Tamber): D7 the token index, D8 state parts, D9 control roles, D13 the protocol, D14 clients and importers, D15 component params, §5 staging, §9 Q3 and Q4.
 - LLP 1012 (the agent API's operations), LLP 1035.002 (`layout` explaining one node: its site and every row's source), LLP 1095 D7 (the agent pins traits).
