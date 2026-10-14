@@ -372,7 +372,7 @@ extension NodeView {
             }
             at = view.superview
         }
-        if presenter.hasKeyboardEditor { presenter.viewport.endEditing(true) }
+        if presenter.hasKeyboardEditor { presenter.endEditing() }
     }
     /// A finger's touch bubbling from this node reaches a node it pressed
     private var pressesAnAncestor: Bool {

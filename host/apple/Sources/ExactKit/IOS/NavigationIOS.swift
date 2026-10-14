@@ -871,8 +871,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         keyboardDropped = true
         // This session's editor only: another session's in the same window
         // keeps its focus (LLP 1035.001 D5).
-        droppedEditor = (FirstResponder.current as? UIView).flatMap { $0.isDescendant(of: presenter.viewport) ? $0 : nil }
-        presenter.viewport.endEditing(true)
+        droppedEditor = (FirstResponder.current as? UIView).flatMap { presenter.mounts($0) ? $0 : nil }
+        presenter.endEditing()
         presenter.flushKeyboardResize()
         presenter.session?.view?.fit()
         navigation?.view.layoutIfNeeded()
@@ -897,7 +897,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// not leave its route — only if it is still this session's, on screen,
     /// and nothing has taken or been given the focus since.
     private func restoreEditor(_ editor: UIView?) {
-        guard let editor, editor.window != nil, editor.isDescendant(of: presenter.viewport),
+        guard let editor, editor.window != nil, presenter.mounts(editor),
               FirstResponder.current == nil || FirstResponder.current === presenter.session?.view,
               !pendingSync, presenter.pendingFocusNode == nil else { return }
         _ = editor.becomeFirstResponder()

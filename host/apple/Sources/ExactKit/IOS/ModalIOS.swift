@@ -247,6 +247,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var presentation: String? { layers.last?.kind }
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
     var owner: UIViewController? { layers.last?.controller }
+    /// The presentations' controller views, live and retiring, bottom to
+    /// top: where the session mounts beside its viewport (LLP 1123 D2).
+    var mountRoots: [UIView] { (layers + retiring).compactMap { $0.controller.viewIfLoaded } }
+    func mounts(_ view: UIView) -> Bool { mountRoots.contains { view.isDescendant(of: $0) } }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
     #if os(iOS)
     /// The topmost presented route the status bar sits over (LLP 1105 D2): a

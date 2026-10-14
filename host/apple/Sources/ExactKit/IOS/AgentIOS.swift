@@ -408,7 +408,7 @@ extension Agent {
         node["clip"] = clip
         // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
         if hiddenBy == nil, !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true { hiddenBy = "visibility" }
-        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(CGRect(origin: .zero, size: vp.bounds.size)), "clipped": clipped]
+        var visible: [String: Any] = ["hidden": hiddenBy != nil, "inert": inertBy != nil, "inViewport": b.intersects(presenter.reach(of: host)), "clipped": clipped]
         if let hiddenBy { visible["hiddenBy"] = hiddenBy }
         if let inertBy { visible["inertBy"] = inertBy }
         node["visible"] = visible
@@ -473,14 +473,14 @@ extension Agent {
         if req["scrollDrag"] != nil { return scrollDrag(req) }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
+           let node = view(req), presenter.mounts(node), presenter.groupedLists?.draws(node.id) != true,
            // A swipe action's control sits past its row's edge until a swipe
            // reveals it; its tap is the action's (below), wherever it sits.
            !presenter.swipeActions.ownsAction(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
-            if !CGRect(origin: .zero, size: presenter.viewport.bounds.size).contains(point) {
+            if !presenter.reach(of: node).contains(point) {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
@@ -717,7 +717,7 @@ extension Agent {
         }
         // Nothing settled the focus, as in `focusForPress`: the text being
         // edited loses it, and any other focus stays.
-        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
+        if !took && presenter.hasKeyboardEditor && !presenter.contextRetainsFocus(n ?? v) { presenter.endEditing() }
         var pressed: Any = NSNull()
         // An iPad's hardware keys held through the tap (gallery F20).
         let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
@@ -784,7 +784,7 @@ extension Agent {
     /// box in the viewport, the answer a point there, or the refusal.
     func addressedPoint(_ v: NodeView, box b: CGRect, in win: UIWindow) -> AddressedAim {
         let vp = presenter.viewport
-        let seen = b.intersection(CGRect(origin: .zero, size: vp.bounds.size))
+        let seen = b.intersection(presenter.reach(of: v))
         let window = { (q: CGPoint) in vp.convert(CGPoint(x: q.x + vp.contentOffset.x, y: q.y + vp.contentOffset.y), to: nil) }
         return Agent.addressedAim(v, middle: CGPoint(x: b.midX, y: b.midY), area: seen) { q in
             pressReach(v, at: window(q), in: win)
@@ -795,7 +795,7 @@ extension Agent {
     /// viewport it scrolls in, or off the window.
     func offscreen(_ v: NodeView, box b: CGRect, hit: UIView?) -> String? {
         let vp = presenter.viewport
-        if v.isDescendant(of: vp), !CGRect(origin: .zero, size: vp.bounds.size).contains(CGPoint(x: b.midX, y: b.midY)) {
+        if presenter.mounts(v), !presenter.reach(of: v).contains(CGPoint(x: b.midX, y: b.midY)) {
             return "its middle is outside the \(Agent.r2(vp.bounds.width))×\(Agent.r2(vp.bounds.height)) viewport; a finger would scroll it into view first"
         }
         return hit == nil ? "its middle is off the window" : nil
