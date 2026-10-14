@@ -37,6 +37,7 @@ shape Look
   fontSize: number
   // The Prompt font size in px (--font-size-prompt): the composer's text does not follow the root size.
   promptSize: number
+  promptFont: string
   codeFont: string
   codeSize: number
   wordWrap: bool
