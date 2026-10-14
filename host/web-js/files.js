@@ -60,7 +60,7 @@ OnHooks.file = (e, kind, f) => {
   e.addEventListener('exact-picked', ev => {
     const files = records(ev.detail);
     if (!files) return say('picker: refused: a malformed payload');
-    f(files, ["", false, 0, 0, "none"]); // its `InputEvent`, as the runner's: no value, no text selection
+    f(files, ["", false, 0, 0, "none", ""]); // its `InputEvent`, as the runner's: no value, no text selection
   });
   return true;
 };
@@ -97,10 +97,14 @@ export async function answer(req) {
 Object.assign(x(), { files: { holds, answer } });
 
 // ---------------------------------------------------------------- showPicker (picker.rs)
-const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+export const tokens = el => (el.getAttribute('accept') ?? '').split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
 const MIME = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif', tif: 'image/tiff', tiff: 'image/tiff',
   mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', markdown: 'text/markdown', txt: 'text/plain' };
-const accepts = (accept, name, mime) => accept.some(t => t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
+export const accepts = (accept, name, mime) => !accept.length || accept.some(t => t === '*/*' || t === '.' + extension(name) || t === mime || (t.endsWith('/*') && mime.split('/')[0] === t.slice(0, -2)));
+export const deliveredType = (mime, accept) => {
+  const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['*/*', 'image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
+  return heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+};
 const paths = v => { const l = v.split('\n').map(s => s.trim()).filter(Boolean); return l.length === 1 ? l[0].split(/\s+/) : l; };
 Hosts.showPicker = id => {
   const found = byId(String(id ?? ''));
@@ -122,8 +126,7 @@ Hosts.showPicker = id => {
     if (list.length > 1 && !multiple) return `this input takes one file, not ${list.length}`;
     for (const p of list) {
       const name = p.split(/[\\/]/).pop(), mime = MIME[extension(name)] ?? 'application/octet-stream';
-      const heic = mime === 'image/heic' || mime === 'image/heif', keeps = accept.some(t => ['image/*', 'image/heic', 'image/heif', '.heic', '.heif'].includes(t));
-      const delivered = heic && !keeps && accept.some(t => t.startsWith('image/')) ? 'image/jpeg' : mime;
+      const delivered = deliveredType(mime, accept);
       if (!(delivered === mime && accepts(accept, name, mime)) && !accepts(accept, name, delivered)) return `${name} (${mime}) is not among accept="${accept.join(',')}"`;
     }
     return null;

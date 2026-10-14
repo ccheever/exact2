@@ -236,6 +236,21 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 if let Some(hatches) = p.hatch_state() {
                     s.push_str(&format!(",\"hatches\":{hatches}"));
                 }
+                // The top layer's open surface (LLP 1115.001 D10): each row's
+                // authored node and its box in the surface's window, which
+                // `tap` takes by that node. No shell makes windows here.
+                let surface = match p.has_windows() {
+                    true => p.surface_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"surface\":{surface}"));
+                // The shell's bars (LLP 1115.001 D11): each target's authored
+                // node and its box in the window. No shell has bars here.
+                let bars = match p.has_bars() {
+                    true => p.bars_json(),
+                    false => serde_json::json!({"unavailable": true}),
+                };
+                s.push_str(&format!(",\"bars\":{bars}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -283,6 +298,20 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             // the Linux presenter closes no window, as the guide says.
             if request.get("close").is_some() {
                 return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
+            }
+            // @ref LLP 1116.006 D4 — the platform's Back, as Alt+Left or a Back key takes it.
+            if request.get("back").is_some() {
+                if request
+                    .as_object()
+                    .is_some_and(|o| o.keys().any(|k| k != "op" && k != "back"))
+                {
+                    return error("tap back takes no other input fields");
+                }
+                return match p.agent_back(p.host().now()) {
+                    None => error("back: nothing to go back from: no route is beneath the selected one"),
+                    Some(Ok(())) => serde_json::json!({ "back": "route", "delivery": "platform" }).to_string(),
+                    Some(Err(why)) => serde_json::json!({ "back": "route", "delivery": "platform", "refused": why }).to_string(),
+                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
@@ -510,6 +539,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let mut preferences = p.host().runner().viewport().preferences;
     let mut page = p.host().runner().page();
     let mut root_font_size = None;
+    let mut display_scale = None;
     let mut dark = p.scheme.1;
     for (name, value) in media {
         match (name.as_str(), value.as_str().unwrap_or_default()) {
@@ -556,6 +586,10 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
+            // @ref LLP 1115.000 D10.3 — the pixels a point this host draws at.
+            ("display-scale", v) if v.parse::<f32>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
+                display_scale = v.parse::<f32>().ok()
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a page fact this host sets"
@@ -572,6 +606,12 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     if let Some(px) = root_font_size {
         if let Some(e) = p.set_root_font_size(px) {
+            return error(&e);
+        }
+    }
+    if let Some(scale) = display_scale {
+        let (width, height) = p.viewport();
+        if let Some(e) = p.resize_scaled(width, height, scale) {
             return error(&e);
         }
     }
@@ -598,6 +638,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "can-open-files": page.can_open_files,
         "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
+        "display-scale": p.host().runner().display_scale(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
         "horizontal-viewport-segments": fold.cols,

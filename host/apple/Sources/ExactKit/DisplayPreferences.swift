@@ -97,7 +97,7 @@ enum DisplayPreferences {
     /// reduced transparency, bit 2 contrast more, bit 3 contrast less (both:
     /// custom), bit 4 a dark system, bit 5 pointer `coarse`, bit 6 pointer
     /// `none`, bit 7 hover `none` (zero: a mouse, `fine` and `hover`), bits
-    /// 8–9 the gamut (1 P3, 2 rec2020), bit 10 a high dynamic range.
+    /// 8–9 the gamut (1 P3, 2 rec2020), bit 10 a high dynamic range, bits 11–13 display mode.
     static func bits(systemDark: Bool, view: PlatformView? = nil) -> UInt32 {
         let contrastBits: UInt32 = switch contrast { case "more": 4; case "less": 8; case "custom": 12; default: 0 }
         #if os(macOS)
@@ -108,7 +108,7 @@ enum DisplayPreferences {
         let high = view.map { DisplayRange.headroom($0) > 1 } ?? highDynamicRange
         let gamutBits: UInt32 = switch displayGamut { case "p3": 256; case "rec2020": 512; default: 0 }
         return (reducedMotion ? 1 : 0) | (reducedTransparency ? 2 : 0) | contrastBits | (systemDark ? 16 : 0) | inputBits
-            | gamutBits | (high ? 1024 : 0)
+            | gamutBits | (high ? 1024 : 0) | (displayMode(view) << 11)
     }
     /// CSS's `pointer` and `hover` for the primary input: a Siri Remote
     /// points at nothing, a finger is coarse, and neither hovers.
@@ -119,6 +119,16 @@ enum DisplayPreferences {
     #else
     static let inputBits: UInt32 = 0
     #endif
+
+    // Same order as runner/src/viewport.rs's DisplayMode (media bits 11–13).
+    static let displayModes = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"]
+    static func displayMode(_ view: PlatformView?) -> UInt32 {
+        #if os(macOS)
+        return view?.window?.styleMask.contains(.fullScreen) == true ? 2 : 0
+        #else
+        return 0
+        #endif
+    }
 
     /// Calls `changed` on the main queue when any setting changes; the
     /// caller holds the tokens and removes them.

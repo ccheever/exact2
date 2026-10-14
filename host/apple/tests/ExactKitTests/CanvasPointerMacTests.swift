@@ -5,6 +5,8 @@ import XCTest
 @testable import ExactSurfaces
 
 private var pointerEvents: [[String: Any]] = []
+private var rawMoveSawContractQueued: [Bool] = []
+private var contractMoveQueued: (() -> Bool)?
 
 /// A game canvas's mouse on AppKit (LLP 1046.002 S1): chorded buttons, motion,
 /// and the pointer lock a `data-pointer-lock` canvas takes, driven with the
@@ -15,6 +17,8 @@ final class CanvasPointerMacTests: XCTestCase {
     private func fixture() -> (ExactSession, NodeView, NSWindow) {
         _ = NSApplication.shared
         pointerEvents = []
+        rawMoveSawContractQueued = []
+        contractMoveQueued = nil
         let s = ExactApp.shared.makeSession(label: "pointer-test")
         let m = GpuModule(create: { _, _, _, _, _ in 1 }, bind: { _, _, _ in 0 },
             render: { _, _, _, _, _ in 0 }, dirty: { _ in 0 }, destroy: { _ in },
@@ -24,7 +28,10 @@ final class CanvasPointerMacTests: XCTestCase {
             shader: nil, validateShader: nil, clearShaders: nil, errorLen: { 0 }, errorPtr: { nil },
             wantsInput: { _ in 1 }, input: { _, p, n in
                 let row = (try? JSONSerialization.jsonObject(with: Data(bytes: p!, count: n))) as? [String: Any] ?? [:]
-                if row["t"] as? String == "pointer" { pointerEvents.append(row) }
+                if row["t"] as? String == "pointer" {
+                    pointerEvents.append(row)
+                    if row["phase"] as? String == "move" { rawMoveSawContractQueued.append(contractMoveQueued?() == true) }
+                }
                 return 0
             }, messages: nil, published: nil, agent: { _, _, _ in 0 }, outPtr: { nil })
         s.surfaceHost.modules[""] = m; s.surfaceHost.attempted = [""]
@@ -47,6 +54,100 @@ final class CanvasPointerMacTests: XCTestCase {
     }
     private var rows: [(String, Int, Double, Double)] {
         pointerEvents.map { ($0["phase"] as? String ?? "", $0["buttons"] as? Int ?? -1, $0["dx"] as? Double ?? .nan, $0["dy"] as? Double ?? .nan) }
+    }
+
+    func testFreeMoveReachesContractPointerHandlerAndRawCanvas() {
+        let (s, canvas, window) = fixture(); defer { s.destroy() }
+        let p = s.presenter
+        contractMoveQueued = { [weak p] in p?.hoverMoves.isEmpty == false }
+        defer { contractMoveQueued = nil }
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.root.frame = p.viewport.bounds
+        window.contentView = p.viewport
+        p.root.addSubview(canvas)
+        canvas.handlers = ["pointermove"]
+        var contract: [UInt32] = []
+        p.onPointer = { id, kind, _ in if kind == .move { contract.append(id) } }
+        p.trackPointer(mouse(.mouseMoved, window, at: at(canvas, window, 50, 50)))
+        p.flushHoverMove()
+        XCTAssertEqual(contract, [canvas.id])
+        XCTAssertEqual(rows.map(\.0), ["move"])
+
+        // An ancestor's handler also hears the move when the canvas has none.
+        canvas.handlers = []
+        let parent = NodeView(id: 101, kind: "view", presenter: p)
+        parent.frame = canvas.frame
+        p.root.addSubview(parent); canvas.removeFromSuperview(); parent.addSubview(canvas)
+        canvas.frame.origin = .zero
+        p.views[101] = parent; parent.handlers = ["pointermove"]
+        p.trackPointer(mouse(.mouseMoved, window, at: at(canvas, window, 60, 50)))
+        p.flushHoverMove()
+        XCTAssertEqual(contract, [canvas.id, parent.id])
+        XCTAssertEqual(rows.map(\.0), ["move", "move"])
+        XCTAssertEqual(rawMoveSawContractQueued, [true, true], "the Contract walk precedes raw canvas input")
+    }
+
+    func testFreeMoveOverCanvasChildResetsRawMotionOrigin() {
+        let (s, canvas, window) = fixture(); defer { s.destroy() }
+        let p = s.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.root.frame = p.viewport.bounds
+        window.contentView = p.viewport
+        p.root.addSubview(canvas)
+        let button = NodeView(id: 101, kind: "button", presenter: p)
+        button.frame = NSRect(x: 65, y: 30, width: 30, height: 40)
+        canvas.addSubview(button); p.views[101] = button
+
+        p.trackPointer(mouse(.mouseMoved, window, at: at(canvas, window, 50, 50)))
+        p.trackPointer(mouse(.mouseMoved, window, at: at(canvas, window, 80, 50)))
+        p.trackPointer(mouse(.mouseMoved, window, at: at(canvas, window, 110, 50)))
+        XCTAssertEqual(rows.map(\.0), ["move", "move"], "the child receives no raw canvas event")
+        XCTAssertEqual(rows.last?.2 ?? .nan, 30, accuracy: 0.001, "motion resumes from the last off-canvas position")
+    }
+
+    func testFreeMoveAcrossACoveringSiblingKeepsRawMotionOneStep() {
+        let (s, canvas, window) = fixture(); defer { s.destroy() }
+        let p = s.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.root.frame = p.viewport.bounds
+        window.contentView = p.viewport
+        p.root.addSubview(canvas)
+        let overlay = NodeView(id: 102, kind: "button", presenter: p)
+        overlay.frame = canvas.convert(NSRect(x: 65, y: 30, width: 30, height: 40), to: p.root)
+        p.root.addSubview(overlay); p.views[102] = overlay
+        // Each tracking area under the pointer hears the move, as AppKit sends it.
+        for x in [50.0, 80, 110] {
+            let e = mouse(.mouseMoved, window, at: at(canvas, window, x, 50))
+            if x == 80 { overlay.mouseMoved(with: e) }
+            canvas.mouseMoved(with: e)
+        }
+        XCTAssertEqual(rows.map(\.0), ["move", "move"], "the covered move emits nothing")
+        XCTAssertEqual(rows.last?.2 ?? .nan, 30, accuracy: 0.001, "motion resumes from the covered position")
+    }
+
+    /// A 2D canvas's bitmap sits in the content box a pointer's offsets are
+    /// from, also when layout sends a new one alone: a percentage padding
+    /// whose containing block narrowed moves it without a new size, so no
+    /// draw comes to place it.
+    func testA2DCanvasBitmapFollowsAContentBoxSentAlone() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "canvas2d", "handlers": ["pointerdown"]],
+            ["op": "style", "id": 1, "style": ["padding_left": ["pct": 5]]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 220.0, "h": 100.0],
+            ["op": "fieldContent", "id": 1, "rect": [20.0, 0.0, 200.0, 100.0]]
+        ]))
+        let node = try XCTUnwrap(p.views[1])
+        p.canvas2d.apply(1, ["lifetime": 1, "generation": 0, "fresh": true, "w": 200, "h": 100, "scale": 1.0, "stretch": false,
+                             "box": [20.0, 0.0, 200.0, 100.0], "radii": [0.0, 0.0, 0.0, 0.0], "lists": [Data]()], layer: node.layer)
+        let bitmap = try XCTUnwrap(node.layer?.sublayers?.first { $0.frame.size == CGSize(width: 200, height: 100) })
+        XCTAssertEqual(bitmap.frame.minX, 20)
+        p.apply(wireBatch([["op": "fieldContent", "id": 1, "rect": [15.0, 0.0, 200.0, 100.0]]]))
+        XCTAssertEqual(bitmap.frame.minX, node.contentBox().minX)
+        XCTAssertEqual(bitmap.frame.minX, 15)
+        p.canvas2d.forget(1)
     }
 
     func testChordedButtonsAreMovesAndMotionIsThePositionsChange() {

@@ -38,7 +38,7 @@ fn rows(spec: &[&str]) -> Box<StyleProps> {
             }
             _ => panic!("{key}"),
         };
-        s.set_dynamic(id, &StyleValue::Text(value)).unwrap();
+        s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
     }
     Box::new(s)
 }
@@ -407,4 +407,44 @@ fn the_engine_follows_the_node_a_commit_resolves() {
     ]);
     t.k.motion_sync(&r).apply(&mut e).unwrap();
     assert!((shown(&mut e, &t) - 0.25).abs() < 1e-9, "row 2's card");
+}
+
+#[test]
+fn continuation_publishes_timeline_bindings_only_at_finish() {
+    let mut t = build("x scope=--t\n  a drag=--t\n  box\n  c follow=--t\n");
+    let c = t.k.node(t.id("c")).unwrap().key;
+    let (a, bx) = (t.id("a"), t.id("box"));
+    assert_eq!(t.answer(), "a");
+    t.k.begin_document_commit(
+        0,
+        2,
+        &[
+            Op::CreateView {
+                id: 50,
+                node_type: NodeType::View,
+            },
+            on(50, drag("--t")),
+            Op::SetChildren {
+                id: bx,
+                children: vec![50],
+            },
+        ],
+        None,
+    )
+    .unwrap();
+    t.labels.push(("n".into(), 50));
+    assert_eq!(
+        t.answer(),
+        "a",
+        "the prior published binding stays until finish"
+    );
+    t.k.continue_document_commit(&[Op::ClearStyle {
+        id: a,
+        mask: exact_kernel::StyleMask::of(StyleId::DragTimeline),
+    }])
+    .unwrap();
+    assert_eq!(t.answer(), "a");
+    let receipt = t.k.finish_document_commit().unwrap();
+    assert_eq!(t.answer(), "n");
+    assert_eq!(receipt.timelines, vec![c]);
 }

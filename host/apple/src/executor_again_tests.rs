@@ -71,7 +71,7 @@ fn a_re_ask_takes_no_worker_and_settles_in_its_place() {
             "https://example.test/write/3"
         ]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen ordered requests in flight (a held GET, fifteen queued GETs):
@@ -121,7 +121,7 @@ fn past_sixteen_reads_and_re_asks_wait_and_effects_are_refused() {
         tickets(collect(&core, &woke, 19)),
         (0..19).collect::<Vec<_>>()
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Sixteen finished, undrained POSTs still hold the sixteen: the next is
@@ -146,7 +146,7 @@ fn finished_effects_hold_the_sixteen_until_drained_and_finished_reads_do_not() {
         tickets(collect(&core, &woke, 16)),
         (1..16).chain([17]).collect::<Vec<_>>()
     );
-    assert!(settled(&core));
+    until_settled(&core);
 
     let (core, _fixture, woke) = setup();
     for ticket in 0..16 {
@@ -162,7 +162,7 @@ fn finished_effects_hold_the_sixteen_until_drained_and_finished_reads_do_not() {
         tickets(collect(&core, &woke, 17)),
         (0..17).collect::<Vec<_>>()
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// 128 finished, undrained GETs fill the window: the next GET is refused.
@@ -180,7 +180,7 @@ fn a_full_window_of_finished_reads_refuses_the_next_read() {
     );
     core.resume_ordered();
     assert_eq!(tickets(collect(&core, &woke, 128)).len(), 128);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// More eligible re-asks than their window holds, and no I/O at all: each
@@ -219,7 +219,7 @@ fn re_asks_past_the_window_wait_and_settle_in_order_with_no_delivery() {
     }
     let expected: Vec<u64> = (0..128).chain([1000, 1001]).chain(128..300).collect();
     assert_eq!(order, expected);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The last room freed by a forget, with no delivery: the waiting re-ask is
@@ -241,7 +241,7 @@ fn room_a_forget_frees_places_a_waiting_re_ask() {
         tickets(collect(&core, &woke, 128)),
         (1..129).collect::<Vec<_>>()
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// Forgetting a re-ask in each state it can be in — complete in the window,
@@ -274,7 +274,7 @@ fn a_forgotten_re_ask_is_dropped_in_every_state() {
     // Complete in the window, then forgotten.
     assert_eq!(state(&core).light, 128);
     core.forget(|_| false);
-    assert!(settled(&core));
+    until_settled(&core);
     assert!(core.drain().is_empty());
 }
 
@@ -309,7 +309,7 @@ fn re_asks_behind_a_refusal_wait_and_enter_after_it() {
     assert_eq!(tickets(collect(&core, &woke, expected.len())), expected);
     let sent = fixture.state.lock().unwrap().2.clone();
     assert_eq!(sent[16], "https://example.test/write/18");
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// A wave of re-asks while a refusal is retained, more than the fence's
@@ -345,7 +345,7 @@ fn re_asks_behind_a_refusal_leave_the_fence_to_real_requests() {
         .unwrap()
         .2
         .ends_with(&["https://example.test/read".to_string()]));
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// More re-asks than any cap the first build had (128 markers and 1024
@@ -366,7 +366,7 @@ fn thousands_of_re_asks_and_a_following_effect_all_settle() {
         fixture.state.lock().unwrap().2,
         ["https://example.test/write/5000"]
     );
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// The fence lifted while the markers' window is full and a refusal held
@@ -405,7 +405,7 @@ fn lifting_the_fence_with_the_window_full_keeps_re_asks_in_order() {
     // Refusal 501 settled; the fence lifts again.
     assert!(core.resume_ordered().is_empty());
     assert_eq!(tickets(collect(&core, &woke, 3)), [503, 600, 602]);
-    assert!(settled(&core));
+    until_settled(&core);
 }
 
 /// A module's background round is a storage continuation, an effect: beside

@@ -228,23 +228,59 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await openLinkFromUi(client, refused, 'external', 'https://example.test/tables');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
-  it('a mailto, irc, xmpp or fragment link in a reply opens nothing, the setting and ⌘ aside (reply-links RL-1, RL-2)', async () => {
+  it('a mailto, irc or xmpp link in a reply opens nothing, the setting and ⌘ aside (reply-links RL-1)', async () => {
     // The reference (measured 2026-10-11, its main process's shell.openExternal and openExternal permission hooked): the
     // anchor's click is not prevented, its `_blank` reaches setWindowOpenHandler, which opens only safe external URLs
-    // (parseSafeExternalUrl: http(s) and remote editor links), and nothing opens.
+    // (parseSafeExternalUrl: http(s) and remote editor links), and nothing opens. A table cell's link is the same anchor
+    // (reply-links-reference-behavior RL-5, measured 2026-10-12 on `[the list](mailto:list@example.test)` in a cell).
     for (const [preference, modifiers] of [['app', ''], ['system', ''], ['app', 'meta']] as const) {
       const { client, rpcs, ops, native } = linkClient({ preference, modifiers });
-      for (const url of ['mailto:team@example.test', 'irc://irc.example.test/t3', 'ircs://irc.example.test/t3', 'xmpp:team@example.test', '#notes']) {
+      for (const url of ['mailto:team@example.test', 'irc://irc.example.test/t3', 'ircs://irc.example.test/t3', 'xmpp:team@example.test']) {
         await chatLocal(client, native, 'link-open', 'link', url);
       }
       expect(ops).toEqual([]);
       expect(rpcs).toEqual([]);
       expect(toasts(client)).toEqual([]);
+      expect(client.threadId).toBe('thread-1');
     }
     // A web link still follows the setting.
     const { client, ops, native } = linkClient({ preference: 'system' });
     await chatLocal(client, native, 'link-open', 'link', 'https://example.com/c');
     expect(external(ops)).toEqual(['https://example.com/c']);
+  });
+  it('a fragment link leaves the thread for the most recently active project\'s draft; a modified click does nothing (reply-links-reference-behavior RL-4)', async () => {
+    // The reference (measured 2026-10-12 on the lane's fixture reply, CDP and its main process): a click on
+    // `[the notes](#notes)` finds no element with that id (handleMarkdownFragmentClick), so it goes on and sets the hash,
+    // `t3code://app/#notes`; the hash router reads it as the index route, whose IndexDraftLanding replaces it with the draft
+    // of the most recently active project (`#/draft/<id>`, "work") and the composer takes the focus. A cell's
+    // `[the summary](#summary)` does the same.
+    const projects = [{ id: 'p', title: 'Verification fixture', updatedAt: '2026-10-01T00:00:00Z' }, { id: 'work', title: 'work', updatedAt: '2026-10-05T00:00:00Z' }];
+    const threads = [{ id: 'thread-1', projectId: 'p', updatedAt: '2026-10-03T00:00:00Z' }];
+    for (const preference of ['app', 'system'] as const) {
+      for (const url of ['#notes', '#summary']) {
+        const { client, rpcs, ops, native } = linkClient({ preference });
+        client.shell = { projects, threads, sequence: 1 };
+        expect(await openLinkFromUi(client, native, 'link', url)).toBe('sidebar:new-thread');
+        expect([client.threadId, client.projectId]).toEqual(['', 'work']);
+        expect(ops.map(op => op.op)).toEqual(['composerSendIntent']);
+        expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
+        expect(toasts(client)).toEqual([]);
+      }
+    }
+    // ⌘, ⌥, ⇧ or ⌃ held: the handler returns before preventDefault and the shell denies the new window it asks for.
+    for (const modifiers of ['meta', 'alt', 'shift', 'control', 'meta+shift']) {
+      const { client, rpcs, ops, native } = linkClient({ modifiers });
+      client.shell = { projects, threads, sequence: 1 };
+      expect(await openLinkFromUi(client, native, 'link', '#notes')).toBe('');
+      expect([client.threadId, client.projectId]).toEqual(['thread-1', 'p']);
+      expect(external(ops)).toEqual([]);
+      expect(rpcs).toEqual([]);
+    }
+    // Only a Markdown link's fragment: a button's or a work-log result's URL is never one, and stays where it was.
+    const { client, native } = linkClient();
+    client.shell = { projects, threads, sequence: 1 };
+    await openLinkFromUi(client, native, 'external', '#notes');
+    expect(client.threadId).toBe('thread-1');
   });
   it('a link the system browser could not open says so', async () => {
     const { client } = linkClient({ preference: 'system' });

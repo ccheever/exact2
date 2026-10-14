@@ -2,18 +2,6 @@
 import Foundation
 import Network
 
-enum T3Storage {
-    // Foundation may ignore an inherited TMPDIR. Honor the launcher's explicit
-    // scratch directory for this app's agent preferences; live roots stay owned
-    // by Exact. Retain the host's process/runtime suffix to isolate sessions.
-    static func dataRoot(agent: Bool, contextData: URL, environment: [String: String] = ProcessInfo.processInfo.environment) -> URL {
-        guard agent, let temporary = environment["TMPDIR"], temporary.hasPrefix("/") else { return contextData }
-        return URL(fileURLWithPath: temporary, isDirectory: true)
-            .appendingPathComponent(contextData.deletingLastPathComponent().lastPathComponent, isDirectory: true)
-            .appendingPathComponent("data", isDirectory: true)
-    }
-}
-
 struct T3Failure: Error {
     let kind: String
     let message: String
@@ -206,8 +194,12 @@ enum T3Endpoint {
         }
         // The reference accepts http and https remote backends (packages/shared/src/remote.ts:6,
         // SUPPORTED_REMOTE_BACKEND_PROTOCOLS): a LAN pairing link, as This machine's network access
-        // advertises it, is http. Until 2026-10-08 the clone refused remote http ("A remote server
-        // requires HTTPS."); fix-provider-auth-state, provisional: user decision pending.
+        // advertises it, is http, and so is every learned LAN or tailnet route (DirectEndpoints.ts).
+        // Until 2026-10-08 the clone refused remote http ("A remote server requires HTTPS.");
+        // fix-provider-auth-state accepted it, and the user's decision of 2026-10-11 keeps the
+        // reference's rule (network-routes-followups NR-1). In the bundle, App Transport Security
+        // passes plain http to IP literals, `.local` and unqualified names and refuses it to any other
+        // host name (-1022; probed 2026-10-12 with the bundle's ATS keys).
         url.scheme = scheme; url.host = host.lowercased(); url.path = ""; url.query = nil; url.fragment = nil
         guard let result = url.url else { throw T3Failure(kind: "Address", message: "The server address is invalid.") }
         return result

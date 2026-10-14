@@ -27,8 +27,12 @@ fn app(body: &str) -> String {
 }
 
 fn boot(body: &str) -> Runner<NoData> {
+    boot_source(&app(body))
+}
+
+fn boot_source(source: &str) -> Runner<NoData> {
     let plan = contract::bake(
-        contract::compile(&app(body)).unwrap_or_else(|e| panic!("{e}")),
+        contract::compile(source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
     )
     .unwrap();
@@ -156,6 +160,51 @@ fn the_kernel_reads_sections_and_rows_as_a_native_list_draws_them() {
     );
 }
 
+/// LLP 1115.000 D13.2: a radio in a row is the row's accessory, before its
+/// label as a web form writes it or after, with its bound `checked`; the
+/// row is a standard cell of its texts, and it reads live.
+#[test]
+fn a_radio_is_its_rows_accessory() {
+    let mut r = boot(
+        r#"list appearance="auto" listStyle="inset-grouped" testId="list"
+  section
+    row
+      text "Free" flex=1
+      input type="radio" name="plan" value="free" checked=(not dark) testId="free"
+    row
+      input type="radio" name="plan" value="pro" checked=dark testId="pro"
+      text "Pro"
+      text "Monthly"
+  section
+    button press=go testId="dark"
+      text "Dark""#,
+    );
+    let rows = |r: &Runner<NoData>| {
+        let list = r.kernel().grouped_list(id(r, "list")).unwrap();
+        list.sections[0].rows.clone()
+    };
+    let (free, pro) = (id(&r, "free"), id(&r, "pro"));
+    let before = rows(&r);
+    assert_eq!(before[0].accessory, Accessory::Radio(free, true));
+    assert_eq!(before[1].accessory, Accessory::Radio(pro, false));
+    assert!(!before[0].custom && !before[1].custom, "standard cells");
+    assert_eq!(before[0].title.as_deref(), Some("Free"));
+    assert_eq!(
+        (before[1].title.as_deref(), before[1].secondary.as_deref()),
+        (Some("Pro"), Some("Monthly")),
+        "a leading radio leaves the row's texts its title and value"
+    );
+    assert!(
+        !before[0].pressable,
+        "the row is no button: its tap is the radio's"
+    );
+    let dark = id(&r, "dark");
+    r.dispatch(dark, exact_runner::Event::Press).unwrap();
+    let after = rows(&r);
+    assert_eq!(after[0].accessory, Accessory::Radio(free, false));
+    assert_eq!(after[1].accessory, Accessory::Radio(pro, true));
+}
+
 #[test]
 fn the_rows_read_live() {
     let mut r = boot(SETTINGS);
@@ -176,7 +225,8 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     // (each draws its separator and overlaps the next by its width).
     let profile = frame("profile");
     assert_eq!(profile.height, 53.0, "52 and its 1-point separator");
-    assert_eq!(frame("notes").y - profile.y, 52.0);
+    // (to a float's rounding: the header above is a line of the body style).
+    assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
     assert_eq!(
         profile.x, 72.0,
         "the row starts at the text, after an icon, as UIKit's label does"
@@ -536,8 +586,11 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     // LLP 1116.000 D3.2: household-list's items (a title, who added it, who
     // checked it) drew three lines alike. A stack of lines in a row is drawn
     // as the subtitle cell draws its two: the first text the title, a later
-    // one 15 points in the secondary colour. What the author wrote wins,
-    // row by row, on the text or on the stack its texts inherit from.
+    // one the subheadline in the secondary colour. What the author wrote wins,
+    // row by row, on the text or on the stack its texts inherit from. The
+    // sizes are text styles (LLP 1115.000 D3.3), read here at the kernel's
+    // own root, CSS's 16: the body is 16 and the subheadline 14, where iOS's
+    // 17 reads 17 and 15 (`the_sheets_text_follows_the_root_font_size`).
     let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column\n        text \"Privacy\" testId=\"cell-title\"\n        text \"Screen lock\" testId=\"cell-detail\"\n    row\n      input type=\"checkbox\" checked=on input=flip\n      column flex=1 min-width=0\n        text \"Milk\" testId=\"title\"\n        text \"Added by Alice\" testId=\"by\"\n        when on\n          text \"Checked by Bob\" testId=\"checked\"\n      button press=go\n        text \"Delete\" testId=\"delete\"\n    row\n      column flex=1 min-width=0 gap=8\n        text \"Ship it\" testId=\"card\"\n        text \"Ada\" font=\"-exact-footnote\" color=\"#123456\" testId=\"authored\"\n        text \"Late\" color=\"#ff0000\" testId=\"red\"\n        text \"Big\" font-size=20 testId=\"big\"\n        row gap=8\n          button press=go\n            text \"To Doing\" testId=\"move\"\n    row padding-top=8 padding-bottom=8\n      column color=\"#00ff00\" font-size=13\n        text \"A\" testId=\"own-a\"\n        text \"B\" testId=\"own-b\"\n        text \"C\" testId=\"own-c\"\n    row\n      column color=\"#00ff00\"\n        text \"Title\"\n        text \"Detail\" testId=\"cell-own\"");
     let k = r.kernel();
     let hex = |h: &str| Color::parse_hex(h).unwrap();
@@ -552,8 +605,8 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     let (title, detail) = (look("cell-title"), look("cell-detail"));
     assert_eq!(
         (title.0, detail.0),
-        (17.0, 15.0),
-        "the subtitle cell's own lines"
+        (16.0, 14.0),
+        "the subtitle cell's own lines: the body and the subheadline"
     );
     assert_eq!(look("title"), title, "the first text is the title");
     assert_eq!(look("by"), detail, "a later one the subtitle's line");
@@ -562,10 +615,10 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     assert_ne!(look("delete"), detail, "a control's label is its own");
     assert_ne!(look("move"), detail, "and a button's in the stack");
     let authored = look("authored");
-    assert!(authored.0 < 15.0, "an authored font wins: {authored:?}");
+    assert!(authored.0 < 14.0, "an authored font wins: {authored:?}");
     assert_eq!(authored.1, hex("#123456"), "an authored colour wins");
     let red = look("red");
-    assert_eq!((red.0, red.1), (15.0, hex("#ff0000")), "row by row");
+    assert_eq!((red.0, red.1), (14.0, hex("#ff0000")), "row by row");
     let big = look("big");
     assert_eq!((big.0, big.1, big.2), (20.0, detail.1, detail.2));
     // The stack's own rows reach its lines; a row with its own padding keeps
@@ -577,9 +630,53 @@ fn a_stack_of_lines_takes_the_subtitle_cells_text_styles() {
     let own = look("cell-own");
     assert_eq!(
         (own.0, own.1),
-        (15.0, hex("#00ff00")),
+        (14.0, hex("#00ff00")),
         "the subtitle cell's too"
     );
+}
+
+/// LLP 1115.000 D3.3: the sheet's text sizes are text styles, so a grouped
+/// list's text is the platform's body size and not iOS's 17 on every host: a
+/// row and a header the body style, a second line the subheadline, a footer
+/// the footnote, each read from the ramp at the root font size the host set.
+/// The row's own metrics do not follow: a cell is 52 points at any of them.
+#[test]
+fn the_sheets_text_follows_the_root_font_size() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Account\" testId=\"header\"\n    row testId=\"row\"\n      text \"Title\" testId=\"title\"\n      text \"Value\" testId=\"value\"\n    button press=go testId=\"cell\"\n      column\n        text \"Privacy\" testId=\"line\"\n        text \"Screen lock\" testId=\"second\"\n    footer\n      text \"Who can see you.\" testId=\"footer\"";
+    // (the root, then the body, the subheadline and the footnote there)
+    for (root, name, sizes) in [
+        (17.0, "iOS at its default size", (17.0, 15.0, 13.0)),
+        (13.0, "the Mac", (13.0, 11.0, 10.0)),
+        (16.0, "the web", (16.0, 14.0, 12.0)),
+        (23.0, "iOS at its largest ordinary size", (23.0, 21.0, 19.0)),
+    ] {
+        let mut r = boot(body);
+        // The kernel starts at CSS's 16; a host tells it its own.
+        let told = r.set_root_font_size(root).unwrap();
+        assert_eq!(told.is_some(), root != 16.0, "{name}");
+        let k = r.kernel_mut();
+        let page = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+        k.compute_layout(page, Offer::definite(402.0, 874.0))
+            .unwrap();
+        let k = r.kernel();
+        let size = |t: &str| {
+            let node = k.node(id(&r, t)).unwrap();
+            node.computed_style(StyleMask::ALL).font_size
+        };
+        let (b, sub, foot) = sizes;
+        for (t, want) in [
+            ("header", b),
+            ("title", b),
+            ("value", b),
+            ("line", b),
+            ("second", sub),
+            ("footer", foot),
+        ] {
+            assert_eq!(size(t), want, "{name}: {t}");
+        }
+        let row = k.node(id(&r, "row")).unwrap().frame.height;
+        assert_eq!(row, 53.0, "{name}: a row is 52 and its separator");
+    }
 }
 
 #[test]
@@ -648,7 +745,8 @@ fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
 
 #[test]
 fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=20 margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
+    // A percentage is of the list's content width, 400
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1 width=400\n  section\n    button press=go testId=\"a\"\n      text \"Account\"\n  section\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=\"5%\" margin-bottom=0\n    button press=go testId=\"c\"\n      text \"Help\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
     assert_eq!(
@@ -657,11 +755,23 @@ fn an_authored_margin_is_the_webs_space_and_the_sheets_is_uikits() {
         "the sheet's numbers keep UIKit's gaps; the author's 20 is the space above"
     );
     assert_eq!(list.space_below, Some(0.0), "and the 0 under the last");
+    // LLP 1115.000 D2: a margin is the author's because they wrote it, not
+    // because its number differs from the sheet's. 17.33 between sections and
+    // 0 beside a header are the sheet's own numbers, written here.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      text \"Account\"\n  section margin-top=17.33\n    button press=go\n      text \"Chats\"\n  section margin-top=0\n    header\n      text \"More\"\n    button press=go\n      text \"Help\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    let above: Vec<_> = list.sections.iter().map(|s| s.space_above).collect();
+    assert_eq!(
+        above,
+        [None, Some(17.33), Some(17.33)],
+        "each written margin meets the sheet's 17.33 under the section before it"
+    );
+    assert_eq!(list.space_below, None, "the last one's bottom is unsaid");
 }
 
 #[test]
 fn authored_margins_collapse_as_the_web_lays_them_out() {
-    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=40\n    header testId=\"more\"\n      text \"More\"\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=0.5\n    button press=go testId=\"c\"\n      text \"Help\"";
     let r = boot(body);
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
@@ -677,7 +787,7 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
     // The kernel's own layout (which the web host follows) agrees: the
     // rows are 40 apart where the margins meet, less the separator's overlap.
     let a = k.node(id(&r, "a")).unwrap().frame;
-    let header_top = k.node(id(&r, "b")).unwrap().frame.y - 40.33;
+    let header_top = k.node(id(&r, "more")).unwrap().frame.y;
     assert!(
         (header_top - (a.y + a.height - 1.0) - 40.0).abs() < 0.5,
         "web gap {}",
@@ -706,7 +816,7 @@ fn a_negative_margin_collapses_as_css_has_it() {
     assert_eq!(
         list.sections[2].space_above,
         Some(17.33),
-        "in a plain list the sheet writes 0, so 17.33 is the author's"
+        "17.33 is the author's: they wrote it"
     );
 }
 
@@ -753,6 +863,57 @@ fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
         r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[1].accessory,
         Accessory::Checkmark
     );
+}
+
+// @ref LLP 1115.002 D6 — the sheet names the platform's metrics and holds
+// none of its numbers: a row reads its platform's column where it runs (the
+// web's here, which is the sheet as it was). The names are the compiler's:
+// an author's value that is one is refused, on a row that takes text too.
+#[test]
+fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
+    let body = "list appearance=\"auto\" testId=\"list\" flex=1\n  section testId=\"section\"\n    button press=go destructive=true testId=\"row\"\n      text \"Remove\"";
+    let plan = contract::compile(&app(body)).unwrap();
+    for name in [
+        "-exact-grouped-ground",
+        "-exact-grouped-card-fill",
+        "-exact-grouped-card-radius",
+        "-exact-grouped-button-min-height",
+        "-exact-grouped-destructive-color",
+        "-exact-grouped-button-appearance",
+    ] {
+        assert!(plan.strings.iter().any(|s| s == name), "{name}");
+    }
+    let r = boot(body);
+    let row = r.kernel().node(id(&r, "row")).unwrap();
+    assert_eq!(row.style.min_height, exact_kernel::Dimension::Points(52.0));
+    assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
+    assert!(
+        !row.style.mask.has(exact_kernel::StyleId::PaddingTop)
+            && !row.style.mask.has(exact_kernel::StyleId::PaddingLeft),
+        "the Mac's rows are no row here"
+    );
+    let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
+    assert_eq!(row.style.text_color, red);
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::TextColor),
+        "the sheet's rows are the platform's, not the author's (LLP 1115.000 D2)"
+    );
+    for authored in [
+        "column min-height=\"-exact-grouped-row-min-height\"",
+        "text \"x\" color=\"-exact-grouped-destructive-color\"",
+        "text \"x\" color=(dark ? \"-exact-grouped-destructive-color\" : \"#fff\")",
+    ] {
+        let e = contract::compile(&app(authored)).unwrap_err();
+        assert_eq!(e.id, "lower-attr-value", "{authored}: {}", e.message);
+    }
+}
+
+// @ref LLP 1116.007 D3.1 — the chevron by another spelling is still the disclosure.
+#[test]
+fn a_chevron_by_another_spelling_is_the_disclosure_accessory() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"open\"\n      text \"Open\"\n      image \"symbol:chevron-right\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(list.sections[0].rows[0].accessory, Accessory::Disclosure);
 }
 
 #[test]
@@ -809,8 +970,11 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     // and the footer's grey on iOS, where UIKit draws footers and standard
     // cells. Author > platform (LLP 1115): the kernel hands a host each
     // text's own colour and font, and nothing where the sheet's stand in for
-    // the platform's, which keeps its own.
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    footer\n      text \"The platform's grey.\"");
+    // the platform's, which keeps its own. "Own" is what the author wrote
+    // (LLP 1115.000 D2), on the text or on a box it inherits from: the sheet's
+    // own value, written, is the author's, and a value the compiler implied
+    // (a heading's size) is not, whatever it is.
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    header\n      text \"Measure\" font=\"-exact-footnote\"\n    row\n      text \"Title\" color=\"#ff0000\"\n      text \"Value\" font-size=20\n    button press=go destructive=true\n      text \"Delete\"\n    footer\n      text \"Enter a number.\" color=\"-exact-system-red\"\n  section\n    header\n      text \"Plain\"\n    button press=go\n      column\n        text \"Privacy\"\n        text \"Screen lock\" font-style=\"italic\"\n    row\n      text \"Name\"\n      text \"Ada\"\n    footer color=\"#00ff00\"\n      text \"Green, on the footer.\"\n  section\n    row\n      text \"Unsaid\"\n    row\n      text \"Quiet\" color=\"-exact-secondary-label\"\n      text \"Loud\" color=\"-exact-label\"\n    row\n      text \"Same\" color=\"-exact-label\" font-size=17\n      text \"Too\" color=\"-exact-secondary-label\"\n    button press=go color=\"#00ff00\"\n      text \"On the row\"\n      text \"Value\"\n    row\n      text \"Heading\" role=\"heading\" aria-level=1\n    footer\n      text \"The platform's grey.\"");
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     let (s0, s1, s2) = (&list.sections[0], &list.sections[1], &list.sections[2]);
     let red = s0.footer_look.color.expect("the footer's own red");
@@ -820,7 +984,7 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     );
     assert_eq!(s0.footer_look.font, None, "its font left unsaid");
     let header = s0.header_look.font.expect("the header's own font");
-    assert!(header.size < 17.0 && header.weight == 400, "{header:?}");
+    assert!(header.size < 16.0 && header.weight == 400, "{header:?}");
     assert_eq!(s0.header_look.color, None);
     let rows = &s0.rows;
     assert_eq!(
@@ -858,8 +1022,8 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
     assert_eq!(privacy.title_look, TextLook::default());
     assert_eq!(
         privacy.secondary_look.font.map(|f| (f.size, f.italic)),
-        Some((15.0, true)),
-        "the subtitle line's size is the sheet's, its style the author's"
+        Some((14.0, true)),
+        "the subtitle line's size is the sheet's (the subheadline, at this root), its style the author's"
     );
     assert_eq!(privacy.secondary_look.color, None);
     assert_eq!(
@@ -876,9 +1040,8 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
         (s2.rows[0].title_look, s2.footer_look),
         (TextLook::default(), TextLook::default())
     );
-    // The sheet names a role for each text (LLP 1115 §3), which is unsaid
-    // only in its own slot: the secondary label on a title and the label
-    // colour on a value are their author's.
+    // The sheet names a role for each text (LLP 1115 §3). A role its author
+    // wrote is theirs: in another text's slot,
     let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
     assert_eq!(
         (s2.rows[1].title_look.color, s2.rows[1].secondary_look.color),
@@ -887,20 +1050,285 @@ fn an_authored_colour_and_font_reach_the_platforms_texts_and_unsaid_ones_stay_it
             Some(role("-exact-label"))
         )
     );
+    // and in its own, where the value is the sheet's and the row says who
+    // wrote it; so too the sheet's own size.
+    let same = &s2.rows[2];
+    assert_eq!(
+        (same.title_look.color, same.secondary_look.color),
+        (
+            Some(role("-exact-label")),
+            Some(role("-exact-secondary-label"))
+        )
+    );
+    assert_eq!(
+        same.title_look.font.map(|f| (f.size, f.weight)),
+        Some((17.0, 400))
+    );
+    assert_eq!(same.secondary_look.font, None);
+    // A colour written on the row reaches its title, as CSS inherits it,
+    // and not its value, which the sheet colours itself.
+    let green = Some(ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap()));
+    assert_eq!(
+        (s2.rows[3].title_look.color, s2.rows[3].secondary_look.color),
+        (green, None)
+    );
+    // A heading's size and weight are the compiler's: the cell's title
+    // keeps the platform's font.
+    assert_eq!(s2.rows[4].title.as_deref(), Some("Heading"));
+    assert_eq!(s2.rows[4].title_look, TextLook::default());
 }
 
-/// A destructive row's title keeps the platform's red where it is the first
-/// line only under a condition: the sheet cannot write its red there and
-/// writes the label colour, which is still the sheet's and not the author's.
+/// A conditional first line inherits the row's ink, as an unconditional
+/// title does. The subtitle keeps its own colour, and authored rows win.
 #[test]
 fn a_destructive_rows_conditional_title_leaves_its_colour_unsaid() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when dark\n          text \"Sure?\"\n        text \"Delete\"");
-    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
-    let row = &list.sections[0].rows[0];
-    assert!(row.destructive);
-    assert_eq!(row.title.as_deref(), Some("Delete"));
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (red, label, grey, secondary) = (
+        role("-exact-system-red"),
+        role("-exact-label"),
+        role("-exact-tertiary-label"),
+        role("-exact-secondary-label"),
+    );
+    let green = ColorValue::Fixed(Color::parse_hex("#00ff00").unwrap());
+    let mut failures = Vec::new();
+    for (name, row, stack, text, ink, own_subtitle) in [
+        ("destructive", "destructive=true", "", "", red, false),
+        ("ordinary", "", "", "", label, false),
+        ("bound", "destructive=on", "", "", red, false),
+        (
+            "disabled",
+            "destructive=true disabled=true",
+            "",
+            "",
+            grey,
+            false,
+        ),
+        (
+            "row colour",
+            "destructive=true color=\"#00ff00\"",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack colour",
+            "destructive=true",
+            "color=\"#00ff00\"",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text colour",
+            "destructive=true",
+            "",
+            "color=\"#00ff00\"",
+            green,
+            true,
+        ),
+        (
+            "row class",
+            "destructive=true class=Ink",
+            "",
+            "",
+            green,
+            false,
+        ),
+        (
+            "stack class",
+            "destructive=true",
+            "class=Ink",
+            "",
+            green,
+            true,
+        ),
+        (
+            "text class",
+            "destructive=true",
+            "",
+            "class=Ink",
+            green,
+            true,
+        ),
+    ] {
+        let body = format!("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go {row}\n      image \"symbol:person\" testId=\"symbol\"\n      column {stack}\n        when dark\n          text \"Sure?\"\n        text \"Delete\" {text} testId=\"delete\"");
+        let mut r = boot_source(&format!("style Ink\n  color=\"#00ff00\"\n{}", app(&body)));
+        let mut shown = false;
+        for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+            r.act("flip", vec![Value::Bool(on)]).unwrap();
+            if shown != dark {
+                r.act("go", vec![]).unwrap();
+                shown = dark;
+            }
+            let k = r.kernel();
+            let list = k.grouped_list(id(&r, "list")).unwrap();
+            let row = &list.sections[0].rows[0];
+            let want = if dark && !own_subtitle {
+                secondary
+            } else if name == "bound" && !on {
+                label
+            } else {
+                ink
+            };
+            let got = k.node(id(&r, "delete")).unwrap().text_color();
+            println!("{name}, on={on}, dark={dark}: {got:?}, expected {want:?}");
+            if got != want {
+                failures.push(format!("{name}, on={on}, dark={dark}: {got:?} != {want:?}"));
+            }
+            let want_title = if dark { "Sure?" } else { "Delete" };
+            if row.title.as_deref() != Some(want_title) {
+                failures.push(format!("{name}: wrong title {:?}", row.title));
+            }
+            if name == "destructive" && row.title_look.color.is_some() {
+                failures.push(format!(
+                    "sheet colour became authored: {:?}",
+                    row.title_look
+                ));
+            }
+            if k.node(id(&r, "symbol"))
+                .unwrap()
+                .computed_style(StyleMask::ALL)
+                .tint_color
+                != Some(if name == "disabled" {
+                    grey
+                } else if name == "ordinary" || (name == "bound" && !on) {
+                    role("AccentColor")
+                } else {
+                    red
+                })
+            {
+                failures.push(format!("{name}: leading symbol changed"));
+            }
+        }
+    }
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true\n      column\n        when on\n          when dark\n            text \"Sure?\"\n          else\n            text \"Confirm\"\n        text \"Delete\" testId=\"delete\"");
+    let mut shown = false;
+    for (on, dark) in [(true, false), (true, true), (false, true), (false, false)] {
+        r.act("flip", vec![Value::Bool(on)]).unwrap();
+        if shown != dark {
+            r.act("go", vec![]).unwrap();
+            shown = dark;
+        }
+        let got = r.kernel().node(id(&r, "delete")).unwrap().text_color();
+        let want = if on { secondary } else { red };
+        println!("nested, on={on}, dark={dark}: {got:?}, expected {want:?}");
+        if got != want {
+            failures.push(format!("nested, on={on}, dark={dark}: {got:?} != {want:?}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Round 6's event-rsvp (LLP 1116.004 D9): an action that can't be taken is
+/// disabled, and a disabled row looks it everywhere the sheet draws, as
+/// UIKit draws one: the tertiary label's grey in place of its red or its
+/// label colour, bound or not.
+#[test]
+fn a_disabled_row_is_the_tertiary_labels_grey() {
+    // Both are roles since the sheet named its colours (KRN-01; the red
+    // with LLP 1115.000 D3.2, whose table holds iOS 27's measured pair).
+    let role = |name: &str| ColorValue::Role(exact_kernel::style::roles::role(name).unwrap());
+    let (grey, red) = (role("-exact-tertiary-label"), role("-exact-system-red"));
     assert_eq!(
-        row.title_look.color, None,
-        "the sheet's label colour is unsaid"
+        red.fallback(),
+        ColorValue::LightDark(
+            Color::rgba(0xff, 0x38, 0x3c, 255),
+            Color::rgba(0xff, 0x42, 0x45, 255),
+        ),
+        "where no host has the platform's red, the one the sheet drew before"
+    );
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go destructive=true disabled=true testId=\"off\"\n      text \"Delete\"\n    button press=go destructive=true disabled=dark testId=\"bound\"\n      text \"Delete\"\n    button press=go disabled=on testId=\"plain\"\n      text \"Open\"");
+    let colour = |r: &Runner<NoData>, t: &str| r.kernel().node(id(r, t)).unwrap().style.text_color;
+    assert_eq!(colour(&r, "off"), grey);
+    assert_eq!(
+        colour(&r, "bound"),
+        red,
+        "enabled, a destructive row is red"
+    );
+    assert_eq!(colour(&r, "plain"), grey);
+    let bound = id(&r, "bound");
+    r.dispatch(bound, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        colour(&r, "bound"),
+        grey,
+        "disabled once its condition holds"
+    );
+    // The grey, like the red, is the sheet's and so unsaid (LLP 1115.000 D2):
+    // a host that draws the platform's list draws its own disabled row.
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    for row in &list.sections[0].rows {
+        assert_eq!(row.title_look, TextLook::default(), "{:?}", row.title);
+    }
+}
+
+/// LLP 1116.004 D2 (unit-converter, round 6): a text's line feed is what
+/// its `white-space` makes it on the web: a space under `normal`, which
+/// collapses it, and a line break under `pre-line`, which UIKit's footer and
+/// cell then draw as two lines.
+#[test]
+fn a_line_feed_in_a_footer_or_title_follows_its_white_space() {
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1
+  section
+    row
+      text `Title\\nsecond` white-space=\"pre-line\"
+    footer
+      text `1 m = 3.28084 ft\\nResults rounded.`
+  section
+    row
+      text \"Plain\"
+    footer
+      text `1 m = 3.28084 ft  \\n  Results rounded.` white-space=\"pre-line\"
+",
+    );
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].footer.as_deref(),
+        Some("1 m = 3.28084 ft Results rounded."),
+        "normal: one line, as the web draws it"
+    );
+    assert_eq!(
+        list.sections[1].footer.as_deref(),
+        Some("1 m = 3.28084 ft\nResults rounded."),
+        "pre-line: two lines, the spaces around the break gone"
+    );
+    assert_eq!(
+        list.sections[0].rows[0].title.as_deref(),
+        Some("Title\nsecond")
+    );
+}
+
+/// LLP 1116.004 D2 (polls, round 6): the sheet tints a row's leading symbol
+/// and its checkmark with the accent, `AccentColor`, which follows the
+/// nearest `accent-color` as a list cell's image and checkmark follow UIKit's
+/// `tintColor`; it had written iOS 27's blue, so a teal app's checkmark was
+/// blue. The chevron keeps its tertiary grey.
+#[test]
+fn the_sheets_symbol_and_checkmark_take_the_accent() {
+    let r = boot(&SETTINGS.replace("    button press=go testId=\"dark\"\n      text \"Dark\"\n      when dark\n        image \"symbol:checkmark\"",
+        "    button press=go testId=\"dark\"\n      text \"Dark\"\n      image \"symbol:checkmark\" testId=\"check\"\n    row\n      image \"symbol:sf/star\" -exact-tint-color=\"AccentColor\" testId=\"accent\"\n      text \"Accent\""));
+    let k = r.kernel();
+    let tint = |t: &str| {
+        k.node(id(&r, t))
+            .unwrap()
+            .computed_style(StyleMask::ALL)
+            .tint_color
+    };
+    let accent = tint("accent");
+    assert!(accent.is_some());
+    assert_eq!(tint("check"), accent, "the checkmark: the accent");
+    let profile = k.node(id(&r, "profile")).unwrap();
+    let symbol = k.node(profile.children()[0]).unwrap();
+    assert_eq!(
+        symbol.computed_style(StyleMask::ALL).tint_color,
+        accent,
+        "the leading symbol: the accent"
+    );
+    let chevron = k.node(*profile.children().last().unwrap()).unwrap();
+    assert_ne!(
+        chevron.computed_style(StyleMask::ALL).tint_color,
+        accent,
+        "the chevron: grey"
     );
 }

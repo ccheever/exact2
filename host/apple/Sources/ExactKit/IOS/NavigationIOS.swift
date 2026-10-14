@@ -14,11 +14,18 @@ final class RouteController: UIViewController {
     /// lifted into the bar; the content scroll view a hatch was handed.
     var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
     var hatched = false
+    /// Whether a route of its stack is beneath it, to go back to: written
+    /// as the stack's routes are prepared, before UIKit shows any of them
+    /// (`NavigationRules.bar`).
+    var pushed = false
     weak var lifted: NodeView?
+    var barNodes: [NodeView] = []
     weak var host: NavigationHost?
     weak var ownedScroll: NodeView?
     /// The scroller a large title collapses with (LLP 1075.003 Stage 3).
     weak var collapseScroll: NodeView?
+    /// The physical scroller bound to UIKit; a node can replace its backend.
+    var collapseScrollView: UIScrollView?
     /// The scroller that is the route's last in-flow child, which reaches
     /// the screen's bottom edge (LLP 1116 D2).
     weak var edgeScroll: NodeView?
@@ -39,6 +46,13 @@ final class RouteController: UIViewController {
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
+    }
+    // Back on a screen whose list pushed the one leaving: the row that was
+    // tapped fades with the transition (LLP 1115.000 D11.3).
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        host?.presenter.groupedLists?.appearing(node, alongside: animated ? transitionCoordinator : nil)
+        host?.presenter.rowCells.appearing(node, alongside: animated ? transitionCoordinator : nil)
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
@@ -150,6 +164,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// How many routes the selected stack declared at the last projection.
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
+    var tablistAppearanceNone = false
+    /// Where the authored tablist was when its covers were last measured.
+    var measuredTablist: CGRect?
     /// The root whose tablist last decided the bar, and whether Exact hid the
     /// bar for a root's hidden tablist (LLP 1075.003 §3.7, amended).
     weak var tablistRoot: RouteController?
@@ -163,6 +180,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
     /// whether its press navigated.
     var unanimated = false
+    /// Whether a reselected tab's scroll to the top (`scrollToTop`) is
+    /// UIKit's animated one: not under the agent's frozen clock, nor in a
+    /// unit test, whose host never moved an animated offset when measured.
+    var scrollsToTopAnimated = !ExactEnv.agentFreezes
     var activeKey: String? { container?.props["navigationKey"] }
     /// While a push or pop runs: paints what each frame newly reveals.
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
@@ -171,6 +192,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     var stacks: [ObjectIdentifier: NavigationStack] = [:]
     var stackCount = 0
     var covers: [UInt32: HostCover] = [:]
+    /// The covers the kernel was last told (`deliverCovers`).
+    var delivered: [UInt32: HostCover] = [:]
     var ownedReported: Set<String> = []
     var replayingHatches = false
     private var coversPending = false
@@ -196,6 +219,15 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The root key last journaled as matching no route, so a refusal is one
     /// line, not one per batch (LLP 1035.001 D6).
     private var refusedKey: String?
+    /// The keys of the stack last shown, through its selected route, and the
+    /// route selected in the root's place while its key matches none (D1).
+    private var shownKeys: [String] = [], fallbackKey: String?
+    /// The key of the selected route: the root's, or while the root's
+    /// matches no route, the route left selected of the stack last shown.
+    var selectedKey: String? {
+        guard let key = container?.props["navigationKey"] else { return nil }
+        return key == refusedKey ? fallbackKey ?? key : key
+    }
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -291,18 +323,25 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return nil
         }
         // D1: the stack is the prefix through the route the root names; a
-        // key that names none leaves the stack alone, and says so once.
+        // key that names none leaves the stack alone, less the routes that
+        // left the tree (a closed sheet's), and says so once.
         let rootKey = root.props["navigationKey"] ?? ""
         let keys = { (routes: [NodeView]) in routes.map { $0.props["navigationKey"] ?? "" } }
-        guard let at = stacks.firstIndex(where: { NavigationRules.stack(routeKeys: keys($0), selected: rootKey) != nil }),
-              let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: rootKey) else {
+        var selecting = rootKey
+        if !stacks.contains(where: { keys($0).contains(rootKey) }) {
             if refusedKey != rootKey {
                 refusedKey = rootKey
                 presenter.session?.log("navigationKey \"\(rootKey)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
             }
-            return nil
+            guard let survivor = NavigationRules.survivor(of: shownKeys, declared: stacks.map(keys)) else { fallbackKey = nil; return nil }
+            selecting = survivor
+        } else {
+            refusedKey = nil
         }
-        refusedKey = nil
+        fallbackKey = selecting == rootKey ? nil : selecting
+        guard let at = stacks.firstIndex(where: { NavigationRules.stack(routeKeys: keys($0), selected: selecting) != nil }),
+              let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: selecting) else { return nil }
+        shownKeys = Array(keys(stacks[at])[range])
         selectedRouteCount = stacks[at].count
         let wanted = stacks.enumerated().map { index, routes in
             (index == at ? Array(routes[range]) : routes).map { node -> RouteController in
@@ -493,6 +532,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// route hatch hears `routeEnded` (LLP 1075.003 §3.2).
     private func end(_ c: RouteController) {
         if let header = c.lifted { header.isHidden = false; c.lifted = nil }
+        for node in c.barNodes { node.isHidden = false }
+        c.barNodes = []
         guard c.hatched else { return }
         c.hatched = false
         presenter.session?.natives.routeHatch(.ended, controller: c, navigation: nil, scroll: nil, key: c.key, dataset: c.node.props["dataset"])
@@ -645,12 +686,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     func invokeBack(from source: NodeView) {
         guard presenter.session?.view?.window != nil,
               presenter.views[source.id] === source, routeIDs.contains(source.id),
-              source.props["navigationKey"] == container?.props["navigationKey"] else { return }
+              source.props["navigationKey"] == selectedKey else { return }
         goBack()
     }
 
     /// Whether the platform's Back goes from the selected route (LLP 1115 D5).
     var canInvokeBack: Bool { back != nil }
+
+    /// The agent's `back` from a pushed route (LLP 1116.006 D4): UIKit's
+    /// Back button, ending where its pop ends (`goBack`), as tvOS's Menu
+    /// does. nil when the stack in front has nothing beneath its top (a
+    /// sheet's own root is the sheet's); "" when it went, else why not.
+    func agentBack() -> String? {
+        guard (navigation?.viewControllers.count ?? 0) > 1 else { return nil }
+        guard back != nil else { return backRefusal }
+        goBack()
+        return ""
+    }
 
     /// The platform's Back, completed: the authored control pressed, else
     /// the root's `navigate` with the location beneath (LLP 1115 D5).
@@ -684,7 +736,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func isInactiveRoute(containing view: UIView) -> Bool {
-        guard let selected = container?.props["navigationKey"],
+        guard let selected = selectedKey,
               let key = routeKey(containing: view) else { return false }
         return key != selected
     }
@@ -699,7 +751,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     private var selectedRoute: NodeView? {
-        guard let key = container?.props["navigationKey"] else { return nil }
+        guard let key = selectedKey else { return nil }
         return routeIDs.compactMap({ presenter.views[$0] }).first(where: { $0.props["navigationKey"] == key })
     }
 
@@ -921,8 +973,17 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // its tablist (§3.7).
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
+                // An animated transition's coordinator is still the stack's
+                // in `didShow`, where a large title's insets are not sampled
+                // (`reportCovers`): the route that arrived expanded has its
+                // expanded inset, CSS scrollTop 0, from this turn on.
+                self?.coversChanged()
             }
-            // At rest: a large title's insets are sampled now (§9.10).
+            // At rest: a large title's insets are sampled now (§9.10). A
+            // stack's first screen was given its scroller before it had a
+            // window, and UIKit showed its large title collapsed: still at
+            // its start, it opens as a new screen does (`restAtStart`).
+            if let route = viewController as? RouteController { restAtStart(route) }
             coversChanged()
             #if os(iOS)
             presenter.resolveStatusBar(settled: true)
@@ -938,7 +999,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // UIKit's own back button (a shown bar, LLP 1075.003 §3.7) pops with
         // no gesture: the route the root names has left the native stack,
         // which Exact never does itself. It is a completed pop from that route.
-        let rootKey = container?.props["navigationKey"] ?? ""
+        let rootKey = selectedKey ?? ""
         // A modal route is the root of its own presented stack, which no bar
         // pops: one not presented yet (a sheet over a sheet that waits for the
         // one under it, both pushed at once) is not this stack's popped route.
@@ -974,9 +1035,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         for c in controllers.values { end(c) }
         retireTabs()
         if let primaryNavigation { retireStack(primaryNavigation) }
-        if !covers.isEmpty {
-            let cleared = covers.keys.filter { presenter.views[$0] != nil }
+        if !covers.isEmpty || !delivered.isEmpty {
+            let cleared = Set(covers.keys).union(delivered.keys).filter { presenter.views[$0] != nil }
             covers = [:]
+            delivered = [:]
             if !cleared.isEmpty { presenter.onCovers?(cleared.map { ($0, nil) }) }
         }
         primaryNavigation?.delegate = nil
@@ -986,6 +1048,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         primaryNavigation = nil
         container = nil
         logicalChildren = [:]
+        shownKeys = []; fallbackKey = nil
         refitForBars()
         controllers.removeAll()
         routeIDs = []

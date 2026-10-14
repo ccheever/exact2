@@ -4,8 +4,9 @@
 // bound to the thread: CalendarClock with its status dot (never muted, running sky and
 // pulsing, succeeded emerald, failed destructive; static under reduced motion), the title and
 // the schedule line, then Edit, Run now and the Pause / Resume switch. Rows use the panel's
-// row content inset (11pt) and its 16pt muted glyph; the icon buttons are icon-xs (24pt).
+// row content inset (11pt) and its 16pt muted glyph; the icon buttons are icon-xs (24pt), each with its TooltipPopup.
 use SettingsSwitch from "./settings-kit.contract"
+use hoverTipAtFrame from "./hover-layer.contract"
 
 shape AutomationRowView
   id: string
@@ -39,19 +40,37 @@ component AutomationGlyph
     svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d=geometry
 
-// ThreadDetailsControl size="icon-xs" variant="ghost": 24pt, 8pt radius, hover fill.
+// ThreadDetailsControl size="icon-xs" variant="ghost": 24pt, 8pt radius, hover fill. Its Tooltip (side top, Base UI's 600 ms,
+// no provider) is drawn by the window's hover layer (hover-layer.contract, kind "tooltip"), as the reference portals every
+// TooltipPopup, so the details panel's scroll never cuts it; pointer hover or keyboard focus shows it (scheduled-tasks-followups
+// ST-3). Agent mode hovers it with `tap <testKey> hover`; the popup's test id is `<testKey>-tooltip`. `align` is where Base UI's
+// collision shift lands it: the layer has no shift (X17, #112), and "Manage scheduled tasks", centred over the heading's
+// button at the panel's right edge, ran past the window (the ST-3 drive), so it ends at the button's right edge. A press
+// closes the tooltip, or stops one still waiting for its delay, as TooltipTrigger's closeOnClick (true by default) does; it
+// shows again when the pointer next enters, so Edit's and Manage's never linger over the Settings page they open.
 component AutomationButton
+  inject
+    rem: number
+    hoverTipAt: action
   props
     icon: string
     label: string
+    tip: string
+    align: string
     disabled: bool
     testKey: string
     press: action
   state hovered = false
+  action show(on: bool)
+    hoverTipAt(hoverTipAtFrame(testKey, "tooltip", tip, [], "top", align, frame(testKey), (floor(length(tip) / 48) + 1) * rem + 0.625 * rem, `${testKey}-tooltip`), "trigger", on)
   action hover(over: bool)
     hovered = over
+    show(over)
+  action pressed
+    show(false)
+    press()
   view
-    button press=press hover=hover disabled=disabled aria-label=label testId=testKey width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color=(hovered and not disabled ? "light-dark(#0000000e, #ffffff13)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+    button id=testKey press=pressed hover=hover focus=show(true) blur=show(false) disabled=disabled aria-label=label testId=testKey width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-width=0 border-radius="0.5rem" background-color=(hovered and not disabled ? "light-dark(#0000000e, #ffffff13)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
       AutomationGlyph(name=icon, size=14, color="light-dark(#71717b, #818181)")
 
 component ThreadAutomationsSection
@@ -63,7 +82,7 @@ component ThreadAutomationsSection
     column width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7a6, #ffffff10)" role="region" aria-label="Automations" testId="details-automations"
       row min-height="2rem" margin-bottom="0.25rem" padding-left="0.375rem" padding-right="0.125rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.25rem"
         text "Automations" flex=1 min-width=0 font-size="0.6875rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)" role="heading" aria-level=3 testId="details-automations-title"
-        AutomationButton(icon="settings-2", label="Manage scheduled tasks", disabled=false, testKey="details-automations-manage", press=act("ui:scheduled-tasks", "", automations.environmentId))
+        AutomationButton(icon="settings-2", label="Manage scheduled tasks", tip="Manage scheduled tasks", align="end", disabled=false, testKey="details-automations-manage", press=act("ui:scheduled-tasks", "", automations.environmentId))
       when automations.error != ""
         text automations.error padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="details-automations-error"
       column width="100%" role="list"
@@ -75,6 +94,6 @@ component ThreadAutomationsSection
             column flex=1 min-width=0 gap=0
               text task.title white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId=`details-automation-title-${task.id}`
               text task.line white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b, #818181)" testId=`details-automation-line-${task.id}`
-            AutomationButton(icon="pencil", label=task.editLabel, disabled=false, testKey=`details-automation-edit-${task.id}`, press=act("ui:scheduled-tasks", task.id, automations.environmentId))
-            AutomationButton(icon="play", label=task.runLabel, disabled=task.runDisabled, testKey=`details-automation-run-${task.id}`, press=act("shell:automation-run", task.id, automations.environmentId))
+            AutomationButton(icon="pencil", label=task.editLabel, tip="Edit automation", align="center", disabled=false, testKey=`details-automation-edit-${task.id}`, press=act("ui:scheduled-tasks", task.id, automations.environmentId))
+            AutomationButton(icon="play", label=task.runLabel, tip="Run now", align="center", disabled=task.runDisabled, testKey=`details-automation-run-${task.id}`, press=act("shell:automation-run", task.id, automations.environmentId))
             SettingsSwitch(checked=task.enabled, label=task.switchLabel, disabled=task.switchDisabled, switchId=`details-automation-switch-${task.id}`, toggle=act("shell:automation-toggle", task.id, `${automations.environmentId}|${task.enabled ? "false" : "true"}`))

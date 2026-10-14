@@ -233,7 +233,7 @@ final class ElementHatches {
         for entry in nodes.values where entry.told {
             let node = entry.node
             var changed: [String] = []
-            if let sv = node.scroll { changed += NavigationHost.ownedChanges(sv, of: node, insetByUIKit: node.scrollOrigin > 0 || presenter.navigation.insetByUIKit(node)) }
+            if let sv = node.scrollView { changed += NavigationHost.ownedChanges(sv, of: node, insetByUIKit: node.scrollOrigin > 0 || presenter.navigation.insetByUIKit(node)) }
             if let field = node.field, field.delegate !== node { changed.append("the text field's delegate") }
             if let text = node.textArea, text.delegate !== node { changed.append("the text view's delegate") }
             for property in changed {
@@ -250,7 +250,7 @@ final class ElementHatches {
     /// a control (a switch, slider, date picker…), a web view, a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
         #if os(iOS) || os(tvOS)
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scrollView
         #else
         node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.scroll
         #endif
@@ -355,7 +355,16 @@ final class ElementHatches {
                 t.replaceCharacters(in: NSRange(location: 0, length: (t.string as NSString).length), with: value)
             }
             #endif
-            self.presenter.typed(id, value, input: node.handlers.contains("input"))
+            // The app is told whatever the hatch wrote, and that is the text it knows from here.
+            node.toldText = value
+            if FieldSelections.tracks(node) {
+                let end = value.utf16.count, selection = FieldSelection(start: end, end: end)
+                self.presenter.fieldSelections.set(node, selection, notify: false)
+                self.presenter.typed(id, value, input: false)
+                self.presenter.fieldSelections.replacementInput(node, value, selection)
+            } else {
+                self.presenter.typed(id, value, input: node.handlers.contains("input"))
+            }
             self.said(id, "input (\(node.props["type"] == "password" ? "protected" : "\(value.count) chars"), delivery: hatch)")
         }
     }

@@ -269,6 +269,9 @@ impl<D: DataSource> Presenter<D> {
                 // live C and not B's older scroll intent. If the clamp changes
                 // an offset, B's pixels need a correction even with no live C.
                 self.dirty |= self.clamp_scroll();
+                // A keyboard rose under the field being edited before this
+                // picture: these are the boxes that show where it left it.
+                self.reveal_owed();
                 if self.host.content_region().is_some() {
                     let before = self.host.content_region().unwrap().publication_painted();
                     self.last_region_frame = Some(frame.pixels.clone());

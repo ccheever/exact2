@@ -114,7 +114,7 @@ impl Painter {
     ) {
         let s = node.style;
         let width = s.column_rule_width;
-        if s.column_rule_style != exact_kernel::BorderStyle::Solid || width <= 0.0 {
+        if s.column_rule_style != exact_kernel::ColumnRuleStyle::Solid || width <= 0.0 {
             return;
         }
         let Some(columns) = kernel.columns(node.key) else {

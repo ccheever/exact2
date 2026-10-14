@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
 import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
-import { markdownLinkHref, markdownMediaChips } from './media-views'; // media-actions: a message's image lines and their actions
+import { markdownLinkHref, markdownMediaChips, type MediaScope } from './media-views'; // media-actions: a message's images and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -53,8 +53,8 @@ export function fileLinkTarget(href: string, root: string): string {
   return parts.join('/') || '/';
 }
 
-/** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run). */
-export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''): ChipView[] {
+/** Every chip a message's Markdown draws, by the href its run keeps (markdown.rs chat_run); `media`: where its media resolve. */
+export function messageChips(item: Obj, root: string, threads: Obj[], owner = '', media: MediaScope = {}): ChipView[] {
   const text = str(item.text), chips: ChipView[] = [];
   const records = new Map(arr(obj(item.context).records).map(record => [str(record.contextId), record]));
   const attachments = new Map(arr(item.attachments).map(attachment => [str(attachment.id), attachment]));
@@ -72,8 +72,8 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
     if (match[1] || !markdownLinkHref(href).startsWith('t3-file:')) continue;
     add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
   }
-  // media-actions: an image line's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
-  for (const media of markdownMediaChips(text, root)) chips.push({ id: `chip-${chips.length}`, ...media, owner });
+  // media-actions: an image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
+  for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
   return chips;
 }
 

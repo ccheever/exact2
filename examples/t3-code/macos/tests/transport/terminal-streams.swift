@@ -193,7 +193,7 @@ final class TerminalStreamTests: XCTestCase {
         let sessions = T3TerminalSessions(transport: transport)
         let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         defer { view.destroy() }
-        _ = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "/repo", worktreePath: "", env: [:], providerInstance: "codex-custom")
+        _ = sessions.bind(view, environment: "fixture", thread: "thread-1", terminal: "term-1", cwd: "/repo", worktreePath: "", env: [:], providerInstance: "codex-custom")
         XCTAssertTrue(until(2) { socket.requests("terminal.attach").count == 1 })
         XCTAssertEqual((socket.requests("terminal.attach").first?["payload"] as? [String: Any])?["providerInstanceId"] as? String, "codex-custom")
         socket.dropAll()
@@ -209,7 +209,7 @@ final class TerminalStreamTests: XCTestCase {
         let oldView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         let newView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
         defer { oldView.destroy(); newView.destroy() }
-        let old = sessions.bind(oldView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        let old = sessions.bind(oldView, environment: "fixture", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
         XCTAssertTrue(until(2) { old.streamId != nil })
         let id = try XCTUnwrap(old.streamId)
         sessions.retain([old.key]); sessions.unbind(oldView, from: old)
@@ -222,7 +222,7 @@ final class TerminalStreamTests: XCTestCase {
             stream.ended(T3Failure(kind: "OldStream", message: "old lifetime failed"), false)
         }
         sessions.retain([])
-        let replacement = sessions.bind(newView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        let replacement = sessions.bind(newView, environment: "fixture", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
         XCTAssertFalse(replacement === old)
         XCTAssertTrue(until(2) { replacement.streamId != nil })
         XCTAssertEqual(replacement.version, 0)
@@ -237,16 +237,17 @@ final class TerminalStreamTests: XCTestCase {
         socket.answer = { _ in [] }
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
+        XCTAssertTrue(until(2) { sessions.reaching("fixture") === transport })
         let oldView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         let newView = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
         defer { oldView.destroy(); newView.destroy() }
-        let old = sessions.bind(oldView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        let old = sessions.bind(oldView, environment: "fixture", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
         sessions.resize(old, cols: 100, rows: 30)
         XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 1 })
         let held = try XCTUnwrap(socket.requests("terminal.resize").first?["id"])
         sessions.resize(old, cols: 120, rows: 40)
         sessions.retain([old.key]); sessions.unbind(oldView, from: old); sessions.retain([])
-        let replacement = sessions.bind(newView, environment: "env-a", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
+        let replacement = sessions.bind(newView, environment: "fixture", thread: "thread-1", terminal: "term-5", cwd: "/repo", worktreePath: "", env: [:])
         XCTAssertFalse(old === replacement)
         sessions.resize(replacement, cols: 80, rows: 24)
         XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 2 })
@@ -266,7 +267,7 @@ final class TerminalStreamTests: XCTestCase {
         let sessions = T3TerminalSessions(transport: transport)
         let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         defer { view.destroy() }
-        let session = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
+        let session = sessions.bind(view, environment: "fixture", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
         sessions.resize(session, cols: 120, rows: 40)
         // A queue barrier ensures the disconnected RPC answered; then drain its main-queue callback.
         _ = perform(transport, ["op": "status"])
@@ -274,6 +275,7 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(session.lastSize.cols, 0, "a refused grid must not be recorded as applied")
         let opened = perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
         XCTAssertEqual(opened["ok"] as? Bool, true)
+        XCTAssertTrue(until(2) { sessions.reaching("fixture") === transport })
         // Deliver the attach snapshot through the production reducer, without another resize event.
         sessions.apply(["type": "snapshot", "snapshot": ["history": "", "status": "running"]], to: session)
         XCTAssertTrue(until(2) { session.lastSize.cols == 120 && session.lastSize.rows == 40 })
@@ -290,9 +292,10 @@ final class TerminalStreamTests: XCTestCase {
         socket.answer = { _ in [] } // Hold each resize until the test releases its reply.
         let transport = connected(socket); defer { transport.destroy() }
         let sessions = T3TerminalSessions(transport: transport)
+        XCTAssertTrue(until(2) { sessions.reaching("fixture") === transport })
         let view = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
         defer { view.destroy() }
-        let session = sessions.bind(view, environment: "env-a", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
+        let session = sessions.bind(view, environment: "fixture", thread: "thread-1", terminal: "term-1", cwd: "", worktreePath: "", env: [:])
         sessions.resize(session, cols: 100, rows: 30)
         XCTAssertTrue(until(2) { socket.requests("terminal.resize").count == 1 })
         let failed = try XCTUnwrap(socket.requests("terminal.resize").first?["id"])
@@ -312,5 +315,81 @@ final class TerminalStreamTests: XCTestCase {
         socket.send(["_tag": "Exit", "requestId": latest["id"]!, "exit": ["_tag": "Success", "value": [:]]])
         XCTAssertTrue(until(2) { session.lastSize.cols == 120 && session.lastSize.rows == 40 })
         XCTAssertEqual(socket.requests("terminal.resize").count, 3)
+    }
+
+    /// Task terminal-drawer-unthreaded: a session goes to its own environment's server, as the reference's terminal
+    /// commands take the thread's `environmentId`. Two loopback servers are environments A and B; the focused
+    /// transport reaches A, then B (the clone opens B's thread by moving the focus there), and each environment's
+    /// background transport carries its sessions while another is the focus. A session is never attached, written
+    /// or resized on another environment's server.
+    func testSessionsGoToTheirOwnEnvironmentsServerAcrossAFocusChange() throws {
+        let a = try R3Socket(), b = try R3Socket()
+        a.answer = { request in request["tag"] as? String == "terminal.attach" ? [] : [["_tag": "Exit", "requestId": request["id"]!, "exit": ["_tag": "Success", "value": [:]]]] }
+        b.answer = a.answer
+        let portA = Int(a.port)
+        R3HTTP.reset { request in
+            let environment = request.url?.port == portA ? "env-a" : "env-b"
+            switch request.url!.path {
+            case "/.well-known/t3/environment": return (200, ["environmentId": environment, "label": environment, "orchestrationProtocolVersion": 2, "capabilities": ["connectionProbe": true]])
+            case "/oauth/token": return (200, ["access_token": "fixture-access", "token_type": "Bearer"])
+            case "/api/auth/session": return (200, ["authenticated": true, "scopes": ["orchestration:read", "orchestration:operate", "terminal:operate"]])
+            case "/api/auth/websocket-ticket": return (200, ["ticket": "fixture-ticket"])
+            default: return (404, [:])
+            }
+        }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [R3HTTP.self]
+        let make = { T3Transport(persistent: false, configuration: config, random: { 0 }, signals: false, changed: { _ in }) }
+        let connect = { (transport: T3Transport, socket: R3Socket) in
+            let opened = self.perform(transport, ["op": "connect", "origin": "http://127.0.0.1:\(socket.port)", "credential": "pairing"])
+            XCTAssertEqual((opened["value"] as? [String: Any])?["state"] as? String, "connected", "\(opened)")
+        }
+        let threads = { (socket: R3Socket, method: String) in socket.requests(method).compactMap { ($0["payload"] as? [String: Any])?["threadId"] as? String } }
+        let focused = make(), backgroundB = make(), backgroundA = make()
+        defer { focused.destroy(); backgroundB.destroy(); backgroundA.destroy() }
+        connect(focused, a)
+        let sessions = T3TerminalSessions(transport: focused)
+        let via = { (session: T3TerminalSession) in sessions.status.first { $0["key"] as? String == session.key }?["via"] as? String }
+        XCTAssertTrue(until(2) { sessions.reaching("env-a") === focused })
+        let viewA = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 1), agent: true)
+        let viewB = T3TerminalView(props: [:], events: ExactNativeEvents(fn: { _, _, _, _, _ in }, ctx: nil, nonce: 2), agent: true)
+        defer { viewA.destroy(); viewB.destroy() }
+        let sessionA = sessions.bind(viewA, environment: "env-a", thread: "a-1", terminal: "term-1", cwd: "/a", worktreePath: "", env: [:])
+        let sessionB = sessions.bind(viewB, environment: "env-b", thread: "b-1", terminal: "term-1", cwd: "/b", worktreePath: "", env: [:])
+        XCTAssertTrue(until(2) { sessionA.streamId != nil })
+        wait(0.3)
+        XCTAssertEqual(threads(a, "terminal.attach"), ["a-1"], "B's terminal is never started on A's server")
+        XCTAssertNil(sessionB.streamId, "B's terminal waits for B's server")
+        sessions.write("pwd\r", to: sessionB, from: viewB)
+        XCTAssertEqual(sessionB.writeFailures, 1)
+        XCTAssertTrue(threads(a, "terminal.write").isEmpty)
+        // B is a background environment: its own transport carries its terminal.
+        sessions.observe(backgroundB)
+        connect(backgroundB, b)
+        XCTAssertTrue(until(3) { threads(b, "terminal.attach") == ["b-1"] }, "\(threads(b, "terminal.attach"))")
+        XCTAssertTrue(until(2) { sessionB.streamId != nil })
+        sessions.write("echo b\r", to: sessionB, from: viewB)
+        sessions.resize(sessionB, cols: 90, rows: 20)
+        XCTAssertTrue(until(2) { threads(b, "terminal.write") == ["b-1"] && threads(b, "terminal.resize") == ["b-1"] })
+        XCTAssertTrue(threads(a, "terminal.write").isEmpty && threads(a, "terminal.resize").isEmpty)
+        // The focus moves to B (settings-b-fleet.ts focusFleetThread: B's background transport stops, the focused one reconnects there).
+        backgroundB.destroy()
+        connect(focused, b)
+        XCTAssertTrue(until(3) { threads(b, "terminal.attach") == ["b-1", "b-1"] }, "\(threads(b, "terminal.attach"))")
+        XCTAssertTrue(until(2) { sessions.reaching("env-b") === focused && sessionB.streamId != nil })
+        wait(0.3)
+        XCTAssertFalse(threads(b, "terminal.attach").contains("a-1"), "A's terminal is never started on B's server")
+        XCTAssertNil(sessionA.streamId, "A's terminal waits for A's server")
+        XCTAssertEqual(via(sessionA), "", "A's ended stream is not reported on the transport it was opened on")
+        XCTAssertEqual(via(sessionB), "focused")
+        // A is now a background environment: its terminal attaches there again.
+        sessions.observe(backgroundA)
+        connect(backgroundA, a)
+        XCTAssertTrue(until(3) { threads(a, "terminal.attach") == ["a-1", "a-1"] }, "\(threads(a, "terminal.attach"))")
+        XCTAssertTrue(until(2) { sessionA.streamId != nil && sessions.reaching("env-a") === backgroundA })
+        sessions.write("echo a\r", to: sessionA, from: viewA)
+        XCTAssertTrue(until(2) { threads(a, "terminal.write") == ["a-1"] })
+        XCTAssertFalse(threads(b, "terminal.write").contains("a-1"))
+        XCTAssertEqual(sessions.status.map { $0["via"] as? String ?? "" }.sorted(), ["background", "focused"])
     }
 }

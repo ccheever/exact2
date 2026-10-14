@@ -107,9 +107,11 @@ fn a_progress_with_a_value_is_htmls_progress_element() {
     }
     let css = super::host_css_of(&facts, None, String::new(), "progress");
     assert!(!css.contains("contain"), "the browser's box: {css}");
-    // The page draws its bar (LLP 1116.003; tests/document.test.mjs).
+    // The page draws its bar (LLP 1116.003; tests/document.test.mjs), and
+    // gives the element the intrinsic size the kernel measures, `10em` by
+    // `1em`, and no automatic minimum (LLP 1115.000 D10.2).
     assert!(include_str!("../index.html").contains(
-        "progress { display: block; appearance: none; border: none; background: none; }"
+        "progress { display: block; appearance: none; border: none; background: none; contain: size; contain-intrinsic-size: 10em 1em; min-width: 0; }"
     ));
 }
 
@@ -212,6 +214,39 @@ fn a_date_or_time_control_takes_the_field_look_unless_the_author_has_it() {
     assert!(include_str!("../index.html").contains("input[data-exact-field]"));
 }
 
+/// LLP 1116.007 D4: a text field whose appearance is `textfield` is still the
+/// platform's field (`data-native`) and is marked for the page to take a
+/// number input's spin buttons off; `auto` and `none` are not.
+#[test]
+fn a_textfield_appearance_is_native_and_marked_for_the_page() {
+    let marks = |appearance| {
+        let style = StyleProps {
+            appearance,
+            ..StyleProps::default()
+        };
+        let mut props = PropList::default();
+        props.set(PropId::Type, PropValue::Str("number".into()));
+        let out = super::props_of(&NodeFacts {
+            id: 1,
+            node_type: NodeType::TextInput,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        });
+        (
+            out.contains_key("data-native"),
+            out.contains_key("data-exact-textfield"),
+        )
+    };
+    use exact_kernel::Appearance::{Auto, None, Textfield};
+    assert_eq!(marks(Auto), (true, false));
+    assert_eq!(marks(Textfield), (true, true));
+    assert_eq!(marks(None), (false, false));
+    assert!(include_str!("../index.html")
+        .contains("input[data-exact-textfield]::-webkit-inner-spin-button"));
+}
+
 /// A link to an absolute URL opens outside the app, as natively, unless
 /// its `target` is authored; a path stays (chat F11, hn-reader F3).
 #[test]
@@ -297,6 +332,18 @@ fn every_data_name_the_host_writes_is_a_reserved_word() {
         unreserved.is_empty(),
         "not reserved in contract/lower/src/dataset.rs: {unreserved:?}"
     );
+}
+
+#[test]
+fn menu_hints_write_no_dom_attributes() {
+    for (kind, prop, value) in [
+        (NodeType::Pressable, PropId::MenuPlacement, "help"),
+        (NodeType::View, PropId::MenuRemove, "close-all"),
+    ] {
+        let out = written(kind, prop, PropValue::Str(value.into()));
+        assert!(out.get("data-menuplacement").is_none());
+        assert!(out.get("data-menuremove").is_none());
+    }
 }
 
 #[test]

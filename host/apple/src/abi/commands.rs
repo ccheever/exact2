@@ -11,6 +11,22 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// Register the presenter's inline geometry, kept across plan replacements.
+    pub fn set_inline_geometry(
+        &mut self,
+        read: Option<crate::geometry::InlineFrameFn>,
+        ctx: *mut std::ffi::c_void,
+    ) {
+        self.inline_geometry = read.map(|read| {
+            std::rc::Rc::new(crate::geometry::InlineGeometry { read, ctx })
+                as std::rc::Rc<dyn exact_runner::geometry::InlineGeometry>
+        });
+        if let Some(host) = self.host.as_mut() {
+            host.runner_mut()
+                .set_inline_geometry(self.inline_geometry.clone());
+        }
+    }
+
     /// `exact_route_matches`: whether the location in the input buffer names
     /// a pattern the plan's route table declares (LLP 1038 §7) — a link to
     /// it is followed in the app, as the web's same-document link is; any
@@ -43,6 +59,18 @@ impl<D: DataSource> Bridge<D> {
     pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
         if let Some(h) = self.host.as_mut() {
             h.runner_mut().scrolled((!page).then_some(view), left, top);
+            if !h.runner_mut().intersect_due().is_empty() {
+                if let Some(executor) = self.executor.as_deref() {
+                    executor.notify();
+                }
+            }
+        }
+    }
+
+    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().top_layer_frames(frames);
         }
     }
 
@@ -53,9 +81,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// A host this bridge boots: its Canvas 2D text measurer (LLP 1056 D8)
-    /// and where its draws run (LLP 1072 §8.5).
-    pub(super) fn canvas_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
+    /// A host this bridge boots: inline geometry, Canvas 2D text measurement
+    /// (LLP 1056 D8), and where its draws run (LLP 1072 §8.5).
+    pub(super) fn presenter_hooks(&self, host: &mut crate::host::Host<D>, hooks: &super::Hooks) {
+        host.runner_mut()
+            .set_inline_geometry(self.inline_geometry.clone());
         if let Some(f) = hooks.canvas_text {
             host.set_canvas_text(f, hooks.ctx);
         }
@@ -164,7 +194,8 @@ impl<D: DataSource> Bridge<D> {
     /// "ios","iosBefore26","macos","known"}` — `button` false (and the rest
     /// empty) for a node that is not a button, the symbol as the platform
     /// names it, the style's row of the `buttonStyles` table (`bordered` for a
-    /// name not in it). Not a batch: nothing changes.
+    /// name not in it); with no `buttonStyle` written, `"style":null` and no
+    /// platform column (`button::face_json`). Not a batch: nothing changes.
     pub fn press_face(&mut self, view: u32) -> u32 {
         let json = self.host.as_ref().map_or_else(
             || "{\"button\":false}".into(),
@@ -174,8 +205,7 @@ impl<D: DataSource> Bridge<D> {
                 let rows = kernel.button_face_style(view);
                 let style = kernel
                     .node(view)
-                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle))
-                    .unwrap_or("bordered");
+                    .and_then(|n| n.props.str(exact_kernel::PropId::ButtonStyle));
                 crate::button::face_json(face.as_ref(), rows.as_ref(), style)
             },
         );
@@ -244,17 +274,55 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
+    /// A navigation root's tabs (`exact_root_tabs`; `Kernel::root_tabs`, LLP
+    /// 1115.001 D11), as JSON in the output buffer: `{"tablist":view,
+    /// "tabs":[view...],"panels":[view...],"unsaid":bool}`, the tabs that
+    /// name a panel and those panels in tab order, or `null` for a root with
+    /// one stack. `unsaid`: the app left the bar's placement unsaid, by the
+    /// web's rule for its own sidebar (`host/web/navigation.js` `unsaidBar`,
+    /// LLP 1116.004 D1.1): the tablist is a direct child of the root, not
+    /// vertical, in flow in the root's flex column, and itself a row. It is
+    /// read here because the layout rows it asks of never cross to the
+    /// presenter (`style::presenter_ignores`). Not a batch: nothing changes.
+    pub fn root_tabs(&mut self, view: u32) -> u32 {
+        use exact_kernel::{Display, FlexDirection, PositionType, PropId};
+        let list = |ids: &[u32]| ids.iter().map(u32::to_string).collect::<Vec<_>>().join(",");
+        let json = self.host.as_ref().and_then(|h| {
+            let kernel = h.runner().kernel();
+            let tabs = kernel.root_tabs(view)?;
+            let (root, bar) = (kernel.node(view)?, kernel.node(tabs.tablist)?);
+            let column = |d| matches!(d, FlexDirection::Column | FlexDirection::ColumnReverse);
+            let unsaid = root.children().contains(&tabs.tablist)
+                && bar.props.str(PropId::AccessibilityOrientation) != Some("vertical")
+                && root.style.display == Display::Flex
+                && column(root.style.flex_direction)
+                && matches!(
+                    bar.style.position_type,
+                    PositionType::Static | PositionType::Relative
+                )
+                && !column(bar.style.flex_direction);
+            Some(format!(
+                "{{\"tablist\":{},\"tabs\":[{}],\"panels\":[{}],\"unsaid\":{unsaid}}}",
+                tabs.tablist,
+                list(&tabs.tabs),
+                list(&tabs.panels)
+            ))
+        });
+        self.output = json.unwrap_or_else(|| "null".into()).into_bytes();
+        self.output.len() as u32
+    }
+
     /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","headerLook","footerLook","card","spaceAbove","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",
-    /// "destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
+    /// "checked","destructive","disabled","titleLook","secondaryLook"}]}],"spaceBelow"}`,
     /// `null` for a node that is not one. A look is `{"lines","ellipsis",
     /// "color","font"}`: a colour row's wire form and `{"size","weight",
     /// "italic","family","numeric"}`, each `null` where the author said nothing.
-    /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle` or
-    /// `detail`; `target` the toggle's control or the detail's button. Not
-    /// a batch: nothing changes.
+    /// `accessory` is `none`, `disclosure`, `checkmark`, `toggle`, `detail`
+    /// or `radio`; `target` the toggle's control, the detail's button or the
+    /// radio, whose bound state is `checked`. Not a batch: nothing changes.
     pub fn grouped_list(&mut self, view: u32) -> u32 {
         use exact_kernel::Accessory;
         let quote = exact_runner::agent::quote;
@@ -320,15 +388,16 @@ impl<D: DataSource> Bridge<D> {
                         opt(&r.title, &mut json);
                         json.push_str(",\"secondary\":");
                         opt(&r.secondary, &mut json);
-                        let (accessory, target) = match r.accessory {
-                            Accessory::None => ("none", None),
-                            Accessory::Disclosure => ("disclosure", None),
-                            Accessory::Checkmark => ("checkmark", None),
-                            Accessory::Toggle(id) => ("toggle", Some(id)),
-                            Accessory::Detail(id) => ("detail", Some(id)),
+                        let (accessory, target, checked) = match r.accessory {
+                            Accessory::None => ("none", None, false),
+                            Accessory::Disclosure => ("disclosure", None, false),
+                            Accessory::Checkmark => ("checkmark", None, false),
+                            Accessory::Toggle(id) => ("toggle", Some(id), false),
+                            Accessory::Detail(id) => ("detail", Some(id), false),
+                            Accessory::Radio(id, on) => ("radio", Some(id), on),
                         };
                         json.push_str(&format!(
-                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
+                            ",\"subtitle\":{},\"accessory\":\"{accessory}\",\"target\":{},\"checked\":{checked},\"pressable\":{},\"destructive\":{},\"disabled\":{}",
                             r.subtitle,
                             target.map_or("null".into(), |t| t.to_string()),
                             r.pressable,

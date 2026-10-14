@@ -461,7 +461,8 @@ fn unsupported_authored_height_requires_explicit_clear_not_stale_projection() {
     for value in [
         StyleValue::Auto,
         StyleValue::Percent(50.0),
-        StyleValue::Number(-1.0),
+        // A calculation that resolves only at layout
+        StyleValue::Text("min(10%, 20px)".into()),
         StyleValue::Text("env(safe-area-inset-top)".into()),
     ] {
         let mut k = tree();

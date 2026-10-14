@@ -431,6 +431,16 @@ list virtualized=true height=500 estimated-item-height=64
       text item.title
 ```
 
+The children of a `list` whose rows go down the page are its rows, and each
+platform draws a row as its own list does: UIKit's separators and the cell's
+highlight on iOS, a table on the Mac, one line between rows on the web and the
+Linux desktop, none on Android. Draw no separator and no press of your own.
+What you do write on a row wins: a border on its top or bottom edge replaces the
+separator there (`border-bottom="none"` for a child that is no row, a count or an
+empty state), and `appearance="none"` on the list keeps rows that are yours, a
+transcript or a feed of cards. A list laid out sideways is a carousel and gets
+none of it.
+
 A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
@@ -800,7 +810,7 @@ call outside them fails. The capabilities are:
 
 | Grant | Allows |
 |---|---|
-| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). A redirect must stay inside the grants too; one that leaves them fails naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains). Native checks each redirect before contact. Web checks the final response URL. On render-server pages, `connect-src` uses app grants: a hop outside the page origin and app grants is blocked before contact (`Network`); a hop the app grants but this source does not can receive a 307 POST body and return to a source-granted final URL, succeeding on web while native refuses. Static and dev pages have no such CSP, so even an app-ungranted hop can be contacted and a return chain can succeed. Without CSP, an ungranted final URL fails after contact, naming where it led: `outside the app's grants (net.fetch): redirected to https://other.example` |
 | `net.websocket wss://api.example.com` | a WebSocket to that origin |
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
@@ -899,10 +909,10 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
 `width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
-the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+percentages, the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
 env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
-env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
-resolves them before layout). Supported values are property-specific; this is not
+env(safe-area-inset-bottom)) + 44px)"`, `width="min(50%, 600px)"`. Supported values
+are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 
@@ -935,8 +945,8 @@ and SVG presentation properties. The actual declaration inventory is
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
 instead of assuming every CSS property or unit exists. A value is held to one
 grammar on every host, a computed one too: `background-image` takes
-`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
-template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+`linear-`, `radial-`, `conic-` and `repeating-linear-gradient()` with percentage
+stops; linear/radial stops also take px lengths. A template naming `url(` fails the build, and a
 computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
@@ -947,7 +957,9 @@ blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
 `saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
 Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
 system material approximation. macOS samples only the parent layer's subtree
-and clips children to the filter's border box. `backgroundMaterial` wins when
+and clips children to the filter's border box, so make a glass panel a sibling
+of what it covers (a floating composer beside its scrolling transcript), not a
+child of an empty wrapper. `backgroundMaterial` wins when
 both are present, and backdrop filters do not animate.
 
 Bound scroll containers. A typical full-height column gives its scroller
@@ -1002,7 +1014,8 @@ A text field is the platform's own by default (LLP 1104): `input` with no type
 or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
 outside the Markdown editor. On the web it inherits the page's font and
 colour, as a CSS reset does. Disabled and placeholder appearances are the
-platform's. A background, border or radius makes it your own box, as in a
+platform's; CSS's `::placeholder` block, under the field or in a `style`,
+colours its placeholder (`color` alone, its alpha its own). A background, border or radius makes it your own box, as in a
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.
@@ -1046,8 +1059,9 @@ compiler does not check most commands' arguments, and hosts differ: the
 JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
 `openURL`. Check the host you target.
 
-A file `input` needs a literal `accept`; types other than images and video must
-be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
+file. A specific `accept` must be literal; types other than images and video
+must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
@@ -1121,7 +1135,12 @@ The kernel's optional host measure hook supplies the fitting size before the
 first frame and handles wrapping at the offered width. Existing hosts keep
 their intrinsic-size report until they implement it.
 
-`buttonStyle` needs a native button and defaults to `bordered`. If the default
+`buttonStyle` needs a native button. With none, a button is the platform's
+default: plain tinted text on iOS, as UIKit's and SwiftUI's own button is, a push
+button on macOS, and bordered on the web, where a bare text button reads as
+unstyled. So say what the action is: `filled` for the screen's main action,
+`bordered` for one that must read as a button, and nothing for a
+secondary or inline one (`contract vocab button`). If the default
 makes your button bare, `lower-button-style` names the first reason: remove it,
 or write `appearance="none"` without `buttonStyle`. The accepted styles are `plain`, `gray`,
 `tinted`, `filled`, `borderless`, `bordered`, `bordered-tinted`,
@@ -1446,7 +1465,10 @@ inventing platform-specific Contract files. Safe-area lengths use CSS `env()`;
 viewport metadata uses the root element's `viewport-fit` and `interactive-widget`
 attributes. `exactViewport` also carries `prefersReducedMotion`,
 `prefersReducedTransparency`, `prefersContrast` and `prefersColorScheme`: facts
-for the app to honor, not automatic engine policy. Available fields are documented beside their source validation and
+for the app to honor, not automatic engine policy. `displayMode: string` reads
+CSS's current `display-mode`: the browser's media query on the web,
+`fullscreen` or `standalone` for the window on macOS, and `standalone` on
+other native hosts. Available fields are documented beside their source validation and
 [the viewport design](../llp/1039-viewport-facts.rfc.md); start with [the viewport corpus](../contract/corpus/viewport.contract).
 
 Localized strings live in the app's `strings/<locale>.json` files. Author calls

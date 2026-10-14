@@ -11,6 +11,10 @@ macro_rules! configured {
             }
         }
         impl $crate::exact_runner::DataSource for $name {
+            fn set_document_owner(&mut self, owner: u64) {
+                $crate::exact_runner::DataSource::set_document_owner(&mut self.0, owner)
+            }
+
             fn app_id(&self) -> &str {
                 $crate::exact_runner::DataSource::app_id(&self.0)
             }

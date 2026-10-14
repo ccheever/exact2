@@ -279,6 +279,7 @@ impl<D: DataSource> Presenter<D> {
             Ok(true) => {}
         }
         if self.focus.take().is_some() {
+            self.focus_out.clear();
             self.dirty = true;
             self.queue_collections();
         }

@@ -112,11 +112,11 @@ function refuseForeignBundle(app, bundle) {
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false, distribution = false } = {}) {
+function build(app, { quiet = false, distribution = false, identity = null } = {}) {
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
-    env: { EXACT_UPDATE_TRUST: 'development', ...process.env },
+    env: { EXACT_UPDATE_TRUST: 'development', ...process.env, ...(identity ? { EXACT_DEVELOPER_ID: identity, EXACT_RUST_SIGN_IDENTITY: identity } : {}) },
   });
   if (r.status !== 0) process.exit(r.status ?? 1);
   const bundle = bundleOf(app);
@@ -242,7 +242,7 @@ function release(app) {
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
   // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
-  const bundle = build(app, { distribution: true });
+  const bundle = build(app, { distribution: true, identity });
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
@@ -261,7 +261,7 @@ function release(app) {
   const entitled = macReleaseEntitlements(built.build?.compat);
   const entitlements = resolve(out, 'entitlements.plist');
   if (entitled) writeFileSync(entitlements, entitled);
-  for (const path of signingOrder(staged)) {
+  for (const path of signingOrder(staged, built.build?.compat, identity)) {
     sh('codesign', ['--force', '--sign', identity, '--options', 'runtime', '--timestamp',
       ...(path === staged ? ['--identifier', app.id, ...(entitled ? ['--entitlements', entitlements] : [])] : []), path]);
   }

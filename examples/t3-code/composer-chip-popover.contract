@@ -21,6 +21,20 @@ shape ChipPopover
   y: number
   width: number
   height: number
+  // diff-cite-popover DC-1: "skill", or "citation" (its comment, citation-comment.contract); a citation's saved comment,
+  // its anchor ("chip": the comment button, "source": the cited text after Cite) and the anchor's window frame.
+  kind: string
+  comment: string
+  anchor: string
+  ax: number
+  ay: number
+  aw: number
+  ah: number
+  // The cited answer (its message id without the kind prefix) and quote, highlighted while the comment is open, and the
+  // quote's start in that answer's text stream when this app's Cite measured it (-1: unknown).
+  message: string
+  quote: string
+  at: number
 
 // The popup's height for the flip: py-2 and p-2 around the label, space-y-3, the description's lines at
 // 20/14 (about 7 pt a character across the content width), and the 28 pt button with its 12 pt gap.

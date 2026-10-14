@@ -45,6 +45,23 @@ extension TextEngine {
     }
 }
 
+extension TextEngine {
+    /// Where a line starts in a box `room` wide, flush `flush` (0 left, 0.5
+    /// centre, 1 right): CoreText's pen offset, except that a line wider than
+    /// its box is start-aligned and overflows its end edge, as CSS Text 3
+    /// §7.1 has it ("the contents are start-aligned") and Chrome draws it.
+    /// CoreText flushes the overlong line the other way, so a right-aligned
+    /// column at an accessibility text size spilled left over its neighbour
+    /// (round 13's weather: the "High" header ran into "Low") where the web
+    /// spills right. A line that fits is CoreText's.
+    static func penOffset(_ line: CTLine, flush: CGFloat, room: Double, rtl: Bool) -> CGFloat {
+        let offset = CGFloat(CTLineGetPenOffsetForFlush(line, flush, room))
+        guard flush != 0 || rtl else { return offset }
+        let slack = flush == 1 ? offset : CGFloat(CTLineGetPenOffsetForFlush(line, 1, room))
+        return slack < 0 ? (rtl ? slack : 0) : offset
+    }
+}
+
 /// Where each line of a paragraph starts, from its start edge (which `rtl`
 /// puts on the right): CSS `text-indent` on the first line, and a Markdown
 /// list item's head indent on each of its lines, the first one's less the
@@ -126,7 +143,7 @@ extension Paragraph {
         // CSS `text-indent` and a list item's indent: the line aligns in
         // what its inset leaves.
         let inset = insets.at(CTLineGetStringRange(lines[index]).location)
-        return inset.left + CGFloat(CTLineGetPenOffsetForFlush(lines[index], flush, Double(width - inset.width)))
+        return inset.left + TextEngine.penOffset(lines[index], flush: flush, room: Double(width - inset.width), rtl: insets.rtl)
     }
 
     /// First select the band, then the closest painted fragment in that band.
@@ -156,8 +173,14 @@ extension Paragraph {
     }
 
     func selectionRects(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [CGRect] {
+        selectedLines(range, align: align, in: bounds, dirty: dirty).map(\.rect)
+    }
+
+    /// `selectionRects`, each with the line it is on: what paints a
+    /// selection's glyphs as well as its fill.
+    func selectedLines(_ range: NSRange, align: Int, in bounds: CGRect, dirty: CGRect) -> [(line: Int, rect: CGRect)] {
         guard range.location >= 0, range.length > 0 else { return [] }
-        var rects: [CGRect] = []
+        var rects: [(line: Int, rect: CGRect)] = []
         for i in lines.indices {
             let line = lines[i], r = CTLineGetStringRange(line)
             let lo = max(range.location, r.location), hi = min(NSMaxRange(range), r.location + r.length)
@@ -168,7 +191,7 @@ extension Paragraph {
             guard y + below >= dirty.minY, y - above <= dirty.maxY else { continue }
             let x = bounds.minX + origin(i, align: align, width: bounds.width)
             let x0 = CTLineGetOffsetForStringIndex(line, lo, nil), x1 = CTLineGetOffsetForStringIndex(line, hi, nil)
-            rects.append(CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below))
+            rects.append((i, CGRect(x: x + min(x0, x1), y: y - above, width: max(1, abs(x1 - x0)), height: above + below)))
         }
         return rects
     }

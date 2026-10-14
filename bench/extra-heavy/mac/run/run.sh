@@ -3,8 +3,10 @@
 # BENCH_STAGE (default ~/xhm; ../push.sh fills it), locally or over ssh. <app>: swiftui | exact2. Passes BENCH_RENDER, BENCH_DUMP, BENCH_DUMPALL,
 # BENCH_DELAY, BENCH_LIVE, BENCH_KINDS, BENCH_FREEZE, BENCH_START_INDEX, BENCH_METALDBG through.
 # The app is launched through Launch Services (`open -n --env`), so it runs in the logged-in GUI session
-# whatever the ssh session is; its PID is read once by its unique path under ~/xhm and killed at the
-# end (the probe also exits by itself with BENCH_EXIT=1). Nothing else is ever killed.
+# whatever the ssh session is. `open` returns no PID, so the PIDs already running this exact executable
+# are recorded before the launch and the one new PID this launch created is recorded after it; only
+# that recorded PID is ever killed (the probe also exits by itself with BENCH_EXIT=1). If the launch
+# cannot be told apart from another lane's, no PID is recorded and nothing is killed.
 X=${BENCH_STAGE:-$HOME/xhm}
 APP=$1; S=$2; SMP=$3; OUT=$4
 case $APP in
@@ -53,9 +55,15 @@ done
 if [ -f "$X/apps/$APP.env" ]; then
   while IFS= read -r kv; do case "$kv" in ''|'#'*) ;; *=*) ARGS+=(--env "$kv") ;; esac; done < "$X/apps/$APP.env"
 fi
+BEFORE=" $(/usr/bin/pgrep -f "^$EXE" 2>/dev/null | tr '\n' ' ')"
 /usr/bin/open -n -F --stdout "$OUT.log" --stderr "$OUT.log" "${ARGS[@]}" "$BUNDLE" || { echo "launch failed"; exit 1; }
 PID=""
-for i in $(seq 1 50); do PID=$(/usr/bin/pgrep -n -f "^$EXE") && break; sleep 0.1; done
+for i in $(seq 1 50); do
+  NEW=""
+  for cand in $(/usr/bin/pgrep -f "^$EXE" 2>/dev/null); do case "$BEFORE" in *" $cand "*) ;; *) NEW="$NEW $cand" ;; esac; done
+  set -- $NEW; [ $# -eq 1 ] && PID=$1 && break
+  sleep 0.1
+done
 echo "$PID" > $X/tmp/running.pid
 # The first launch of a series has come up visible but not active/key twice today (its result refused by
 # check-m2.py): a second `open` without -n activates the running instance through Launch Services (no TCC).

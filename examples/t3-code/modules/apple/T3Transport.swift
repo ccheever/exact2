@@ -54,7 +54,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var streams: [String: String] = [:] // request id -> app subscription key
     /// terminal-drawer: attach streams by request id, outside the 16-stream cap and the app's inbox (T3Transport+Terminal.swift).
     var terminalStreams: [String: T3TerminalStream] = [:]
-    var terminalConnection: ((Bool) -> Void)?
+    /// On this queue: the socket opened (true, with the environment it reached) or went away (false, "").
+    var terminalConnection: ((Bool, String) -> Void)?
     /// Same-session resubscribes after a stream failure (rpc/client.ts): consecutive
     /// failures per key, and the failed subscription whose `_retryDue` is scheduled.
     private var streamRetries: [String: Int] = [:]
@@ -942,7 +943,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 self.routes.schedule { [weak self] in self?.lookForBetterRoute() }
             }
             self.runTimer()
-            self.terminalConnection?(true) // terminal-drawer: sessions attach again on the new socket
+            self.terminalConnection?(true, self.descriptor["environmentId"] as? String ?? "") // terminal-drawer: that environment's sessions attach on the new socket
             if let completion = self.opening { self.opening = nil; self.finish(completion, value: self.status()) }
         }
     }

@@ -7,12 +7,13 @@ const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url))
 const line = (text: string, start: string) => text.split('\n').find(row => row.trimStart().startsWith(start)) ?? '';
 
 describe('RC-2: the model picker trigger after a Shift+click removes a model', () => {
-  test('its label is a new text node per label, so a shrinking label never keeps its old raster (X64)', async () => {
+  test('its label is one text that the host repaints as it shrinks (X64, fixed on main by #327: no keyed node since round 11)', async () => {
     const controls = await source('composer-controls.contract');
-    // Keyed on the size as well: a resting composer draws the same text smaller (12/400 for 14/500, at most 10.5rem),
-    // which shrinks a long label below the raster size too.
-    expect(controls).toContain('each shown in [(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel)] key=`${xs}:${shown}`\n            text shown font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) ');
-    expect(line(controls, 'text shown ')).toContain('line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"');
+    // adopt-main-fixes-r11: round 10 keyed the label by its words and size (a new node per label) because a wrapped
+    // paragraph that shrank below the raster size kept its old raster on macOS; #327 retires the old ink.
+    expect(controls).not.toContain('key=`${xs}:${shown}`');
+    expect(controls).toContain('          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) ');
+    expect(line(controls, 'text (data.composer.fanout ? data.composer.fanoutLabel')).toContain('line-clamp=1 min-width=0 flex-shrink=1 testId="model-picker-label"');
     // The trigger's accessible name was already right (the tree had it); only the painted text was stale.
     expect(controls).toContain('aria-label=(data.composer.fanout ? data.composer.fanoutAria : data.modelLabel == "" ? "Choose model" : data.modelLabel)');
   });

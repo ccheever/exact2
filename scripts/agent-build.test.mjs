@@ -97,8 +97,58 @@ test('a missing or stale build is built first, said in one line; a fresh one run
 
     // An exact.mjs from before test and agent built first is told how to get that.
     assert.equal(rebuildCommand(app, 'ios'), `(cd '${dir}' && bun exact.mjs ios)`);
+    write('exact.mjs', "const cli = resolve(EXACT2, 'scripts/app-cli.mjs');\n"); // the launcher (LLP 1116.006 D7)
+    assert.equal(rebuildCommand(app, 'ios'), `(cd '${dir}' && bun exact.mjs ios)`);
     write('exact.mjs', '// an older one\n');
     assert.equal(rebuildCommand(app, 'mac'), `(cd '${dir}' && bun exact.mjs mac) (after bun exact.mjs update, test and agent build it themselves)`);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1116.008 D2: never a stale build. The receipt is written at the build's end, so a file edited while the build ran
+// is older than it, though the build read the file before the edit (polls: a prebuild tested the old UI); the receipt's
+// `started` bounds it. And a build another process claims between the check and this one is waited for, not failed on.
+test('a source edited while the build ran is stale; a build claimed meanwhile is waited for, then the check is made again', async () => {
+  const previous = process.env.EXACT_APP_DIR, macBin = process.env.EXACT_MAC_BIN;
+  const { dir, write } = scratchApp('race-log');
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    delete process.env.EXACT_MAC_BIN;
+    const app = resolveApp('race-log');
+    const at = seconds => new Date(Date.now() + seconds * 1000), stamp = (file, seconds) => utimesSync(resolve(dir, file), at(seconds), at(seconds));
+    for (const file of ['app.contract', 'app.json', 'exact.mjs', 'apple/Cargo.toml', 'web/Cargo.toml']) stamp(file, -60);
+    const bundle = appleArtifacts(app, { destination: 'ios-simulator' }).bundle, receipt = resolve(bundle, 'receipt.json');
+    mkdirSync(bundle, { recursive: true });
+    // Built from t-20 s to t+10 s; the contract edited at t-5 s, while it ran.
+    const built = (started) => { writeFileSync(receipt, JSON.stringify({ target: 'aarch64-apple-ios-sim', ...(started ? { started: at(-20).toISOString() } : {}) })); utimesSync(receipt, at(10), at(10)); };
+    stamp('app.contract', -5);
+    built(false);
+    assert.deepEqual(nativeBuild('ios', app).changed, [], 'a receipt without `started` is trusted by its time, as it was');
+    built(true);
+    assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
+    assert.match(buildReason(nativeBuild('ios', app), app), /^the build is older than its sources \(app\.contract changed\)$/);
+    stamp('app.contract', -60); // read before the build began: fresh
+    assert.deepEqual(nativeBuild('ios', app).changed, []);
+
+    // Two drives started together: the second's build finds the claim taken, waits for the first's, and finds it fresh.
+    stamp('app.contract', 60);
+    const said = [], builds = [];
+    let waits = 0;
+    const code = await buildFirst('ios', app, {
+      say: line => said.push(line), wait: () => { waits++; },
+      build: async (args) => { builds.push(args); stamp('app.contract', -60); built(true); return { code: 1, output: `Error: Apple build busy for com.exact.race-log: {"pid":1} (${dir}/.apple-build.lock); remove this lock explicitly\n` }; },
+    });
+    assert.deepEqual([code, builds.length, waits], [0, 1, 2]);
+    assert.equal(said.length, 1);
+    assert.match(said[0], /^building for iOS: the build is older than its sources/);
+    // Another failure is still the build's: said, with its code.
+    stamp('app.contract', 120);
+    said.length = 0;
+    assert.equal(await buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, build: async () => ({ code: 101, output: 'error: could not compile\n' }) }), 101);
+    assert.match(said.at(-1), /the iOS build failed \(exit 101\)/);
   } finally {
     if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
     if (macBin === undefined) delete process.env.EXACT_MAC_BIN; else process.env.EXACT_MAC_BIN = macBin;
@@ -161,16 +211,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     };
     build();
     const said = [], builds = [], bakes = [];
-    let baked = { ...module }, bakeFails = null;
+    let baked = { ...module }, bakeFails = null, bakeSays = '', buildSays = '';
     const bake = async (a, into) => {
       bakes.push(into);
       if (bakeFails) return { code: 1, output: bakeFails };
       mkdirSync(into);
       for (const [file, text] of [['app.plan', 'plan two'], ['app.hbc', 'bytecode'], ['app.module.json', JSON.stringify(baked)]]) writeFileSync(resolve(into, file), text);
-      return { code: 0, output: '' };
+      return { code: 0, output: bakeSays };
     };
     const drive = (code = 0) => buildFirst('ios', app, { say: line => said.push(line), wait: () => {}, bake,
-      build: async args => (builds.push(args), { code, output: '' }) });
+      build: async args => (builds.push(args), { code, output: buildSays }) });
     const reset = () => { said.length = builds.length = bakes.length = 0; };
     const kept = () => planOverride('ios', app, nativeBuild('ios', app));
 
@@ -193,12 +243,16 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.equal(await drive(), 0);
     assert.deepEqual([said, builds, bakes, kept()], [[], [], [], null]);
 
-    // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it.
-    write('app.contract', 'component App\n  view\n    text "hello again"\n');
+    // A contract edit: baked and kept beside the build, in one line, and no build; the driver runs it. The
+    // compiler's warnings the bake said follow it, one line each (LLP 1116.004 D7).
+    write('app.contract', 'component App\n  view\n    text "hello again" color="#336699"\n');
     stamp('app.contract', 20);
+    const warning = 'app.contract:3:31 warning [lower-colour-one-scheme] `#336699` on `color` stays the same in dark mode';
+    bakeSays = `${warning}\n{"version":1}\n`;
     assert.throws(() => refuseBuild('ios', nativeBuild('ios', app), app), /ios build is stale/, 'before the bake, the driver refuses as before');
     assert.equal(await drive(), 0);
-    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)'], [], 1]);
+    assert.deepEqual([said, builds, bakes.length], [['iOS: app.contract changed; running the new plan on the existing build (no native rebuild)', warning], [], 1]);
+    bakeSays = '';
     assert.deepEqual(kept(), { plan: resolve(overrideDir('ios', app), 'app.plan'), dir: overrideDir('ios', app) });
     assert.equal(readFileSync(kept().plan, 'utf8'), 'plan two');
     assert.ok(!existsSync(bakes[0]), 'the bake is staged, then moved beside the build');
@@ -226,11 +280,14 @@ test('a plan-only edit runs its bake on the existing build; any other edit, or a
     assert.deepEqual(nativeBuild('ios', app).changed.map(p => resolve(p)), [resolve(dir, 'app.contract')]);
     assert.equal(kept(), null, 'kept for another build: never run as fresh');
 
-    // Anything else edited is built, and what was kept goes with it.
+    // Anything else edited is built, and what was kept goes with it; the warnings Cargo said for the bake's
+    // build script follow, in the compiler's own form.
     reset();
     stamp('app.json', 60);
+    buildSays = `   Compiling plan-log-apple v0.1.0\nwarning: plan-log-apple@0.1.0: ${warning}\nhost/apple: built\n`;
     assert.equal(await drive(), 0);
-    assert.deepEqual([bakes.length, builds.length], [0, 1]);
+    buildSays = '';
+    assert.deepEqual([bakes.length, builds.length, said.slice(1)], [0, 1, [warning]]);
     assert.match(said[0], /^building for iOS: the build is older than its sources \((app\.contract, app\.json|app\.json, app\.contract) changed\); its log: /);
     assert.ok(!existsSync(overrideDir('ios', app)));
 

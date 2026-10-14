@@ -290,12 +290,35 @@ impl Lexer {
                             pos += 1;
                         }
                     }
+                    // An exponent, as JavaScript and CSS write one (`1e300`,
+                    // `2.5E-3`, `4e+2`): `e` or `E`, an optional sign and at
+                    // least one digit. Without the digit the `e` is not part of
+                    // the number, so a unit written against it (`2em`) is still
+                    // the unquoted length it was. One that overflows is no number.
+                    let mut exponent = false;
+                    if matches!(bytes.get(pos), Some(b'e' | b'E')) {
+                        let sign = usize::from(matches!(bytes.get(pos + 1), Some(b'+' | b'-')));
+                        if bytes
+                            .get(pos + 1 + sign)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
+                        {
+                            exponent = true;
+                            pos += 1 + sign;
+                            while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                                pos += 1;
+                            }
+                        }
+                    }
                     let text = &trimmed[start..pos];
-                    let n: f64 = text.parse().map_err(|_| LexError {
-                        id: "syntax-bad-number",
-                        message: format!("`{text}` is not a number"),
-                        span,
-                    })?;
+                    let n: f64 = text
+                        .parse()
+                        .ok()
+                        .filter(|n: &f64| n.is_finite() || !exponent)
+                        .ok_or(LexError {
+                            id: "syntax-bad-number",
+                            message: format!("`{text}` is not a number"),
+                            span,
+                        })?;
                     out.push(Token {
                         kind: TokenKind::Number(n),
                         span: Span {

@@ -6,6 +6,7 @@
   "dependencies": {
     "@pierre/theme": "1.1.0",
     "@shikijs/langs": "4.2.0",
+    "oniguruma-parser": "0.12.2",
     "oniguruma-to-es": "4.3.6"
   }
 }

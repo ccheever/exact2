@@ -337,7 +337,7 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
       expect(body).toContain('  action pointed(id: string)\n    current = id\n    focus(id)');
       expect(body).toContain('      each item in items key=item.id\n        KmDoor(id=item.id, enter=pointed(item.id))');
       // The popup hears no pointer and no hover of its own: a press inside it still reaches the window's light dismiss
-      // (popover-escape-parity), and the macOS host hovers one node at a time (#322).
+      // (popover-escape-parity), and the macOS host hovered one node at a time before main #327 (X62).
       expect(body).not.toMatch(/\b(hover|pointerdown|pointerup|pointermove)=/);
     }
     // A node the host focuses has a size (PresenterMac.focusElement); the door is invisible, hidden from VoiceOver and no Tab stop.
@@ -426,8 +426,9 @@ describe('one highlight: the pointer and the keys move one focus (audit-wave-fol
     expect(wrong).toEqual([]);
     // A floor, so a pattern that stops matching the uses fails here (146 at audit-wave-followups-4).
     expect(checked).toBeGreaterThan(140);
-    // Only the device rail draws its rows beside their KeyMenu (a key at a focused row reaches no menu; the record's "Found, not changed").
-    expect([...besides]).toEqual(['r6-device.contract']);
+    // No menu draws its rows beside its KeyMenu (device-player-compact-and-rail-keys DR-1: the device rail's were, so a
+    // key at a focused row reached no menu).
+    expect([...besides]).toEqual([]);
   });
 
   test('the menus whose rows their owner draws: one focused row, the door on entering, the popup on leaving', async () => {

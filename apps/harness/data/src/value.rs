@@ -3,7 +3,7 @@
 //! [`clean`] on the way out, so app text never carries a terminal control
 //! sequence.
 
-use crate::shapes::{Ack, ContractValue, Frame, Session};
+use crate::shapes::{Ack, ContractValue, Frame, FrameLine, FrameRun, Session};
 use crate::state::{Approval, Block, Entry, Line, ModelChoice, Run, State};
 use exact_plan::Value;
 use std::borrow::Cow;
@@ -47,8 +47,14 @@ fn c(text: &str) -> String {
 fn run(r: &Run) -> Run {
     Run {
         text: c(&r.text),
+        fg: r.fg.clone(),
+        bg: r.bg.clone(),
+        bold: r.bold,
+        italic: r.italic,
+        dim: r.dim,
+        under: r.under,
+        strike: r.strike,
         href: link(&r.href),
-        ..r.clone()
     }
 }
 
@@ -91,7 +97,7 @@ pub const CONTEXT: f64 = 200_000.0;
 
 /// `shape Session`: the state mapped onto the generated record, every
 /// string cleaned on the way.
-pub fn session(st: &State) -> Value {
+pub fn session(st: &State, entries: usize) -> Value {
     Session {
         model: c(&st.model),
         provider: st.provider(),
@@ -106,7 +112,7 @@ pub fn session(st: &State) -> Value {
         tokens_in: st.tokens_in,
         tokens_out: st.tokens_out,
         context_pct: (st.context / CONTEXT * 100.0).clamp(0.0, 100.0),
-        entries: st.entries.iter().map(entry).collect(),
+        entries: st.entries.iter().take(entries).map(entry).collect(),
         approval: Approval {
             id: st.approval.id.clone(),
             tool: c(&st.approval.tool),
@@ -129,11 +135,37 @@ pub fn session(st: &State) -> Value {
     .to_value()
 }
 
-/// `shape Frame`.
-pub fn frame(title: &str, ls: &[Line]) -> Value {
+/// `shape Frame`. Consume the owned animation lines into their compact
+/// effective terminal style without copying run text or colours.
+pub fn frame(title: &str, mut lines: Vec<Line>) -> Value {
+    for run in lines.iter_mut().flat_map(|line| &mut line.runs) {
+        if let Cow::Owned(text) = clean(&run.text) {
+            run.text = text;
+        }
+    }
     Frame {
         title: c(title),
-        lines: ls.iter().map(line).collect(),
+        lines: lines
+            .into_iter()
+            .map(|line| FrameLine {
+                runs: line
+                    .runs
+                    .into_iter()
+                    .map(|run| FrameRun {
+                        text: run.text,
+                        fg: run.fg,
+                        bg: run.bg,
+                        weight: if run.bold {
+                            700.0
+                        } else if run.dim {
+                            300.0
+                        } else {
+                            400.0
+                        },
+                    })
+                    .collect(),
+            })
+            .collect(),
     }
     .to_value()
 }

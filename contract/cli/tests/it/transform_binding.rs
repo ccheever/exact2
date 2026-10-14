@@ -87,7 +87,7 @@ fn exact_numeric_arity_and_string_idref_are_required() {
             let e = contract::compile(&source(event, &bad, "receive", "\"photo\""))
                 .unwrap_err()
                 .to_string();
-            assert!(e.contains("handler-type"), "{e}");
+            assert!(e.contains("type-handler-payload"), "{e}");
         }
         for bad in ["1", "false"] {
             let e = contract::compile(&source(event, params, "receive", bad))
@@ -136,7 +136,10 @@ fn numeric_types_are_rechecked_after_child_action_inlining() {
             let src = format!("component App\n  state n = 0\n  action receive({params})\n    n = 1\n  action partner({other_params})\n    n = 2\n  view\n    column\n      Handle(callback=receive, other=partner)\ncomponent Handle\n  props\n    callback: action\n    other: action\n  view\n    column transformDragFor=\"photo\" {event}=callback {other}=other\n");
             let result = contract::compile(&src);
             if invalid {
-                assert!(result.unwrap_err().to_string().contains("handler-type"));
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("type-handler-payload"));
             } else {
                 result.unwrap();
             }

@@ -210,6 +210,12 @@ impl<D: DataSource> Swappable<D> {
 }
 
 impl<D: DataSource> DataSource for Swappable<D> {
+    fn set_document_owner(&mut self, owner: u64) {
+        if let Some(embedded) = &mut self.embedded {
+            embedded.set_document_owner(owner);
+        }
+    }
+
     fn preload(&self) -> Result<bool, DataError> {
         if let Some(embedded) = &self.embedded {
             return embedded.preload();

@@ -20,7 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
+import { appDigest, driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
 import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
@@ -30,7 +30,7 @@ const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
 const BOOT = join(dirname(fileURLToPath(import.meta.url)), 'boot.mjs');
 const DEPLOY = join(dirname(fileURLToPath(import.meta.url)), 'deploy.mjs');
 const GOOD_RULES = `# Rules
-- **5 blocking checks, 60s total.** **[check]**
+- **6 blocking checks, 65s total.** **[check]**
 - **15 documents in the working set.** **[check]**
 - **10 documents in the foundation.** **[check]**
 - **This file: 700 words.** **[check]**
@@ -39,8 +39,8 @@ const GOOD_RULES = `# Rules
 | | |
 |---|---|
 | Cold start to interactive | 100ms |
-## The five checks
-\`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\`
+## The six checks
+\`build\` · \`test\` · \`lint\` · \`caps\` · \`boot\` · \`workspace\`
 `;
 
 function repo(files) {
@@ -68,7 +68,7 @@ const cases = [
   ['over the word cap fails',
     { 'rules/RULES.md': GOOD_RULES.replace('This file: 700 words', 'This file: 10 words') }, 'cap:words'],
   ['too many blocking checks fails',
-    { 'rules/RULES.md': GOOD_RULES.replace('**5 blocking checks', '**3 blocking checks') }, 'cap:checks'],
+    { 'rules/RULES.md': GOOD_RULES.replace('**6 blocking checks', '**3 blocking checks') }, 'cap:checks'],
   ['unfilled product-latency row fails',
     { 'rules/RULES.md': GOOD_RULES.replace('| Cold start to interactive | 100ms |', '| **<the product latency that actually matters>** | |') },
     'cap:product-latency'],
@@ -108,6 +108,16 @@ const cases = [
     null],
   ['vendored source is not held to the line cap',
     { 'rules/RULES.md': GOOD_RULES, 'vendor/brotli/enc.c': 'x\n'.repeat(9000), 'src/ok.js': 'const a = 1;\n' }, null],
+  ['a recipe over 3,072 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3073) }, 'cap:recipe'],
+  ['a recipe of exactly 3,072 bytes passes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3072) }, null],
+  ['the recipe cap counts bytes, not characters',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': '’'.repeat(1025) }, 'cap:recipe'],
+  ['navigation-stack and rest-backend may run to 5,120 bytes',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5120), 'docs/recipes/rest-backend.md': 'x'.repeat(5120) }, null],
+  ['navigation-stack over 5,120 bytes fails',
+    { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/navigation-stack.md': 'x'.repeat(5121) }, 'cap:recipe'],
   ['a clean repository passes', { 'rules/RULES.md': GOOD_RULES, 'src/ok.js': 'const a = 1;\n' }, null],
 ];
 
@@ -653,11 +663,16 @@ for (const [name, html, files, expectCode, expect] of [
     JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
   result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
   // dash, weather, kanban: a web store is a kept Chrome profile and one origin, the same port each drive.
-  const a=webStore('com.x','pulse',{},'/h','darwin'),b=webStore('com.x','pulse',{XDG_CACHE_HOME:'/c'},'/h','linux'),c=webStore('com.x','other',{},'/h','darwin');
-  result('a web drive\'s named store keeps its profile and port',a.profile==='/h/Library/Caches/exact/com.x/agent-web/pulse'&&b.base==='/c/exact/com.x/agent-web'&&a.port===b.port&&a.port>=20000&&a.port<48000&&c.port!==a.port,JSON.stringify([a,b,c]));
+  const x={id:'com.x',dir:'/apps/x'},dx=appDigest('/apps/x');
+  const a=webStore(x,'pulse',{},'/h','darwin'),b=webStore(x,'pulse',{XDG_CACHE_HOME:'/c'},'/h','linux'),c=webStore(x,'other',{},'/h','darwin');
+  result('a web drive\'s named store keeps its profile and port',a.profile===`/h/Library/Caches/exact/com.x/agent-web-${dx}/pulse`&&b.base===`/c/exact/com.x/agent-web-${dx}`&&a.port===b.port&&a.port>=20000&&a.port<48000&&c.port!==a.port&&/^[0-9a-f]{12}$/.test(dx),JSON.stringify([a,b,c]));
   // review b5-c 3: the driver opens Chrome's store where runTests sweeps and removes it, under the drive's env.
-  const d=driveStore('com.x','pulse',{XDG_CACHE_HOME:'/iso',HOME:'/hh'},'linux'),e=driveStore('com.x','pulse',{HOME:'/hh'},'darwin');
-  result('a drive\'s env places its web store',d.base==='/iso/exact/com.x/agent-web'&&e.profile==='/hh/Library/Caches/exact/com.x/agent-web/pulse',JSON.stringify([d,e]));
+  const d=driveStore(x,'pulse',{XDG_CACHE_HOME:'/iso',HOME:'/hh'},'linux'),e=driveStore(x,'pulse',{HOME:'/hh'},'darwin');
+  result('a drive\'s env places its web store',d.base===`/iso/exact/com.x/agent-web-${dx}`&&e.profile===`/hh/Library/Caches/exact/com.x/agent-web-${dx}/pulse`,JSON.stringify([d,e]));
+  // LLP 1116.004 D8: contacts' drive read an earlier round's contacts.json, the same default id and store name in
+  // another directory; a store is its app's directory's too, so neither its profile nor its origin is shared.
+  const y=webStore({id:'com.x',dir:'/rounds/r6/x'},'pulse',{},'/h','darwin');
+  result('two apps of one id and one store name keep apart',y.profile!==a.profile&&y.port!==a.port&&!y.profile.startsWith(a.base+'/'),JSON.stringify([a,y]));
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.

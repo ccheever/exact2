@@ -23,8 +23,8 @@ use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
 use exact_kernel::style::{BackdropFilter, BackdropOp};
 use exact_kernel::{
-    Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
-    StyleProps, ViewId,
+    BorderStyle, Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId,
+    StyleId, StyleMask, StyleProps, ViewId,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
@@ -38,13 +38,16 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
+mod field;
 mod fragments;
 pub(crate) use fragments::{center as tap_point, hits};
 pub(crate) use lift::{Ghost, Lift};
 pub(crate) mod inline;
 mod layer;
 mod lift;
+pub(crate) mod look;
 mod native;
+pub(crate) mod neutral;
 pub use native::NativeKind;
 mod order;
 mod placed;
@@ -153,10 +156,13 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    /// What a radius that is a calculation with a percentage resolves under.
+    env: exact_kernel::Env,
     /// CSS `background-clip` (LLP 1077 D6).
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
+    styles: [BorderStyle; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
@@ -181,22 +187,15 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     )
 }
 impl BoxPaint {
-    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool) -> Self {
         let s = node.style;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
-        let pad = |d: Dimension| match d.resolve(&env) {
-            Dimension::Points(p) => p,
-            Dimension::Percent(p) => w * p / 100.0,
-            Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto
-            | Dimension::Env(..)
-            | Dimension::Segment(..)
-            | Dimension::Viewport(..)
-            | Dimension::Compare(..) => 0.0,
-        };
+        // The padding layout resolved, which input reads too: a percentage
+        // is of the containing block's width
+        let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
         let material = node.props.str(PropId::BackgroundMaterial).map(|name| {
@@ -212,9 +211,16 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
+            env: env.clone(),
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
+            styles: [
+                s.border_style_top,
+                s.border_style_right,
+                s.border_style_bottom,
+                s.border_style_left,
+            ],
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
@@ -234,12 +240,7 @@ impl BoxPaint {
                 || s.backdrop_filter.clone(),
                 |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
             ),
-            padding: [
-                pad(s.padding_top),
-                pad(s.padding_right),
-                pad(s.padding_bottom),
-                pad(s.padding_left),
-            ],
+            padding: [top, right, bottom, left],
         }
     }
     fn geometry(&self, rect: Rect4) -> BoxGeometry {
@@ -251,12 +252,7 @@ impl BoxPaint {
             outer: Shape::elliptical(
                 rect,
                 self.radii.map(|d| {
-                    let resolve = |basis| match d {
-                        Dimension::Points(x) => x,
-                        Dimension::Percent(p) => basis * p / 100.0,
-                        Dimension::Calc(p, x) => basis * p / 100.0 + x,
-                        _ => 0.0,
-                    };
+                    let resolve = |basis| d.at_basis(&self.env, basis);
                     (resolve(w).max(0.0), resolve(h).max(0.0))
                 }),
             )
@@ -362,7 +358,15 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(&geometry.outer, self.widths, self.colors)
+        let mut fills =
+            border::border_fills_styled(&geometry.outer, self.widths, self.colors, self.styles);
+        fills.extend(border::pattern_fills(
+            &geometry.outer,
+            self.widths,
+            self.colors,
+            self.styles,
+        ));
+        fills
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -486,9 +490,9 @@ pub struct Painter {
     pub text: Shared,
     /// Device pixels per point.
     pub scale: f32,
-    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2).
-    /// This host has no system appearance of its own, so it is whatever the
-    /// app's `setScheme` last said; `light` until it says otherwise.
+    /// Which appearance a `light-dark()` colour resolves to (LLP 1034 D2):
+    /// what the app's `setScheme` last said, else the system's, which the
+    /// device's shell or an agent tells the presenter; `light` until one does.
     pub dark: bool,
     backend: Box<dyn Backend>,
     #[cfg(test)]
@@ -520,6 +524,15 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    /// The control a finger's press focused: it is the focus and shows no
+    /// ring, which is for a focus a key moved (LLP 1115.001 D7.6).
+    pub(crate) ringless: Option<ViewId>,
+    /// The control under a pointer that hovers, and the one a contact holds
+    /// down (`presenter/feedback.rs`), which the neutral look washes.
+    pub(crate) feedback: (Option<ViewId>, Option<ViewId>),
+    /// Each hosted text field's content box in its own border box (x, y,
+    /// width, height), as last walked (`field.rs`, LLP 1115.001 D8).
+    pub(crate) field_content: HashMap<ViewId, [f32; 4]>,
     rows: rows::Rows,
     /// The `svg` painting now: its elements the reader animates.
     svg_layers: Vec<(ViewId, Presented)>,
@@ -617,6 +630,9 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            ringless: None,
+            feedback: (None, None),
+            field_content: HashMap::new(),
             rows: Default::default(),
             boxes_hint: 0,
             svg_layers: Vec::new(),
@@ -750,6 +766,7 @@ impl Painter {
     ) -> Result<Frame, String> {
         let started = std::time::Instant::now();
         self.viewport = viewport;
+        self.backend.page(page_color(self.dark));
         let partial = if let Some(previous) = self
             .damage
             .pixels
@@ -875,7 +892,7 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
-        self.row_node(node.key, f, &p);
+        self.row_node(walk.scene.kernel, node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
             self.row_refuse();
@@ -989,8 +1006,7 @@ impl Painter {
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
-        let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
+        let paint = BoxPaint::capture(node, walk.scene.kernel, self.dark).presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
@@ -999,6 +1015,17 @@ impl Painter {
         if paints_self {
             paint.paint(self.backend.as_mut(), &surface, ts);
             self.column_rules(walk.scene.kernel, node, rect, ts);
+            let (dark, feedback) = (self.dark, self.feedback);
+            let kernel = walk.scene.kernel;
+            neutral::row(
+                self.backend.as_mut(),
+                kernel,
+                node,
+                &surface.outer,
+                ts,
+                dark,
+                feedback,
+            );
         }
         let outer = geometry.outer;
         let content = geometry.content;
@@ -1031,115 +1058,10 @@ impl Painter {
                     self.backend.slot_end();
                 }
             }
+            // Its container, then its text and caret, or the shell's own
+            // field in their place (`field.rs`).
             NodeType::TextInput => {
-                self.row_refuse();
-                let native = node.style.appearance == exact_kernel::Appearance::Auto;
-                let disabled = node.props.bool(PropId::Disabled) == Some(true);
-                let field_shape =
-                    native.then(|| self.text_field_chrome(surface.outer.rect, disabled, ts));
-                let content = if let Some(c) = node.field_content_rect() {
-                    (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
-                } else {
-                    content
-                };
-                // Typed text its bound value has not replaced (LLP 1069.001 D4).
-                let value = control::choice(node, walk.scene.chosen.get(&node.id))
-                    .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
-                let placeholder = value.is_empty();
-                // A password is masked, one bullet a character, as the web and
-                // Apple's secure fields draw it.
-                let masked;
-                let shown = if placeholder {
-                    node.props.str(PropId::Placeholder).unwrap_or("")
-                } else if node.props.str(PropId::Type) == Some("password") {
-                    masked = "\u{2022}".repeat(value.chars().count());
-                    &masked
-                } else {
-                    value
-                };
-                let mut computed = node.computed_style(StyleMask::INHERITED);
-                // A field's value is never collapsed, as the kernel measures it.
-                if !computed.white_space.model().preserves() {
-                    computed.white_space = exact_kernel::WhiteSpace::PreWrap;
-                }
-                let spec = text_spec(&computed, shown);
-                let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
-                let paragraph = self.text.borrow_mut().paragraph_replacing(
-                    (node.id, 0),
-                    &spec,
-                    multiline.then_some(content.2),
-                );
-                walk.text.insert(node.key, paragraph.clone());
-                let oy = content.1
-                    + if multiline {
-                        0.0
-                    } else {
-                        (content.3 - paragraph.height) / 2.0
-                    };
-                let mut ink = if placeholder {
-                    [0x75, 0x75, 0x75, 0xff]
-                } else {
-                    presented_color(walk, node)
-                        .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
-                };
-                if native
-                    && disabled
-                    && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
-                {
-                    ink = control::disabled_field_ink(ink, self.dark);
-                }
-                // The focused field's selection (x2apps codeedit #2).
-                let field = caret::FieldText {
-                    node: node.id,
-                    style: &computed,
-                    value,
-                    masked: node.props.str(PropId::Type) == Some("password"),
-                    origin: (content.0, oy),
-                    width: content.2,
-                    multiline,
-                };
-                // A single line is shaped unconstrained, so `text-align` places
-                // it here; a textarea's paragraph is laid out at the field's
-                // width and aligns its own lines.
-                let ox = content.0
-                    + if multiline {
-                        0.0
-                    } else {
-                        caret::line_left(&computed, content.2, paragraph.width)
-                    };
-                let focused = walk.scene.focus == Some(node.id);
-                let selection = walk.scene.selection.filter(|_| focused);
-                if let Some(s) = selection {
-                    self.field_highlight(&field, s, ts);
-                }
-                {
-                    let mut engine = self.text.borrow_mut();
-                    self.backend.text(
-                        &mut engine,
-                        &paragraph,
-                        &[RunPaint {
-                            color: ink,
-                            source: node.id,
-                        }],
-                        (ox, oy),
-                        ts,
-                    );
-                }
-                if focused {
-                    let caret = rgba(
-                        computed
-                            .caret_color
-                            .unwrap_or(node.text_color())
-                            .resolve(self.dark),
-                    );
-                    let at_end = || exact_runner::FieldSelection::at_end(value);
-                    self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    // LLP 1104 D6: `outline: none` (the row's one value) draws no ring.
-                    if !node.style.mask.has(exact_kernel::StyleId::OutlineStyle) {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
-                    }
-                }
+                self.text_input(walk, node, rect, surface.outer.rect, content, &outer, ts)
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
             NodeType::Video | NodeType::WebView | NodeType::NativeView => {
@@ -1184,8 +1106,13 @@ impl Painter {
                     ts,
                     &face,
                     &rows,
-                    walk.scene.focus == Some(node.id),
+                    walk.scene.focus == Some(node.id) && self.ringless != Some(node.id),
                 );
+            }
+            NodeType::Control
+                if look::neutral() && node.props.str(PropId::Type) == Some("file") =>
+            {
+                self.file_control(node, content, ts);
             }
             NodeType::Control => control::paint(
                 self.backend.as_mut(),
@@ -1194,6 +1121,7 @@ impl Painter {
                 ts,
                 self.dark,
                 walk.scene.controls.get(&node.id).copied(),
+                self.feedback.0 == Some(node.id),
             ),
             _ => {}
         }
@@ -1232,9 +1160,10 @@ impl Painter {
             && node.node_type == NodeType::Pressable
             && node.props.str(PropId::Href).is_none()
             && walk.scene.focus == Some(node.id)
+            && self.ringless != Some(node.id)
             && node.props.bool(PropId::Disabled) != Some(true)
         {
-            let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+            let accent = control::ring(node, self.dark);
             self.field_ring(&outer, accent, ts);
         }
         // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
@@ -1320,6 +1249,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         line_clamp: s.line_clamp,
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,
+        text_wrap_style: s.text_wrap_style,
         direction: s.direction,
         text_indent: s.text_indent,
         text_box_trim: s.text_box_trim,
@@ -1358,19 +1288,8 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
 /// block containers do not always count end-edge padding), never less than
 /// the box itself.
 pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    let env = kernel.env();
-    let pad = |d: Dimension, against: f32| match d.resolve(&env) {
-        Dimension::Points(p) => p,
-        Dimension::Percent(p) => against * p / 100.0,
-        Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto
-        | Dimension::Env(..)
-        | Dimension::Segment(..)
-        | Dimension::Viewport(..)
-        | Dimension::Compare(..) => 0.0,
-    };
-    let pad_right = pad(node.style.padding_right, node.frame.width);
-    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
+    // Read the end padding as layout resolved it
+    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
     let mut w = node.frame.width.max(node.content.0);
     let mut h = node.frame.height.max(node.content.1);
     for child in node.children() {
@@ -1380,6 +1299,18 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         }
     }
     (w, h)
+}
+
+/// The page's own colour under a scheme: the `-exact-background` role (LLP
+/// 1115.000 D3.6), the platform's surface where a host reported one and the
+/// role's pair elsewhere. What an unset background shows (LLP 1115 D2),
+/// never white under a dark scheme.
+pub fn page_color(dark: bool) -> [u8; 4] {
+    static PAGE: std::sync::LazyLock<Option<u8>> =
+        std::sync::LazyLock::new(|| exact_kernel::style::roles::role("-exact-background"));
+    PAGE.map_or([255; 4], |id| {
+        rgba(exact_kernel::ColorValue::Role(id).resolve(dark))
+    })
 }
 
 /// A kernel color's channels.

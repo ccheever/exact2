@@ -14,10 +14,12 @@ mod expr;
 mod keyframes;
 mod media_session;
 mod names;
+mod parts;
 #[path = "routes.rs"]
 mod routes;
 mod sounds;
 mod steps;
+mod view;
 pub use steps::{is_launch, same_launch};
 use steps::{launch_word, LAUNCH};
 
@@ -522,20 +524,23 @@ impl Parser {
         let span = self.expect_word("style")?;
         let name = self.named_ident(span)?;
         self.newline()?;
-        let attrs = self.literal_attrs(&format!("style {name}"))?;
+        // A part's block (`::placeholder`) beside the rows (parts.rs).
+        let owner = format!("style {name}");
+        let mut attrs = Vec::new();
+        self.block(|p| {
+            if p.at_part() {
+                p.part(&format!("`{owner}`"), true, &mut attrs)
+            } else {
+                attrs.extend(p.literal_line(&owner)?);
+                Ok(())
+            }
+        })?;
+        unique_attrs(&attrs, &owner)?;
         Ok(StyleDecl { name, attrs, span })
     }
 
-    /// An indented block of `attr=literal` lines, several to a line, each
-    /// name once: the body of a `style` or of a keyframe.
-    fn literal_attrs(&mut self, owner: &str) -> R<Vec<Attr>> {
-        let lines = self.block(|p| p.literal_line(owner))?;
-        let attrs: Vec<Attr> = lines.into_iter().flatten().collect();
-        unique_attrs(&attrs, owner)?;
-        Ok(attrs)
-    }
-
-    /// One line of `attr=literal` pairs, through its newline.
+    /// One line of `attr=literal` pairs, through its newline: a `style`'s
+    /// (several to a line, each name once) or a keyframe's.
     fn literal_line(&mut self, owner: &str) -> R<Vec<Attr>> {
         let mut attrs = Vec::new();
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
@@ -590,6 +595,7 @@ impl Parser {
                 name: aname,
                 value,
                 span: aspan,
+                written: true,
             });
         }
         self.newline()?;
@@ -1062,7 +1068,7 @@ impl Parser {
     // ---- view -------------------------------------------------------------
 
     fn node(&mut self) -> R<Node> {
-        // The plan accepts at most 256 nested sites. Refuse before constructing
+        // The compiler accepts at most 256 nested sites. Refuse before constructing
         // a deeper AST: all later compiler passes recursively walk this tree.
         if self.view_depth >= 256 {
             return self.err("syntax-view-depth", "views nest more than 256 sites deep");
@@ -1120,108 +1126,9 @@ impl Parser {
                 "`if` is an action's statement: a view chooses with `when <condition>`, \
                  and an `else` after its block at the same indent",
             ),
-            "when" => {
-                self.next();
-                let cond = self.expr()?;
-                self.newline()?;
-                let then = self.required_block(span, "when", |p| p.node())?;
-                let mut otherwise = Vec::new();
-                if self.at_ident("else") {
-                    self.next();
-                    // `else when` is an `else` whose one node is the next
-                    // `when`, as `else if` is in an action.
-                    if self.at_ident("when") {
-                        otherwise = vec![self.node()?];
-                    } else if self.at_ident("if") {
-                        return self.err(
-                            "syntax-else-keyword",
-                            "a view branches with `when`; `if` is an action's: write `else when`",
-                        );
-                    } else {
-                        self.after_else("when")?;
-                        otherwise = self.required_block(span, "else", |p| p.node())?;
-                    }
-                }
-                Ok(Node::When {
-                    tag: 0,
-                    cond,
-                    then,
-                    otherwise,
-                    span,
-                })
-            }
-            "each" => {
-                self.next();
-                let var = self.named_ident(span)?;
-                let index = if self.at_punct(",") {
-                    self.next();
-                    Some(self.named_ident(span)?)
-                } else {
-                    None
-                };
-                self.expect_word("in")?;
-                let list = self.expr()?;
-                self.expect_word("key")?;
-                self.expect_punct("=")?;
-                let key = self.expr()?;
-                self.newline()?;
-                let body = self.block(|p| p.node())?;
-                Ok(Node::Each {
-                    tag: 0,
-                    var,
-                    index,
-                    list,
-                    key,
-                    body,
-                    span,
-                })
-            }
-            "match" => {
-                self.next();
-                let subject = self.expr()?;
-                self.newline()?;
-                let mut some = None;
-                let mut none = None;
-                self.block(|p| {
-                    let case_span = p.expect_word("case")?;
-                    if p.at_ident("some") {
-                        if some.is_some() {
-                            return duplicate("match arm", "some", case_span, span);
-                        }
-                        p.next();
-                        p.expect_punct("(")?;
-                        let var = p.named_ident(span)?;
-                        p.expect_punct(")")?;
-                        p.newline()?;
-                        some = Some((var, p.block(|q| q.node())?));
-                    } else {
-                        p.expect_word("none")?;
-                        if none.is_some() {
-                            return duplicate("match arm", "none", case_span, span);
-                        }
-                        p.newline()?;
-                        none = Some(p.block(|q| q.node())?);
-                    }
-                    Ok(())
-                })?;
-                let some = some.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case some(x)`".into(),
-                    span,
-                })?;
-                let none = none.ok_or(SyntaxError {
-                    id: "contract-match-arms",
-                    message: "`match` needs `case none`".into(),
-                    span,
-                })?;
-                Ok(Node::Match {
-                    tag: 0,
-                    subject,
-                    some,
-                    none,
-                    span,
-                })
-            }
+            "when" => self.node_when(span),
+            "each" => self.node_each(span),
+            "match" => self.node_match(span),
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
                 names::stray(&word),
@@ -1230,62 +1137,8 @@ impl Parser {
                 "syntax-map-view",
                 format!("`{word}` makes a value, not view nodes: repeat children with `each x in xs key=x.id` (LLP 1017.003)"),
             ),
-            _ if word.chars().next().is_some_and(char::is_uppercase) => {
-                self.next();
-                self.expect_punct("(")?;
-                let args = self.named_args()?;
-                self.newline()?;
-                let children = self.block(|p| p.node())?;
-                Ok(Node::Use {
-                    name: word,
-                    args,
-                    children,
-                    span,
-                })
-            }
-            _ => {
-                self.next();
-                let mut positional = Vec::new();
-                let mut attrs = Vec::new();
-                self.attr_line(&mut positional, &mut attrs, false)?;
-                self.newline()?;
-                let mut children = Vec::new();
-                if matches!(self.peek_kind(), TokenKind::Indent) {
-                    self.next();
-                    // The attribute list may continue on deeper lines that
-                    // begin with `name=`; a child never does (LLP 1035.005 D1).
-                    while self.at_continuation() {
-                        self.attr_line(&mut positional, &mut attrs, true)?;
-                        self.newline()?;
-                    }
-                    children = self.block_rest(|p| p.node())?;
-                }
-                // LLP 1017.001's primary button argument is its visible text
-                // child, not a prop on the pressable itself. Keeping it as a
-                // real text node gives every host the same visible and
-                // accessible subtree.
-                if word == "button" && positional.len() == 1 {
-                    children.insert(
-                        0,
-                        Node::Element {
-                            tag: "text".into(),
-                            positional: vec![positional.remove(0)],
-                            attrs: Vec::new(),
-                            children: Vec::new(),
-                            span,
-                            instance: 0,
-                        },
-                    );
-                }
-                Ok(Node::Element {
-                    tag: word,
-                    positional,
-                    attrs,
-                    children,
-                    span,
-                    instance: 0,
-                })
-            }
+            _ if word.chars().next().is_some_and(char::is_uppercase) => self.node_use(word, span),
+            _ => self.node_element(word, span),
         }
     }
 
@@ -1311,7 +1164,7 @@ impl Parser {
             {
                 let aspan = self.next().span;
                 self.next();
-                let value = self.expr()?;
+                let value = self.attr_value()?;
                 self.unquoted_unit(&name, &value)?;
                 if attrs.iter().any(|a: &Attr| a.name == name) {
                     return Err(SyntaxError {
@@ -1324,6 +1177,7 @@ impl Parser {
                     name,
                     value,
                     span: aspan,
+                    written: true,
                 });
             } else if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "autofocus") {
                 let aspan = self.next().span;
@@ -1337,6 +1191,7 @@ impl Parser {
                     name: "autofocus".into(),
                     value: Expr::Bool(true, aspan),
                     span: aspan,
+                    written: true,
                 });
             } else if continuation {
                 return self.err(
@@ -1351,6 +1206,35 @@ impl Parser {
             }
         }
         Ok(())
+    }
+
+    /// An attribute's value. A negation of a lone number, as the whole value,
+    /// is the negative literal (`min=-40`, `margin-top=-8`, `step=-0.5`,
+    /// `min=-1e300`; the formatter's `- 1` is the same), the number it is, as
+    /// the positive one is: every place that reads a literal number reads it,
+    /// it is a constant in the plan, and `margin-top=-8px` is the unquoted
+    /// length it is. Anything else is the expression it was: `a - b`, `-x`,
+    /// `-(1 + 2)`, `-8 + a`. A `-exact-` name is no `-`: the lexer makes one
+    /// token of it where it is an attribute's name, and a string holds it
+    /// anywhere else.
+    fn attr_value(&mut self) -> R<Expr> {
+        Ok(match self.expr()? {
+            Expr::Unary(UnOp::Neg, inner, minus) => match *inner {
+                Expr::Number(n, at) => Expr::Number(
+                    -n,
+                    Span {
+                        end_col: if at.line == minus.line {
+                            at.end_col
+                        } else {
+                            minus.end_col
+                        },
+                        ..minus
+                    },
+                ),
+                inner => Expr::Unary(UnOp::Neg, Box::new(inner), minus),
+            },
+            other => other,
+        })
     }
 
     /// `width=10px` lexes as the number `10` and then a name `px` written
@@ -1378,7 +1262,12 @@ impl Parser {
             let (name, span) = self.field_name()?;
             self.expect_punct("=")?;
             let value = self.expr()?;
-            out.push(Attr { name, value, span });
+            out.push(Attr {
+                name,
+                value,
+                span,
+                written: true,
+            });
             if !self.eat_punct(",") {
                 break;
             }

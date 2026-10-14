@@ -86,12 +86,11 @@ pub fn launch_place(
         exact_runner::time::Place {
             locale: env("EXACT_AGENT_LOCALE").unwrap_or_else(|| "en-US".into()),
             time_zone: env("EXACT_AGENT_TIME_ZONE").unwrap_or_else(|| "UTC".into()),
-            seed: env("EXACT_AGENT_SEED")
-                .map_or(Ok(1.0), |s| s.parse::<f64>())
-                .map_err(|e| format!("EXACT_AGENT_SEED: {e}"))?,
+            seed: agent_seed(env("EXACT_AGENT_SEED"))?,
         }
     } else {
-        let mut bytes = [0; 8];
+        // Below 2^32 (LLP 1116.005 D5): four bytes of entropy.
+        let mut bytes = [0; 4];
         getrandom::fill(&mut bytes).map_err(|e| format!("launch seed: {e}"))?;
         exact_runner::time::Place {
             locale: locale(&env),
@@ -99,13 +98,24 @@ pub fn launch_place(
                 .and_then(|zone| zone_name(&zone))
                 .or_else(|| iana_time_zone::get_timezone().ok())
                 .unwrap_or_else(|| "UTC".into()),
-            seed: (u64::from_ne_bytes(bytes) & ((1 << 53) - 1)) as f64,
+            seed: f64::from(u32::from_ne_bytes(bytes)),
         }
     };
     place
         .validate()
         .map_err(|e| format!("launch place: {e:?}"))?;
     Ok(place)
+}
+
+/// The drive's seed as given (default 1), refused unless it is a whole
+/// number below 2^32, the range every host draws (LLP 1116.005 D5).
+fn agent_seed(value: Option<String>) -> Result<f64, String> {
+    let Some(value) = value else { return Ok(1.0) };
+    value.parse::<u32>().map(f64::from).map_err(|_| {
+        format!(
+            "EXACT_AGENT_SEED: a whole number from 0 through 2^32 - 1 (4294967295), not {value:?}"
+        )
+    })
 }
 
 fn locale(env: impl Fn(&str) -> Option<String>) -> String {
@@ -205,7 +215,7 @@ mod tests {
                     "EXACT_AGENT" => "1",
                     "EXACT_AGENT_LOCALE" => "fr-CA",
                     "EXACT_AGENT_TIME_ZONE" => "America/Toronto",
-                    "EXACT_AGENT_SEED" => "9007199254740991",
+                    "EXACT_AGENT_SEED" => "4294967295",
                     _ => panic!("agent read the machine's {key}"),
                 }
                 .into(),
@@ -214,7 +224,17 @@ mod tests {
         .unwrap();
         assert_eq!(custom.locale, "fr-CA");
         assert_eq!(custom.time_zone, "America/Toronto");
-        assert_eq!(custom.seed, 9_007_199_254_740_991.0);
+        assert_eq!(custom.seed, 4_294_967_295.0);
+        // A seed past 2^32 is refused, not wrapped (LLP 1116.005 D5).
+        for bad in ["4294967296", "9007199254740991", "-1", "1.5", "seven"] {
+            let refused = launch_place(|key| match key {
+                "EXACT_AGENT" => Some("1".into()),
+                "EXACT_AGENT_SEED" => Some(bad.into()),
+                _ => None,
+            })
+            .unwrap_err();
+            assert!(refused.contains("0 through 2^32 - 1"), "{bad}: {refused}");
+        }
         let agent = |key: &str| (key == "EXACT_AGENT").then(|| "1".into());
         assert_eq!(
             agent_time(agent, "UTC").unwrap(),
@@ -246,6 +266,14 @@ mod tests {
         assert_eq!(a.time_zone, "Europe/Paris");
         assert_ne!(a.seed, b.seed);
         assert!(a.validate().is_ok() && b.validate().is_ok());
+        // The drawn seed is a whole number below 2^32 (LLP 1116.005 D5).
+        for _ in 0..64 {
+            let seed = launch_place(env).unwrap().seed;
+            assert!(
+                seed < exact_runner::time::SEED_LIMIT && seed.fract() == 0.0,
+                "{seed}"
+            );
+        }
         assert_eq!(zone_name("PST8PDT,M3.2.0,M11.1.0"), None);
     }
 }

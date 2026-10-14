@@ -767,6 +767,89 @@ component App
 }
 
 #[test]
+fn an_app_with_no_notfound_route_is_given_one_that_keeps_the_url_and_says_so() {
+    // @ref LLP 1116.009 D2 — a location no route matches keeps its URL: the
+    // compiler writes `notfound` and a screen for it where the app draws a
+    // route per stack entry, whether the route element is under a `when` or
+    // stands for every entry (a blank screen for one no branch names).
+    let source = r#"routes nav
+  home "/"
+    detail "/detail"
+component App
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0
+          when e.name == "home"
+            text "Home" testId="home"
+          when e.name == "detail"
+            text "Detail" testId="detail"
+"#;
+    let under_when = source
+        .replace(
+            "        column navigationKey=`${e.id}` position=\"absolute\" inset=0\n          when e.name == \"home\"\n            text \"Home\" testId=\"home\"\n          when e.name == \"detail\"\n            text \"Detail\" testId=\"detail\"\n",
+            "        when e.name == \"home\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Home\" testId=\"home\"\n        when e.name == \"detail\"\n          column navigationKey=`${e.id}` position=\"absolute\" inset=0\n            text \"Detail\" testId=\"detail\"\n",
+        );
+    assert_ne!(under_when, source);
+    for source in [source, under_when.as_str()] {
+        let plan = contract::compile(source).unwrap();
+        let notfound: Vec<_> = plan.routes.iter().filter(|r| r.notfound).collect();
+        assert_eq!(notfound.len(), 1, "the compiler wrote one `notfound` route");
+        assert_eq!(plan.str(notfound[0].name), "notfound");
+        let mut r = boot(plan, "/absent/path?q=1");
+        // The location stays: no refusal, the root beneath it, the screen over it.
+        assert_eq!(r.take_router_change().unwrap().url, "/absent/path?q=1");
+        assert!(!r.journal().any(|l| l.contains("refused")));
+        let nav = state(&r)["slots"]["nav"].clone();
+        let stack = selected(&nav);
+        assert_eq!(stack.len(), 2);
+        assert_eq!(stack[0]["name"], "home");
+        assert_eq!(stack[1]["name"], "notfound");
+        assert_rows(&r);
+        let k = r.kernel();
+        assert_eq!(k.find_by_test_id("not-found").len(), 1);
+        let message = k.node_by_key(k.find_by_test_id("not-found-message")[0]);
+        assert_eq!(
+            message.unwrap().props.str(PropId::Text),
+            Some("There is no page at /absent/path?q=1.")
+        );
+        // A way home: a link to the first screen, which the platform follows as the router's own
+        // `go` (no `navigate` handler here), the not-found entry gone.
+        let link = r.kernel().find_by_test_id("not-found-home")[0];
+        assert_eq!(
+            r.kernel()
+                .node_by_key(link)
+                .unwrap()
+                .props
+                .str(PropId::Href),
+            Some("/")
+        );
+        r.host_go("/").unwrap().unwrap();
+        assert_eq!(r.take_router_change().unwrap().url, "/");
+        assert_eq!(selected(&state(&r)["slots"]["nav"]).len(), 1);
+        assert!(r.kernel().find_by_test_id("not-found").is_empty());
+        assert_eq!(r.kernel().find_by_test_id("home").len(), 1);
+        assert_rows(&r);
+    }
+    // An app that writes `notfound` draws its own; one with no navigation
+    // root has no screen to draw it in, and keeps the table it wrote.
+    let own = source.replace(
+        "    detail \"/detail\"\n",
+        "    detail \"/detail\"\n  notfound\n",
+    );
+    let plan = contract::compile(&own).unwrap();
+    assert_eq!(plan.routes.iter().filter(|r| r.notfound).count(), 1);
+    let r = boot(plan, "/absent");
+    assert!(r.kernel().find_by_test_id("not-found").is_empty());
+    let bare = "routes nav\n  home \"/\"\ncomponent App\n  view\n    text top(nav).url\n";
+    assert!(contract::compile(bare)
+        .unwrap()
+        .routes
+        .iter()
+        .all(|r| !r.notfound));
+}
+
+#[test]
 fn a_route_scroll_names_an_element_of_the_route_that_scrolls_on_y() {
     // @ref LLP 1075.003 §3.5 — `navigationScroll` names the route's content
     // scroller by HTML id; refused only where that provably fails.

@@ -1,10 +1,10 @@
 // dialog-shortcut-focus: what keyboard focus can reach while a dialog is open, read from the Contract
 // sources as context-menu-hookup.test.ts reads its handlers. Sequential focus follows tree order on every
 // host and skips a node whose `tabindex` is negative (HTML's rule, LLP 1088 D7.3), so a component's
-// controls in source order, less those, are its reference Tab order. On macOS the host also skips time
-// and select inputs (X52); they are kept here, as the reference has them (Custom snooze's date is a
-// button since shell-sidebar-palette-keys, as the reference's is, so X52 no longer skips it). These checks guard the
-// wiring; the behavior is proven by the macOS drives in tasks/20261008-dialog-shortcut-focus.md.
+// controls in source order, less those, are its reference Tab order. Time and select inputs are stops on
+// macOS too since main #327 (X52, adopted in round 11; Custom snooze's Time and Unit, driven in adopt-main-fixes-r11),
+// with Keyboard navigation on as every control is (LLP 1115.000 D7.2). These checks guard the wiring; the behavior is
+// proven by the macOS drives in tasks/closed/20261008-dialog-shortcut-focus.md and tasks/closed/20261012-adopt-main-fixes-r11.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 

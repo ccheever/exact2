@@ -17,6 +17,8 @@ final class T3Fleet: @unchecked Sendable {
     private var alive = true
     let outdated: T3OutdatedHosts
     static let limit = 8
+    /// Each background transport as it is made (T3Module: its environment's terminal sessions ride on it).
+    var transportCreated: ((T3Transport) -> Void)?
 
     init(persistent: Bool, credentials: T3Credentials, saved: T3SavedEnvironments,
          configuration: URLSessionConfiguration = .ephemeral, activity: T3ActivityReporter? = nil, changed: @escaping (String) -> Void) {
@@ -62,8 +64,11 @@ final class T3Fleet: @unchecked Sendable {
                                       changed: { _ in changed("t3.fleet") })
             transports[key] = created
             transport = created
+            lock.unlock()
+            transportCreated?(created)
+        } else {
+            lock.unlock()
         }
-        lock.unlock()
         var forwarded = request
         forwarded.removeValue(forKey: "fleet")
         transport!.perform(forwarded, completion: completion)

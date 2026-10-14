@@ -27,11 +27,14 @@ public final class Agent {
     let session: ExactSession
     init(session: ExactSession) {
         self.session = session
-        // The system appearance is the agent's from its first operation:
-        // light, as `prefer` would set it, never the machine's (LLP 1069.007
-        // D2). Reduced motion and transparency start at no-preference
-        // (`DisplayPreferences.agent`).
+        // The system appearance is the agent's: light, as `prefer` would set
+        // it, never the machine's (LLP 1069.007 D2). On iOS and tvOS the
+        // scene's, from the agent's first operation; on the Mac the app's,
+        // from launch (`Agent.systemAppearance`). Reduced motion and
+        // transparency start at no-preference (`DisplayPreferences.agent`).
+        #if os(iOS) || os(tvOS)
         if ExactEnv.agentMode { systemScheme(dark: false) }
+        #endif
     }
 
     /// Inline IDs name shaped fragments, not their paragraph owner's box.
@@ -211,6 +214,13 @@ public final class Agent {
                 #else
                 r = ["error": "unsupported: an iOS app closes no window; close drives a macOS window or the browser's page (`beforeunload`)"]
                 #endif
+            } else if req["back"] != nil {
+                // The platform's Back, as a person takes it (LLP 1116.006
+                // D4): an input, as `close` is (AgentIOS, AgentMac `back`).
+                guard req.keys.allSatisfy({ ["op", "session", "back"].contains($0) }), req["back"] as? Bool == true else {
+                    Agent.reply(["error": "tap back takes no other input fields"]); return
+                }
+                r = back()
             } else if req["resize"] != nil {
                 // LLP 1041 §8's opt-in diagnostic is an input variant, not a
                 // ninth operation. Reject ambiguous input before touching UI.
@@ -347,6 +357,17 @@ public final class Agent {
         return out
     }
 
+    /// `back`'s reply (LLP 1116.006 D4) from the way it went and why the app
+    /// refused it ("" when it did not): nil is nothing to go back from, an
+    /// error. A refusal is no error (a test may assert the sheet stays); it
+    /// is the reply's `refused` and a journal line.
+    func backReply(_ went: (way: String, refused: String)?) -> [String: Any] {
+        guard let went else { return ["error": "back: nothing to go back from: no dialog is open, no sheet is up and no route is beneath the selected one"] }
+        guard !went.refused.isEmpty else { return ["back": went.way, "delivery": "platform"] }
+        session.log("back refused: \(went.refused)")
+        return ["back": went.way, "delivery": "platform", "refused": went.refused]
+    }
+
     /// A field's value as a reply shows it (#134): a password's, when not
     /// empty, is a fixed mark whatever its length — the runner's
     /// `agent::MASKED`, which its tree already shows.
@@ -408,6 +429,7 @@ public final class Agent {
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
+        var displayMode = session.displayModeOverride
         var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
         for (name, value) in media ?? [:] {
             switch (name, value) {
@@ -415,6 +437,8 @@ public final class Agent {
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
             case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            case ("display-mode", _) where DisplayPreferences.displayModes.contains(value):
+                displayMode = UInt32(DisplayPreferences.displayModes.firstIndex(of: value)!)
             // @ref LLP 1100 D9
             case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
             case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
@@ -422,20 +446,30 @@ public final class Agent {
             }
         }
         var facts = PageFacts.agent
+        #if os(macOS)
+        var keyboardNavigation: Bool?
+        #endif
         for (name, raw) in page ?? [:] {
-            let value = name == "root-font-size" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
+            let value = name == "root-font-size" || name == "display-scale" ? "\(raw)" : (raw as? Bool).map { $0 ? "true" : "false" } ?? "\(raw)"
             switch (name, value) {
+            #if os(macOS)
+            // The Mac's Keyboard Navigation setting (LLP 1115.000 D7.2): whether Tab reaches every control.
+            case ("keyboard-navigation", "true"), ("keyboard-navigation", "false"): keyboardNavigation = value == "true"
+            #endif
             case ("visibility-state", "visible"), ("visibility-state", "hidden"): facts.hidden = value == "hidden"
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
+            // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
+            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: PageFacts.agentDisplayScale = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
+        session.displayModeOverride = displayMode
         DisplayPreferences.agentContrast = contrast
         if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
             DisplayRange.pinned = high ? 4 : 1
@@ -445,16 +479,23 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
+                                       "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
+                                       "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
+                                       "display-scale": PageFacts.displayScale(session.presenter.viewport)]
+        #if os(macOS)
+        if let keyboardNavigation { KeyboardNavigation.agent = keyboardNavigation }
+        pageFacts["keyboard-navigation"] = KeyboardNavigation.on
+        #endif
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "display-mode": DisplayPreferences.displayModes[Int(session.displayModeOverride ?? DisplayPreferences.displayMode(session.view))],
                           "color-gamut": DisplayPreferences.gamut,
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
-                "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
-                         "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize],
+                "page": pageFacts,
                 "fold": presenter.fold.env]
     }
 
@@ -622,7 +663,7 @@ public final class Agent {
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
                 // after work finishes, including work created by that completion.
-                let deadline = Date(timeIntervalSinceNow: 2)
+                let nativeDeadline = Date(timeIntervalSinceNow: 2)
                 var wasBusy = nativeInFlight()
                 while true {
                     #if !(os(iOS) || os(tvOS))
@@ -631,8 +672,19 @@ public final class Agent {
                     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
                     let busy = nativeInFlight()
                     if !wasBusy && !busy { break }
-                    if Date() >= deadline { return reply(landed, false, reason: "transition") }
+                    if Date() >= nativeDeadline { return reply(landed, false, reason: "transition") }
                     wasBusy = busy
+                }
+                // A native completion can press an action, starting a request
+                // or queuing its answer's `then` during the wait above. Recheck
+                // the runner before claiming the fixed point (LLP 1012 §2).
+                let afterNative = max(landed, self.settle() ?? landed)
+                if pendingCount() > 0 || session.timerDue.map({ $0 <= landed }) == true
+                    || afterNative > landed || launchQueued() || presenter.elements.inFlight > 0 {
+                    rounds += 1
+                    if rounds >= 16 || Date() >= deadline { return reply(landed, false) }
+                    to = afterNative
+                    continue
                 }
                 // A held device request is never waited on: the fixed point
                 // stands, and the agent hears what waits for it (LLP 1069.007 D3).

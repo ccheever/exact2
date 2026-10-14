@@ -2,17 +2,18 @@
 // hunk with the same Shiki themes as chat code (pierre-light / pierre-dark), so
 // a line keeps the context of the lines around it. Word marks and syntax
 // classes overlay into one run list per line.
-import { highlight, languageOf, type Token } from './timeline-highlight';
-import { shikiLanguage, SHIKI_MAX_CHARS } from './r12-render-highlight';
+import { highlight, type Token } from './timeline-highlight';
+import { fileLanguage, SHIKI_MAX_CHARS, TOKENIZE_MAX_LINE_LENGTH } from './r12-render-highlight';
 
 /** Token runs per line for one side of a hunk, highlighted as one text (up to the highlighter's limit, shiki-residuals). */
 export function lineTokens(lines: readonly string[], path: string): Token[][] {
-  const language = languageOf(path) || shikiLanguage(path);
+  const language = fileLanguage(path);
   const total = lines.reduce((sum, line) => sum + line.length + 1, 0);
   if (!language || !lines.length || total > SHIKI_MAX_CHARS) return lines.map(line => line ? [{ text: line, cls: '' }] : []);
   const out: Token[][] = [[]];
-  // lane r12-render: the path itself picks the grammar, as @pierre/diffs picks it from the file name.
-  for (const token of highlight(lines.join('\n'), path)) {
+  // lane r12-render: the path picks the grammar, as @pierre/diffs picks it from the file name (a root
+  // Dockerfile too); code-highlighting-languages: a line of 1,000 characters or more stays plain, as there.
+  for (const token of highlight(lines.join('\n'), language, TOKENIZE_MAX_LINE_LENGTH)) {
     token.text.split('\n').forEach((part, index) => {
       if (index > 0) out.push([]);
       if (part) out[out.length - 1]!.push({ text: part, cls: token.cls });

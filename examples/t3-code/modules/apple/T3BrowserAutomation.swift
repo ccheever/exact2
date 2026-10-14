@@ -16,13 +16,17 @@ import WebKit
 /// WebKit in place of CDP: scripts run with `callAsyncJavaScript` in the host's content world, `preview_evaluate`
 /// in the page's world; a page in a window gets native `NSEvent` clicks and keys (trusted), a page in no window
 /// gets DOM events (untrusted); the screenshot is `takeSnapshot`; locators and the ARIA snapshot come from
-/// Playwright's injected script (assets/vendor/playwright). Recording is part 3's; a fixed viewport is part 2's.
+/// Playwright's injected script (assets/vendor/playwright). A fixed viewport is part 2's. Recording is part 3's lifecycle in
+/// the data module (browser-recording.ts): this host waits for the tab, hands the request over and answers with the outcome
+/// the data module sends back (T3BrowserAutomationRecording.swift).
 final class T3BrowserAutomation: NSObject {
     typealias Reply = ([String: Any]) -> Void
-    private weak var sessions: T3BrowserSessions?
+    private(set) weak var sessions: T3BrowserSessions?
     /// One RPC on the connection a request came from: method, payload, connection generation, the fleet transport's
     /// key (nil: the focused connection), reply.
     var rpc: (String, [String: Any], Int, String?, @escaping Reply) -> Void = { _, _, _, _, done in done(["ok": false]) }
+    /// Any other transport op on that connection (a recording's `uploadAttachment`): request, generation, fleet key, reply.
+    var send: ([String: Any], Int, String?, @escaping Reply) -> Void = { _, _, _, done in done(["ok": false]) }
     /// Publishes a `t3.status` (the module's state changed).
     var changed: () -> Void = {}
     /// The agent's clicks and keys reach a page in a window as native events, else as DOM events.
@@ -41,10 +45,15 @@ final class T3BrowserAutomation: NSObject {
     private var answered: [String] = []
     /// Tabs this host opened (`preview.open`) for the data module to adopt and present, newest last.
     private(set) var opened: [[String: Any]] = []
+    /// Recording requests handed to the data module (`presentation.browserAutomation.recordings`), and their answers' waits.
+    var handedOver: [[String: Any]] = []
+    var waiting: [String: CheckedContinuation<Result<Any?, HostError>, Never>] = [:]
     private var pointerSequence = 0, actionSequence = 0
     static let diagnosticLimit = 200
     static let agentCursorMoveMs = 160, agentCursorClickLeadMs = 40
     static let maxEvaluationBytes = 64_000, maxScreenshotWidth = 1_280
+    /// Manager.ts READ_ONLY_CONTROL_ACTIONS: control actions that only read the page, so they do not make it agent-driven.
+    static let readOnlyControlActions: Set<String> = ["snapshot", "waitFor"]
     /// browser-automation-keys.ts `CLIPBOARD_PLACEHOLDER`.
     static let clipboardPlaceholder = "__T3_PREVIEW_CLIPBOARD__"
 
@@ -103,13 +112,14 @@ final class T3BrowserAutomation: NSObject {
         // The appearance is the page's own: part 2's Appearance menu sets it too (T3BrowserSession+Navigation.swift).
         ["browserAutomation": ["tabs": Dictionary(uniqueKeysWithValues: tabs.map { id, tab -> (String, [String: Any]) in
             (id, ["audible": tab.audible, "muted": tab.muted, "colorScheme": sessions?.sessions[id]?.colorScheme ?? "system", "controller": tab.controller, "pointer": tab.pointer ?? NSNull()])
-        }), "opened": opened, "answered": Array(answered.suffix(8))]]
+        }), "opened": opened, "answered": Array(answered.suffix(8)), "recordings": handedOver]]
     }
 
     // MARK: Requests
 
     /// The data module's `browserAutomation` op. Answers at once; the request runs on and responds by itself.
     func perform(_ plan: [String: Any]) -> [String: Any] {
+        if let key = plan["answer"] as? String { return ["accepted": settle(key, plan)] } // a handed-over recording's outcome
         let context = Context(plan)
         guard !context.requestId.isEmpty, !context.connectionId.isEmpty else { return ["accepted": false] }
         guard !running.contains(context.key), !answered.contains(context.key) else { return ["accepted": false, "duplicate": true] }
@@ -167,10 +177,8 @@ final class T3BrowserAutomation: NSObject {
             case "scroll": try await controlled(context, "scroll") { try await self.scroll(context, $0) }; return .success([String: Any]())
             case "evaluate": return .success(try await controlled(context, "evaluate") { try await self.evaluate(context, $0) })
             case "waitFor": try await controlled(context, "waitFor") { try await self.waitFor(context, $0) }; return .success([String: Any]())
-            case "recordingStart":
-                _ = try await requireReady(context)
-                throw HostError.operation("recording arrives with browser-surface part 3 (capture)")
-            case "recordingStop": throw HostError.recordingNotActive
+            case "recordingStart": return await handOver(context, runtimeId: try await requireReady(context).id) // requireReadyTab, then startBrowserRecording
+            case "recordingStop": return await handOver(context, runtimeId: nil) // the data module resolves the recording to stop
             default: throw HostError.operation("unsupported operation \(context.operation)")
             }
         } catch let error as HostError { return .failure(error) }
@@ -394,6 +402,9 @@ final class T3BrowserAutomation: NSObject {
         tabs[session.id]?.actions.append(entry)
         if let count = tabs[session.id]?.actions.count, count > Self.diagnosticLimit { tabs[session.id]?.actions.removeFirst(count - Self.diagnosticLimit) }
         tabs[session.id]?.controller = "agent"
+        // Manager.ts withControlSession: an action that changes the page makes it agent-driven, so its downloads go to the
+        // artifact directory without a dialog (installDownloadHandler); reading it (snapshot, wait for) does not.
+        if !Self.readOnlyControlActions.contains(action) { session.downloads.agentDriven = true }
         changed()
         // A page that focuses an element makes its view the window's first responder; the agent never takes the
         // person's focus (previewClickFocus.ts `runPreviewClickKeepingHostFocus`, for every action here).
@@ -641,7 +652,6 @@ enum T3BrowserHostError: Error {
     case overlayTimeout(Int)
     case navigationTimeout(readiness: String, ms: Int)
     case viewportTimeout(Int)
-    case recordingNotActive
     case notEditable(kind: String, length: Int?)
     case operation(String)
 
@@ -651,7 +661,7 @@ enum T3BrowserHostError: Error {
         case .targetUnavailable: return "PreviewAutomationTabNotFoundError"
         case .overlayTimeout, .navigationTimeout, .viewportTimeout: return "PreviewAutomationTimeoutError"
         case .notEditable: return "PreviewAutomationTargetNotEditableError"
-        case .recordingNotActive, .operation: return "PreviewAutomationExecutionError"
+        case .operation: return "PreviewAutomationExecutionError"
         }
     }
 
@@ -674,9 +684,6 @@ enum T3BrowserHostError: Error {
         case .viewportTimeout(let ms):
             detail["tabId"] = tab; detail["timeoutMs"] = ms
             message = "Preview viewport for request \(context.requestId) on environment \(context.environmentId) thread \(context.threadId) tab \(tab) was not rendered within \(ms)ms."
-        case .recordingNotActive:
-            detail["tabId"] = context.tabId ?? NSNull()
-            message = "Preview automation request \(context.requestId) found no active recording for tab \(tab) on environment \(context.environmentId) thread \(context.threadId)."
         case .notEditable(let kind, let length):
             detail["operation"] = context.operation; detail["tabId"] = context.tabId ?? NSNull(); detail["selectorKind"] = kind
             if let length { detail["selectorLength"] = length }

@@ -37,7 +37,8 @@ export function renderer(dist) {
   const title = shell.indexOf('<title>'), stop = shell.indexOf('>\n', shell.indexOf('<meta name="viewport"', title)) + 2;
   const root = ROOT?.index ?? -1, entry = shell.indexOf(ENTRY), rootAttrs = ROOT?.[1] ?? '';
   const viewport = esc(/<meta name="viewport" content="([^"]*)"/.exec(shell)?.[1] ?? 'width=device-width, initial-scale=1');
-  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, '<html lang="en" dir="ltr">') + `<script>${capture}</script>\n`
+  // The document's language is the shell's, which the build wrote from the manifest's `lang` (LLP 1115.000 D4.6).
+  const headOf = preload => shell.slice(0, title).replace(/<html[^>]*>/, html => `<html lang="${/ lang="([^"]*)"/.exec(html)?.[1] ?? 'en'}" dir="ltr">`) + `<script>${capture}</script>\n`
     + (preload ? shell.slice(stop, root) : shell.slice(stop, root).replace(/<link rel="modulepreload" href="[^"]*">\n/g, ''));
   /** A render begun: its route's policy and the page's head, known before
    * any data is asked; `finish` settles it and composes the rest. */

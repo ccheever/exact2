@@ -527,7 +527,9 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     // diff gutter's number and "+" hear the pointer for their drags; the gutter is in a thread's Diff panel or a pull
     // request's Code tab, which the Usage page covers, so its popover is never on screen with them either. files-gutter-parity
     // FG-2: so do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
-    // beside them close from the gutter's own press, FG-4).
+    // beside them close from the gutter's own press, FG-4). device-player-compact-and-rail-keys (review round 2): the floating
+    // device hears its press (app-window.contract detailsPlayerPointer closes the thread details popover and a skill chip's
+    // details as it ends); it is in the chat, which the Usage page covers.
     expect(takers).toEqual([
       'app-window.contract t3-code',
       'browser-capture.contract browser-mini-player',
@@ -536,6 +538,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
       'pages-usage.contract usage-page',
       'r4-surfaces-files.contract file-line-${line.number}',
       'r4-surfaces-files.contract file-comment-${line.number}',
+      'r6-device.contract device-mini-player',
       'theme-color-picker.contract theme-editor-swatch-${row.id}',
       'theme-color-picker.contract theme-color-${row.id}-plane',
       'theme-color-picker.contract theme-color-${row.id}-hue',

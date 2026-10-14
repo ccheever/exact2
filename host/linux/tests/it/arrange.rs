@@ -555,10 +555,11 @@ fn a_grouped_row_crosses_to_another_list_and_its_session_finishes() {
         .runner()
         .reorder_json()
         .contains("\"to\":\"col-b\",\"before\":null"));
-    assert!(p.pointer_up(b1.0, b1.1 + 25., 30.).unwrap());
+    assert!(p.pointer_up(b1.0, b1.1 + 25., 20_000.).unwrap());
+    assert_eq!(p.host().runner().now_ms(), 20_000.);
     assert_eq!(p.host().runner().slot("log"), Some(&Value::str("a1>b@")));
     assert!(p.needs_animation_frame(), "the ghost springs onto the row");
-    for t in [50., 100., 400., 1500.] {
+    for t in [20_050., 20_100., 20_400., 21_500.] {
         p.tick(t);
     }
     assert!(!p.needs_animation_frame());

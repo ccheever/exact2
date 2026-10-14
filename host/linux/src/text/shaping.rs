@@ -115,13 +115,15 @@ pub(super) struct HardLine {
     indent: f32,
 }
 
-/// A hard line's layout and the width and alignment it was last broken
-/// and aligned at (`None` until a width breaks it): breaking it again at
-/// the same ones leaves the same lines, so a width painted after it was
-/// measured is not broken twice.
+/// A hard line's layout and the width, balanced width and alignment it was
+/// last broken and aligned at (`None` until a width breaks it): breaking it
+/// again at the same ones leaves the same lines, so a width painted after it
+/// was measured is not broken twice. `balance` is the last width's
+/// [`ShapedSource::balanced`].
 struct Broken {
     layout: parley::Layout<u32>,
-    at: Option<(Option<u32>, Alignment)>,
+    at: Option<(Option<u32>, Option<u32>, Alignment)>,
+    balance: Option<(u32, Option<(f32, f32)>)>,
 }
 
 pub(super) struct ShapedSource {
@@ -292,7 +294,11 @@ impl ShapedSource {
             lines.push(HardLine {
                 text,
                 rtl: layout.is_rtl(),
-                layout: Mutex::new(Broken { layout, at: None }),
+                layout: Mutex::new(Broken {
+                    layout,
+                    at: None,
+                    balance: None,
+                }),
                 inset,
                 indent,
             });
@@ -399,19 +405,34 @@ impl ShapedSource {
         let mut left = (spec.line_clamp > 0).then_some(spec.line_clamp as usize);
         let mut cut = false;
         let count = self.data.lines.len();
+        let balanced = self.balanced(width).map(|(narrow, _)| narrow);
         #[cfg(test)]
         BREAKS.with(|n| n.set((n.get().0 + 1, n.get().1)));
         'hard: for (h, hard) in self.data.lines.iter().enumerate() {
             let (_, rest) = hard.inset;
             let mut broken = hard.layout.lock().expect("layout lock");
-            let at = Some((width.map(f32::to_bits), align));
+            let narrow = balanced.filter(|_| h == 0);
+            let at = Some((width.map(f32::to_bits), narrow.map(f32::to_bits), align));
             if broken.at != at {
                 #[cfg(test)]
                 BREAKS.with(|n| n.set((n.get().0, n.get().1 + 1)));
                 broken.at = None;
-                broken
-                    .layout
-                    .break_all_lines(width.map(|w| (w - rest).max(0.0)));
+                if let (Some(narrow), Some(width)) = (narrow, width) {
+                    // Broken at the balanced width, each line aligned (and
+                    // justified) in the box's, as Chrome's are.
+                    let mut breaker = broken.layout.break_lines();
+                    let state = breaker.state_mut();
+                    state.set_layout_max_advance((narrow - rest).max(0.0));
+                    state.set_line_max_advance((narrow - rest).max(0.0));
+                    while breaker.break_next().is_some() {
+                        breaker.set_prior_line_width((width - rest).max(0.0));
+                    }
+                    breaker.finish();
+                } else {
+                    broken
+                        .layout
+                        .break_all_lines(width.map(|w| (w - rest).max(0.0)));
+                }
                 broken.layout.align(align, AlignmentOptions::default());
                 broken.at = at;
             }
@@ -462,6 +483,43 @@ impl ShapedSource {
         }
         out.tighten();
         (out, cut)
+    }
+
+    /// CSS `text-wrap-style: balance` (LLP 1001 §6): the width the first
+    /// hard line's lines break at, the narrowest that keeps the count they
+    /// have at `width` (two to six, `exact_textflow::balanced_width`; Chrome
+    /// balances only the lines before the first forced break), and those
+    /// lines' widest broken greedily, which the paragraph still measures:
+    /// balancing moves breaks, never the box. A clamp keeps greedy lines.
+    fn balanced(&self, width: Option<f32>) -> Option<(f32, f32)> {
+        let spec = &self.spec;
+        if spec.text_wrap_style != exact_kernel::TextWrapStyle::Balance
+            || spec.line_clamp > 0
+            || !spec.white_space.model().wraps()
+        {
+            return None;
+        }
+        let width = width?;
+        let hard = self.data.lines.first()?;
+        let (_, rest) = hard.inset;
+        let mut broken = hard.layout.lock().expect("layout lock");
+        if let Some((bits, balanced)) = broken.balance {
+            if bits == width.to_bits() {
+                return balanced;
+            }
+        }
+        broken.at = None;
+        let mut widest = 0.0;
+        let narrow = exact_textflow::balanced_width(width, |w| {
+            broken.layout.break_all_lines(Some((w - rest).max(0.0)));
+            if w == width {
+                widest = broken.layout.width() + rest;
+            }
+            broken.layout.len()
+        });
+        let balanced = narrow.map(|narrow| (narrow, widest));
+        broken.balance = Some((width.to_bits(), balanced));
+        balanced
     }
 
     /// The paragraph's alignment as Parley takes it.
@@ -625,6 +683,9 @@ impl ShapedSource {
         let mut baselines = Vec::with_capacity(lines.lines.len());
         let mut bottoms = Vec::with_capacity(lines.lines.len());
         let mut explicit = false;
+        if let Some((_, widest)) = self.balanced(width) {
+            w = w.max(widest);
+        }
         for line in &lines.lines {
             w = w.max(line.w);
             let (above, below, is_explicit) = line_box(

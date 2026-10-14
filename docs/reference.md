@@ -88,6 +88,11 @@ never to block. Its design documents are imported under `llp/research/`.
 
 ## What exists
 
+`font-family` accepts a CSS family-list string from state or data on web,
+macOS, iOS and Linux. A change resolves the new installed or generic family
+and remeasures affected text. Bundled faces are declared at compile time on
+every host; a runtime string does not load a font file.
+
 | Crate | What it is | Spec |
 |---|---|---|
 | `kernel/` (`exact-kernel`) | Typed columnar arena, EXWF wire frames, validate-then-apply transactions, Taffy layout with changed-geometry receipts, EXNODE columnar export, injected text measurement. Builds for `wasm32-unknown-unknown`. | `llp/1001-kernel-v1.spec.md` |
@@ -108,6 +113,19 @@ never to block. Its design documents are imported under `llp/research/`.
 
 All four surfaces run the app; `QUEUE.md` is the ordered list of what would
 make sense to do next.
+
+Contract carries `aria-disabled` on controls and elements with a role, including
+groups and inline links. It is a boolean accessibility state: focusable elements
+remain in the Tab order, and `press` still runs. The app guards an unavailable action.
+`aria-disabled=true` also marks its focusable descendants, including inline
+links, as unavailable to accessibility; an explicit false on a descendant
+overrides the ancestor. HTML
+`disabled` retains its separate focus and input behavior; see
+[focus order](contract-grammar.md#focus-order-tabindex).
+On Apple hosts, a projected tab or pressable node reports the same accessibility
+state through its native segment, UIKit bar item or title, or AppKit menu item.
+UIKit menu rows and alert actions remain selectable but read as enabled: their
+public disabled states also stop selection.
 
 ## Serve RealWorld
 
@@ -196,6 +214,28 @@ the plan, so this is not an original-source revision guarantee.
 and exits nonzero when formatting differs. Plain `fmt <file>` writes the result
 explicitly. Formatting never runs automatically on save.
 
+## Run a terminal app
+
+`cargo build --profile host-dev -p harness-terminal -p llp-terminal` builds
+`target/host-dev/harness` (inline; `--fullscreen` for the alternate screen)
+and `target/host-dev/llp [corpus-or-document]` (full screen). Both embed their
+terminal entry as a compiled plan. Rebuild after editing the entry or an
+import; launching the binary needs no Contract source or compiler work.
+`exact-terminal <entry.contract>` remains the source-driven development
+host. All three accept the headless operations and `--size COLSxROWS`.
+
+The harness's inline transcript is transferred to scrollback in bounded
+batches, retiring each only after the terminal prints it. A large burst
+still produces every entry immediately; fullscreen retains the full
+transcript for scrolling.
+
+Vertical `list virtualized=true` uses the shared collection window on the
+terminal. Scroll and resize report the viewport and measured rows; Tab and
+arrow navigation reach logical rows beyond the mounted window. A focused
+row stays alive when scrolled away. Closed dialogs release their virtual
+row views while retaining their list index and position. The LLP reader's
+document tree uses this path, initializing its index on first open.
+
 ## Run an app from a terminal on macOS
 
 ```sh
@@ -233,6 +273,18 @@ JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
 manifest, the web's included. An extension another app already owns on a Mac
 (Freeform has `.board`) can still resolve to that app's type there; the open
 panels and drops take a declared extension whichever type the Mac gives it.
+
+For URL schemes, `protocol_handlers` in `app.json` uses the Web App Manifest's
+`{ "protocol": "web+notes", "url": "/open?u=%s" }` entries. A native Apple
+bundle registers each declared scheme. `%s` is the complete incoming URL
+encoded as a URI component, so the scheme, query, and fragment survive;
+`searchParam(top(nav), "u")` recovers it in the `/open` route. A cold link is
+the launch location; warm links arrive one at a time at the navigation root's
+`navigate` handler. The app must declare that root and an accepting route.
+The web manifest carries the same entries; browser registration is subject to
+the browser's supported schemes and installation behavior. Linux's CLI URL
+argument retains the ordinary location conversion because it does not
+register OS protocol handlers.
 A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
@@ -287,6 +339,18 @@ with its release identity. Resource changes require a new binary, not an asset
 update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
 module. This field applies only to macOS bundles.
 
+Mach-O code in content-addressed `assets/`, `deck/` or `shaders/` is refused
+when assembling a Mac bundle: place helpers in `host.macos.resources` instead.
+The release signs GPU modules before baking their digests and preserves those
+signatures through packaging. iOS archives package primary and named GPU modules
+as signed frameworks; development builds keep their loose dylibs.
+Combining `--device --archive out.ipa --embed` produces both the IPA and the
+embed directory without a connected phone. The embed directory contains the
+static library, C header, assets, shaders, compatibility and capability metadata,
+receipt, and signed GPU frameworks (primary and named modules). Copy those
+frameworks intact into the embedding app's `Frameworks/`; their binaries must
+retain the baked digests.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
@@ -322,7 +386,7 @@ first data load, `fail fetch <prefix> [times <n>]` and `pass fetch <prefix>` arm
 `{"op":"prefer","faults":{"fail":…,"times":…}}` or `{…{"pass":…}}`), and `state.faults` lists each prefix's `times`, `left`, `hits` and
 `armed`. Native carriers pass the launch table as `EXACT_AGENT_FAIL_FETCH`, web pages as `?failFetch=`, one
 `<prefix>[\t<times>]` line a fault, read only in agent mode; a production build ignores both. `--fail-fetch` with `--test` arms every test.
-Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
+Seeds are whole numbers from 0 through 2^32 − 1, the range every host draws (LLP 1116.005 D5); an epoch is an ISO date, Unix milliseconds, or `now`: the machine's clock,
 read once by the driver at launch, for a drive against a live backend on real time (`snapback4 dev`). Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -388,6 +452,23 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. Apple's engine rounds a tie to even and ignores `roundingMode` (`$0.82` for 0.825 dollars, Chrome `$0.83`); the prelude rounds the number first, as Chrome does: from its shortest digits, by the formatter's `roundingMode` (half away from zero unless it names another), which `resolvedOptions()` then reports; a compact it prints in full rounds so too, to its style's digits (`$0.83` for a compact 0.825 dollars). A `unit` keeps the engine's rounding, since that engine converts it to the locale's unit (`0.622mi` for 1 kilometer). Apple's engine has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
+For `fetch` with the default `redirect: "follow"`, native hosts check each
+redirect target against the source's `net.fetch` grants before contacting it.
+The web lets the browser follow and checks only the final response URL. On
+render-server pages, CSP `connect-src` allows the page's own origin and the
+app's granted origins, while request admission uses the source's grants. A hop
+outside the page origin and app grants is blocked before contact (`Network` on
+web, `Refused` on native). An app-granted but source-ungranted hop can still
+receive a 307 POST body and return to a source-granted final URL; web succeeds
+while native refuses before that hop. Static and dev pages have no CSP: an
+ungranted intermediate origin can receive the request (including a POST body
+on a 307); if the chain ends at a granted origin, the
+web succeeds while native refuses at the intermediate hop. Without CSP, an
+ungranted final URL is refused after contact. CORS or another browser failure
+can also hide the response and yield `Network`. Exact API grants do not
+sandbox page code: it can call browser `fetch` directly, subject to the
+rendered page's CSP where one is served.
+
 On native hosts, ordinary ordered `GET`/`HEAD` reads wait in the same FIFO as
 writes: up to 128 queued, running and unconsumed requests, with at most 64 MiB
 of waiting request buffers. Other ordered work retains a 16-request admission
@@ -410,7 +491,12 @@ build refuses a direct use in a module `app.ts` reaches, by file and line
 runs the module under Bun, which has no such guard, cannot hide it.
 Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
 gets the same diagnostic as dot access, including in the web build's summary.
-Aliases and dynamic property keys still reach the runtime guard.
+Aliases and dynamic property keys still reach the runtime guard. In a running
+session, a refused TypeScript answer fails its resource and keeps its last value
+or placeholder; the typed input or action still commits. `failure(x).code` is
+`error` for the module's own error. A failed send ends unsent, retains its previous
+result and runs no `then`, including when queued. The journal names the failure.
+Module initialization, bake and replacement validation still refuse failures.
 Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
@@ -460,7 +546,9 @@ kept between drives (on the web, Chrome's profile for the name and its page's
 origin; a Firefox or WebKit drive's is its own); an authored test gets a fresh
 one of its own, removed after it. A data module's `secret.keep` rides that same
 store: files under the named tree on Apple and Linux, `localStorage` in the named
-web profile. A drive with no `--storage` refuses app storage (`storage is unavailable
+web profile. Apple native modules receive the same named data, cache and temporary
+roots across launches. A fresh drive clears them; the picker's temporary documents
+alone are cleared on each launch. A drive with no `--storage` refuses app storage (`storage is unavailable
 in agent mode unless the drive names a scratch store (--storage <name>)`) and keeps
 no secrets. The driver's `state.storage` says
 which (`{available: false, code: 'agent', message}` or `{available: true,
@@ -542,19 +630,71 @@ returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
-feed that waits for a subscribe frame cannot be read). An event is
+WebSocket under `net.websocket` alone. Except for the JS-target TypeScript
+adapter described below, sockets remain receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
-New arguments, `refresh` or the resource leaving the view close the stream;
+A caller's abort signal maps an `error` with kind `Aborted` while the resource
+is still held. New arguments, `refresh` or the resource leaving the view close
+the stream without further mapper calls;
 `state.pending` lists it until its first message, `state.streams` while it is
 open. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+On the **web JS target, TypeScript sources** receive `(event, socket)` for a
+WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
+module state. Its events are `open`, ordered `message` (string or ArrayBuffer
+`data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
+Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
+return a shaped snapshot synchronously. Sending belongs to a mutation:
+
+```ts
+import type { StreamSocket } from './app.contract.d.ts';
+const feeds = new Map<string, StreamSocket>();
+export function answer(source: string, [id, url, text]: [string, string, string]) {
+  if (source === "feed") return fetch(url, {
+    exactStream(event, socket) {
+      if (socket) feeds.set(id, socket);
+      return { status: event.type, text: typeof event.data === "string" ? event.data : "" };
+    },
+  });
+  if (source === "sendFrame") {
+    const socket = feeds.get(id);
+    if (!socket) throw new Error("feed is not open");
+    socket.send(text);
+    return { accepted: true };
+  }
+}
+```
+
+Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
+`send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
+the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
+reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
+mutation source's synchronous call. A source that stages socket operations
+must answer synchronously. A thrown source, wrong-shaped answer or refused
+commit sends none of them. The handle exposes read-only `readyState` (0–3)
+and `bufferedAmount`. It cannot extend the resource's lifetime.
+
+A mutation stages at most 256 operations and 1 MiB, including bytes already
+buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
+not-yet-open handle throws `InvalidStateError` (also after close, a deliberate
+difference from the browser's silent discard). A change before publication
+can still refuse transport admission, reported in `logs`: acceptance is not
+server acknowledgement. The receive queue is bounded by 256 frames and
+1 MiB plus the per-message response ceiling; overflow maps accepted queued
+frames in order before ending with a `Refused` error.
+`state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
+
+**Remaining host gap:** the web wasm target, Rust sources, macOS, iOS,
+Linux and worker-placed TypeScript do not yet provide this handle or send
+path; do not use it in a cross-platform app yet. No ambient `WebSocket`
+constructor is admitted. SSE remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
@@ -564,7 +704,7 @@ are `bigint`: convert them to a Contract-compatible value before returning.
 
 ### Notifications
 
-`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+`showNotification(title=…, body=…, tag=…, showTrigger=…, navigate=…)` posts a local
 notification; `closeNotification(tag)` takes one away, shown or still
 waiting. The names are the Notification API's (`showTrigger` is the
 Notification Triggers draft's member, given as the time in epoch
@@ -574,17 +714,34 @@ with the same `tag` replaces the older. The app's grants must name
 iOS shows its own fixed prompt text), or the command is refused. Permission
 is asked the first time; the outcome is a journal line
 (`showNotification: shown`, `scheduled`, `refused: denied`, …).
+`navigate=` is a route location, such as `"/thread/42"`; relative paths and
+custom-scheme URLs are reduced by the router's `location_of` on every host
+(`app://thread/42` becomes `/thread/42`; `app:/thread/42` and
+`app:///thread/42` become `//thread/42`). A plain click on the
+notification delivers one `navigate` event to the navigation root while the
+app runs, or makes that location the launch location when it starts the app.
+Notifications posted before the app last quit still navigate after it reopens.
+An embedded Mac host must receive launch callbacks before sizing or attaching
+its Exact views: either can boot a session. Boot once with the launch location,
+then attach the view.
+Without `navigate=`, a click just brings the app forward. Action buttons,
+replies, and badges are not available.
 
 | host | now | at `showTrigger` |
 | --- | --- | --- |
-| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| web | `new Notification(title, {body, tag})`; a click navigates and focuses the open page | while the page is open: the web has no trigger that outlives the page |
 | macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
 | Linux | refused: `unavailable` | the same |
 
+On macOS, system notifications need an app bundle (`bun host/apple/build.mjs
+--bundle`); the bare development executable refuses them because it has no
+notification centre.
+
 Under the agent nothing reaches the system on any host: `state.notifications`
-lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+lists what the app posted (`{title, body, tag, showTrigger, navigate}`, a tag replacing
 its older one, `closeNotification` removing it), so a drive reads a reminder
-without a permission prompt. Scheduling is one time per call: a daily
+without a permission prompt. A drive can then `type` the listed location into
+the navigation root to check its screen. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
 ### Apple Health
@@ -672,6 +829,16 @@ an app whose plan claims the media session states both in `app.json`, or
 declaration, `playbackStateDeclared`); `artworkError` says why an artwork was
 not published. `tap <element> mediasession <action> [seconds]` calls the handler
 the platform would call (`delivery: "substituted"`).
+
+### Pick a file of any type
+
+An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
+`multiple` allows more than one. `showPicker(id)` opens it, and `change`
+receives `list<Picked>` with each file's name, type, size and
+`app:/tmp/picked/` path. A specific `accept` list is limited to media types
+and types in the app's `file_handlers`. The live Linux picker is unavailable;
+its agent substitute accepts any file. Image pixel and Canvas readback remain
+deferred.
 
 ### Shrink a picked image for upload (`storage.fs.compressImage`)
 
@@ -858,6 +1025,17 @@ gesture recognizer, set a navigation bar's look, draw into a view. It configures
 what Exact made; it never replaces a route's authored tree. (LLP 1075.003,
 1075.003.000, 1075.003.000.001; its §13 is the as-built record.)
 
+A route's `header` or navigation root's `tablist` with `appearance="none"`
+keeps its authored bar on iOS, including layout and type; a header button with
+it keeps that button and its contents authored in place; the rest of the header
+still projects. An authored Back replaces UIKit’s Back. Search and a header
+tablist can opt out on their own element too. Tab/tabpanel navigation and retained stacks
+remain intact. An opted-out root tablist also stays authored on the Mac and in wide
+web windows instead of becoming a sidebar, and either stays the page's on Android
+(the shared rule, `kernel/src/bars.rs`). On the Mac a header button with it keeps
+the whole header painted: the window's bar shows a header whole or not at all.
+See [tabs](recipes/tabs.md).
+
 ```sh
 bun scripts/exact.mjs hatch avatar <app>     # in an app `exact new` made: bun exact.mjs hatch avatar
 bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the window's
@@ -877,6 +1055,17 @@ column hatch="avatar" data-tone=(busy ? "busy" : "idle")
 Elsewhere the node is shown and no hatch is called for it. A hatch reads state
 only through the node's `data-*` words (declared in `app.json` `data`), and is
 called again when one changes.
+
+An action can read those same declared words with
+`querySelectorAll("[data-tone~=\"busy\"]")`: it returns the own ids of
+mounted, displayed, non-inert matches in tree order; covered routes and
+unselected tabs are hidden; a split list answers alongside its detail where
+the host presents it (the web at desktop widths). Closed popovers
+and dialogs are hidden, and open ones answer. For an Inspect overlay,
+`elementsFromPoint(x, y)` returns the own ids of the boxes under a viewport
+point, front to back. Both are action snapshots; `frame(id)` gives each
+returned node's box for an outline. Point reads skip inert subtrees and use
+the presenter's placement and order for open top-layer content.
 
 | Scope | Swift (`ExactModule`) | Page module (`modules/web/index.js`) |
 |---|---|---|
@@ -950,7 +1139,7 @@ A data crate answers the view's sources in Rust instead of `app.ts`: an app's
 | `query(source, args)` | Answer now, with no I/O: the build bakes this into the plan for the first frame. `Err(DataError::Unavailable(…))` leaves the resource unbaked; every host asks again at launch. |
 | `answer(store, source, args)` | At run time: `Answer::Now(value)`, or `Answer::Later(request)` for the host to run (storage, `fetch`). The default is `query`. |
 | `parse(store, source, args, outcome)` | What the host brought back for that request: answer, or hand back one more request. |
-| `app_id()` | The app's identity, which names its storage: `com.example.my-app`, or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
+| `app_id()` | The app's identity, which names its storage: `com.example.my-app-3f9a2c` (`exact new` writes the name and six random hex digits), or for a game `com.exact.<Game::ID>` unless its app.json names one. A source with no id has no app storage on Apple and Linux. |
 | `grants()` | One grant per line, the lines `app.ts`'s `grants` takes (`net.fetch …`, `sqlite.open …`, `fs.read …`). |
 
 A record is positional: `Value::record(vec![…])` takes its fields in the order
@@ -1039,7 +1228,7 @@ in a file per secret only the user can read (`0600`, under
 read is synchronous, and a scripted drive never keeps them. A best time is not
 a secret: keep it in app storage.
 
-## The five checks
+## The six checks
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
@@ -1048,13 +1237,35 @@ cargo clippy --all-targets --keep-going -- -D warnings                  # lint, 
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
 bun scripts/boot.mjs                                                   # boot graph
+cargo check --workspace --all-targets --keep-going                      # workspace
 ```
 
-Cargo's checks cover the root `default-members`: the deterministic, in-process
+The first three cover the root `default-members`: the deterministic, in-process
 crates, the web host's and the Apple host's Rust among them (the Apple host's
 real-socket, wall-clock and toolchain-launching tests are `async lane:`; a test
-may still re-run its own binary to isolate its environment). The async lane runs the same commands with
-`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures).
+may still re-run its own binary to isolate its environment). The sixth compiles
+every crate and target of the workspace and runs none of their tests: without it
+a crate outside `default-members` can stop compiling on `main` while the other
+five pass, as `exact-web-js` and `exact-linux`'s tests did on 2026-10-11. It
+needs the pinned Bun first on `PATH` (or named by `BUN`): app crates' build
+scripts run Bun, and under an older one each fails with `Bun <version> is older
+than …`. The async lane runs the first three with
+`--workspace` (the other hosts, GPU, Hermes, platform shells, stress fixtures),
+which covers the sixth, and tests the separate game workspace with
+`cargo test --manifest-path game/Cargo.toml --workspace --locked --lib --bins --tests`.
+Changes to Apple host files, its Cargo path dependencies, or apps trigger the
+iOS simulator tests, touch smoke and the tvOS compile
+(`EXACT_JS_ENGINE=stub bun host/apple/build.mjs --tvos --no-install`: the Apple TV
+bundle built and signed, installed on nothing, so it needs the tvOS SDK and
+Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
+`--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
+host and Caltrain and for the Windows host and Windows Desk. Install
+`x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
+and provide `zig` for C dependencies on the Mac. Other Linux apps remain
+outside this check until their shared JavaScript host's target C++ build
+inputs are qualified. These cross checks cover compilation; native window
+presentation, KMS, and input devices
+remain unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development
@@ -1215,3 +1426,22 @@ checks geometry, echo and recovery. Substitute `linux` on an actual Linux host
 or select `--app markdown-stress` / `completion-storm` (with its fixture running).
 It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
+
+### Intersection visibility
+
+`intersect=action` on a node offers a final `IntersectionObserverEntry` record
+(`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.
+The nearest ancestor scroll container is the root, otherwise the viewport;
+threshold is fixed at 0. It delivers after mounting and on enter/leave, not
+on every ratio change. Entries in one root/margin group follow observation order,
+after resize callbacks and authored scrolling. `intersect-margin="200px 0px"`
+is a literal rootMargin (one to four case-insensitive px/% lengths, default 0px).
+Numbers follow CSS syntax: `.5px` and `1e2px` are valid; `1.px` is refused at compile time.
+Percentages use the corresponding root dimension.
+This can keep T3 sidebar subscriptions active near the viewport and track timeline turns.
+Removal cancels observation without a leave callback. Both web targets use the
+browser's IntersectionObserver after first paint. AppKit, UIKit and Linux use
+the shared native sampler after resize settlement and presented scrolling.
+Native inline runs, moving presentation geometry, rotated roots and SVG clip references remain unqualified;
+percentage margins follow Chrome (LLP 1001). See LLP 1005's intersection
+visibility deviation; other native hosts remain unqualified.

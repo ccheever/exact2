@@ -52,8 +52,8 @@ fn kmEndKeyed(end: string): number = end == "last" ? -1 : (end == "first" ? 1 : 
 // pointer rests on and the row they leave loses its shade. The pointer leaving a row that holds the focus
 // gives the focus to the popup (the row's `keysId`, this `menuId`). The doors stand in for the rows' own
 // focus, which the popup cannot hear (no focusin, #283); the popup hears no pointer itself, so a press inside
-// it still reaches the window's (popover-escape-parity), and no `hover` (the macOS host hovers one node at a
-// time, #322). A door is a 1-pt invisible box: a node the host focuses has a size.
+// it still reaches the window's (popover-escape-parity), and no `hover` (the macOS host hovered one node at a
+// time before main #327, X62). A door is a 1-pt invisible box: a node the host focuses has a size.
 component KeyMenu
   props
     menuId: string

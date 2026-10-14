@@ -12,6 +12,7 @@ import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerContro
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from './sidebar-commands';
+import { takeRowDrops } from './legacy-sidebar-drop'; // legacy-sidebar-full LS-3
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
@@ -37,7 +38,7 @@ import { adoptBrowserPrefs } from './browser-defaults'; // browser-surface part 
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
-import { DISCOVERED_SERVERS_KEY, discoveredServersEvent } from './browser-targets'; // browser-surface part 2: the live local servers
+import { discoveredServersEvent, isDiscoveredServersKey } from './browser-targets'; // browser-surface part 2 and the legacy sidebar's ports: the live local servers
 import { adoptBrowserHistory } from './browser-history'; // browser-surface part 2: the Browser tab's history
 import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from './browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
@@ -346,6 +347,7 @@ export class T3Client {
       }
       if (this.reconcilePending()) await this.save(storage);
       await sidebarRefreshed(this, native); // sidebar-commands.ts: a timed provider pill's repaint, new projects' favicons
+      if (await takeRowDrops(this, native)) await this.save(storage); // legacy-sidebar-drop.ts: files dropped on the open thread's sidebar row
       await this.flushSnapshotReleases(native, storage);
       if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage);
     } catch (error) {
@@ -505,7 +507,7 @@ export class T3Client {
         if (key === PR_REFRESH_KEY) { prRefreshEvent(this, entry); continue; } // pages-pr-refresh.ts: pullRequests.subscribeRefreshes
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // r4-git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // r4-surfaces-device.ts: the device hub state
-        if (key === DISCOVERED_SERVERS_KEY) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
+        if (isDiscoveredServersKey(key)) { discoveredServersEvent(this, entry); continue; } // browser-targets.ts: subscribeDiscoveredLocalServers
         if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry) || composerReplyEvent(this, entry) || codexHandoffEvent(entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle; composer-replies.ts: a /feedback upload's or a redeem's reply codex-handoff-events.ts: the ChatGPT handoff on the primary
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions

@@ -681,3 +681,54 @@ fn a_failed_storage_continuation_releases_the_queue() {
     let state = m.background_state().unwrap();
     assert_eq!(state.queued + state.in_flight, 0);
 }
+
+#[test]
+fn worker_placed_typescript_storage_keeps_the_document_owner() {
+    use exact_runner::{Dispatch, Placement, Reply, Work};
+    fn read(module: &mut exact_js::Placed<Module>, store: &mut Store, path: &str) -> String {
+        let args = args("read-size", path);
+        let mut answer = module.answer(store, "work", &args).unwrap();
+        for _ in 0..8 {
+            let Answer::Later(request) = answer else {
+                let Answer::Now(value) = answer else {
+                    unreachable!()
+                };
+                return text(value);
+            };
+            let Dispatch::Run(Work::Later(work)) =
+                module.dispatch(request.continuation.unwrap(), store)
+            else {
+                panic!("worker turn did not dispatch")
+            };
+            let (tx, rx) = std::sync::mpsc::channel();
+            work(Reply::new(move |outcome| {
+                tx.send(outcome).unwrap();
+            }));
+            answer = module
+                .parse(
+                    store,
+                    "work",
+                    &args,
+                    rx.recv_timeout(std::time::Duration::from_secs(30)).unwrap(),
+                )
+                .unwrap();
+        }
+        panic!("document read did not settle")
+    }
+    let root = Root::new();
+    let folder = root.0.join("chosen");
+    std::fs::create_dir_all(&folder).unwrap();
+    let file = folder.join("note");
+    std::fs::write(&file, "owner").unwrap();
+    let doc = exact_data::documents::mint(&file, 9130).unwrap();
+    let mut owner = root.module().placed(Placement::Worker);
+    owner.set_document_owner(9130);
+    owner.activate().unwrap();
+    let mut store = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
+    assert_eq!(read(&mut owner, &mut store, &doc), "5");
+    let mut other = root.module().placed(Placement::Worker);
+    other.set_document_owner(9131);
+    other.activate().unwrap();
+    assert!(read(&mut other, &mut store, &doc).contains("document ENOENT:"));
+    exact_data::documents::forget(9130);
+}

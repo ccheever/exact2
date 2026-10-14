@@ -3,18 +3,14 @@
 //! @ref LLP 0485 §8.2 (keyed instance management, never reconciliation of
 //! trees; research)
 //!
-//! The plan's nodes and regions are *sites*. An instance is one realization
-//! of a site: a kernel view for a node, an active arm for `when`/`match`, one
-//! row per key for `each`. An update visits only the sites whose reads
-//! ([`deps`]) include an input that changed since the last update, or an
-//! enclosing row or arm whose value changed, and there evaluates only the
-//! stale bindings; it emits exactly the kernel ops that make the kernel
-//! equal to the result: a binding's op only when its value changed,
-//! `SetChildren` only when a child list changed, create/destroy only when a
-//! key appeared or went away. [`Update::full`] evaluates everything, the
-//! reference an incremental update must equal. There is no tree diff: a
-//! keyed row keeps its views across reorders because its key, not its
-//! position, is its identity.
+//! The plan's nodes and regions are *sites*. An instance realizes a site as a
+//! kernel view, an active `when`/`match` arm, or an `each` row per key. Updates
+//! visit sites with changed inputs ([`deps`]) or enclosing rows/arms, evaluating
+//! only stale bindings. They emit binding ops only for changed values,
+//! `SetChildren` only for changed child lists, and create/destroy only for
+//! added/removed keys. [`Update::full`] evaluates everything and is the reference
+//! for incremental updates. No tree diff is needed: a row's key, not its position,
+//! preserves its views across reorders.
 
 /// Variable-height viewport collections and their portable host feedback seam.
 pub mod collection;
@@ -31,19 +27,17 @@ pub use deps::RowWrites;
 use deps::{Bits, Reads, Seen};
 pub(crate) use deps::{Deps, Input, Reads as DepReads};
 pub use document::{DocNode, DocTree, DocTreeError};
-use exact_kernel::{NodeType, Op, StyleProps, ViewId};
+use exact_kernel::{Kernel, NodeType, Op, StyleProps, ViewId};
 use exact_plan::{ArmsId, BindingKind, Items, NodesId, Plan, RegionKind, RegionsId, Value};
 pub use foresee::Mount;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-/// The list engine's entries (LLP 1047 D3; LLP 1047.000 §9): the core
-/// reaches virtualized collections only through this table, and only
-/// [`LISTS`] names it. `RunnerLinks::ALL` and the web's collections
-/// capability are what name `LISTS`, so an artifact whose plan virtualizes
-/// no list carries no engine. Admission (D6) refuses a plan that
-/// virtualizes a list where the table is absent.
+/// List engine entries (LLP 1047 D3; LLP 1047.000 §9), reached only through
+/// [`LISTS`]. `RunnerLinks::ALL` and the web collections capability name it;
+/// artifacts without virtualized lists carry no engine. Admission (D6)
+/// refuses virtualized lists when this table is absent.
 pub struct ListLinks {
     create: CreateList,
     update: fn(
@@ -56,6 +50,9 @@ pub struct ListLinks {
     pub(crate) collections_json: fn(&Tree) -> String,
     /// `scrollIntoView` (LLP 1070.000): a request begun on its list.
     pub(crate) into_view: IntoViewLink,
+    /// A logical row needed for a host's keyboard focus traversal.
+    pub(crate) reveal_index: RevealIndexLink,
+    pub(crate) scroll_anchor: ScrollAnchorLink,
     /// `state.scrollIntoView`: each list's latest request.
     pub(crate) into_view_json: fn(&Tree) -> String,
     /// `state.kept`: inner lists' kept positions (LLP 1070 §4.2).
@@ -66,7 +63,11 @@ type IntoViewLink = fn(
     &mut Tree,
     &mut Update<'_>,
     &collection::IntoView,
+    &mut Option<collection::IntoView>,
 ) -> Result<collection::IntoViewStatus, InstanceError>;
+
+type ScrollAnchorLink = fn(&Tree, &Kernel, ViewId, f64, f64, f64, f64) -> Option<(Value, f64)>;
+type RevealIndexLink = fn(&mut Tree, &mut Update<'_>, ViewId, usize) -> Result<bool, InstanceError>;
 
 type CreateList = fn(
     &mut Update<'_>,
@@ -83,7 +84,9 @@ pub static LISTS: ListLinks = ListLinks {
     typography: collection::invalidate_typography,
     collections_json: collection::collections_json,
     into_view: Tree::scroll_into_view,
+    reveal_index: Tree::reveal_collection_index,
     into_view_json: Tree::into_view_json,
+    scroll_anchor: Tree::collection_scroll_anchor,
     kept_json: Tree::kept_positions_json,
 };
 
@@ -166,11 +169,31 @@ enum Active {
     /// `when` / `match`: the active arm and its roots.
     Arm {
         arm: Option<usize>,
-        frame: Frame,
+        frame: ArmFrame,
         roots: Vec<Child>,
     },
     /// `each`: rows by key, in current order.
     Rows { rows: Vec<Row> },
+}
+
+/// A conditional arm has a match binding and optional owned state, but no
+/// loop item or index. Expand those absent fields only while visiting its scope.
+#[derive(Debug, Clone, Default)]
+struct ArmFrame {
+    bound: Option<Value>,
+    row: Option<RowSlots>,
+    region: Option<u32>,
+}
+
+impl ArmFrame {
+    fn scope(&self) -> Frame {
+        Frame {
+            bound: self.bound.clone(),
+            row: self.row.clone(),
+            region: self.region,
+            ..Frame::default()
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -184,7 +207,8 @@ struct Row {
     /// The row's own slots (LLP 1017 P4c): the `state` a child component
     /// declared, one value per row, kept across reorders with the key,
     /// dropped with the row, initialized when the row is created.
-    slots: RowSlots,
+    /// Ordinary stateless rows omit it unless nested state needs the identity.
+    slots: Option<RowSlots>,
 }
 
 /// One step of the instance path from the plan's roots to a view: the
@@ -358,6 +382,8 @@ pub struct InstanceWork {
 pub struct Update<'a> {
     /// The environment every expression sees.
     pub env: Env<'a>,
+    /// Run-time installed-family stack ids shared across commits in a session.
+    pub fonts: Option<Rc<RefCell<bridge::RuntimeFonts>>>,
     /// Immutable child sites for this environment's plan.
     pub sites: &'a SiteIndex,
     /// The id allocator.
@@ -409,6 +435,14 @@ pub struct Update<'a> {
     /// Rebind retiring list rows to new items (LLP 1078), as the runner was
     /// told ([`crate::Runner::set_row_reuse`]).
     pub reuse: bool,
+    /// Reuse operand and local storage while visiting this update's bindings.
+    scratch: vm::Scratch,
+    /// Empty lexical-frame buffers, reused within this update only.
+    frame_buffers: Vec<Vec<Frame>>,
+    /// A list's `scroll-padding`, top, right, bottom, left, as its style
+    /// resolves it now; asked only while a `scrollIntoView` aligns (LLP 1010
+    /// §6.9). `None` without a kernel to ask.
+    pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
 }
 
 impl<'a> Update<'a> {
@@ -416,6 +450,7 @@ impl<'a> Update<'a> {
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
         Update {
             env,
+            fonts: None,
             sites,
             ids,
             ops: Vec::new(),
@@ -434,12 +469,58 @@ impl<'a> Update<'a> {
             renewed: Vec::new(),
             shown: Default::default(),
             reuse: false,
+            scratch: vm::Scratch::default(),
+            frame_buffers: Vec::new(),
+            scroll_padding: None,
         }
     }
 
-    fn eval(&self, code: exact_plan::Code, frames: &[Frame]) -> Result<Value, Trap> {
+    /// Detach removed views before destroying them, in the same atomic batch.
+    /// Both groups keep their order; retaining the live-op buffer avoids
+    /// allocating and growing a second copy of the whole update.
+    fn detach_before_destroy(&mut self) {
+        let gone: Vec<_> = self
+            .ops
+            .extract_if(.., |op| matches!(op, Op::DestroyView { .. }))
+            .collect();
+        self.ops.extend(gone);
+    }
+
+    fn with_frame<R>(
+        &mut self,
+        frames: &[Frame],
+        frame: Frame,
+        visit: impl FnOnce(&mut Self, &[Frame]) -> Result<R, InstanceError>,
+    ) -> Result<R, InstanceError> {
+        let mut inner = self.frame_buffers.pop().unwrap_or_default();
+        inner.reserve_exact(frames.len() + 1);
+        inner.extend_from_slice(frames);
+        inner.push(frame);
+        let result = visit(self, &inner);
+        // A failed evaluation releases its scope too. Keep capacity, never
+        // values or row slots, and let the whole pool go with this update.
+        inner.clear();
+        self.frame_buffers.push(inner);
+        result
+    }
+
+    fn eval(&mut self, code: exact_plan::Code, frames: &[Frame]) -> Result<Value, Trap> {
         let env = Env { frames, ..self.env };
-        Ok(vm::eval(self.env.plan.code(code), &env, &[])?.value)
+        vm::eval_value_reusing(self.env.plan.code(code), &env, &mut self.scratch)
+    }
+
+    fn eval_binding(
+        &mut self,
+        binding: exact_plan::BindingsId,
+        code: exact_plan::Code,
+        frames: &[Frame],
+    ) -> Result<Value, Trap> {
+        self.sites.projections[binding.0 as usize].eval(
+            self.env.plan.code(code),
+            &self.env,
+            frames,
+            &mut self.scratch,
+        )
     }
 
     /// Whether anything `reads` reads may differ from what the tree shows.
@@ -525,6 +606,7 @@ pub struct SiteIndex {
     /// template) has one value for the plan's life: evaluated once, by
     /// binding index, instead of once per instance.
     constants: Vec<std::cell::OnceCell<Value>>,
+    projections: Vec<vm::Prepared>,
 }
 
 impl SiteIndex {
@@ -573,6 +655,11 @@ impl SiteIndex {
             resolve_keyframes: keyframes,
             constants: (0..plan.bindings.len())
                 .map(|_| Default::default())
+                .collect(),
+            projections: plan
+                .bindings
+                .iter()
+                .map(|b| vm::Prepared::new(plan.code(b.expr)))
                 .collect(),
         };
         index.deps = Deps::new(plan, &index);
@@ -655,13 +742,17 @@ fn realize(
     arm: Option<ArmsId>,
     frames: &[Frame],
 ) -> Result<Vec<Child>, InstanceError> {
-    let sites = u.sites;
+    let children = u.sites.children(parent, arm);
     let mut out = Vec::new();
-    for &(_, site) in sites.children(parent, arm) {
-        out.push(match site {
+    for &(_, site) in children {
+        let child = match site {
             Site::Node(id) => Child::Node(NodeInst::create(u, id, frames)?),
             Site::Region(id) => Child::Region(RegionInst::create(u, id, frames)?),
-        });
+        };
+        if out.is_empty() {
+            out.reserve_exact(children.len());
+        }
+        out.push(child);
     }
     Ok(out)
 }
@@ -737,10 +828,11 @@ fn update_row(
     body: &Reads,
 ) -> Result<bool, InstanceError> {
     u.work.rows_scanned += 1;
-    let saved = u.enter(dirty, Some(&row.slots));
+    let saved = u.enter(dirty, row.slots.as_ref());
     let result = if u.stale(body) {
-        let inner = with_frame(frames, row.frame.clone());
-        update_all(u, &mut row.roots, &inner)
+        u.with_frame(frames, row.frame.clone(), |u, inner| {
+            update_all(u, &mut row.roots, inner)
+        })
     } else {
         u.work.rows_reused += 1;
         Ok(false)
@@ -827,7 +919,7 @@ impl NodeInst {
     ) -> Result<(), InstanceError> {
         let plan = u.env.plan;
         let row = plan.node(self.node);
-        let mut patch: Option<StyleProps> = None;
+        let mut patch: Option<Box<StyleProps>> = None;
         let deps = &u.sites.deps;
         for (i, b) in row.bindings.iter().enumerate() {
             if !fresh && !u.stale(&deps.bindings[b.0 as usize]) {
@@ -841,14 +933,14 @@ impl NodeInst {
                     Some(value) => value.clone(),
                     None => {
                         u.work.bindings_evaluated += 1;
-                        let value = u.eval(binding.expr, frames)?;
+                        let value = u.eval_binding(b, binding.expr, frames)?;
                         u.sites.constants[b.0 as usize].get_or_init(|| value.clone());
                         value
                     }
                 }
             } else {
                 u.work.bindings_evaluated += 1;
-                u.eval(binding.expr, frames)?
+                u.eval_binding(b, binding.expr, frames)?
             };
             let unchanged = self.last[i]
                 .as_ref()
@@ -910,8 +1002,36 @@ impl NodeInst {
                     });
                 }
                 BindingKind::Style => {
-                    let p = patch.get_or_insert_with(StyleProps::default);
-                    match bridge::set_plan_style(p, binding.id, &value, plan) {
+                    let p = patch.get_or_insert_with(Box::default);
+                    let family_value = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        match &value {
+                            Value::Option(Some(inner)) => inner.as_ref(),
+                            _ => &value,
+                        }
+                    } else {
+                        &value
+                    };
+                    let family_id = if binding.id == exact_kernel::StyleId::FontFamily as u16 {
+                        family_value.as_str().and_then(|name| {
+                            u.fonts
+                                .as_ref()?
+                                .borrow_mut()
+                                .intern(name, plan.stacks.len())
+                        })
+                    } else {
+                        None
+                    };
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            p,
+                            binding,
+                            id,
+                            plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(p, binding, family_value, plan)
+                    };
+                    match styled {
                         // Unlinked, the plan names no rule: it was refused at
                         // boot (LLP 1047.001 D5).
                         Ok(exact_kernel::StyleId::Animation) => {
@@ -953,7 +1073,7 @@ impl NodeInst {
         if let Some(p) = patch {
             u.ops.push(Op::SetStyle {
                 id: self.view,
-                patch: Box::new(p),
+                patch: p,
             });
         }
         // A canvas's surface inputs: evaluated with the bindings (so a trap
@@ -1143,11 +1263,7 @@ impl Tree {
         // the final child lists before destroying them, so a removed list does
         // not rebuild its parent's siblings once per row. Still one atomic
         // batch; preserve relative destroy order for receipts and host effects.
-        let (mut live, gone): (Vec<_>, Vec<_>) = std::mem::take(&mut u.ops)
-            .into_iter()
-            .partition(|op| !matches!(op, Op::DestroyView { .. }));
-        live.extend(gone);
-        u.ops = live;
+        u.detach_before_destroy();
         self.seen = Seen::of(&u.env);
         self.last_work = u.work;
         Ok(())
@@ -1264,6 +1380,73 @@ mod order_tests;
 mod site_tests {
     use super::*;
     use exact_plan::builder::PlanBuilder;
+
+    #[test]
+    fn reused_frames_preserve_nested_scopes_and_release_rows_on_error() {
+        let plan = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let sites = SiteIndex::new(&plan);
+        let mut ids = Ids::default();
+        let env = Env {
+            plan: &plan,
+            strings: &[],
+            router: None,
+            lists: None,
+            format: None,
+            geometry: None,
+            slots: &[],
+            derives: &[],
+            resources: &[],
+            params: &[],
+            frames: &[],
+            now_ms: 0.0,
+            pending_resources: &[],
+            failed_resources: &[],
+            failed_why: &[],
+            pending_mutations: &[],
+            store_dependent_derives: &[],
+            store_dependent_resources: &[],
+        };
+        let mut update = Update::new(env, &sites, &mut ids);
+        let outer = Rc::new(RefCell::new(BTreeMap::from([(0, Value::Number(7.0))])));
+        let inner = Rc::new(RefCell::new(BTreeMap::from([(0, Value::Number(9.0))])));
+        let released = [Rc::downgrade(&outer), Rc::downgrade(&inner)];
+        let frame = |row, item| Frame {
+            row: Some(row),
+            region: Some(5),
+            item: Some(Value::Number(item)),
+            ..Frame::default()
+        };
+        let result: Result<(), _> = update.with_frame(&[], frame(outer, 1.0), |update, frames| {
+            assert_eq!(frames.len(), 1);
+            assert_eq!(
+                Frame::row_of(frames, 5).unwrap().borrow()[&0],
+                Value::Number(7.0)
+            );
+            update.with_frame(frames, frame(inner, 2.0), |_, frames| {
+                assert_eq!(frames.len(), 2);
+                assert_eq!(frames[0].item, Some(Value::Number(1.0)));
+                assert_eq!(frames[1].item, Some(Value::Number(2.0)));
+                assert_eq!(
+                    Frame::row_of(frames, 5).unwrap().borrow()[&0],
+                    Value::Number(9.0)
+                );
+                Err(InstanceError::List("nested failure"))
+            })
+        });
+        assert_eq!(result, Err(InstanceError::List("nested failure")));
+        assert!(released.iter().all(|row| row.upgrade().is_none()));
+
+        // The next sibling must see its own scope, without either failed row.
+        update
+            .with_frame(&[], Frame::default(), |_, frames| {
+                assert_eq!(frames, &[Frame::default()]);
+                assert!(Frame::row_of(frames, 5).is_none());
+                Ok(())
+            })
+            .unwrap();
+    }
 
     #[test]
     fn site_index_keeps_parent_arm_and_stable_mixed_order() {

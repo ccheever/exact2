@@ -223,11 +223,14 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
     // The X follows every screen.
     expect(profiles.indexOf('        when wizard.canClose\n          BiClose(')).toBeGreaterThan(profiles.indexOf('        when wizard.step == "blocked"'));
   });
-  test('the popup takes the focus and tells the root; only while it holds it does Tab go to the first stop, Shift+Tab to the last', async () => {
+  test('the popup takes the focus and tells the root; from it Tab reaches the first stop and Shift+Tab the guard before it', async () => {
     const profiles = await source('browser-profiles.contract');
-    expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 key=popupKeys focus=hold(true) blur=hold(false) class=BpPopup role="dialog" aria-modal=true');
-    expect(profiles).toContain('  action hold(on: bool)\n    held = on\n    track("browser-import-popup", on)\n');
-    expect(profiles).toContain('  action popupKeys(k: string, e: KeyboardEvent)\n    if held and k == "Tab" and wizard.tabFirst != ""\n      preventDefault()\n      focus(e.shiftKey ? wizard.tabLast : wizard.tabFirst)\n');
+    expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true');
+    // adopt-main-fixes-r11 RT-5: the popup's own `popupKeys` (X79's workaround) is gone; main #490 carries Tab on from it,
+    // and the trap's guards lie before and after it (dialog-trap.test.ts), as Base UI's do.
+    expect(profiles).not.toContain('popupKeys');
+    expect(profiles).toContain('      FocusGuard(guardId="browser-import-guard-start", target=wizard.tabLast)\n      column id="browser-import-popup" ');
+    expect(profiles).toContain('\n      FocusGuard(guardId="browser-import-guard-end", target=wizard.tabFirst)\n');
   });
   test('no button autofocuses: the focus moves only where the reference moves it', async () => {
     const profiles = await source('browser-profiles.contract');

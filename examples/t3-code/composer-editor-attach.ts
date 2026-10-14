@@ -53,11 +53,11 @@ export function imagesGetChips(client: T3Client): boolean {
  * caret, separated by spaces, with a leading boundary; without an editor they
  * join the end of the stored draft (ensureInlineContextReferences).
  */
-export async function insertFileChips(client: T3Client, native: Native, files: DraftFile[], images: Obj[] = []): Promise<void> {
+export async function insertFileChips(client: T3Client, native: Native, files: DraftFile[], images: Obj[] = [], owner = ''): Promise<void> {
   const links = [...files.map(fileChipLink), ...images.map(imageChipLink)];
   if (!links.length) return;
   const text = links.join(' ');
-  const reply = await bridgeReply(native, { op: 'editorInsert', text }).catch(() => null);
+  const reply = await bridgeReply(native, { op: 'editorInsert', text, ...(owner ? { owner } : {}) }).catch(() => null);
   if (reply?.ok && obj(reply.value).applied === true) return;
   const key = files[0]?.draftKey ?? client.draftKey, prompt = client.local.drafts[key] ?? '';
   client.local.drafts[key] = `${prompt}${prompt && !/\s$/.test(prompt) ? ' ' : ''}${text} `;

@@ -66,6 +66,7 @@ fn facts(snapshot: &CollectionSnapshot) -> CollectionFeedback {
         port_cross: 320.0,
         port_main: 180.0,
         cross: 305.0,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: None,
         measurements: snapshot
@@ -237,7 +238,7 @@ fn real_browser_collection_feedback_and_navigation() {
     // fixture-specific data implementation or an authored scroll event handler.
     let baked = contract::bake(exact_plan::Plan::decode(&plan()).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/collection.mjs")
         .env("EXACT_COLLECTION_TEST", &dir)
         .current_dir(root)
@@ -294,7 +295,7 @@ component App
         std::fs::create_dir_all(&dir).unwrap();
         let baked = contract::bake(contract::compile(&source).unwrap(), NoData).unwrap();
         std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-        let output = Command::new("bun")
+        let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .arg("host/web/tests/collection.mjs")
             .env("EXACT_COLLECTION_TEST", &dir)
             .env("EXACT_COLLECTION_EDGES", case)
@@ -336,7 +337,7 @@ component App
     std::fs::create_dir_all(&dir).unwrap();
     let baked = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
     std::fs::write(dir.join("app.plan"), baked.encode()).unwrap();
-    let output = Command::new("bun")
+    let output = Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
         .arg("host/web/tests/collection.mjs")
         .env("EXACT_COLLECTION_TEST", &dir)
         .env("EXACT_COLLECTION_JUMP", "1")

@@ -91,13 +91,20 @@ extension NodeView {
         #endif
     }
 
-    /// `pressed` changed: ease toward the pressed scale, or back to 1; on
-    /// iOS a node that declares none dims instead (LLP 1115, `dimPress`).
+    /// `pressed` changed: ease toward the pressed scale, or back to 1; a
+    /// node that declares none shows the platform's press instead: iOS's dim
+    /// (LLP 1115, `dimPress`), the Mac's pressed effect (LLP 1115.000 D6,
+    /// `tintPress`, Mac/PressLookMac.swift).
     func pressChanged() {
         if pressed { pressHaptic() }
         #if os(iOS)
+        // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
+        if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
         if platformPressDims { dimPress(pressed); return }
         if !pressed { dimPress(false) }
+        #elseif os(macOS)
+        if platformPressTints { tintPress(pressed); return }
+        if !pressed { tintPress(false) }
         #endif
         aimPress(pressed, release: !pressed)
     }
@@ -106,7 +113,10 @@ extension NodeView {
     func pressFollows(inside: Bool) {
         guard pressed else { return }
         #if os(iOS)
+        if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
+        #elseif os(macOS)
+        if platformPressTints { tintPress(inside); return }
         #endif
         aimPress(inside)
     }
@@ -338,8 +348,9 @@ extension NodeView {
 /// down and up in one turn still flashes (`dimHold`). The dim is an additive
 /// Core Animation on `opacity`, never the model's alpha, so it composes with
 /// every engine write and never stays behind. Being a dissolve, not motion,
-/// it is what Reduce Motion keeps (HIG, Motion). macOS and tvOS: nothing
-/// (AppKit's custom views show none; tvOS's focus is the feedback).
+/// it is what Reduce Motion keeps (HIG, Motion). The Mac shows AppKit's own
+/// pressed effect, which is no dim (LLP 1115.000 D6, Mac/PressLookMac.swift);
+/// tvOS nothing: its focus is the feedback.
 extension NodeView {
     /// The opacity a dimmed node shows, as a fraction of its own: UIKit's
     /// custom-button dim and SwiftUI's plain-style press sit near here.

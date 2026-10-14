@@ -49,3 +49,48 @@ fn debug_from_name(w: &mut String, ty: &str, rows: &[(&str, &str)]) {
     .unwrap();
     writeln!(w, "}}").unwrap();
 }
+/// @ref LLP 1116.007 D3.1 — every spelling a `symbol:` source answers to, with its role: a role,
+/// Apple's name for it (dots read as dashes, as underscores do) and the table's aliases. A role and
+/// its Apple name may coincide (`heart`); every other spelling names one role and is new.
+fn symbol_spellings(schema: &Schema) -> std::collections::BTreeMap<String, &str> {
+    let mut spellings = std::collections::BTreeMap::new();
+    for [role, apple, _] in &schema.symbols {
+        for key in [role.clone(), apple.replace(['.', '_'], "-")] {
+            let prior = spellings.insert(key.clone(), role.as_str());
+            assert!(
+                prior.is_none_or(|prior| prior == role),
+                "schema: symbol spelling `{key}` names both `{role}` and `{}`",
+                prior.unwrap_or_default()
+            );
+        }
+    }
+    for [alias, role] in &schema.symbol_aliases {
+        assert!(
+            alias.starts_with(|c: char| c.is_ascii_lowercase())
+                && alias.bytes().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-'),
+            "schema: invalid symbol alias `{alias}`"
+        );
+        assert!(
+            schema.symbols.iter().any(|row| row[0] == *role),
+            "schema: symbol alias `{alias}`: `{role}` is no role"
+        );
+        assert!(
+            spellings.insert(alias.clone(), role.as_str()).is_none(),
+            "schema: symbol alias `{alias}` is already a spelling"
+        );
+    }
+    spellings
+}
+/// @ref LLP 1116.007 D3.1 — `symbol_role`: a role by any of its spellings, as the lowering reads
+/// a `symbol:` source.
+fn write_symbol_role(w: &mut String, schema: &Schema) {
+    writeln!(
+        w,
+        "/// A role by any of its spellings: its own name, Apple's name for it or a table alias (`.` and\n/// `_` read as `-`). `sf/<name>` is no role.\npub fn symbol_role(name: &str) -> Option<&'static str> {{ match name.replace(['.', '_'], \"-\").as_str() {{"
+    )
+    .unwrap();
+    for (key, role) in symbol_spellings(schema) {
+        writeln!(w, "{key:?} => Some({role:?}),").unwrap();
+    }
+    writeln!(w, "_ => None, }} }}").unwrap();
+}

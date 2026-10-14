@@ -25,10 +25,119 @@ use std::path::{Path, PathBuf};
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
 
-// Exact patch 9: `fs.compressImage`, over the embedder's image codec.
-pub use super::fs_image::{
-    compress_image, Abandoned, CommitGate, CompressedImage, ImageCodec, ImageFile, TRIAL_BUDGET,
-};
+// @ref LLP 0068.001#4-bounded-access-and-image-work — the storage envelope is capped at 16 MiB. A readFile
+// result is {"base64":"..."}, whose fixed JSON overhead is 13 bytes.
+pub const RESULT_BYTES: usize = 16 << 20;
+pub const READ_BYTES: usize = ((RESULT_BYTES - 13) / 4) * 3;
+/// Serialized storage envelope budget. Read bytes include base64 expansion and JSON overhead.
+#[derive(Debug, Clone, Copy)]
+pub struct ResultLimits {
+    pub bytes: usize,
+}
+impl Default for ResultLimits {
+    fn default() -> Self {
+        Self {
+            bytes: RESULT_BYTES,
+        }
+    }
+}
+thread_local! { static RESULT_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(RESULT_BYTES) }; }
+// Executors are synchronous. A stack-scoped budget reaches platform enumeration helpers
+// without changing the existing public FsOp ABI; nested calls restore the previous value.
+fn with_result_limits<T>(
+    limits: ResultLimits,
+    call: impl FnOnce() -> Result<T, HostError>,
+) -> Result<T, HostError> {
+    if limits.bytes < 16 || limits.bytes > RESULT_BYTES {
+        return Err(HostError::InvalidArgument(
+            "storage result limit must be between 16 bytes and 16 MiB".into(),
+        ));
+    }
+    struct Restore(usize);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RESULT_BUDGET.with(|limit| limit.set(self.0));
+        }
+    }
+    let _restore = Restore(RESULT_BUDGET.with(|limit| limit.replace(limits.bytes)));
+    call()
+}
+pub(crate) const RESULT_LIMIT: &str = "storage result exceeds its byte limit";
+
+/// A same-handle bounded read. The callback runs between chunks with no Ibex lock held.
+pub fn read_bounded_file(
+    mut file: std::fs::File,
+    cap: u64,
+    canceled: &dyn Fn() -> bool,
+) -> std::io::Result<Vec<u8>> {
+    use std::io::Read;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(std::io::Error::other("read needs a regular file"));
+    }
+    if meta.len() > cap {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    let cap = usize::try_from(cap).map_err(|_| std::io::Error::other(RESULT_LIMIT))?;
+    let mut bytes = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        if canceled() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "read abandoned",
+            ));
+        }
+        let remaining = cap.saturating_sub(bytes.len());
+        let count = chunk.len().min(remaining.saturating_add(1));
+        let n = file.read(&mut chunk[..count])?;
+        if n == 0 {
+            return Ok(bytes);
+        }
+        if n > remaining {
+            return Err(std::io::Error::other(RESULT_LIMIT));
+        }
+        bytes.extend_from_slice(&chunk[..n]);
+    }
+}
+
+pub(crate) fn read_result(file: std::fs::File) -> std::io::Result<Vec<u8>> {
+    read_bounded_file(
+        file,
+        RESULT_BUDGET.with(|limit| ((limit.get() - 13) / 4 * 3) as u64),
+        &|| false,
+    )
+}
+
+fn open_native(path: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    }
+    options.open(path)
+}
+
+pub(crate) fn push_name(
+    names: &mut Vec<String>,
+    used: &mut usize,
+    name: String,
+) -> std::io::Result<()> {
+    let encoded = serde_json::to_string(&name)
+        .map_err(std::io::Error::other)?
+        .len();
+    *used = used
+        .checked_add(encoded)
+        .and_then(|n| n.checked_add(usize::from(!names.is_empty())))
+        .ok_or_else(|| std::io::Error::other(RESULT_LIMIT))?;
+    if *used > RESULT_BUDGET.with(|limit| limit.get() - 2) {
+        return Err(std::io::Error::other(RESULT_LIMIT));
+    }
+    names.push(name);
+    Ok(())
+}
 
 /// The operations, each one a distinct host op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -155,7 +264,7 @@ pub fn admit(
     destination: Option<&Path>,
 ) -> Result<(), HostError> {
     admit_as(grants, op, path, destination)?;
-    let realized = crate::grant::realized_fs(grants);
+    let realized = grants.realized_fs();
     let real_path = realize(path);
     let real_destination = destination.map(realize);
     admit_as(&realized, op, &real_path, real_destination.as_deref())
@@ -233,7 +342,10 @@ pub fn perform(
     let failed = |e: std::io::Error| HostError::Failed(format!("{}: {e}", path.display()));
     match op {
         FsOp::AtomicWriteFile => super::app_fs::atomic_native(path, data.unwrap_or(&[])),
-        FsOp::ReadFile => std::fs::read(path).map(FsResult::Bytes).map_err(failed),
+        FsOp::ReadFile => open_native(path)
+            .and_then(read_result)
+            .map(FsResult::Bytes)
+            .map_err(failed),
         FsOp::WriteFile => std::fs::write(path, data.unwrap_or(&[]))
             .map(|_| FsResult::Done)
             .map_err(failed),
@@ -248,11 +360,17 @@ pub fn perform(
                 .map_err(failed)
         }
         FsOp::ReadDir => {
-            let mut names: Vec<String> = std::fs::read_dir(path)
-                .map_err(failed)?
-                .filter_map(|entry| entry.ok())
-                .map(|entry| entry.file_name().to_string_lossy().into_owned())
-                .collect();
+            let mut names = Vec::new();
+            let mut used = 0;
+            for entry in std::fs::read_dir(path).map_err(failed)? {
+                let entry = entry.map_err(failed)?;
+                push_name(
+                    &mut names,
+                    &mut used,
+                    entry.file_name().to_string_lossy().into_owned(),
+                )
+                .map_err(failed)?;
+            }
             // Sorted, so a directory listing does not depend on filesystem
             // ordering and a test can assert it.
             names.sort();
@@ -261,6 +379,9 @@ pub fn perform(
         FsOp::Mkdir => std::fs::create_dir_all(path)
             .map(|_| FsResult::Done)
             .map_err(failed),
+        #[cfg(unix)]
+        FsOp::Remove => super::app_fs::remove_native(path),
+        #[cfg(not(unix))]
         FsOp::Remove => {
             let result = if path.is_dir() {
                 std::fs::remove_dir_all(path)
@@ -333,10 +454,8 @@ pub fn run(
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
         return directories.run(grants, op, path, destination, data);
     }
-    if path.starts_with(DOCUMENT_PREFIX) {
-        return Err(HostError::Failed(format!(
-            "{path}: this host keeps no documents"
-        )));
+    if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        return Err(HostError::Failed("unsupported: no document service".into()));
     }
     #[cfg(windows)]
     {
@@ -348,108 +467,6 @@ pub fn run(
         let destination = destination.map(normalize).transpose()?;
         admit(grants, op, &path, destination.as_deref())?;
         perform(op, &path, destination.as_deref(), data)
-    }
-}
-
-/// The namespace of documents a person chose (Exact patch 5).
-pub const DOCUMENT_PREFIX: &str = "doc:/";
-
-/// Where a `doc:` path leads, as the embedder's table of chosen documents
-/// resolves it (Exact patch 5; exact2 LLP 1069.010 D1).
-#[derive(Debug, Clone)]
-pub enum Document {
-    /// `doc:/<n>`: the handle's own directory, holding only its entry.
-    Root(String),
-    /// The selected directory (or selected file's parent) and relative name;
-    /// an empty name addresses the retained directory itself.
-    Real {
-        directory: std::sync::Arc<std::fs::File>,
-        path: String,
-    },
-}
-
-/// The embedder's table: a `doc:` path to where it leads, or why not.
-pub type Documents = dyn Fn(&str) -> Result<Document, String> + Send + Sync;
-
-/// Execute a filesystem operation on a `doc:` path (Exact patch 5): one file
-/// or folder the person chose, behind a handle the embedder minted. The grant
-/// is checked on the path as spelt; the real path never reaches the app.
-pub fn run_document(
-    grants: &GrantSet,
-    documents: Option<&Documents>,
-    op: FsOp,
-    path: &str,
-    data: Option<&[u8]>,
-) -> Result<FsResult, HostError> {
-    let name = |op: FsOp| match op {
-        FsOp::ReadFile => "readFile",
-        FsOp::WriteFile => "writeFile",
-        FsOp::AppendFile => "appendFile",
-        FsOp::AtomicWriteFile => "atomicWriteFile",
-        FsOp::ReadDir => "readdir",
-        FsOp::Mkdir => "mkdir",
-        FsOp::Remove => "rm",
-        FsOp::Stat => "stat",
-        FsOp::Rename => "rename",
-        FsOp::CopyFile => "copyFile",
-        FsOp::Realpath => "realpath",
-    };
-    if matches!(op, FsOp::Rename | FsOp::CopyFile | FsOp::Realpath) {
-        return Err(HostError::Failed(format!(
-            "fs.{} is not available on a document; read its bytes and write them",
-            name(op)
-        )));
-    }
-    let (read, _) = op.required();
-    let grant = if read { "fs.read" } else { "fs.write" };
-    let operation = if read {
-        Operation::FsRead { path: path.into() }
-    } else {
-        Operation::FsWrite { path: path.into() }
-    };
-    if !grants.permits(&operation) {
-        return Err(HostError::Failed(format!(
-            "denied: fs.{} {path}: needs `{grant} doc:/`",
-            name(op)
-        )));
-    }
-    let documents = documents
-        .ok_or_else(|| HostError::Failed(format!("{path}: this host keeps no documents")))?;
-    let (directory, relative) = match documents(path).map_err(HostError::Failed)? {
-        Document::Root(entry) => {
-            return match op {
-                FsOp::ReadDir => Ok(FsResult::Names(vec![entry])),
-                FsOp::Stat => Ok(FsResult::Stat(Stat {
-                    size: 0,
-                    is_file: false,
-                    is_directory: true,
-                    modified_ms: 0,
-                })),
-                _ => Err(HostError::Failed(format!(
-                    "fs.{} {path}: a handle's own directory is read-only",
-                    name(op)
-                ))),
-            }
-        }
-        Document::Real { directory, path } => (directory, path),
-    };
-    let failed = |e: std::io::Error| HostError::Failed(format!("fs.{} {path}: {e}", name(op)));
-    let chosen = path[DOCUMENT_PREFIX.len()..]
-        .trim_end_matches('/')
-        .split('/')
-        .count()
-        == 2;
-    match op {
-        FsOp::Remove if chosen => Err(HostError::Failed(format!(
-            "fs.rm {path}: the document itself is the person's; remove what is in it"
-        ))),
-        _ => match super::app_fs::document(&directory, &relative, op, data).map_err(failed) {
-            Ok(FsResult::Stat(stat)) if stat.is_directory => {
-                Ok(FsResult::Stat(Stat { size: 0, ..stat }))
-            }
-            Ok(result) => Ok(result),
-            Err(other) => Err(other),
-        },
     }
 }
 
@@ -569,6 +586,170 @@ mod tests {
         // Removing what is gone is not an error.
         perform(FsOp::Remove, &copy, None, None).expect("rm again");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+// @ref LLP 0068.001#3-chosen-document-provider — one provider contract for both doors.
+pub use super::documents::{
+    run_document, DocumentAccess, DocumentError, DocumentErrorKind, DocumentLease, Documents,
+    DOCUMENT_PREFIX,
+};
+
+/// Dispatch with an optional chosen-document service. Mixed namespaces refuse.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_documents(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    documents: Option<&Documents>,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    if path.starts_with("doc:") || destination.is_some_and(|p| p.starts_with("doc:")) {
+        if destination.is_some() {
+            return Err(HostError::Failed(
+                "unsupported: two-path document operation".into(),
+            ));
+        }
+        return run_document(grants, documents, op, path, data);
+    }
+    run(grants, directories, op, path, destination, data)
+}
+
+/// Execute with a consumer-selected envelope, refusing during reads/enumeration.
+/// Bounds may tighten the default 16 MiB envelope; Rust bounded reads are independent.
+#[allow(clippy::too_many_arguments)]
+pub fn run_with_limits(
+    grants: &GrantSet,
+    directories: Option<&super::app_fs::AppDirectories>,
+    documents: Option<&Documents>,
+    limits: ResultLimits,
+    op: FsOp,
+    path: &str,
+    destination: Option<&str>,
+    data: Option<&[u8]>,
+) -> Result<FsResult, HostError> {
+    with_result_limits(limits, || {
+        let result =
+            run_with_documents(grants, directories, documents, op, path, destination, data)?;
+        let size = match &result {
+            FsResult::Bytes(bytes) => bytes
+                .len()
+                .checked_add(2)
+                .and_then(|n| n.checked_div(3))
+                .and_then(|n| n.checked_mul(4))
+                .and_then(|n| n.checked_add(13)),
+            FsResult::Text(text) => serde_json::to_string(text).ok().map(|s| s.len()),
+            FsResult::Names(names) => serde_json::to_vec(names).ok().map(|s| s.len()),
+            FsResult::Stat(stat) => serde_json::to_vec(&serde_json::json!({"size":stat.size,"isFile":stat.is_file,"isDirectory":stat.is_directory,"modifiedMs":stat.modified_ms})).ok().map(|s| s.len()),
+            FsResult::Done => Some(4),
+        };
+        if size.is_none_or(|n| n > limits.bytes) {
+            return Err(HostError::Failed(RESULT_LIMIT.into()));
+        }
+        Ok(result)
+    })
+}
+
+#[cfg(all(test, unix))]
+mod bounded_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    fn fixture() -> PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "ibex-bounds-{}",
+            super::super::crypto::random_uuid().unwrap()
+        ));
+        std::fs::create_dir(&p).unwrap();
+        p
+    }
+    #[test]
+    fn growth_after_metadata_is_stopped_at_the_probe_byte_and_cancel_stops_next_chunk() {
+        let root = fixture();
+        let path = root.join("grow");
+        std::fs::write(&path, b"x").unwrap();
+        let calls = AtomicUsize::new(0);
+        let file = std::fs::File::open(&path).unwrap();
+        let err = read_bounded_file(file, 4, &|| {
+            if calls.fetch_add(1, Ordering::Relaxed) == 0 {
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .unwrap()
+                    .set_len(100)
+                    .unwrap();
+            }
+            false
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains(RESULT_LIMIT));
+        let file = std::fs::File::open(&path).unwrap();
+        let calls = AtomicUsize::new(0);
+        assert_eq!(
+            read_bounded_file(file, 100, &|| calls.fetch_add(1, Ordering::Relaxed) == 1)
+                .unwrap_err()
+                .kind(),
+            std::io::ErrorKind::Interrupted
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn configured_envelopes_count_base64_and_escaped_names_before_retaining_them() {
+        let root = fixture();
+        let path = root.join("bytes");
+        std::fs::write(&path, b"abcd").unwrap();
+        let grants = GrantSet::parse(&format!("fs.read \"{}\"", root.display())).unwrap();
+        assert!(run_with_limits(
+            &grants,
+            None,
+            None,
+            ResultLimits { bytes: 17 },
+            FsOp::ReadFile,
+            path.to_str().unwrap(),
+            None,
+            None
+        )
+        .is_err());
+        std::fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            run_with_limits(
+                &grants,
+                None,
+                None,
+                ResultLimits { bytes: 17 },
+                FsOp::ReadFile,
+                path.to_str().unwrap(),
+                None,
+                None
+            )
+            .unwrap(),
+            FsResult::Bytes(b"abc".to_vec())
+        );
+        with_result_limits(ResultLimits { bytes: 16 }, || {
+            let mut names = vec![];
+            let mut used = 0;
+            push_name(&mut names, &mut used, "a".into()).unwrap();
+            assert!(push_name(&mut names, &mut used, "\n\n\n\n\n\n".into()).is_err());
+            assert_eq!(names, ["a"]);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(RESULT_BUDGET.with(|limit| limit.get()), RESULT_BYTES);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn bounded_reader_refuses_nonregular_opened_handles() {
+        let root = fixture();
+        assert!(read_bounded_file(std::fs::File::open(&root).unwrap(), 8, &|| false).is_err());
+        let mut fds = [0; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        use std::os::fd::FromRawFd;
+        let reader = unsafe { std::fs::File::from_raw_fd(fds[0]) };
+        let writer = unsafe { std::fs::File::from_raw_fd(fds[1]) };
+        assert!(read_bounded_file(reader, 8, &|| false).is_err());
+        drop(writer);
+        std::fs::remove_dir_all(root).unwrap();
     }
 }
 

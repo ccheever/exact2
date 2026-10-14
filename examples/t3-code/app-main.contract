@@ -44,6 +44,7 @@ use BrowserMiniPlayer from "./browser-capture.contract"
 use ChatCanvasView from "./chat-canvas.contract"
 use ShellDetails from "./shell-shapes.contract"
 use ThreadDetailsInline from "./shell-details.contract"
+use ThreadDetailsPanel from "./shell-details.contract"
 use DialogFinalFocus from "./dialog-trap.contract"
 
 // The T3Code window's main view, moved out of app.contract, which keeps the state, resources and
@@ -118,6 +119,8 @@ component ChatColumn
     // reports a player gesture to it.
     canvas: ChatCanvasView
     canvasGesture: action
+    // A primary press on the floating player: outside the thread details popover (app-window.contract detailsPlayerPointer).
+    detailsOutside: action
     // server-update-banner: the composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
     noticeExit: string
     noticeDismiss: action
@@ -141,12 +144,15 @@ component ChatColumn
   derive overlaid = not hero
   derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
   derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
+  // `z-index` 1: the column paints over the terminal drawer under it (z-index orders siblings only, LLP 1001), so the thread
+  // details popover (below), and any other popup that overflows the column's foot, runs over an open drawer as the
+  // reference's portaled popups do.
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hatch="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"
       when scheme == "dark"
-        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else
-        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
+        ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or (details.inline and canvas.cardShown)), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       when hero
         column flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box"
           when scheme == "dark"
@@ -162,7 +168,8 @@ component ChatColumn
       when length(data.messages) > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
-          list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+          list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             each message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme)
           when not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
@@ -207,12 +214,23 @@ component ChatColumn
             when data.requestMode == "question" and not resting
               RequestActions(data=data, command=command, busy=commandPending, scheme=scheme)
       ComposerDrawerLayer(editor=editor, dark=(scheme == "dark"), op=editorOp)
+      // The header's thread details popover (app.contract detailsShown: chat is narrow, or the floating player left the
+      // docked card no placement), 13pt in from the chat column's right edge and under the floating player, as the
+      // reference's popover sits below the player (z-index orders siblings here, LLP 1001); taller than the column, it runs
+      // over an open terminal drawer (the column's z-index). Its backdrop covers the chat column and, `below` it, the drawer
+      // down to the window's foot; a press on the floating player closes it (`detailsOutside`), one beside the column too
+      // (app-window.contract outsidePressDown): Base UI's outside press. Over a right panel sheet
+      // (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
+      when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme == "dark"
+        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+      when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme != "dark"
+        ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
       when shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
-        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture)
+        R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
       // browser-surface part 3: a Browser tab floated over the chat (browser-capture.contract).
       when shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
-        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture)
+        BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
       when hero and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
@@ -222,12 +240,12 @@ component ChatColumn
       else
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
-      // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
-      // no readable height (160pt) is left.
+      // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and becomes the header's
+      // popover when no readable height (160pt) is left; its rows fold to the canvas's density (ThreadDetailsCard).
       when details.inline and canvas.cardShown and scheme == "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
       when details.inline and canvas.cardShown and scheme != "dark"
-        ThreadDetailsInline(details=details, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
+        ThreadDetailsInline(details=details, density=canvas.density, maxHeight=(canvas.ready ? canvas.cardHeight : viewport.height - 76), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
 
 // The right panel beside the chat on a wide window: the diff, or the surface chooser.
 component RightPanels

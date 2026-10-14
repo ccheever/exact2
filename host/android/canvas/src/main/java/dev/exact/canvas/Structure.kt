@@ -1,9 +1,39 @@
 package dev.exact.canvas
 
+import android.graphics.fonts.Font
+import java.io.File
 import java.nio.IntBuffer
 
 /** Where FONT_AXES (41: key index weight n (tag value)×n len path) at [i] ends. */
 internal fun fontAxesEnd(b: IntBuffer, i: Int): Int { val p = i + 5 + 2 * b.get(i + 4); return p + 1 + (b.get(p) + 3) / 4 }
+
+/** Where FONT (10: key index weight len path) or FONT_AXES (41) at [i] ends. */
+internal fun fontEnd(b: IntBuffer, i: Int): Int = if (b.get(i) == 41) fontAxesEnd(b, i) else i + 5 + (b.get(i + 4) + 3) / 4
+
+/** The face FONT (10) or FONT_AXES (41) at [i] announces, made from its file. 41 is 10 with the variation settings
+ * fontique chose (ital 1 for Roboto's italic, wght, slnt, wdth) before the path; 'wght' is the weight unless it
+ * sets one. The page's stream and a surface's ([Surfaces]) both announce faces this way. */
+internal fun fontAt(b: IntBuffer, i: Int): Font {
+    val index = b.get(i + 2); val weight = b.get(i + 3)
+    val axes = if (b.get(i) == 41) b.get(i + 4) else 0
+    val at = if (b.get(i) == 41) i + 5 + 2 * axes else i + 4
+    val len = b.get(at)
+    val bytes = ByteArray(len)
+    for (k in 0 until len) bytes[k] = (b.get(at + 1 + k / 4) ushr (8 * (k % 4))).toByte()
+    val settings = StringBuilder()
+    var wght = false
+    for (a in 0 until axes) {
+        val t = b.get(i + 5 + 2 * a)
+        val tag = String(charArrayOf((t ushr 24).toChar(), (t ushr 16 and 255).toChar(), (t ushr 8 and 255).toChar(), (t and 255).toChar()))
+        if (tag == "wght") wght = true
+        if (settings.isNotEmpty()) settings.append(", ")
+        settings.append('\'').append(tag).append("' ").append(java.lang.Float.intBitsToFloat(b.get(i + 6 + 2 * a)))
+    }
+    if (!wght) settings.insert(0, if (axes > 0) "'wght' $weight, " else "'wght' $weight")
+    val builder = Font.Builder(File(String(bytes))).setTtcIndex(index)
+    try { builder.setFontVariationSettings(settings.toString()) } catch (e: Exception) {}
+    return builder.setWeight(weight.coerceIn(1, 1000)).build()
+}
 
 /**
  * A stream's structure: what the window's own drawing (the view's display list) and each scroller's group node record,

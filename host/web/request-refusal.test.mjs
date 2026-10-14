@@ -15,21 +15,51 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // The real `redirectOf` and `ownWithout`, for a stub `admission.js` written beside a module under test
 const realHelpers = `export { ownWithout, redirectOf } from ${JSON.stringify(pathToFileURL(resolve(ROOT, 'host/web-js/admission.js')).href)}; `;
 const sets = new Map();
-function normalized(spec) {
+const normalizers = new Map();
+function builtNormalizer(target, run = spawnSync) {
+  const result = run('cargo', ['build', '-q', '-p', 'exact-web-js'], { cwd: ROOT, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer build failed');
+  return target;
+}
+const normalizerTarget = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
+normalizers.set(normalizerTarget, builtNormalizer(normalizerTarget));
+function normalized(spec, { target = normalizerTarget, build = spawnSync, run = spawnSync } = {}) {
   if (sets.has(spec)) return sets.get(spec);
+  if (!normalizers.has(target)) normalizers.set(target, builtNormalizer(target, build));
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
-  const result = existsSync(target)
-    ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
-    : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
+  const result = run(normalizers.get(target), ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
   rmSync(scratch, { recursive: true });
   if (result.status !== 0) throw new Error(result.stderr || 'grant normalizer failed');
   const set = JSON.parse(result.stdout);
   sets.set(spec, set);
   return set;
 }
+test('grant normalization rebuilds when an old binary exists', () => {
+  const scratch = mkdtempSync(resolve(tmpdir(), 'exact-stale-normalizer-'));
+  const old = resolve(scratch, 'exact-web-js');
+  writeFileSync(old, 'old CLI');
+  try {
+    const calls = [];
+    const set = normalized('secret.keep stale-binary-regression', {
+      target: old,
+      build: (command, args) => {
+        calls.push([command, args]);
+        writeFileSync(old, 'current CLI');
+        return { status: 0 };
+      },
+      run: (command, args) => {
+        expect(command).toBe(old);
+        expect(args[0]).toBe('normalize-grants');
+        expect(readFileSync(command, 'utf8')).toBe('current CLI');
+        return { status: 0, stdout: '{"grants":[]}' };
+      },
+    });
+    expect(set).toEqual({ grants: [] });
+    expect(calls).toEqual([['cargo', ['build', '-q', '-p', 'exact-web-js']]]);
+  } finally { rmSync(scratch, { recursive: true }); }
+});
 const text = result => new TextDecoder().decode(result.body);
 
 test('native requests resolve their real source scope before calling the module', async () => {
@@ -87,7 +117,18 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
     expect(destinationHits).toBe(2);
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
 });
-
+test('wasm and JS accept a POST redirected through an ungranted origin to a granted final URL without CSP', async () => {
+  const hops = [], finals = [], final = Bun.serve({ port: 0, async fetch(req) { finals.push([req.method, await req.text()]); return new Response('accepted'); } });
+  const hop = Bun.serve({ port: 0, async fetch(req) { hops.push([req.method, await req.text()]); return new Response(null, { status: 307, headers: { location: `${final.url}finish` } }); } });
+  const origin = Bun.serve({ port: 0, fetch() { return new Response(null, { status: 307, headers: { location: `${hop.url}middle` } }); } });
+  const set = normalized(`net.fetch ${origin.url.origin}\nnet.fetch ${final.url.origin}`), js = createRequestExecutor('test.app', set, response => response.arrayBuffer());
+  try {
+    for (const run of [() => request({ method: 'POST', url: `${origin.url}start`, headers: [], body: btoa('payload') }, { grantSet: set, controllers: new Set(), moduleLoader: null }), () => js({ method: 'POST', url: `${origin.url}start`, headers: [], raw: 'payload' })]) {
+      const result = await run(); expect([result.failed ?? result.kind ?? 0, new TextDecoder().decode(result.body)]).toEqual([0, 'accepted']);
+    }
+    expect([hops, finals]).toEqual([[['POST', 'payload'], ['POST', 'payload']], [['POST', 'payload'], ['POST', 'payload']]]);
+  } finally { origin.stop(true); hop.stop(true); final.stop(true); }
+});
 // fetch's `redirect` reaches the browser on every web path: the wasm host's request op, a stream's,
 // and the JS target's `fetch`; a GET that asked not to follow is never sent early; a word that is
 // not a mode is a TypeError, as in the native prelude.
@@ -585,7 +626,7 @@ test('a body read from a file is bounded by the deadline, and a socket refuses o
 // rejection unhandled (Astra, post-landing).
 test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves nothing unhandled', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-abort-'));
-  writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  for (const name of ['ts-fetch.js', 'ts-body-from.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   writeFileSync(resolve(dir, 'admission.js'), '' + realHelpers + 'export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.bodyReads = (globalThis.bodyReads ?? 0) + 1; return true; }; export const fetchWith = async () => { globalThis.sentBodies = (globalThis.sentBodies ?? 0) + 1; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n');
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   const unhandled = [];
@@ -606,6 +647,7 @@ test('a pre-aborted exactBodyFrom fetch rejects once, reads nothing, and leaves 
 test('the JS target checks and takes the redirect mode once, as fetch is called', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-redirect-'));
   writeFileSync(resolve(dir, 'ts-fetch.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), 'utf8'));
+  writeFileSync(resolve(dir, 'ts-body-from.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-body-from.js'), 'utf8'));
   writeFileSync(resolve(dir, 'admission.js'), `${realHelpers}export class FetchError extends Error { constructor(kind, message) { super(message); this.kind = kind; } } export const coversPath = () => { globalThis.redirectReads = (globalThis.redirectReads ?? 0) + 1; return true; }; export const fetchWith = async (set, input, init, expires, redirect) => { globalThis.redirectSent = redirect; return new Response(); }; export const overlaying = { on: false }; export const inOverlay = api => new Error(api);\n`);
   writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = {};\n');
   writeFileSync(resolve(dir, 'storage-fs.js'), 'export const requestBody = async () => new Blob([\'x\']);\n');
@@ -901,15 +943,14 @@ export function answer(name, args, store, storage) {
 }
 `);
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
-    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
-    .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+  writeFileSync(resolve(dir, 'rt.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"],stream:[[],"s"]};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
   for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
-  for (const name of ['ts-fetch.js', 'ts-stream.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js', 'ts-body-from.js', 'shape.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
     ts.install(data);

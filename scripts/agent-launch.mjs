@@ -3,13 +3,28 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, delimiter, dirname, relative, resolve } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
+import { DEFAULT_LOOK, LOOK } from '../host/web/look.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** The compiler's warnings in what a build said (LLP 1116.004 D7), each once as `contract build` prints
+ * it, `file:line:col warning [id] text`: the web compiler's or a bake's own line, or Cargo's for a build
+ * script's (`warning: <crate>@<version>: …`); its file from `cwd` when it is below it. */
+export function compilerWarnings(text, cwd = process.cwd()) {
+  const lines = new Set();
+  for (const line of String(text ?? '').split('\n')) {
+    const m = /^(?:warning: [\w-]+@[^\s:]+: )?(\S(?:.*?\S)?):(\d+:\d+ warning \[[\w-]+\] .*)$/.exec(line);
+    if (!m) continue;
+    const near = relative(cwd, m[1]);
+    lines.add(`${isAbsolute(m[1]) && !near.startsWith('..') ? near : m[1]}:${m[2]}`);
+  }
+  return [...lines];
+}
 
 /** Preserve the original operation failure and any owned cleanup handle. */
 export function retainCleanupError(error, failure) {
@@ -109,17 +124,27 @@ export async function closeWindowsBrowser(child, cdp, exited, profile, terminate
 /** Where a web drive's named scratch store lives (`--storage <name>`), kept between drives as a native one is (dash,
  * weather, kanban: a second drive opened an empty store): Chrome's profile for it, beside the native stores' cache
  * (agent-test.mjs `storeBase`), and the port its page is served on — an origin's storage is its host and port's, so
- * one name is one port, from its hash, below the ephemeral range. */
+ * one name is one port, from its hash, below the ephemeral range. A store is its app's: its id's and its directory's
+ * (LLP 1116.004 D8: a bake-off's contacts read an earlier round's `contacts.json`, written under the same default
+ * id and store name), so two apps of one id never open each other's. */
 /** The store a drive with `env` uses: the driver's environment under the drive's own, as `runTests` places and removes
- * it and a native host sees it (review b5-c 3). */
-export const driveStore = (appId, storage, env, platform = process.platform) => {
+ * it and a native host sees it (review b5-c 3). `app` is resolveApp's: its `id` and `dir`. */
+export const driveStore = (app, storage, env, platform = process.platform) => {
   const launched = { ...process.env, ...(env ?? {}) };
-  return webStore(appId, storage, launched, launched.HOME || homedir(), platform);
+  return webStore(app, storage, launched, launched.HOME || homedir(), platform);
 };
-export function webStore(appId, storage, env = process.env, home = homedir(), platform = process.platform) {
+/** An app directory's twelve hex digits, which name its development stores: a drive's profiles here, and the
+ * page's own storage in a development web build (host/web-js/build.mjs `DEVELOPMENT_STORE`). `dir` is canonical
+ * (resolveApp's, through symlinks), so one app has one digest however it was reached. */
+export const appDigest = dir => createHash('sha256').update(dir).digest('hex').slice(0, 12);
+/** A host file as a development web build ships it for the app at `dir`: its `DEVELOPMENT_STORE` names the app's
+ * own store (storage-environment.js, rt.js `Kept`). A release ships the file as written, null: the id alone. */
+export const developmentStore = (code, dir) => code.replaceAll('const DEVELOPMENT_STORE = null;', `const DEVELOPMENT_STORE = ${JSON.stringify(appDigest(dir))};`);
+export function webStore({ id, dir }, storage, env = process.env, home = homedir(), platform = process.platform) {
+  if (!id || !dir) throw new Error('webStore: an app\'s id and directory name its store');
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
-  const base = resolve(cache, 'exact', appId, 'agent-web');
-  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${appId}/${storage}`).digest().readUInt32BE(0) % 28000 };
+  const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
+  return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -148,11 +173,16 @@ export function parseFlags(argv) {
     else if (argv[i] === '--app') flags.app = argv[++i];
     else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
+    // A number, or what was typed, which `open` refuses by name (`--scale 1x`, a missing value).
+    else if (argv[i] === '--scale') { const v = argv[++i] ?? ''; flags.scale = v.trim() !== '' && Number.isFinite(Number(v)) ? Number(v) : v; }
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
     else if (argv[i] === '--open') (flags.open ??= []).push(resolve(argv[++i]));
     else if (argv[i] === '--url') flags.url = argv[++i];
     else if (argv[i] === '--device') flags.device = true;
+    // Android: the app on the Canvas reader (its APK), not the Linux host headless. Said as the variable
+    // `agent-android.mjs` reads, as `--sim` is said as EXACT_SIM: the driver's own file is at its line cap.
+    else if (argv[i] === '--reader') { flags.reader = true; process.env.EXACT_ANDROID_READER = '1'; }
     else if (argv[i] === '--seed') flags.seed = Number(argv[++i]);
     else if (argv[i] === '--locale') flags.locale = argv[++i];
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
@@ -238,6 +268,14 @@ export function withFaults(href, failFetch) {
   return url.href;
 }
 
+/** The page address at another date at the clock's zero (a test's `reload`, LLP 1116.009 D1): `epoch` Unix ms, else the address as it is. */
+export function withEpoch(href, epoch) {
+  if (epoch === undefined) return href;
+  const url = new URL(href);
+  url.searchParams.set('epoch', String(epoch));
+  return url.href;
+}
+
 /** Launch lines from `state.faults` (LLP 1103 D3): a reload relaunches with the table as it is now. */
 export const faultSpecOf = faults => (faults ?? []).map(f => [f.prefix, f.times ?? '-', f.left ?? '-', f.hits, f.armed ? 1 : 0].join('\t')).join('\n');
 
@@ -249,7 +287,8 @@ export function launchFacts({seed, locale, timeZone, epoch, failFetch, env = {}}
   if (!Number.isSafeInteger(epoch) || epoch < 0) throw new Error('epoch: an ISO date, Unix milliseconds at or after 1970, or now');
   locale = locale ?? env.EXACT_AGENT_LOCALE ?? 'en-US';
   timeZone = timeZone ?? env.EXACT_AGENT_TIME_ZONE ?? 'UTC';
-  if (!Number.isSafeInteger(seed) || seed < 0) throw new Error('seed: an integer from 0 through 2^53 - 1');
+  // Below 2^32, as every host draws it (LLP 1116.005 D5): refused, not wrapped.
+  if (!Number.isSafeInteger(seed) || seed < 0 || seed >= 2 ** 32) throw new Error('seed: a whole number from 0 through 2^32 - 1 (4294967295)');
   // Refuse malformed drive input before starting a process on any host.
   locale = Intl.getCanonicalLocales(locale)[0];
   if (!locale) throw new Error('locale: a BCP 47 language tag');
@@ -485,7 +524,10 @@ export function notBuildInput(dir, keep = []) {
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
-  const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
+  const { build, target, started } = JSON.parse(readFileSync(receipt, 'utf8'));
+  // A file edited while the build ran is newer than what it read, though older than the receipt written at its end
+  // (LLP 1116.008 D2): the build's own start bounds it, else (an older receipt) the receipt's time.
+  const since = Math.min(statSync(receipt).mtimeMs, Date.parse(started) || Infinity);
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   // A game's proof, pins and helper scripts are not native inputs either
   // (game/proof.mjs shares gameNonInput). A non-game keeps every real source.
@@ -532,11 +574,13 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker. */
+/** Content digests of every input of a web build, recorded in its marker; and the look it was built in, where that is
+ * not the default one (LLP 1115.000 D4 part B; host/web/look.mjs): a setting, so no file's digest says it. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+  return { ...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), ...(LOOK === DEFAULT_LOOK ? {} : { [LOOK_INPUT]: LOOK }) };
 }
+const LOOK_INPUT = 'EXACT_WEB_LOOK';
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -546,7 +590,9 @@ export function webChanges(dist, app) {
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
-  const appChanges = own.filter(changed), shared = roots.filter(changed);
+  // A build in another look than this drive's is stale, whatever its files say.
+  const look = built.inputs && (built.inputs[LOOK_INPUT] ?? DEFAULT_LOOK) !== LOOK ? [`${LOOK_INPUT}=${LOOK}`] : [];
+  const appChanges = own.filter(changed), shared = [...roots.filter(changed), ...look];
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
@@ -694,6 +740,22 @@ export async function closePage(req, { cdp, sessionId, call, frame }) {
     return { closed: false, kept: 'a `beforeunload` called `preventDefault()`: the browser asked "Leave site?", answered "Stay"', delivery: 'browser-window', native: 'Page.close' };
   } finally { clearTimeout(timer); cdp.listeners.splice(cdp.listeners.indexOf(listener), 1); }
 }
+
+/** The agent's `back` on the web (LLP 1116.006 D4), the carrier's half: an open modal `dialog` or `role="alertdialog"`
+ * popover takes the Escape a person presses, a real key the browser makes the dialog's close request (`closedby="none"`
+ * keeps it open, as a `cancel` handler that prevents it does). `escape` presses it (CDP's, or Playwright's keyboard).
+ * Null with none open: the page's agent then takes the browser's Back from the selected route (navigation.js `back`). */
+export async function backLayer(req, { evaluate, escape, frame }) {
+  if (Object.keys(req).some(k => !['op', 'back'].includes(k)) || req.back !== true) return { error: 'tap back takes no other input fields' };
+  const open = `document.querySelectorAll('dialog:modal, [role="alertdialog"]:popover-open').length`, before = await evaluate(open);
+  if (!before) return null;
+  await escape();
+  await frame();
+  return { back: 'dialog', delivery: 'platform', ...(await evaluate(open) >= before ? { refused: 'the dialog stayed open: its closedby is "none", or a `cancel` handler prevented the close' } : {}) };
+}
+
+/** Escape pressed through CDP, down and up, as a keyboard's (`backLayer`). */
+export const cdpEscape = (call) => async () => { for (const type of ['rawKeyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 }); };
 
 /** The simulator has one running process per bundle id, across every checkout.
  * Hold an OS lock through launch and close; a crashed driver releases it through

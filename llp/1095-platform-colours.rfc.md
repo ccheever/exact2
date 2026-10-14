@@ -260,6 +260,32 @@ The macOS rows are AppKit's own semantics, which are not iOS's. Where they
 differ visibly (`controlBackgroundColor`), the table says so. Open question
 §6.3 asks for a side-by-side on macOS 26.
 
+> **Amended by LLP 1115.000 D3.2 (2026-10-11).** The table holds two pairs a
+> role (`kernel/tables/schema.json`, `_colors`). Apple's are re-measured on
+> iOS 27 where the grouped list's sheet and the table disagreed: `separator`
+> is `#3c3c431f` / `#54545880`, `system-red` `#ff383c` / `#ff4245`, and
+> `system-blue` and the tint (`AccentColor`, `LinkText`, `Highlight` at 0.2)
+> `#0088ff` / `#0091ff`. The second pair is neutral, no platform's palette:
+> the web's under the neutral look and a painted host's (LLP 1115.000 D4,
+> D17). A host says which column it falls back to (`roles::set_column`), and
+> none says neutral yet, so every host still shows Apple's.
+>
+> **And by its D3.6.** On iOS `ButtonText` is the inherited `tintColor` (it was
+> `linkColor`, which no authored accent reaches), and so is `link`, which
+> therefore resolves as `LinkText` does. An unset page background is
+> `background` (`windowBackgroundColor` on the Mac); `Canvas` stays
+> `textBackgroundColor` there, the document's white.
+>
+> **And by its D3.4.** On the Mac `AccentColor` is the view's tint too (`@tint`):
+> the nearest authored `accent-color` up the view chain, else
+> `controlAccentColor`, so an authored accent reaches a row, a symbol or an
+> `svg` paint that names it, as on iOS and the web, and not only a control.
+>
+> **And by its D3.9.** `tint-color`'s initial value (D8, below) is a role of its
+> own, `symbol`, with a column a platform: the inherited `tintColor` on iOS, as
+> before, and `secondaryLabelColor` on the Mac, as AppKit draws a template image
+> nobody tinted (it was `controlAccentColor`, a tell). The web draws its accent.
+
 **There is no `accent` role.** `AccentColor` is the accent: on iOS it is
 the view's inherited `tintColor`, which is what an app's `accent-color` row
 already sets. So `accent-color` stays the way to *set* the accent, and
@@ -480,6 +506,9 @@ CSS's light-mode result instead of CSS's value.
   Effects specs' initial values, and a drawing's black is a drawing's black,
   not a text colour. `currentColor` stays the way to make an icon follow
   text.
+  > **Superseded for `fill` by LLP 1115.000 D3.8 (2026-10-11).** An unsaid `fill`
+  > is `currentcolor` on every host, the web's sheet included: black is what an
+  > author writes when they mean it. The other three keep SVG's values.
 - **Inheritance** is unchanged: `color` inherits the reference, not a
   resolved value, so a child in an elevated sheet resolves `CanvasText`
   itself (D1).
@@ -751,7 +780,41 @@ boot path executes nothing), for what CSS does on its own.
 5. **D10, relative colour and `color-mix()`,** and the `Mix` table. Tests:
    iOS dynamic providers compared with UIKit's `withAlphaComponent` in four
    trait sets; the web's native output.
-6. **D4, `theme`,** when an app needs one.
+6. **D4, `theme`,** when an app needs one. **The gate is being tested (Charlie,
+   2026-10-12, "ok that plan sounds reasonable").** The bake-off never needed one, but five
+   of the repository's apps hand-roll a `Theme` record and Expose writes one colour pair 26
+   times, and exact1's own review found that tokens added late are not adopted. So D4 is
+   built on a branch and Expose and `packages/reading` are ported to it, and three or four
+   branded specs go into one bake-off round. Whether it lands is decided from the port
+   (what it removed, what an override reaches on each host, what an author must read) and
+   from that round, not before.
+   **What the port found (2026-10-12; branch `worktree-agent-a3b55b60c37ad5d16`, seven
+   commits, not landed; evidence in `~/audits/exact2-no-tells-2026-10-11/theme-proof/`).**
+   *Naming an app's colours once works.* Expose went from 274 scattered hex colours to 61,
+   all in its theme block, with 16 of 16 screens identical on the web and on iOS and 14 of
+   16 on the Mac (the two differ between two runs of the unported app as well); the two
+   readers lost a shape, two resources, two `provide` and ten `inject` sections, with 44 of
+   44 screens identical. Every name is checked by the compiler, and the one required read
+   grew by 32 bytes. *"An entry named like a role overrides that role for the whole app"
+   does not hold.* As built, a role entry reaches what Exact paints from a string: the page,
+   unsaid text, a rule, a filled button, the selected tab's tint. It does not reach what
+   the platform draws: on iOS the grouped list, the bar's title and glyphs, a sheet's ground
+   and rows, a field's text; on the Mac the sidebar, the title bar and AppKit's buttons; an
+   alert or a menu anywhere. Reaching those needs the plan-carried reference table of D1,
+   which was designed and never built, so that a role is replaced where it is resolved, and
+   an explicit call per surface where the platform offers one (an alert offers none). Also
+   outside it: typefaces and sizes (Expose writes `font-family` 48 times), radii, gradients,
+   strengths of one colour until D10's relative colour exists, and a palette the person
+   chooses at run time, which a declared-once block carries only as state choosing between
+   names at each use. Before it could land: that reach question decided, the
+   `lower-colour-one-scheme` and no-tells lints taught what a theme's literals are,
+   `apps/markdown-stress` ported and the Rust record deleted.
+   **Ruled (Charlie, 2026-10-12): "for now, build the reach."** The branch goes on: D1's
+   reference table is carried in the plan, and a role an app replaces reaches each surface
+   the platform offers a supported way to colour (a list, a bar, a sheet, a field), never
+   by replacing a platform control with a look-alike; where the platform offers none (an
+   alert, a system menu) the surface stays the platform's and D4 says so. It still lands
+   only on his word, after that reach is measured.
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer

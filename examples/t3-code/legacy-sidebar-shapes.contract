@@ -18,12 +18,15 @@ shape LegacyThreadRow
   prState: string
   prTooltip: string
   prPending: bool
+  portLabel: string
+  portTip: string
   worktree: bool
   worktreeLabel: string
   remoteMachine: string
   remoteLabel: string
   age: string
   jump: string
+  enter: bool
 shape LegacyProjectRow
   key: string
   name: string
@@ -46,6 +49,7 @@ shape LegacyProjectRow
   hiddenColor: string
   hiddenPulse: bool
   newThreadLabel: string
+  enter: bool
 shape LegacySidebarView
   enabled: bool
   projects: list<LegacyProjectRow>

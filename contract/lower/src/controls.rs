@@ -85,11 +85,14 @@ pub(crate) fn control(
         }
         return Ok(Some("button"));
     }
+    // An author's: the grouped sheet sizes a row's switch by the platform's
+    // metric (LLP 1115.002 D6), which is the compiler's row and not theirs.
     if let Some(a) = attrs.iter().find(|a| {
-        matches!(
-            a.name.as_str(),
-            "-exact-control-size" | "-exact-corner-style"
-        )
+        a.written
+            && matches!(
+                a.name.as_str(),
+                "-exact-control-size" | "-exact-corner-style"
+            )
     }) {
         return err(
             "lower-button-style-attr",
@@ -198,13 +201,14 @@ pub(crate) fn control(
 
 /// The sentence of `rules/DEFERRED.md` that bounds the picker (LLP 1069.002
 /// D1), cited by each refusal.
-pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an image/video picker, widened to the types the app's `file_handlers` declare: \"Still no picker for any file, and no `capture` on the picker (the camera is a native module, §Components, 2026-10-02).\"";
+pub const PICKER_ADMISSION: &str = "rules/DEFERRED.md admits an unrestricted file input (Charlie, 2026-10-11); `capture` stays refused and specific `accept` types are bounded to media or the app's `file_handlers`";
 
-/// `input type="file"` (LLP 1069.002 D1): `accept` is a literal list of
+/// `input type="file"` (LLP 1069.002 D1): specific `accept` is a literal list of
 /// `image/*`, `video/*`, `image/<subtype>`, `video/<subtype>`, or a MIME
 /// type or extension the manifest's `file_handlers` declares (checked at
 /// bake, where the manifest is read: `contract::picker`); `capture` is
-/// refused, naming the camera's route, and so are `*/*` and an empty list.
+/// refused, naming the camera's route. Missing, empty, and `*/*` accept
+/// take any file.
 fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
     if let Some(a) = attrs.iter().find(|a| a.name == "capture") {
         return err(
@@ -214,11 +218,7 @@ fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
         );
     }
     let Some(a) = attrs.iter().find(|a| a.name == "accept") else {
-        return err(
-            "lower-picker-accept",
-            format!("`input type=\"file\"` needs a literal `accept` (`accept=\"image/*\"`): {PICKER_ADMISSION}"),
-            attrs.iter().find(|a| a.name == "type").map_or_else(Default::default, |a| a.span),
-        );
+        return Ok(());
     };
     let Expr::Str(list, _) = &a.value else {
         return err(
@@ -228,18 +228,11 @@ fn file_input(attrs: &[contract_syntax::Attr]) -> Result<(), LowerError> {
         );
     };
     let tokens = accept_tokens(list);
-    if tokens.is_empty() {
-        return err(
-            "lower-picker-accept",
-            format!("`accept` names no type: {PICKER_ADMISSION}"),
-            a.span,
-        );
-    }
     for t in tokens {
         let wild = t
             .split_once('/')
-            .is_some_and(|(k, s)| s == "*" && k != "image" && k != "video");
-        if t == "*" || t == "*/*" || wild || !(t.contains('/') || t.starts_with('.')) {
+            .is_some_and(|(k, s)| s == "*" && k != "*" && k != "image" && k != "video");
+        if t == "*" || wild || !(t.contains('/') || t.starts_with('.')) {
             return err(
                 "lower-picker-accept",
                 format!("`accept` may not name `{t}`: {PICKER_ADMISSION}"),
@@ -270,61 +263,62 @@ pub fn media_accept(token: &str) -> bool {
     })
 }
 
+/// A range and a determinate `progress` are full width (LLP 1115.000 D10.2).
+/// Neither platform control has a width of its own (`UISlider`,
+/// `UIProgressView` and `NSSlider` take the width they are given), so each is
+/// lowered `width: 100%`: an ordinary row the compiler implies, not the
+/// author's (LLP 1115.000 D2), and CSS decides the rest on every host. An
+/// authored `width` replaces it; `flex=1` takes what a row's other children
+/// leave; and where a percentage has nothing to resolve against (a
+/// shrink-to-fit box), or the author writes `width="auto"`, the control
+/// falls back to its intrinsic size: 129 for a range, `10em` by `1em` for a
+/// progress (`kernel/src/control.rs`). No host widens either itself.
+pub(crate) const FULL_WIDTH: &[(StyleId, &str)] = &[(StyleId::Width, "100%")];
+
 /// The tag an `input` control lowers with (a `select` keeps its own).
 pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
     match kind {
         "button" => native_tag(),
         // A file input (LLP 1069.002 D1): the kernel's `Control`, a measured
         // leaf the host presents as its own control (the browser's "Choose
-        // File"); no margins, as Chrome's UA sheet gives `input[type=file]`
-        // none.
+        // File"). No control has a margin of its own (below).
         "file" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
             fixed_props: &[],
             positional: None,
         },
-        // A checkbox: the margins Chrome's UA sheet gives
-        // `input[type=checkbox]` (`3px 3px 3px 4px`) and ARIA's role;
-        // `switch` or `role="switch"` replaces the role (LLP 1069.001 D1, D3).
+        // A checkbox: ARIA's role; `switch` or `role="switch"` replaces it
+        // (LLP 1069.001 D1, D3). No margin of its own, on any host (LLP
+        // 1115.000 D10.1): Chrome's UA sheet gives a checkbox `3px 3px 3px
+        // 4px`, a radio `3px 3px 0 5px` and a range `2px`, which no platform
+        // control has and the common resets zero (the web's sheet does too,
+        // `host/web/index.html`). The space beside a label is the author's
+        // `gap`; a native control's alignment inset is inside its
+        // presentation and is not layout.
         "checkbox" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "3"),
-                (StyleId::MarginRight, "3"),
-                (StyleId::MarginBottom, "3"),
-                (StyleId::MarginLeft, "4"),
-            ],
+            fixed_styles: &[],
             fixed_props: &[(PropId::AccessibilityRole, "checkbox")],
             positional: None,
         },
-        // A radio (x2apps survey #2): the margins Chrome's UA sheet gives
-        // `input[type=radio]` (`3px 3px 0px 5px`) and ARIA's role.
+        // A radio (x2apps survey #2): ARIA's role.
         "radio" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "3"),
-                (StyleId::MarginRight, "3"),
-                (StyleId::MarginBottom, "0"),
-                (StyleId::MarginLeft, "5"),
-            ],
+            fixed_styles: &[],
             fixed_props: &[(PropId::AccessibilityRole, "radio")],
             positional: None,
         },
-        // A range: Chrome's UA margin (`2px`) and ARIA's role.
+        // A range: ARIA's role, and the width of what holds it
+        // ([`FULL_WIDTH`]).
         "range" => Tag {
             node_type: NodeType::Control,
-            fixed_styles: &[
-                (StyleId::MarginTop, "2"),
-                (StyleId::MarginRight, "2"),
-                (StyleId::MarginBottom, "2"),
-                (StyleId::MarginLeft, "2"),
-            ],
+            fixed_styles: FULL_WIDTH,
             fixed_props: &[(PropId::AccessibilityRole, "slider")],
             positional: None,
         },
-        // A date, time or local date and time: no UA margin in Chrome, and
-        // no ARIA role (HTML-AAM maps none).
+        // A date, time or local date and time: no ARIA role (HTML-AAM maps
+        // none).
         "date" | "time" | "datetime-local" => Tag {
             node_type: NodeType::Control,
             fixed_styles: &[],
@@ -335,8 +329,9 @@ pub(crate) fn tag(kind: &str, t: Tag) -> Tag {
     }
 }
 
-/// A range's `value`, `min`, `max` and `step` as HTML's strings: a number
-/// literal is written as one, a bound number through `toString` (LLP
+/// A range's `value`, `min`, `max` and `step` as HTML's strings, and a text
+/// or number field's `min`, `max` and `step`: a number literal, `-40` as `40`,
+/// is written as one, a bound number through `toString` (LLP
 /// 1069.001 D4: the props are strings on the wire, typed per control); so
 /// too a determinate `progress`'s `value` and `max`, and ARIA's range
 /// values on any element (LLP 1116 D8). `None` when nothing needs rewriting.
@@ -345,16 +340,15 @@ pub(crate) fn range_attrs(
     control: Option<&str>,
     attrs: &[contract_syntax::Attr],
 ) -> Option<Vec<contract_syntax::Attr>> {
-    // A number field's bounds take numbers as a range's do (LLP 1102 §3.12). Its
-    // `value` stays its text: the field edits text, and `1.` is on the way to `1.5`.
-    let number = control.is_none()
-        && tag == "input"
-        && attrs
-            .iter()
-            .any(|a| a.name == "type" && matches!(&a.value, Expr::Str(t, _) if t == "number"));
+    // A text field's bounds take numbers as a range's do (LLP 1102 §3.12), a
+    // number field's and a decimal pad's alike (`type="text" inputmode="decimal"
+    // min=-1000`, whose negative bound gives the pad its ± key): `min`, `max`
+    // and `step` are HTML's strings, and a number written for one is its text,
+    // negative or positive. Its `value` stays its text: the field edits text,
+    // and `1.` is on the way to `1.5`.
     let names: &[&str] = match control {
         Some("range") => &["value", "min", "max", "step"],
-        None if number => &["min", "max", "step"],
+        None if tag == "input" => &["min", "max", "step"],
         None if tag == "progress" => &["value", "max"],
         _ => &[],
     };
@@ -373,9 +367,11 @@ pub(crate) fn range_attrs(
                 if !numeric(a) {
                     return a.clone();
                 }
-                let value = match &a.value {
-                    Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
-                    e => Expr::Call("toString".into(), vec![e.clone()], e.span()),
+                // A literal, negative or not, is its text at compile time; any
+                // other number is written at run time.
+                let value = match super::values::numeric_literal(&a.value) {
+                    Some(n) => Expr::Str(exact_num::js(n), a.value.span()),
+                    None => Expr::Call("toString".into(), vec![a.value.clone()], a.value.span()),
                 };
                 contract_syntax::Attr { value, ..a.clone() }
             })
@@ -477,11 +473,8 @@ impl Lowerer<'_> {
         } else {
             self.fixed(false, "switch")
         };
-        bindings.push(BindingsRow {
-            kind: BindingKind::Prop,
-            id: id as u16,
-            expr,
-        });
+        // The word is the author's.
+        bindings.push(crate::prop_row(id, expr, true));
         Ok(true)
     }
 }
@@ -499,11 +492,8 @@ pub(crate) fn derived_rows(bindings: &mut Vec<BindingsRow>) -> bool {
     else {
         return false;
     };
-    bindings.push(BindingsRow {
-        kind: BindingKind::Prop,
-        id: PropId::AccessibilityChecked as u16,
-        expr,
-    });
+    let checked = PropId::AccessibilityChecked;
+    bindings.push(crate::prop_row(checked, expr, crate::IMPLIED));
     true
 }
 
@@ -706,20 +696,26 @@ impl Lowerer<'_> {
                         "a native button's `type` is `\"button\"`: it is what makes it one".into(),
                     )
                 }
-                // Its fixed role yields to a tab's or a menu item's (LLP 1069.011.000 D4, D5).
+                // Its fixed role yields to a tab's, a radio's (a radio group's
+                // segment, LLP 1116.004 D5.2) or a menu item's (LLP 1069.011.000 D4, D5).
                 "role"
                     if !literals(&a.value).is_some_and(|roles| {
                         roles.iter().all(|r| {
                             matches!(
                                 *r,
-                                "button" | "tab" | "menuitem" | "menuitemcheckbox" | "menuitemradio"
+                                "button"
+                                    | "tab"
+                                    | "radio"
+                                    | "menuitem"
+                                    | "menuitemcheckbox"
+                                    | "menuitemradio"
                             )
                         })
                     }) =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button's role is `button`, `tab`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
+                        format!("a native button's role is `button`, `tab`, `radio`, `menuitem`, `menuitemcheckbox` or `menuitemradio`, written as a literal or a choice: {alternative}"),
                     )
                 }
                 "backgroundMaterial" | "glassGroup" => {
@@ -794,11 +790,22 @@ impl Lowerer<'_> {
                     );
                 }
                 Some(crate::tags::AttrTarget::Handler(h))
-                    if !matches!(h, "press" | "focus" | "blur" | "key" | "keyup" | "hover") =>
+                    if !matches!(
+                        h,
+                        "press"
+                            | "focus"
+                            | "blur"
+                            | "focusin"
+                            | "focusout"
+                            | "keycapture"
+                            | "key"
+                            | "keyup"
+                            | "hover"
+                    ) =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button takes `press`, `focus`, `blur`, `key`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
+                        format!("a native button takes `press`, `focus`, `blur`, `focusin`, `focusout`, `key`, `keycapture`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
                     );
                 }
                 _ => {}
@@ -982,7 +989,7 @@ fn face_counts(
                         let symbol = |s: &str| {
                             s.strip_prefix("symbol:").is_some_and(|r| {
                                 r.strip_prefix("sf/").map_or_else(
-                                    || exact_kernel::generated::symbol(r).is_some(),
+                                    || exact_kernel::generated::symbol_role(r).is_some(),
                                     |name| !name.is_empty(),
                                 )
                             })

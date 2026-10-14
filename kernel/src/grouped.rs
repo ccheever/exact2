@@ -5,6 +5,7 @@
 //! `footer`. A row whose children are a standard cell's parts is read as
 //! data; any other row is custom, and the host carries its views.
 
+use crate::arena::NodeArena;
 use crate::control::ControlKind;
 use crate::generated::{
     Display, FlexDirection, FontStyle, NodeType, Overflow, PropId, StyleId, StyleMask,
@@ -12,7 +13,7 @@ use crate::generated::{
 };
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
-use crate::style::{roles, Color, ColorValue};
+use crate::style::{ColorValue, Env};
 
 /// A grouped list as a host draws it.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -44,7 +45,7 @@ pub struct GroupedSection {
     /// Whether its rows sit on a card: false when the section's group has a
     /// transparent background (`section background-color="transparent"`).
     pub card: bool,
-    /// The space above it, in points, when the author changed a margin at
+    /// The space above it, in points, when the author wrote a margin at
     /// that boundary (its `margin-top`, or the previous section's
     /// `margin-bottom`): the web's, the two margins collapsed. `None` keeps
     /// the platform's own gap, which Contract's sheet stands in for (§2).
@@ -63,6 +64,10 @@ pub enum Accessory {
     Checkmark,
     /// A trailing checkbox or switch control: a switch, which flips that control.
     Toggle(ViewId),
+    /// An `input type="radio"` at either end of the row, and whether it is
+    /// checked: the platform's checkmark on the chosen row, and a tap on
+    /// the row checks that radio (LLP 1115.000 D13.2).
+    Radio(ViewId, bool),
     /// A trailing button holding only an `info.circle` symbol: the detail
     /// button, which presses that button.
     Detail(ViewId),
@@ -101,6 +106,10 @@ pub struct GroupedRow {
 /// How a text the platform's list draws is set where its author said so
 /// (LLP 1116.003 D7: author > platform, LLP 1115). The defaults are the
 /// platform's: every line, wrapped, in the platform's colour and font.
+/// "Said" is the row's own fact (LLP 1115.000 D2): the row that gives the
+/// text its value was written by the author, on the text or on a box it
+/// inherits from. Contract's sheet stands in for the platform there and
+/// writes nothing, so its rows, like a value no one set, are unsaid.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct TextLook {
     /// The most lines it shows, 0 for any number: its `line-clamp`, or 1
@@ -110,10 +119,10 @@ pub struct TextLook {
     /// a `line-clamp`, as CSS draws one, or `text-overflow: ellipsis` in a
     /// box that clips its overflow.
     pub ellipsis: bool,
-    /// Its `color`, when it is not the one Contract's sheet writes there.
+    /// Its `color`, when its author wrote one.
     pub color: Option<ColorValue>,
-    /// Its font, when its size, weight, style, family or numerals are not
-    /// the sheet's.
+    /// Its font as computed, when its author wrote its size, weight, style,
+    /// family or numerals.
     pub font: Option<TextFont>,
 }
 
@@ -132,94 +141,24 @@ pub struct TextFont {
     pub numeric: u8,
 }
 
-/// The size, weight and colour Contract's sheet writes for a text in a slot
-/// (`contract/lower/src/grouped.rs`, LLP 1084 §2), standing in for the
-/// platform's there: a title, a value beside it and a header 17 points (the
-/// header semibold), a subtitle line 15, a footer 13; a title in UIKit's
-/// label colour (its red in a destructive row), any other text in its
-/// secondary label.
-#[derive(Clone, Copy)]
-struct Slot {
-    size: f32,
-    weight: u16,
-    color: SheetColor,
-}
-const TITLE: Slot = Slot {
-    size: 17.0,
-    weight: 400,
-    color: LABEL,
-};
-/// A destructive row's title.
-const DESTRUCTIVE: Slot = Slot {
-    color: RED,
-    ..TITLE
-};
-/// A value beside the title.
-const VALUE: Slot = Slot {
-    color: SECONDARY,
-    ..TITLE
-};
-const SUBTITLE: Slot = Slot {
-    size: 15.0,
-    weight: 400,
-    color: SECONDARY,
-};
-const HEADER: Slot = Slot {
-    size: 17.0,
-    weight: 600,
-    color: SECONDARY,
-};
-const FOOTER: Slot = Slot {
-    size: 13.0,
-    weight: 400,
-    color: SECONDARY,
-};
-
-/// A colour the sheet writes for a text (LLP 1084 §2). A text in its slot's
-/// left its colour unsaid, which is the platform's; any other is its
-/// author's, the role the sheet writes for another slot included.
-#[derive(Clone, Copy)]
-enum SheetColor {
-    /// A role (LLP 1095 D2), by its name in the schema.
-    Role(&'static str),
-    /// A pair, compared as Contract lowers it, so only that exact colour
-    /// matches.
-    Pair(ColorValue),
-}
-const LABEL: SheetColor = SheetColor::Role("label");
-const SECONDARY: SheetColor = SheetColor::Role("secondary-label");
-/// The sheet's red, the pair it still lowers to.
-const RED: SheetColor = SheetColor::Pair(ColorValue::LightDark(
-    Color::rgba(0xff, 0x38, 0x3c, 255),
-    Color::rgba(0xff, 0x42, 0x45, 255),
-));
-
-impl SheetColor {
-    fn is(self, color: ColorValue) -> bool {
-        match (self, color) {
-            (SheetColor::Role(name), ColorValue::Role(id)) => {
-                roles::role_of(id).is_some_and(|r| r.name == name)
-            }
-            (SheetColor::Pair(pair), color) => pair == color,
-            _ => false,
-        }
-    }
-}
+/// The rows a text's font is made of.
+const FONT: [StyleId; 5] = [
+    StyleId::FontSize,
+    StyleId::FontWeight,
+    StyleId::FontStyle,
+    StyleId::FontFamily,
+    StyleId::FontVariantNumeric,
+];
 
 impl TextLook {
-    /// The look the text node `node` asks for in `slot`, as the web lays it
-    /// out and paints it.
-    fn of(node: &NodeRef<'_>, slot: Slot) -> TextLook {
+    /// The look the text node `node` asks for, as the web lays it out and
+    /// paints it.
+    fn of(node: &NodeRef<'_>) -> TextLook {
         let mut rows = StyleMask::EMPTY;
-        for row in [
-            StyleId::WhiteSpace,
-            StyleId::TextColor,
-            StyleId::FontSize,
-            StyleId::FontWeight,
-            StyleId::FontStyle,
-            StyleId::FontFamily,
-            StyleId::FontVariantNumeric,
-        ] {
+        for row in [StyleId::WhiteSpace, StyleId::TextColor]
+            .into_iter()
+            .chain(FONT)
+        {
             rows.set(row);
         }
         let s = node.computed_style(rows);
@@ -230,14 +169,9 @@ impl TextLook {
             family: s.font_family,
             numeric: s.font_variant_numeric,
         };
-        let said = font.size != slot.size
-            || font.weight != slot.weight
-            || font.italic
-            || font.family != 0
-            || font.numeric != 0;
         let mut look = TextLook {
-            color: (!slot.color.is(s.text_color)).then_some(s.text_color),
-            font: said.then_some(font),
+            color: node.says(StyleId::TextColor).then_some(s.text_color),
+            font: FONT.iter().any(|row| node.says(*row)).then_some(font),
             ..TextLook::default()
         };
         let clamp = node.style.line_clamp;
@@ -269,14 +203,24 @@ fn apple_symbol(node: &NodeRef<'_>) -> Option<String> {
     })
 }
 
-/// A text node's text, white space collapsed; `None` when blank.
-fn text_of(node: &NodeRef<'_>) -> Option<String> {
+/// A text node's text, its white space collapsed as its `white-space` has
+/// the web collapse it (LLP 1116.004 D2): `normal` makes a line feed a
+/// space, and `pre-line` keeps it, so a footer the author set `pre-line` is
+/// two lines in UIKit's cell as on the page. `None` when blank.
+pub(crate) fn text_of(node: &NodeRef<'_>) -> Option<String> {
     if node.node_type != NodeType::Text {
         return None;
     }
-    let text: String = node.text_runs().iter().map(|r| &*r.text).collect();
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    (!text.is_empty()).then_some(text)
+    let text_runs = node.text_runs();
+    let runs: Vec<&str> = text_runs.iter().map(|r| &*r.text).collect();
+    let mut rows = StyleMask::EMPTY;
+    rows.set(StyleId::WhiteSpace);
+    let white_space = node.computed_style(rows).white_space.model();
+    let text = match exact_textflow::collapse(&runs, white_space) {
+        Some(collapsed) => collapsed.runs.concat(),
+        None => runs.concat(),
+    };
+    (!text.trim().is_empty()).then_some(text)
 }
 
 impl GroupedRow {
@@ -284,17 +228,9 @@ impl GroupedRow {
     /// second a subtitle under the title, else a value beside it.
     fn texts(&mut self, title: &NodeRef<'_>, second: Option<&NodeRef<'_>>, subtitle: bool) {
         self.title = text_of(title);
-        let slot = if self.destructive { DESTRUCTIVE } else { TITLE };
-        self.title_look = TextLook::of(title, slot);
-        // A destructive row's title that is the first line only under a
-        // condition: the sheet writes it the label colour there, not its red
-        // (`stack_lines`), and that is still the sheet's, so still unsaid.
-        if self.destructive && self.title_look.color.is_some_and(|c| LABEL.is(c)) {
-            self.title_look.color = None;
-        }
+        self.title_look = TextLook::of(title);
         self.secondary = second.and_then(text_of);
-        let slot = if subtitle { SUBTITLE } else { VALUE };
-        self.secondary_look = second.map(|n| TextLook::of(n, slot)).unwrap_or_default();
+        self.secondary_look = second.map(TextLook::of).unwrap_or_default();
         self.subtitle = subtitle;
     }
 }
@@ -313,10 +249,10 @@ impl Kernel {
                 .filter(|c| c.style.display != Display::None)
                 .collect()
         };
-        let label = |n: &NodeRef<'_>, slot: Slot| {
+        let label = |n: &NodeRef<'_>| {
             nodes(n)
                 .iter()
-                .find_map(|t| text_of(t).map(|text| (text, TextLook::of(t, slot))))
+                .find_map(|t| text_of(t).map(|text| (text, TextLook::of(t))))
         };
         let shown = nodes(&list);
         let sections = shown
@@ -330,11 +266,11 @@ impl Kernel {
                 for part in nodes(section) {
                     match part.props.str(PropId::SemanticTag) {
                         Some("header") => {
-                            (out.header, out.header_look) = label(&part, HEADER)
+                            (out.header, out.header_look) = label(&part)
                                 .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
                         }
                         Some("footer") => {
-                            (out.footer, out.footer_look) = label(&part, FOOTER)
+                            (out.footer, out.footer_look) = label(&part)
                                 .map_or((None, TextLook::default()), |(t, l)| (Some(t), l))
                         }
                         _ => {
@@ -353,7 +289,9 @@ impl Kernel {
             sections,
             space_below: None,
         };
-        authored_space(&mut list, &shown);
+        // A section's percentage margin is of the list's content box
+        let basis = crate::svg::scene::content_box(self, &self.node(view)?).2;
+        authored_space(&mut list, &shown, self.arena().env(), basis);
         Some(list)
     }
 
@@ -405,6 +343,15 @@ impl Kernel {
             _ => None,
         };
         let mut rest = &parts[..];
+        // A radio's row is a choice: the radio is its accessory wherever its
+        // author put it, before the label as a web form has it or after.
+        let radio = |n: &NodeRef<'_>| {
+            matches!(
+                ControlKind::of(n.node_type, n.props),
+                Some(ControlKind::Radio)
+            )
+            .then(|| Accessory::Radio(n.id, n.props.bool(PropId::Checked) == Some(true)))
+        };
         // The trailing accessory, then the leading symbol, then the texts.
         if let Some((last, before)) = rest.split_last() {
             let toggle = matches!(
@@ -424,11 +371,17 @@ impl Kernel {
             } else if detail {
                 Some(Accessory::Detail(last.id))
             } else {
-                apple_symbol(last).and_then(|s| accessory(&s))
+                radio(last).or_else(|| apple_symbol(last).and_then(|s| accessory(&s)))
             };
             if let Some(found) = found {
                 out.accessory = found;
                 rest = before;
+            }
+        }
+        if let (Accessory::None, Some((first, after))) = (out.accessory, rest.split_first()) {
+            if let Some(found) = radio(first) {
+                out.accessory = found;
+                rest = after;
             }
         }
         if let Some((first, after)) = rest.split_first() {
@@ -480,15 +433,43 @@ impl Kernel {
     }
 }
 
-/// A margin Contract's sheet writes (LLP 1084 §2): 0 beside a header or a
-/// footer and in a plain list, else 17.33, or 35.33 above a first section.
-/// Any other number is the author's. Compared as the f32 the sheet's
-/// numbers become, so only those exact numbers match.
-fn sheet_margin(value: f32, top: bool, labelled: bool, plain: bool) -> bool {
-    if labelled || plain {
-        value == 0.0
-    } else {
-        value == 17.33 || (top && value == 35.33)
+impl NodeArena {
+    /// Whether `slot` is a native text field (an unsaid `input` or
+    /// `textarea`, LLP 1104 D2) in a grouped list's row, at any depth: the
+    /// field a platform draws in a list's cell (LLP 1116.005 D2), which on
+    /// iOS is borderless, the cell being the field. A search field keeps its
+    /// own chrome. Read from the tree as it stands: a list with `listStyle`,
+    /// a section, its rows' group (not its `header` or `footer`), a row.
+    pub(crate) fn is_cell_field(&self, slot: u32) -> bool {
+        use crate::FieldKind;
+        if !self.is_native_text_control(slot)
+            || FieldKind::from_props(self.props(slot)) == FieldKind::SearchField
+        {
+            return false;
+        }
+        let mut at = slot;
+        while let Some(group) = self.parent(at) {
+            let list = self.parent(group).and_then(|section| self.parent(section));
+            if list.is_some_and(|l| self.props(l).str(PropId::ListStyle).is_some())
+                && !matches!(
+                    self.props(group).str(PropId::SemanticTag),
+                    Some("header" | "footer")
+                )
+            {
+                return true;
+            }
+            at = group;
+        }
+        false
+    }
+}
+
+impl NodeRef<'_> {
+    /// Whether this is a native text field in a grouped list's row, which a
+    /// host draws as its platform draws a field in a list's cell
+    /// (`NodeArena::is_cell_field`, LLP 1116.005 D2).
+    pub fn is_cell_field(&self) -> bool {
+        self.arena.is_cell_field(self.slot)
     }
 }
 
@@ -498,29 +479,24 @@ fn collapse(a: f32, b: f32) -> f32 {
     a.max(b).max(0.0) + a.min(b).min(0.0)
 }
 
-/// Each boundary the author changed takes the web's space: the margins that
-/// meet there collapsed, as block margins do (§6.4).
-fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>]) {
+/// Each boundary where the author wrote a margin takes the web's space: the
+/// margins that meet there collapsed, as block margins do (§6.4). A margin
+/// is the author's when its row says so (LLP 1115.000 D2), whatever its
+/// number; the sheet's (LLP 1084 §2) stands in for the platform's gap.
+fn authored_space(list: &mut GroupedList, shown: &[NodeRef<'_>], env: &Env, basis: f32) {
     use crate::style::Dimension;
-    let plain = list.style == "plain";
     let mut below: Option<(f32, bool)> = None;
     for (section, node) in list.sections.iter_mut().zip(shown) {
-        let points = |d: Dimension| match d {
-            Dimension::Points(p) => p,
-            _ => 0.0,
-        };
+        let points = |d: Dimension| d.at_basis(env, basis);
         let top = points(node.style.margin_top);
-        let authored = !sheet_margin(top, true, section.header.is_some(), plain);
+        let authored = node.style.written.has(StyleId::MarginTop);
         section.space_above = match below {
             Some((bottom, mine)) if mine || authored => Some(collapse(top, bottom)),
             None if authored => Some(top),
             _ => None,
         };
         let bottom = points(node.style.margin_bottom);
-        below = Some((
-            bottom,
-            !sheet_margin(bottom, false, section.footer.is_some(), plain),
-        ));
+        below = Some((bottom, node.style.written.has(StyleId::MarginBottom)));
     }
     list.space_below = below.and_then(|(bottom, mine)| mine.then_some(bottom));
 }

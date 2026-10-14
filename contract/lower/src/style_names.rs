@@ -63,6 +63,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("r", "css SVG 2", AttrTarget::Styles(&[StyleId::R])),
     // style rows, by their CSS property names
     ("white-space", "css CSS Text 3", AttrTarget::Styles(&[StyleId::WhiteSpace])),
+    ("text-wrap-style", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    ("text-wrap", "css CSS Text 4", AttrTarget::Styles(&[StyleId::TextWrapStyle])),
+    // @ref LLP 1104 D3 — `::placeholder`'s `color`, the part block's
+    // declaration (contract_syntax::PLACEHOLDER_COLOR); never written as one name.
+    ("::placeholder color", "css CSS Pseudo-Elements 4", AttrTarget::Styles(&[StyleId::PlaceholderColor])),
     ("overflow-wrap", "css CSS Text 3", AttrTarget::Styles(&[StyleId::OverflowWrap])),
     ("field-sizing", "css CSS Form Control Styling 1", AttrTarget::Styles(&[StyleId::FieldSizing])),
     ("scroll-snap-type", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollSnapType])),
@@ -90,6 +95,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("resize", "css CSS UI 4", AttrTarget::Styles(&[StyleId::Resize])),
     ("user-select", "css CSS UI 4", AttrTarget::Styles(&[StyleId::UserSelect])),
     // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+    ("position-try-fallbacks", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionTryFallbacks])),
     ("position-area", "css CSS Anchor Positioning 1", AttrTarget::Styles(&[StyleId::PositionArea])),
     ("text-decoration-line", "css CSS Text Decoration 3", AttrTarget::Styles(&[StyleId::TextDecorationLine])),
     // @ref LLP 1064 D5

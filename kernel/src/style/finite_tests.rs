@@ -1,4 +1,4 @@
-use crate::{GridTrack, GridTracks, LineHeight, StyleId, StyleProps, StyleValue};
+use crate::{GridTrack, GridTracks, LineHeight, StyleId, StyleMask, StyleProps, StyleValue};
 
 /// xorshift64*, deterministic.
 fn next(state: &mut u64) -> u64 {
@@ -6,6 +6,32 @@ fn next(state: &mut u64) -> u64 {
     *state ^= *state << 25;
     *state ^= *state >> 27;
     state.wrapping_mul(0x2545_f491_4f6c_dd1d)
+}
+
+#[test]
+fn style_mask_iteration_visits_exactly_its_declared_rows_in_bit_order() {
+    let check = |mask: StyleMask| {
+        let expected: Vec<_> = StyleId::ALL
+            .into_iter()
+            .filter(|id| mask.has(*id))
+            .collect();
+        assert_eq!(mask.iter().collect::<Vec<_>>(), expected, "{mask:?}");
+    };
+    check(StyleMask::EMPTY);
+    check(StyleMask::ALL);
+    check(StyleMask::RESERVED);
+    for id in StyleId::ALL {
+        check(StyleMask::of(id));
+        check(StyleMask::ALL.minus(StyleMask::of(id)));
+    }
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for _ in 0..4000 {
+        let mut mask = StyleMask::EMPTY;
+        for word in &mut mask.words {
+            *word = next(&mut state);
+        }
+        check(mask);
+    }
 }
 
 #[test]

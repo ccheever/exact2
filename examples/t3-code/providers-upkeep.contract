@@ -191,7 +191,7 @@ component UpkeepSelect
       button popovertarget=`${selectId}-menu` role="combobox" aria-label=label aria-haspopup="listbox" disabled=disabled id=selectId testId=selectId display="flex" flex-direction="row" align-items="center" gap="0.25rem" width=width height=(small ? "1.5rem" : "1.75rem") padding-left=(small ? "0.4375rem" : "0.5625rem") padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" opacity=(disabled ? 0.64 : 1)
         text valueLabel font-size=(small ? "0.75rem" : "0.875rem") line-height="1rem" flex=1 min-width=0 line-clamp=1 text-align="left" color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-down", size=12, color="light-dark(#71717b, #818181)")
-      column id=`${selectId}-menu` popover="auto" position="absolute" top="100%" left=0 margin-top="0.25rem" min-width=width
+      column id=`${selectId}-menu` popover="auto" position-try-fallbacks="none" position="absolute" top="100%" left=0 margin-top="0.25rem" min-width=width
         column padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-modal=true aria-label=label testId=`${selectId}-menu`
           button press=dismiss popovertarget=`${selectId}-menu` popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" title=""
           each option in options key=option.value
@@ -249,7 +249,7 @@ component ProviderVersionAdvisory
         PvIcon(name=(advisory.warning ? "warning" : "update"), size=(list ? 14 : 16), color=(advisory.warning ? "#fe9a00" : (over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")))
       // side="bottom" align="end": the popup's right edge meets the trigger's (X17: no end-aligned area, so offset by the widths;
       // the Apple host applies a popover's margins only when it names an area, and `bottom span-right` is D2's own placement).
-      column id=advisory.popId popover="auto" position="absolute" position-area="bottom span-right" margin-top="0.25rem" margin-left=(list ? "-18.75rem" : "-18.5rem") width="20rem"
+      column id=advisory.popId popover="auto" position-try-fallbacks="none" position="absolute" position-area="bottom span-right" margin-top="0.25rem" margin-left=(list ? "-18.75rem" : "-18.5rem") width="20rem"
         // Modal while open, so Escape closes it (and returns to the icon) instead of reaching Settings' Back.
         column width="100%" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff2, #171717f2)" backdrop-filter="blur(12px)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-modal=true aria-label=advisory.title testId=`${advisory.popId}-popover`
           button press=dismiss popovertarget=advisory.popId popovertargetaction="hide" aria-keyshortcuts="Escape" aria-label="Close" tabindex=-1 position="absolute" left=0 top=0 width=0 height=0 padding=0 border-width=0 overflow="hidden" background-color="#00000000" testId=`${advisory.popId}-escape` title=""

@@ -1,9 +1,11 @@
 //! The root font size (LLP 1069.000 D3): the host reads it from the
 //! platform — Dynamic Type on iOS, the browser's root size on the web, 16
-//! elsewhere — and the app may set its own over it, as `:root { font-size }`
-//! sets one over the browser's setting. It is layout, not a fact: no
-//! resource is asked again, and the commit only re-resolves `rem`/`em` and
-//! what inherits the root's size.
+//! times the font scale on Android, 16 elsewhere — and the app may set its
+//! own over it, as `:root { font-size }` sets one over the browser's
+//! setting. It is layout, not a fact: no resource is asked again, and the
+//! commit only re-resolves `rem`/`em` and what inherits the root's size.
+//! The display's scale is the other layout input a host reads from the
+//! platform (LLP 1115.000 D10.3): a hairline is one device pixel of it.
 use super::{DataSource, Runner, RunnerError};
 use exact_kernel::{CommitReceipt, LayoutError};
 use exact_plan::Value;
@@ -67,6 +69,42 @@ impl<D: DataSource> Runner<D> {
             // The kernel applies the size with the next commit; put back
             // the one the tree was laid out at.
             let _ = self.kernel.set_root_font_size(previous);
+        }
+        result.map(Some)
+    }
+
+    /// The display's scale, device pixels a px, as last set; 1 until a host
+    /// says (LLP 1115.000 D10.3).
+    pub fn display_scale(&self) -> f64 {
+        self.kernel.display_scale() as f64
+    }
+
+    /// Set the display's scale, which a hairline (`-exact-hairline`) is one
+    /// device pixel of: the host's fact, told as the root font size is and
+    /// again when the window moves to another display. Where a row is a
+    /// hairline it commits what that moves, in one commit; where none is,
+    /// or it is the scale already set, it commits nothing and the next
+    /// hairline written resolves against it. A scale that is not finite and
+    /// positive is journaled and refused, changing nothing.
+    pub fn set_display_scale(&mut self, scale: f64) -> Result<Option<CommitReceipt>, RunnerError> {
+        if !fits(scale) {
+            self.log(format!(
+                "display scale {} refused",
+                exact_num::Shortest(scale)
+            ));
+            return Err(RunnerError::Kernel(LayoutError::InvalidDisplayScale.into()));
+        }
+        let previous = self.kernel.display_scale();
+        let changed = self
+            .kernel
+            .set_display_scale(scale as f32)
+            .map_err(RunnerError::Kernel)?;
+        if !changed || !self.kernel.has_hairlines() {
+            return Ok(None);
+        }
+        let result = self.commit_again(Vec::new(), "display scale");
+        if result.is_err() {
+            let _ = self.kernel.set_display_scale(previous);
         }
         result.map(Some)
     }

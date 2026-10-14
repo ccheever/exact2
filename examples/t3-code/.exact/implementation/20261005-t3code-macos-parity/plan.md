@@ -281,8 +281,47 @@ session, `realinput-1011a` (the bundle of `ff1eb4ceb`), passed 14 of 21 steps; d
 them: [dialog-initial-focus-and-model-prices](tasks/closed/20261011-dialog-initial-focus-and-model-prices.md) (#438,
 `976fce617`) and [search-key-and-timeline-commit-title](tasks/closed/20261011-search-key-and-timeline-commit-title.md)
 (#439, `a55c9e7c5`) merged, and a short session, `realinput-1011b` (the bundle of `a55c9e7c5`), passed every step; ⌘⇧F
-is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Open: nothing that can move; main adoption round 9 waits for main #327, and the held tasks below wait on
-main.
+is taken by this Mac before any app (the reference and Xcode lose it too), so the clone did not change for it. Then
+(2026-10-11 to 10-12) the verify-1011c wave and main adoption rounds 9 to 11 merged, all closed:
+[adopt-main-fixes-r9](tasks/closed/20261011-adopt-main-fixes-r9.md) (#458, a fast-forward to `213149fe7`; main `ccc9afd52`),
+[progress-native-bars](tasks/closed/20261011-progress-native-bars.md) (#462, `fe0e39c91`),
+[adopt-main-fixes-r10](tasks/closed/20261012-adopt-main-fixes-r10.md) (#472, a fast-forward to `e91bdc8af`; main `8e7d9cbb0`),
+[network-routes-followups](tasks/closed/20261011-network-routes-followups.md) (#463, `e801aab21`),
+[browser-recording-and-downloads](tasks/closed/20261011-browser-recording-and-downloads.md) (#445, `443380976`),
+[scheduled-tasks-followups](tasks/closed/20261011-scheduled-tasks-followups.md) (#456, `3525e9f1a`),
+[terminal-drawer-unthreaded](tasks/closed/20261011-terminal-drawer-unthreaded.md) (#460, `8fa9446cc`),
+[followups-1012](tasks/closed/20261012-followups-1012.md) (#482, `ca4f28e35`),
+[restore-defaults-and-timeline-glyph](tasks/closed/20261011-restore-defaults-and-timeline-glyph.md) (#470, `84d8c3474`),
+[device-player-compact-and-rail-keys](tasks/closed/20261011-device-player-compact-and-rail-keys.md) (#464, `ad6bac9d6`),
+[media-signed-urls-and-attachment-markdown](tasks/closed/20261011-media-signed-urls-and-attachment-markdown.md) (#465, `bce7abdee`),
+[code-highlighting-languages](tasks/closed/20261011-code-highlighting-languages.md) (#466, `63d1c410c`),
+[pr-list-scroll-and-sidebar-sweep](tasks/closed/20261011-pr-list-scroll-and-sidebar-sweep.md) (#468, `cf16fe13d`),
+[legacy-sidebar-full](tasks/closed/20261011-legacy-sidebar-full.md) (#469, `5863748f1`),
+[diff-cite-popover](tasks/closed/20261011-diff-cite-popover.md) (#479, `6776a0999`),
+[reply-links-reference-behavior](tasks/closed/20261011-reply-links-reference-behavior.md) (#474, `20ce9dfdb`) and
+[adopt-main-fixes-r11](tasks/closed/20261012-adopt-main-fixes-r11.md) (#497, a fast-forward to `1f813789b`; main `b0e4a6c22` with #327). Framework gaps
+X84, X85 and X86 were filed on main (main PRs #483, #485, #488) with a table cell link's Tab stop (#484; fixed on main by
+`c4f1279fc` on 2026-10-13, not adopted); main fixed X77,
+X79, X81, X82, X84, X85, X86, X58 and X13's pan (#491, #490, #493, #494, #486, #487, #496, #477, #478), all adopted in
+round 11, and decided X80 by the platform rule. `realinput-1011c` (the bundle of `1f813789b`, 2026-10-12 to 10-13) ran
+the verify-1011c groups and those tasks' rows: 141 rows, 70 passed, 29 failed, 29 passed in part, 6 not run, 2 not
+reachable, 1 not filmable, 4 other. Its failures and part passes are in `STATUS.md` "Known differences" (the user's
+rule); four of them are one framework crash on a mouse-up (`NodeView.releaseHold`), which main PR #519 (opened
+2026-10-13, merged as `b49c56029`) files as `issues/closed/20261013-macos-a-click-after-a-node.md` and fixes.
+[adopt-main-fixes-r12](tasks/20261013-adopt-main-fixes-r12.md) ([#520](https://github.com/ccheever/exact2/pull/520), merged 2026-10-13 by fast-forward as `9149492d4`) adopts main `46f300937`, then `96ea7d177`, `ffe36f63a`, `aa9705c33`, `169ea1efb` and `0b956d63d`, with #519: agent mode
+reproduces the crash's mechanism on the T3 tip's bundle and not on round 12's, and finds another framework crash of the
+same pattern (X87, main `3998e650e`: a press held on a scroller's empty area; main fixed it by #523); the four rows wait for real input. It
+opts the clone's lists and popovers out of the Mac's table and `NSPopover` (LLP 1115.002 D5, D7.3) to keep the
+reference's look, retires X70's disabled pill, the "+N" toggle's solid underline and five solid boxes the reference draws
+dashed, and lists the other workarounds main's fixes since round 11 end (`EXACT2-GAPS.md` "Closed on main since round 11"),
+which the follow-up [r12-kept-workarounds](tasks/20261013-r12-kept-workarounds.md) holds (planned; Inspect app colors among
+them, now that main closed #321). The held tasks below can resume
+once it merges: main fixed X48 and X69 on 2026-10-12 (`eaf48e05c`, `afe11ead5`).
+[adopt-main-fixes-r13](tasks/20261014-adopt-main-fixes-r13.md) (draft PR [#524](https://github.com/ccheever/exact2/pull/524)) adopts main `898ca3a09`, then `95f2fd3e7`, `2ba30e401` and `958523176`, with #523 (`issues/closed/20261013-macos-a-press-held-on-a.md`):
+X87 is fixed (round 12's agent trigger aborts the T3 tip's bundle and runs on round 13's, as the reference); main's
+other commits since `0b956d63d` (Ibex's consumer adoption, the sticky-target intersection fix, the date and place at launch, the focus fix that closes
+X54's issue) end no clone workaround,
+so nothing is retired and r12-kept-workarounds stands.
 New local framework draft: [X70](issues/closed/20261010-x70-aria-disabled-focusable.md) (kept
 local, as the user chose for X69). User decisions of 2026-10-10: #99's clean delivery is not in this session; PG-10 runs in
 a later attended session; the old real-input rows that need a provider, Codex usage or the Korean input source run with

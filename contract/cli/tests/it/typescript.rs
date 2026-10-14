@@ -95,7 +95,7 @@ impl Fixture {
 
     fn check(&self, text: &str) -> Output {
         self.write("app.ts", text);
-        Command::new("bun")
+        Command::new(std::env::var_os("BUN").unwrap_or_else(|| "bun".into()))
             .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../node_modules/.bin/tsc"))
             .args([
                 "--noEmit",
@@ -306,4 +306,108 @@ fn router_shapes_are_already_named_by_the_plan_type_generator() {
             assert!(line.contains(&format!("\"{}\": T{};", plan.str(field.name), field.ty.0)));
         }
     }
+}
+
+// LLP 1116.006 D7: a builder reads the top of app.contract.d.ts, not its declarations.
+#[test]
+fn the_file_opens_with_what_app_ts_writes_one_line_each() {
+    let declaration = contract::typescript(&contract::compile(CONTRACT).unwrap()).unwrap();
+    let top: Vec<&str> = declaration.lines().take(30).collect();
+    for line in [
+        "//   find: (args: [string]) => Item | null",
+        "//   save: (args: [string, boolean]) => Item",
+        "//   search: (args: [string]) => Item[]",
+        "// The shapes. None is exported: name one by its source, `type Item = Result<'save'>`.",
+        "//   Item = { id: string; enabled: boolean; scores: number[]; child: string | null }",
+    ] {
+        assert!(
+            top.contains(&line),
+            "{line} is not in the top:\n{}",
+            top.join("\n")
+        );
+    }
+    // Comments only, ahead of the declarations, which are as they were.
+    let summary = declaration.split("\n\n").next().unwrap();
+    assert!(summary.lines().all(|l| l.starts_with("//")), "{summary}");
+    assert!(declaration.contains("\nexport interface SourceMap {\n  \"find\": { args: [T"));
+
+    // The router's shapes are the runner's, so they are left out; a shape names the shapes inside it.
+    let routes = contract::typescript(
+        &contract::compile(include_str!("../../../corpus/routes.contract")).unwrap(),
+    )
+    .unwrap();
+    let summary = routes.split("\n\n").next().unwrap();
+    for name in ["Router", "Tab", "Entry", "Params"] {
+        assert!(!summary.contains(&format!("//   {name} = ")), "{summary}");
+    }
+    assert!(
+        summary
+            .lines()
+            .any(|l| l == "//   loadPeople: (args: [string[]]) => Person[]"),
+        "{summary}"
+    );
+    assert!(
+        summary
+            .lines()
+            .any(|l| l == "//   Person = { id: string; name: string; post: string }"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("`type Person = Result<'loadPeople'>[number]`"),
+        "{summary}"
+    );
+}
+
+#[test]
+fn a_contract_without_sources_has_no_summary() {
+    let declaration = contract::typescript(
+        &contract::compile("component App\n  view\n    text \"hi\"\n").unwrap(),
+    )
+    .unwrap();
+    assert!(!declaration.contains("What app.ts writes"));
+    assert!(declaration.starts_with(
+        "// @generated from Contract source signatures; do not edit.\n\
+         // Static types do not replace runtime shape, identity, or grant checks.\n\n"
+    ));
+}
+
+#[test]
+#[ignore = "async lane: checks the stream handle with tsc"]
+fn generated_socket_handle_types_text_binary_and_close_events() {
+    let plan = contract::compile(CONTRACT).unwrap();
+    let fixture = Fixture::new();
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let output = fixture.check(
+        r#"
+import type { StreamSocket } from './app.contract.d.ts';
+let kept: StreamSocket | undefined;
+fetch('wss://example.test', { exactStream(event, socket) {
+  kept = socket;
+  const payload: string | ArrayBuffer = event.data;
+  const code: number | undefined = event.code;
+  const reason: string | undefined = event.reason;
+  const clean: boolean | undefined = event.wasClean;
+  return typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
+}});
+function mutation() {
+  if (!kept) return;
+  kept.send('subscribe');
+  kept.send(new Uint8Array([1, 2]));
+  kept.send(new ArrayBuffer(2));
+  kept.close(4001, 'finished');
+  const state: number = kept.readyState;
+  const bytes: number = kept.bufferedAmount;
+  // @ts-expect-error the handle cannot send arbitrary records
+  kept.send({ secret: true });
+  // @ts-expect-error the state is owned by the transport
+  kept.readyState = 1;
+}
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

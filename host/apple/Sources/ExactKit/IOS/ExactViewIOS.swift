@@ -15,6 +15,9 @@ import UIKit
 public final class ExactView: UIView {
     public let session: ExactSession
     private var fitPending = false
+    /// The canvas's colour, which this view shows wherever the viewport does
+    /// not reach (`paintUnderKeys`).
+    private var canvas: UIColor?
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
@@ -57,6 +60,7 @@ public final class ExactView: UIView {
         // The launch screen's colour (the manifest's `launch`) until the first
         // frame names the canvas; unset, the platform's (LLP 1115 D2).
         backgroundColor = UIColor(named: "ExactLaunch") ?? .platformBackground
+        canvas = backgroundColor
         addSubview(session.presenter.viewport)
         #if !os(tvOS)
         keyboardObserver = NotificationCenter.default.addObserver(
@@ -66,7 +70,7 @@ public final class ExactView: UIView {
         #endif
         session.view = self
         session.presenter.onViewportFit = { [weak self] in self?.setNeedsLayout(); self?.onViewportFit?() }
-        session.presenter.onCanvasColor = { [weak self] color in self?.backgroundColor = color; self?.onCanvasColor?(color) }
+        session.presenter.onCanvasColor = { [weak self] color in self?.canvas = color; self?.paintUnderKeys(); self?.onCanvasColor?(color) }
         session.presenter.onTitle = { [weak self] title in self?.onTitle?(title) }
         #if os(iOS)
         session.presenter.onStatusBar = { [weak self] choice in self?.onStatusBarStyle?(choice.style) }
@@ -219,6 +223,20 @@ public final class ExactView: UIView {
     /// the batch sets animate with the keyboard (LLP 1008 §9).
     func fit() {
         let presenter = session.presenter
+        // A native callback served for the owner cannot resize the runtime
+        // yet. Keep the latest geometry pending until that callback returns.
+        if Owner.shared.isServingMain {
+            if !fitPending {
+                fitPending = true
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
+                    self.fit()
+                }
+            }
+            return
+        }
         // Containment may synchronously lay us out during a partial batch.
         // Finish that batch, then resize synchronously before returning to UIKit.
         if presenter.applying {
@@ -227,6 +245,7 @@ public final class ExactView: UIView {
                 presenter.afterBatch { [weak self] in
                     guard let self else { return }
                     self.fitPending = false
+                    guard self.session.state != .destroyed else { return }
                     self.fit()
                 }
             }
@@ -285,6 +304,7 @@ public final class ExactView: UIView {
             lastDisplayScale = scale
             session.apply(session.runtime.canvasDisplay(scale: scale, memory: ProcessInfo.processInfo.physicalMemory))
             session.rasters.displayChanged()
+            session.tellDisplayScale() // a hairline is one device pixel of this display (LLP 1115.000 D10.3)
         }
         var size = frame.size
         // LLP 1075.003 §9.11: the window — this view's own viewport, as it
@@ -292,7 +312,8 @@ public final class ExactView: UIView {
         // presented: the viewport units and the segments are its,
         // root and every sheet, so no length follows a sheet's height.
         // The root's containers decide it, never a presented sheet's bar.
-        let screenFrame = cover || presenter.navigation.rootWantsWholeView ? bounds : bounds.inset(by: safeAreaInsets)
+        let rootWhole = cover || presenter.navigation.rootWantsWholeView
+        let screenFrame = rootWhole ? bounds : bounds.inset(by: safeAreaInsets)
         var screen: CGSize? = screenFrame.size
         // The agent's explicit viewport size is shared with web/macOS/Linux.
         // Fit those logical points into the device window; hit testing and
@@ -371,6 +392,30 @@ public final class ExactView: UIView {
             lastFold = fold.fold
             session.segments(fold.fold)
         }
+        paintUnderKeys()
+    }
+
+    /// What shows below the viewport while the keyboard ends it above the
+    /// screen's bottom (`resizes-content`): behind the keyboard's accessory
+    /// bar (the pads' ± and Done, LLP 1116.003 D7), which UIKit draws with no
+    /// fill of its own, the colour the content at the viewport's bottom edge
+    /// goes on with, a grouped list's background as a hand-built screen's
+    /// list shows there, never the canvas's band across the width (LLP
+    /// 1116.006 D6).
+    private func paintUnderKeys() {
+        let edge = session.presenter.keyboardInset > 0 ? session.presenter.bottomEdgeColor() : nil
+        let color = edge ?? canvas
+        if let color, backgroundColor != color { backgroundColor = color }
+        // A sheet's own surface is what shows there while one is up (LLP
+        // 1116.008 D8: a number pad's Done bar over a grouped form's sheet
+        // drew white across the list's grey): the list's colour goes on
+        // under the keys, and the sheet's own surface returns with them.
+        #if os(iOS)
+        if let sheet = session.presenter.modals.coordinateView {
+            let surface = edge ?? .systemBackground
+            if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
+        }
+        #endif
     }
 
     /// The segments the container's division regions make of the viewport

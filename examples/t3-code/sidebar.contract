@@ -63,6 +63,8 @@ component Sidebar
     dragVerb: string
     dragOffset: number
     hoverId: string
+    // pr-list-scroll-and-sidebar-sweep (X13): the window's hover count (ThreadSection's resting hover).
+    hoverSeq: number
     openProviders: action
     shell: ShellView
     scrolled: action
@@ -132,11 +134,11 @@ component Sidebar
             box id="sidebar-list-top" width="100%" height=(dragId != "" ? "1.5rem" : "0px") margin-bottom=-1 position="relative" testId="sidebar-pinned-header"
               when dragId != ""
                 SidebarDragLabel(label="Pinned", target=(dragTarget == "pinned"))
-            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="pinned", label="", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
             box id="sidebar-pinned-divider" width="100%" height=(dragId != "" ? "1.5rem" : "0px") margin-bottom=-1 position="relative" testId="sidebar-pinned-divider"
               when dragId != ""
                 SidebarDragLabel(label="Active", target=(dragTarget == "active"))
-            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+            ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="active", label="", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
             when data.sidebar.emptyText != ""
               column align-items="center" gap="0.5rem" margin-top="-0.125rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box" testId="sidebar-empty"
                 text data.sidebar.emptyText font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717b99, #81818199)"
@@ -147,10 +149,10 @@ component Sidebar
             else
               box flex=1 min-height="1rem"
               when data.sidebar.workingCount > 0
-                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="working", label="Working", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.snoozedCount > 0
-                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
-              ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+                ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="snoozed", label="Snoozed", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
+              ThreadSection(reduced=reduced, threads=data.threads, data=data, now=now, section="settled", label="Settled", busy=busy, local=local, run=run, menu=threadMenu, open=open, hoverCard=hoverCard, hoverId=hoverId, hoverSeq=hoverSeq, drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=dragOffset, dragTarget=dragTarget, page=page, scrollY=scrollY)
               when data.sidebar.showMore > 0
                 button cursor="pointer" press=local("more", "", "") width="100%" height="2.25rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" testId="sidebar-show-more"
                   SidebarIcon(name="plus", size=16, color="light-dark(#71717b8c, #8181818c)")
@@ -193,6 +195,11 @@ component Sidebar
             SidebarUpdatePill(color="light-dark(#a8a8ae, #545454)", testId="sidebar-check-updates")
       // The resize rail is SidebarOverlays' (r5-shell.contract): a strip reaching past the sidebar is not hit-testable here.
 
+// The hover a section's rows see (pr-list-scroll-and-sidebar-sweep, X13): none while a row-action sweep is live (the
+// reference's list takes `**:pointer-events-none`), a cancelled sweep's resting row until the window's hover count moves
+// on, else the window's.
+fn sweepRowHover(live: bool, rest: string, restSeq: number, seq: number, hoverId: string): string = live ? "" : rest != "" and seq == restSeq ? rest : hoverId
+
 // A shelf of rows. Working, Snoozed and Settled carry the collapsible header
 // (CollapsibleSectionHeader: muted, Snoozed in the info tone); a collapsed
 // shelf still paints the open thread, which the projection already decided.
@@ -219,6 +226,7 @@ component ThreadSection
     dragTarget: string
     page: string
     scrollY: number
+    hoverSeq: number
   // r11-upstream (1826fb55cc): pressing a row's Settle, Un-settle or Wake and
   // dragging 6 pt arms every row of this section between it and the pointer
   // (resolveSidebarSweepKeys, the pointer clamped to the visible list; a gap
@@ -237,13 +245,21 @@ component ThreadSection
   state sweepKeys = ""
   // r12-sidebar: Escape cancels a live sweep (SidebarPointerSensor keydown): nothing is applied at the release.
   state sweepCancelled = false
-  state sweepHover = ""
+  // pr-list-scroll-and-sidebar-sweep (X13): a cancelled sweep gives the rows the pointer again, as the reference's
+  // `**:pointer-events-none` comes off: the row under the pointer is the hovered one (its actions, no card yet), through
+  // the release, until the window's hover moves on. The host keeps the pressed row hovered through a pan and hovers
+  // nothing new at the release until the pointer moves; that first move, out of the section too, sends the leave of
+  // the node it kept hovered (the pressed control's tip) through the window's `sidebarHover`, which counts it.
+  // `sweepRestSeq` is the window's hover count when it was cancelled. The section takes no `hover` of its own: the
+  // macOS host hovered one node at a time before main #327 (X62), so it traded the hover with the row under the pointer.
+  state sweepRest = ""
+  state sweepRestSeq = 0
   derive sweepLive = sweepKeys != "" and sweepEpoch == data.sidebar.sweepEpoch and not busy and not sweepCancelled
-  // Its rows take the pointer again: the row under it is hovered (the window's hover events resume after the pan).
   action cancelSweep
     sweepCancelled = true
     sweepKeys = ""
-    sweepHover = join(map(filter(rows, (t) => frame(`row-${t.id}`).y <= sweepAt and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height > sweepAt), (t) => t.hoverKey), "")
+    sweepRest = join(map(filter(rows, (t) => frame(`row-${t.id}`).y <= sweepAt and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height > sweepAt), (t) => t.hoverKey), "")
+    sweepRestSeq = hoverSeq
   // A press on another row, or the first move after the last sweep's release (sweepEpoch), starts a sweep: fresh, as
   // the reference's startActionSweep makes a new closure per press. An action reads the values from before it, so the
   // start's values and this move's offset are bound first and every slot is written from them (adopt-main-fixes-r10:
@@ -266,6 +282,7 @@ component ThreadSection
       sweepVerb = verb
       sweepEpoch = data.sidebar.sweepEpoch
       sweepCancelled = false
+      sweepRest = ""
       sweepY = originY
       sweepTop = originTop
       sweepLo = lo
@@ -274,6 +291,12 @@ component ThreadSection
     sweepDy = movedY
     sweepAt = at
     if not cancelled and (armed != "" or movedX * movedX + movedY * movedY >= 36)
+      // SidebarPointerSensor's onStart: the list stops taking the pointer (`**:pointer-events-none`), so a row's card or
+      // a control's tooltip closes as the sweep takes over (X13), whether or not the press moved the focus (the
+      // buttons' `focus` only moves them off): the hovered row hears its leave through the window's `sidebarHover`, as a
+      // pointer leaving it does (since main #478 an action bound to `pan=` may call it; #468 called the root's half).
+      if armed == ""
+        hoverCard(hoverId, false)
       sweepKeys = `|${join(map(filter(rows, (t) => (mode == "settle" ? t.canSettle : mode == "unsettle" ? t.canUnsettle : t.canWake) and (at >= originTop ? frame(`row-${t.id}`).y >= originTop and frame(`row-${t.id}`).y <= at : frame(`row-${t.id}`).y <= originTop and frame(`row-${t.id}`).y + frame(`row-${t.id}`).height + 1 > at)), (t) => t.id), "|")}|`
     else if fresh
       sweepKeys = ""
@@ -290,7 +313,7 @@ component ThreadSection
           box flex=1 min-width="0.5rem" height=1 background-color=(section == "snoozed" ? "light-dark(#2b7fff33, #51a2ff26)" : "light-dark(#e4e4e799, #ffffff0c)")
           SidebarIcon(name=(expanded ? "chevron-up" : "chevron-down"), size=12, color=tone)
       each t in rows key=t.id
-        ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, hoverId=(sweepLive ? "" : sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? sweepHover : hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
+        ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, hoverId=sweepRowHover(sweepLive, sweepRest, sweepRestSeq, hoverSeq, hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
       // r12-sidebar: the sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       when sweepLive
         button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" tabindex=-1 testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""

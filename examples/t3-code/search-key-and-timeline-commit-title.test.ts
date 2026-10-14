@@ -17,13 +17,32 @@ import { parseWhen } from './keybinding-view';
 function resolved(rule: { key: string; command: string; when?: string }) {
   const tokens = rule.key.split('+');
   const key = tokens.pop() || '+';
-  return { command: rule.command, shortcut: { key: key === '' ? '+' : key, modKey: tokens.includes('mod'), shiftKey: tokens.includes('shift'), altKey: tokens.includes('alt'), ctrlKey: tokens.includes('ctrl'), metaKey: false }, ...(rule.when ? { whenAst: parseWhen(rule.when) } : {}) };
+  return { command: rule.command, shortcut: { key, modKey: tokens.includes('mod'), shiftKey: tokens.includes('shift'), altKey: tokens.includes('alt'), ctrlKey: tokens.includes('ctrl'), metaKey: false }, ...(rule.when ? { whenAst: parseWhen(rule.when) } : {}) };
 }
 function aria(rule: { key: string }): string {
   const tokens = rule.key.split('+');
-  const key = tokens.pop()!;
-  const named: Record<string, string> = { enter: 'Enter', arrowup: 'ArrowUp', arrowdown: 'ArrowDown' };
+  const key = tokens.pop() || '+';
+  // keyboard-dispatch.ts NAMED's spelling: `mod++` is Meta+Plus.
+  const named: Record<string, string> = { enter: 'Enter', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', '+': 'Plus' };
   return [...(tokens.includes('mod') ? ['Meta'] : []), ...(tokens.includes('alt') ? ['Alt'] : []), ...(tokens.includes('shift') ? ['Shift'] : []), named[key] ?? key].join('+');
+}
+/** The string literals of the Swift array that starts with `opening`, up to its matching `]`: a bracket or a `//` inside
+ * a literal, an escaped quote, a comment between elements and a nested array are each read as Swift reads them. */
+function swiftStrings(source: string, opening: string): string[] {
+  const start = source.indexOf(opening);
+  if (start < 0) throw new Error(`no ${opening}`);
+  const strings: string[] = [];
+  for (let i = start + opening.length, depth = 1; i < source.length; i++) {
+    const c = source[i]!;
+    if (c === '"') {
+      let text = '';
+      for (i++; source[i] !== '"'; i++) text += source[i] === '\\' ? source[++i] : source[i];
+      strings.push(text);
+    } else if (source.startsWith('//', i)) i = source.indexOf('\n', i);
+    else if (c === '[') depth++;
+    else if (c === ']' && --depth === 0) return strings;
+  }
+  throw new Error(`${opening} is not closed`);
 }
 function client(): T3Client {
   const c = new T3Client();
@@ -39,7 +58,10 @@ const thread: DispatchContext = { composerFocus: false, editableFocus: false, tu
 // T3Composer, T3ComposerQueueKey, the context strip), and rules whose `when` needs a focused terminal or
 // preview, an open model picker or the Usage page, none of which an open thread has here.
 const elsewhere = new Set(['sidebar.toggle', 'modelPicker.toggle', 'thread.steerQueuedMessage', 'thread.editQueuedMessage', 'editor.openFavorite']);
-const needsSurface = (when = '') => when.split(/\s*&&\s*/).includes('terminalFocus') || /previewFocus|usagePageOpen|modelPickerOpen|composerFocus/.test(when);
+// A `when` is a conjunction (`a && !b`); a rule needs the surface only when a token is that fact itself, so a negated
+// `!composerFocus` or `!previewFocus` holds in an open thread and keeps its rule.
+const surfaces = ['terminalFocus', 'previewFocus', 'usagePageOpen', 'modelPickerOpen', 'composerFocus'];
+const needsSurface = (when = '') => when.split(/\s*&&\s*/).some(token => surfaces.includes(token));
 // Commands with no target in this fixture: Undo needs the sidebar's live notice, Back and Forward a history,
 // Previous a thread above the first, Thread 3-9 more threads.
 const stateful = (command: string) => ['thread.undo', 'thread.previous', 'navigation.back', 'navigation.forward'].includes(command) || /^thread\.jump\.[3-9]$/.test(command);
@@ -58,11 +80,16 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
   // composer's own send chords aside.
   test('the AppKit guard sends every reference ⌘ chord of an open thread', async () => {
     const source = await Bun.file(new URL('./macos/tests/real-key-chords/main.swift', import.meta.url)).text();
-    const list = source.match(/let referenceChords = \[([\s\S]*?)\]\n/)![1];
-    const swift = [...list.matchAll(/"([^"]+)"/g)].map(match => match[1]);
+    const swift = swiftStrings(source, 'let referenceChords = [');
     const reference = [...new Set(keybindingDefaults.filter(rule => rule.key.includes('mod+') && !needsSurface(rule.when)).map(rule => rule.key))];
-    expect(reference.length).toBe(45);
     expect([...swift].sort()).toEqual([...reference].sort());
+  });
+  test('a negated surface keeps its rule; a chord on + is Meta+Plus', () => {
+    expect([needsSurface('!composerFocus'), needsSurface('!previewFocus && !terminalFocus'), needsSurface('!terminalFocus && !editableFocus')]).toEqual([false, false, false]);
+    expect([needsSurface('composerFocus && !draftThreadRoute'), needsSurface('modelPickerOpen && isDesktop'), needsSurface('terminalFocus')]).toEqual([true, true, true]);
+    expect(main.some(rule => rule.command === 'thread.undo')).toBe(true); // `!terminalFocus && !editableFocus`
+    expect([aria({ key: 'mod++' }), aria({ key: 'mod+shift+[' }), aria({ key: 'mod+alt+shift+a' })]).toEqual(['Meta+Plus', 'Meta+Shift+[', 'Meta+Alt+Shift+a']);
+    expect(swiftStrings('let xs = ["a]", "b\\"c", // "d"\n "e"] + ["f"]', 'let xs = [')).toEqual(['a]', 'b"c', 'e']);
   });
   test('SK-1: ⇧⌘F is projectSearch.toggle\'s button from the composer, with nothing focused and with the palette open', () => {
     for (const context of [thread, { ...thread, composerFocus: true, editableFocus: true }, { ...thread, paletteOpen: true, paletteMode: 'command' }]) {
@@ -71,25 +98,31 @@ describe('SK-2: every reference ⌘ binding of an open thread keeps its dispatch
   });
 });
 
-// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presents a wide
-// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the
-// title stayed blank until the hover colour redrew it. The row's texts sit beside the button, which lies over them.
-describe('TC-1: the Timeline commit row keeps its title out of the button', () => {
-  test('the button lies over the row and holds no text; the title keeps the reference tones', async () => {
+// TC-1: CommitEvent (PullRequestTimelineTab.tsx) draws its title at rest. In the clone the macOS host presented a wide
+// text's raster made off screen only for a selectable text (X82's pump), and no text under a button is one, so the title
+// stayed blank until the hover colour redrew it; TC-1 laid the button over texts beside it, and followups-1012 FU-2 kept
+// the title selectable. Main #494 (X82, adopted in round 11) has the pump paint every shown text, so the row is the
+// reference's one button holding its marker and texts again (adopt-main-fixes-r11 RT-2): nothing over the row, no text
+// selectable or `aria-hidden`, the button's label the row's name.
+describe('TC-1: the Timeline commit row is one button holding its texts, as the reference\'s CommitEvent', () => {
+  test('the button holds the marker, the title, the sha and age and the counts; the title keeps the reference tones', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
     const start = lines.findIndex(line => line.trim() === 'when row.kind == "commit"');
     const end = lines.findIndex((line, index) => index > start && line.startsWith('    when '));
     const row = lines.slice(start + 1, end).filter(line => !line.trim().startsWith('//'));
     const indent = (line: string) => line.length - line.trimStart().length;
-    const button = row.findIndex(line => line.trim().startsWith('button press=openCommit(row.id)'));
-    expect(button).toBeGreaterThan(-1);
-    // Last in the row, so nothing nests under it, and over the whole row.
-    expect(button).toBe(row.length - 1);
-    for (const attr of ['position="absolute"', 'left=0', 'top=0', 'width="100%"', 'height="100%"', 'aria-label=`View commit ${row.id}`', 'title=""', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[button]).toContain(attr);
+    // The row's first line is the button, and every other line nests under it.
+    expect(row[0]!.trim()).toStartWith('button press=openCommit(row.id) hover=hover aria-label=`View commit ${row.id}` position="relative"');
+    for (const attr of ['width="100%"', 'padding-left="3rem"', 'text-align="left"', 'display="flex"', 'flex-direction="column"', 'testId=`pull-request-timeline-commit-${row.sha}`']) expect(row[0]).toContain(attr);
+    expect(row[0]).not.toContain('position="absolute"');
+    for (const line of row.slice(1)) expect(indent(line)).toBeGreaterThan(indent(row[0]!));
+    expect(row.filter(line => line.trim().startsWith('button '))).toHaveLength(1);
+    expect(row[1]!.trim()).toStartWith('PrdMarker(row=row, pinned=false, muted=false, icon="git-commit-horizontal")');
     const title = row.find(line => line.trim().startsWith('text row.headline'))!;
-    expect(indent(title)).toBeGreaterThan(indent(row[0]));
     expect(title).toContain('color=(over ? "light-dark(#1b4ed8, #346bf1)" : prtInk())');
-    // The texts are the button's label's, not their own names.
-    expect(row.find(line => line.includes('padding-top="0.375rem"'))).toContain('aria-hidden=true');
+    expect(title).toContain('testId=`pull-request-timeline-commit-title-${row.sha}`');
+    for (const text of ['text row.sha', 'text row.age', 'text row.additions', 'text row.deletions']) expect(row.some(line => line.trim().startsWith(text))).toBe(true);
+    // No stand-in is left: nothing hidden from accessibility, nothing made unselectable by hand, no help-tag opt-out.
+    for (const attr of ['aria-hidden', 'user-select', 'title=""', 'z-index']) expect(row.filter(line => line.includes(attr))).toEqual([]);
   });
 });

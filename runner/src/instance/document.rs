@@ -145,10 +145,16 @@ impl DocTree {
 
 impl Tree {
     /// The document's nodes, from the values the tree's bindings last took.
-    pub(crate) fn document(&self, plan: &Plan, sites: &SiteIndex) -> Result<DocTree, DocTreeError> {
+    pub(crate) fn document(
+        &self,
+        plan: &Plan,
+        sites: &SiteIndex,
+        fonts: Rc<RefCell<bridge::RuntimeFonts>>,
+    ) -> Result<DocTree, DocTreeError> {
         let mut build = Build {
             plan,
             sites,
+            fonts,
             doc: DocTree::default(),
             shared: vec![None; plan.nodes.len()],
         };
@@ -161,6 +167,7 @@ impl Tree {
 struct Build<'p> {
     plan: &'p Plan,
     sites: &'p SiteIndex,
+    fonts: Rc<RefCell<bridge::RuntimeFonts>>,
     doc: DocTree,
     /// Each plan node's rows when every style binding it has reads nothing:
     /// one allocation for all its instances.
@@ -341,7 +348,32 @@ impl Build<'_> {
                     if matches!(value, Value::Option(None))
                         || bridge::unsets(binding.id, value) => {}
                 BindingKind::Style => {
-                    match bridge::set_plan_style(&mut patch, binding.id, value, plan) {
+                    let family_value = if binding.id == StyleId::FontFamily as u16 {
+                        match value {
+                            Value::Option(Some(inner)) => inner.as_ref(),
+                            _ => value,
+                        }
+                    } else {
+                        value
+                    };
+                    let family_id = if binding.id == StyleId::FontFamily as u16 {
+                        family_value.as_str().and_then(|name| {
+                            self.fonts.borrow_mut().intern(name, plan.stacks.len())
+                        })
+                    } else {
+                        None
+                    };
+                    let styled = if let Some(id) = family_id {
+                        bridge::set_runtime_font_style(
+                            &mut patch,
+                            binding,
+                            id,
+                            plan.stacks.len() + self.fonts.borrow().names().len(),
+                        )
+                    } else {
+                        bridge::set_binding_style(&mut patch, binding, family_value, plan)
+                    };
+                    match styled {
                         Ok(StyleId::Animation) => {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }

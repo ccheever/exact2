@@ -254,7 +254,10 @@ fn taskBaseLabel(baseRef: string, startFromOrigin: bool, local: bool): string = 
 fn taskPicker(key: string, project: string, ref: string, query: string): string = `key=${encodeURIComponent(key)}&project=${encodeURIComponent(project)}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`
 
 // ScheduledTaskEditorDialog. Per-instance state starts from the server's
-// draft each time the dialog opens (the draft row is new per opening).
+// draft each time the dialog opens (the draft row is new per opening). A new task's "Runs on" switches its environment
+// in place, as the reference's setEnvironmentId and setDraft (scheduled-tasks-followups ST-1): the dialog stays open with
+// its name, prompt, workspace, schedule and Enabled; project, model, base branch, Start from origin and checkout path
+// start over, and the page resource (scheduled-view.ts) gives the chosen environment's projects, models and refs.
 component ScheduledEditor
   // model-picker-parity S2-4: Model is the provider picker (ProviderModelPicker, no setup and no disabled reasons), opened by the
   // root's `pickModel`; its pick is the root's `taskModelPick` until this editor closes.
@@ -269,6 +272,8 @@ component ScheduledEditor
     close: action
     rest: action
     lookupBase: action
+    // The root's restOpen for the editor: `new|<environmentId>` is a new task on that environment (scheduled-view.ts editTarget).
+    runsOn: action
   state title = draft.title
   state prompt = draft.prompt
   state enabled = draft.enabled
@@ -283,6 +288,8 @@ component ScheduledEditor
   state friday = draft.friday
   state saturday = draft.saturday
   state projectId = draft.projectId
+  // selectedProjectId: the chosen project, else the environment's first (the draft's), as after a Runs on change.
+  derive chosenProject = projectId != "" ? projectId : draft.projectId
   state workspaceMode = draft.workspaceMode
   state baseRef = draft.baseRef
   state startFromOrigin = draft.startFromOrigin
@@ -293,11 +300,11 @@ component ScheduledEditor
   // The base is a local branch of the chosen project's refs (WorktreeBaseBranchPicker's selectedRef, isRemote false): from
   // the loaded page, else from the lookup by name (`selected`), which the page makes for the draft's project and after a
   // switch (chooseProject).
-  derive baseLocal = length(filter(data.branches, (group) => group.projectId == projectId and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0
+  derive baseLocal = length(filter(data.branches, (group) => group.projectId == chosenProject and (length(filter(group.refs, (ref) => ref.value == baseRef and not ref.remote)) > 0 or length(filter(group.selected, (ref) => ref.value == baseRef and not ref.remote)) > 0))) > 0
   action setText(field: string, value: string)
     if field == "refs"
       refQuery = value
-      lookupBase(taskPicker(draft.key, projectId, baseRef, value))
+      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))
     if field == "title"
       title = value
     if field == "prompt"
@@ -318,16 +325,24 @@ component ScheduledEditor
   action openRefs
     if refQuery != ""
       refQuery = ""
-      lookupBase(taskPicker(draft.key, projectId, baseRef, ""))
+      lookupBase(taskPicker(draft.key, chosenProject, baseRef, ""))
   action choose(field: string, value: string)
     if field == "workspace"
       workspaceMode = value
     if field == "branch"
       baseRef = value
       refQuery = ""
-      lookupBase(taskPicker(draft.key, projectId, value, ""))
+      lookupBase(taskPicker(draft.key, chosenProject, value, ""))
     if field == "schedule"
       scheduleMode = value
+    // Runs on: the reference's onValueChange (a new task only; the trigger is disabled for an existing one).
+    if field == "environment" and value != draft.environmentId
+      projectId = ""
+      baseRef = "main"
+      startFromOrigin = true
+      path = ""
+      refQuery = ""
+      runsOn(`new|${value}`, "")
   action toggle(field: string)
     if field == "enabled"
       enabled = not enabled
@@ -376,9 +391,9 @@ component ScheduledEditor
             column gap="0.375rem"
               text "Runs on" class=TkLabel
               box position="relative"
-                button popovertarget="task-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1)
+                button popovertarget="task-environment-menu" key=environmentKey focus=environmentArm(true) blur=environmentArm(false) role="combobox" aria-label="Runs on" disabled=(draft.id != "" or busy) id="task-environment" testId="task-environment" display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="2rem" box-sizing="border-box" padding-left="0.6875rem" padding-right="0.5625rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" opacity=(draft.id != "" ? 0.64 : 1) title=""
                   LucideLaptop(size=16, color="light-dark(#71717b, #818181)")
-                  text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                  text data.environment font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-environment-label"
                   LucideChevronDown(size=12, color="light-dark(#71717b, #818181)")
                 KeyMenuOpen(menuId="task-environment-menu", armed=environmentArmed, opened=environmentOpened)
                 SkPopup(menuId="task-environment-menu", label="Runs on", width=526, list=true, endAlign=0, items=map(data.environments, (option) => KmItem(id=`task-environment-option-${option.value}`, label=option.label)), keyed=environmentOpens)
@@ -390,20 +405,20 @@ component ScheduledEditor
             row gap="0.75rem" width="100%"
               column gap="0.375rem" flex=1 min-width=0
                 text "Project" class=TkLabel
-                SettingsSelect(selectId="task-project", label="Project", valueLabel=projectLabel(data.projects, projectId), value=projectId, width=257, disabled=busy, options=data.projects, choose=chooseProject)
+                SettingsSelect(selectId="task-project", label="Project", valueLabel=(chosenProject == "" ? "Select a project" : projectLabel(data.projects, chosenProject)), value=chosenProject, width=257, disabled=busy, options=data.projects, choose=chooseProject)
               column gap="0.375rem" flex=1 min-width=0
                 text "Workspace" class=TkLabel
                 SettingsSelect(selectId="task-workspace", label="Workspace", valueLabel=(workspaceMode == "root" ? "Use the project checkout" : (workspaceMode == "existing_worktree" ? "Use a specific checkout" : "Create a new worktree")), value=workspaceMode, width=257, disabled=busy, options=data.workspaces, choose=choose("workspace"))
             when workspaceMode == "worktree"
               column gap="0.375rem"
                 text "Base branch" class=TkLabel
-                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start"
+                button press=openRefs popovertarget="task-branch-menu" disabled=busy aria-label="Base branch" role="combobox" testId="task-base-branch" class=TkOutline width="100%" justify-content="flex-start" title=""
                   LucideGitBranch(size=14, color="light-dark(#71717b, #818181)")
-                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+                  text taskBaseLabel(baseRef, startFromOrigin, baseLocal) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" testId="task-base-label"
                   LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
                 // BranchPicker: ComboboxPopup at the trigger's width, Search refs..., the refs with
                 // their current/worktree/remote/default tag, and the Start from origin row.
-                column id="task-branch-menu" popover="auto" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
+                column id="task-branch-menu" popover="auto" position-try-fallbacks="none" position="absolute" width="32.875rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" overflow="hidden" aria-label="Base branch" testId="task-branch-menu"
                   column padding-top="0.625rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" width="100%"
                     row height="2.0625rem" align-items="center" gap="0.25rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7, #ffffff14)"
                       LucideSearch(size=16, color="light-dark(#71717b8c, #8181818c)")
@@ -413,7 +428,7 @@ component ScheduledEditor
                   scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"
                     column padding-left="0.25rem" padding-top="0.5rem" padding-bottom="0.25rem" width="100%" box-sizing="border-box"
                       each group in data.branches key=group.projectId
-                        when group.projectId == projectId
+                        when group.projectId == chosenProject
                           when length(group.refs) == 0
                             text "No refs found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717b, #818181)" testId="task-branch-empty"
                           each ref in group.refs key=ref.value
@@ -429,7 +444,7 @@ component ScheduledEditor
                     SettingsSwitch(checked=startFromOrigin, label="Start worktree from origin", disabled=busy, switchId="task-origin", toggle=toggle("origin"))
                   // ComboboxStatus: the error, "Loading more refs..." or "Showing 100 of 122 refs" while more remain.
                   each group in data.branches key=group.projectId
-                    when group.projectId == projectId and group.status != ""
+                    when group.projectId == chosenProject and group.status != ""
                       text group.status font-size="0.75rem" font-weight=500 line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)" role="status" testId="task-branch-status"
             when workspaceMode == "existing_worktree"
               column gap="0.375rem"
@@ -479,7 +494,7 @@ component ScheduledEditor
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
           button press=close disabled=busy testId="cancel-scheduled-task" class=TkOutline
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
-          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(projectId)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
+          button press=rest("task", `action=save&id=${encodeURIComponent(draft.id)}&environmentId=${encodeURIComponent(draft.environmentId)}&title=${encodeURIComponent(title)}&prompt=${encodeURIComponent(prompt)}&enabled=${enabled}&scheduleMode=${scheduleMode}&intervalMinutes=${encodeURIComponent(intervalMinutes)}&timeOfDay=${encodeURIComponent(timeOfDay)}&sunday=${sunday}&monday=${monday}&tuesday=${tuesday}&wednesday=${wednesday}&thursday=${thursday}&friday=${friday}&saturday=${saturday}&projectId=${encodeURIComponent(chosenProject)}&threadId=${encodeURIComponent(draft.threadId)}&workspaceMode=${workspaceMode}&baseRef=${encodeURIComponent(baseRef)}&startFromOrigin=${startFromOrigin}&path=${encodeURIComponent(path)}&modelKey=${encodeURIComponent(modelKey)}`) disabled=(busy or draft.missing or not data.available) testId="save-scheduled-task" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or draft.missing or not data.available ? 0.64 : 1)
             text (draft.id == "" ? "Create task" : "Save task") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         // DialogPopup's X, after the footer (Base UI renders it last; it is placed at the top right).
         button id="close-scheduled-task" press=close disabled=busy aria-label="Close" aria-keyshortcuts="Escape" testId="close-scheduled-task" width="2rem" height="2rem" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" position="absolute" top="0.5rem" right="0.5rem" title=""

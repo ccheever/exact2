@@ -454,9 +454,13 @@ fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
                         | Stdlib::ToFixed
                         | Stdlib::FormatDecimal,
                     ) => format = true,
-                    Some(Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint) => {
-                        geometry = true
-                    }
+                    Some(
+                        Stdlib::Frame
+                        | Stdlib::Measure
+                        | Stdlib::ElementFromPoint
+                        | Stdlib::ElementsFromPoint
+                        | Stdlib::QuerySelectorAll,
+                    ) => geometry = true,
                     Some(Stdlib::ToLowerCase) => lowercase = true,
                     _ => {}
                 }

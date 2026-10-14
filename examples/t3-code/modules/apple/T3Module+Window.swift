@@ -26,9 +26,9 @@ extension T3Module {
             }
             return
         }
-        if request["op"] as? String == "shellMenu" { // reply-links: a link's `contextmenu` left its click to the shell (T3TextContextMenu)
+        if request["op"] as? String == "shellMenu" { // reply-links: a link's `contextmenu` left its click (or ContextMenu key) to the shell (T3TextContextMenu)
             DispatchQueue.main.async { [weak self] in
-                let shown = self?.textMenu.shellMenuForLastClick() ?? false
+                let shown = self?.textMenu.shellMenuForLastClick(href: request["href"] as? String ?? "") ?? false
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["shown": shown]])
             }
             return

@@ -156,22 +156,36 @@ fn fire(tick: u64, cols: usize, rows: usize) -> Vec<Line> {
 const RAIN: &str = "ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄﾅﾆﾇﾈﾉﾊﾋﾌﾍﾎﾏﾐﾑﾒﾓﾔﾕﾖﾗﾘﾙﾚﾛﾜｦﾝ0123456789Z:.=*+<>";
 
 fn matrix(tick: u64, cols: usize, rows: usize) -> Vec<Line> {
+    if cols == 0 || rows == 0 {
+        return vec![Line::default(); rows];
+    }
     let glyphs: Vec<char> = RAIN.chars().collect();
     let rows_i = rows as i64;
+    // A column's rain position is shared by every row in this frame.
+    let columns: Vec<_> = (0..cols)
+        .map(|c| {
+            let seed = hash(c as u64 + 1);
+            let speed = 1 + seed % 3;
+            let trail = 6 + (seed >> 8) % (rows as u64 / 2 + 6);
+            let period = rows as u64 + trail + (seed >> 16) % 12;
+            let head = ((tick / speed + (seed >> 24)) % period) as i64;
+            (seed, trail, head)
+        })
+        .collect();
     (0..rows)
         .map(|r| {
             let mut line = Line::default();
-            for c in 0..cols {
-                let seed = hash(c as u64 + 1);
-                let speed = 1 + seed % 3;
-                let trail = 6 + (seed >> 8) % (rows as u64 / 2 + 6);
-                let period = rows as u64 + trail + (seed >> 16) % 12;
-                let head = ((tick / speed + (seed >> 24)) % period) as i64;
+            let mut blanks = 0;
+            for &(seed, trail, head) in &columns {
                 let behind = head - r as i64;
                 let lit = behind >= 0 && (behind as u64) < trail && head - behind < rows_i + 1;
                 if !lit {
-                    line.push(Run::plain(" "));
+                    blanks += 1;
                     continue;
+                }
+                if blanks > 0 {
+                    line.push(Run::plain(" ".repeat(blanks)));
+                    blanks = 0;
                 }
                 let g = glyphs[(hash(seed ^ ((r as u64) << 7) ^ ((tick / 5) * 31))
                     % glyphs.len() as u64) as usize];
@@ -188,6 +202,9 @@ fn matrix(tick: u64, cols: usize, rows: usize) -> Vec<Line> {
                     bold: behind == 0,
                     ..Run::default()
                 });
+            }
+            if blanks > 0 {
+                line.push(Run::plain(" ".repeat(blanks)));
             }
             line
         })

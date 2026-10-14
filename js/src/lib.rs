@@ -22,7 +22,10 @@
 //! store)` returns the answer's value — or a `Promise` of it, when it awaited
 //! `fetch` — and throws for an error (an object with `kind` of
 //! `UnknownSource`, `BadArguments`, or `Unavailable` and a `message`; any
-//! other throw is `Unavailable`). `fetch(url, init)` is the web's, over the
+//! other throw is `Unavailable`). In a running session, an answer's own
+//! error becomes `Failed(Error, …)`: its resource fails or send ends unsent,
+//! while the asking commit stands (LLP 1027.000 D3). Bake and replacement
+//! validation still refuse it. `fetch(url, init)` is the web's, over the
 //! host's ticket path: the module describes, the host runs under the grants,
 //! the Promise resolves to a `Response` with `status`, `ok`, `headers`,
 //! `text()`, `json()`, `arrayBuffer()`. Liveness is the module's, as a
@@ -54,6 +57,8 @@ mod door;
 mod engine;
 mod native;
 mod paired;
+#[cfg(all(test, exact_js_engine))]
+mod phase_cost_tests;
 mod pure;
 mod source;
 mod storage;
@@ -184,6 +189,8 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// A replacement candidate must answer successfully before it can be installed.
+    validating: bool,
     /// The runtime's own journal lines since the last take (LLP 1097 D8).
     journal: Vec<String>,
     /// Delivering between answers (a background round, a let-go call's
@@ -228,6 +235,7 @@ pub struct Module {
     max_heap: u32,
     /// How long a storage step is waited for (tests shorten it).
     storage_wait: std::time::Duration,
+    document_owner: u64,
     logs: Vec<String>,
     overruns: u32,
     /// The Canvas 2D roster the bake read (LLP 1056 D1), known before the
@@ -294,6 +302,7 @@ impl Module {
             budget_ms: DEFAULT_BUDGET_MS,
             max_heap: DEFAULT_MAX_HEAP,
             storage_wait: storage::WAIT,
+            document_owner: 0,
             logs: Vec::new(),
             overruns: 0,
             canvas_surfaces: Vec::new(),
@@ -354,6 +363,7 @@ impl Module {
         let plan = template.plan.as_ref().map(Plan::encode);
         let budget_ms = template.budget_ms;
         let max_heap = template.max_heap;
+        let document_owner = template.document_owner;
         let agent_seed = template.agent_seed;
         let watch = template.watch.clone();
         let native_slot = template.native_slot.clone();
@@ -371,6 +381,7 @@ impl Module {
             }
             module.set_budget_ms(budget_ms);
             module.set_max_heap(max_heap);
+            module.set_document_owner(document_owner);
             if let Some(paths) = directories {
                 module.configure_storage(paths.data, paths.cache, paths.temporary)?;
             }
@@ -471,7 +482,11 @@ impl Module {
         // The bindings Context must precede the engine and outlive its
         // adapter. Module declares `engine` before `storage`, and unload takes
         // the engine first, preserving that order on every path.
-        self.storage = Some(storage::Session::open(&io, self.storage_wait)?);
+        self.storage = Some(storage::Session::open(
+            &io,
+            self.storage_wait,
+            self.document_owner,
+        )?);
         let ctx = &mut *self.host as *mut HostState as *mut c_void;
         let host: HostFn = host_door;
         let bytes: engine::BytesFn = crypto::bytes_door;
@@ -761,6 +776,8 @@ impl Module {
                 "exact-js: the engine is not loaded".into(),
             ));
         }
+        let refuses = self.host.baking || self.host.validating;
+        let session = store.is_some() && !refuses;
         // No answer waits for another to begin (LLP 1097 D4.5): answers
         // interleave at their awaits, as two async calls do on the web, and
         // storage keeps the order it was issued in (the prelude's queue).
@@ -833,7 +850,15 @@ impl Module {
         }
         let answer = match result {
             Err(e) => Err(e),
-            Ok(Step::Done(r)) => r.map(Answer::Now),
+            // The web learns a rejection after the input commits. Native
+            // answers fail the same target (LLP 1027.000 D3).
+            Ok(Step::Done(r)) => r.map(Answer::Now).map_err(|e| match e {
+                DataError::Unavailable(m) | DataError::BadArguments(m) if session => {
+                    DataError::Failed(FailureCode::Error, m)
+                }
+                DataError::Failed(_, m) if refuses => DataError::Unavailable(m),
+                e => e,
+            }),
             Ok(Step::Pending { call, ticket }) => {
                 let request = if ticket == 0 || ticket == WAITING {
                     Request::continuation(call)

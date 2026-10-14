@@ -119,6 +119,9 @@ fn logical(name: &str) -> Option<String> {
 
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
+        None if crate::fields::placeholder_hint(&a.name).is_some() => {
+            crate::fields::placeholder_hint(&a.name).unwrap_or_default()
+        }
         Some(new @ ("press" | "change" | "input")) => format!(
             "; `{}` is `{new}` here: a handler is named for its event (LLP 1005 §3)",
             a.name
@@ -211,7 +214,14 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                 Some(tags::AttrTarget::Styles(rows))
                                     if rows != [StyleId::FontFamily] =>
                                 {
-                                    values::check_style_value(a, rows, &Ty::Unknown, &[])
+                                    values::check_style_value(
+                                        a,
+                                        rows,
+                                        &Ty::Unknown,
+                                        &[],
+                                        &Default::default(),
+                                        &Default::default(),
+                                    )
                                 }
                                 // The shorthand's parts, as lowering checks them: `flex="none"`
                                 // was refused here as a grow number beside another error
@@ -228,6 +238,8 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                                 &[row],
                                                 &Ty::Unknown,
                                                 &[],
+                                                &Default::default(),
+                                                &Default::default(),
                                             )
                                         })
                                 }

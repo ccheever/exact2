@@ -62,6 +62,6 @@ extension T3Module {
     }
 
     func attachLocalBackend(_ context: ExactModuleContext) {
-        T3LocalBackend.shared.attach(self, dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), changed: context.changed)
+        T3LocalBackend.shared.attach(self, dataRoot: context.data, changed: context.changed)
     }
 }

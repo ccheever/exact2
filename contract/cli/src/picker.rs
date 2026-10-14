@@ -1,10 +1,10 @@
-//! The picker's bound (LLP 1069.002 D1): every `input type="file"`'s
+//! The picker's bound (LLP 1069.002 D1): a specific `input type="file"`'s
 //! `accept` names media (`image/*`, `video/*`, one image or video subtype)
 //! or a MIME type or extension the manifest's `file_handlers` declares
 //! (`rules/DEFERRED.md`, widened 2026-09-27 with LLP 1069.010). Lowering
-//! already refused a bound or missing `accept`, `capture` and `*/*`; the
-//! types themselves are checked here, where the manifest is read. A plan
-//! compiled without an app (a text, a test) admits media alone.
+//! refuses a bound `accept` and `capture`; missing, empty and `*/*` accept
+//! any file. Specific types are checked here, where the manifest is read. A plan
+//! compiled without an app (a text, a test) admits media and unrestricted input.
 
 use super::{CompileError, Manifest};
 use contract_syntax::{Expr, File, Node, Span};
@@ -104,7 +104,10 @@ pub(super) fn check(file: &File, app_root: Option<&Path>) -> Result<(), Vec<Comp
     let mut errors = Vec::new();
     for (list, span) in used {
         for token in contract_lower::controls::accept_tokens(&list) {
-            if contract_lower::controls::media_accept(&token) || declared.contains(&token) {
+            if token == "*/*"
+                || contract_lower::controls::media_accept(&token)
+                || declared.contains(&token)
+            {
                 continue;
             }
             let listed = if declared.is_empty() {

@@ -30,7 +30,7 @@ import { ensureDraftThreadId } from './r7-handoff-thread';
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, focusedFileDraft, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
-import { filesMediaView, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
+import { filesMediaView, markdownMediaChips, markdownMediaUrls, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
 import { letGo } from './let-go';
 import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
@@ -459,16 +459,20 @@ async function openInPreviewBrowser(client: T3Client, native: Native, path: stri
 /**
  * FileMarkdownPreview: ChatMarkdown over the file's text, relative links and images resolved against the file's own
  * folder (`imageBaseDir`), ```mermaid fences drawn as diagrams; its task checkboxes write the file unless it is
- * read-only (RenderedMarkdownSurface readOnly).
+ * read-only (RenderedMarkdownSurface readOnly). Its media (media-signed-urls-and-attachment-markdown MD-1) sign through
+ * the thread, or a draft's own id (FilePreviewPanel's `threadRef` is the draft's), and their references are relative
+ * to the workspace (`cwd`), not the folder.
  */
 async function renderedMarkdown(client: T3Client, native: Native, path: string, absolute: string, text: string, editable: boolean, now: number) {
-  const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/';
+  const folder = absolute.slice(0, Math.max(0, absolute.lastIndexOf('/'))) || '/', scope = { cwd: workspaceOf(client).cwd };
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
-  const urls = await markdownMediaUrls(client, native, folder, now, [text]);
+  const signs = markdownMediaChips(text, folder, scope).some(chip => chip.icon === 'environment');
+  const threadId = client.threadId || (signs && client.draftKey && client.ready ? await ensureDraftThreadId(client, native).catch(error => { if (letGo(error)) throw error; return ''; }) : '');
+  const urls = await markdownMediaUrls(client, native, folder, now, [text], { ...scope, threadId });
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, []) },
+    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], '', scope) },
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

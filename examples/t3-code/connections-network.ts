@@ -103,6 +103,15 @@ export function emptyNetworkView(): NetworkView {
 /** What the commands leave for the page: mutation errors, the dialogs' serials, the reveal dialog. */
 export const networkUi = { exposureError: '', accessError: '', networkSerial: 0, tailscaleSerial: 0, createSerial: 0, settled: 0,
   reveal: null as null | { linkId: string; value: string; kind: 'code' | 'link' } };
+/**
+ * The section with nothing to draw (the page closed, or this client cannot manage it), its dialogs' serials kept. A
+ * dialog is open while the root's `connectionRemove` names its serial and the root keeps that value after the dialog
+ * closed, so a view with the serials back at 0 (any other Settings page) would open the closed dialog again: the
+ * reference closes "Enable network access?" after any outcome for good (network-routes-followups NR-2).
+ */
+export function closedNetworkView(): NetworkView {
+  return { ...emptyNetworkView(), networkSerial: networkUi.networkSerial, tailscaleSerial: networkUi.tailscaleSerial, createSerial: networkUi.createSerial, settled: networkUi.settled };
+}
 
 const qrCache = new Map<string, QrCell[]>();
 function cellsFor(url: string): QrCell[] {
@@ -154,8 +163,7 @@ function clientRow(session: AuthClientSession, now: number): NetClientRow {
 
 /** The section's projection (ConnectionsSettings.tsx), pure for the tests. */
 export function networkProjection(input: NetworkInput): NetworkView {
-  const view = emptyNetworkView();
-  Object.assign(view, { networkSerial: networkUi.networkSerial, tailscaleSerial: networkUi.tailscaleSerial, createSerial: networkUi.createSerial, settled: networkUi.settled });
+  const view = closedNetworkView();
   if (!input.canManage) return view;
   const state = input.state;
   const networkOn = state?.mode === 'network-accessible';

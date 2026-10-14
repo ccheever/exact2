@@ -48,7 +48,7 @@ extension Agent {
         var limits: [[String: Any]] = []
         var modalRoot: AnyObject?
         #if os(macOS)
-        switch presenter.axSheet(view.window?.attachedSheet) {
+        switch presenter.axSheet(presenter.sheets(on: view.window).last) {
         case .owned(let content): modalRoot = content
         case .foreign: limits.append(["root": "sheet", "reason": "a sheet this session cannot be shown to own blocks its window; it is not walked"])
         case .none: break
@@ -71,8 +71,12 @@ extension Agent {
         var v: UIView? = presenter.viewport
         while let s = v?.superview, !(s is UIWindow) { v = s }
         if let top = v, top !== view, !view.isDescendant(of: top), !top.isDescendant(of: view) { roots.append(top) }
+        // A `dialog` in its sheet is outside both (DialogSheetIOS.swift).
+        roots += presenter.menus.sheets.roots
         #else
-        if case .owned(let content) = presenter.axSheet(view.window?.attachedSheet) { roots.append(content) }
+        // A dialog's sheet, the sheets on it, and the popovers AppKit shows (LLP 1115.002 D7).
+        for sheet in presenter.sheets(on: view.window) { if case .owned(let content) = presenter.axSheet(sheet) { roots.append(content) } }
+        roots += presenter.menus.windowed.map(\.content)
         #endif
         return roots
     }
@@ -133,6 +137,17 @@ extension Presenter {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
         for root in roots where !w.stopped { visit(root, parent: nil, depth: 0, exclusion: [], into: &w) }
+        #if os(macOS)
+        if let modal = w.modalView as? NodeView {
+            let popovers = menus.presented(within: modal)
+            let presented: [Int] = w.elements.compactMap { e in
+                guard let id = e["id"] as? UInt32, let view = views[id],
+                      popovers.contains(where: { menus.contains($0, view) }) else { return nil }
+                return e["i"] as? Int
+            }
+            w.modal["presented"] = presented
+        }
+        #endif
         #if os(iOS) || os(tvOS)
         markModalLeaks(&w)
         let platform = "iOS \(UIDevice.current.systemVersion)", source = "uikit", order = "containment"
@@ -231,6 +246,11 @@ extension Presenter {
         if let root = w.modalRoot, root === obj {
             here = emit(obj, role: "group", parent: parent, exclusion: exclusion, into: &w) ?? parent
             w.modal = ["present": true, "by": "sheet", "element": here as Any, "id": here.flatMap { w.elements[$0]["id"] } ?? NSNull()]
+        } else if let view = obj as? NodeView, view === macAccessibilityModal {
+            w.modalView = obj
+            here = emit(obj, role: nil, parent: parent, exclusion: exclusion, into: &w) ?? parent
+            w.modal = ["present": true, "by": view.props["accessibilityModal"] == "true" ? "aria-modal" : "showModal",
+                       "element": here as Any, "id": here.flatMap { w.elements[$0]["id"] } ?? NSNull()]
         } else if f?.element == true, depth > 0 || !(obj is ExactView) {
             here = emit(obj, role: nil, parent: parent, exclusion: exclusion, into: &w) ?? parent
         }
@@ -358,6 +378,23 @@ extension Presenter {
     }
     #endif
 
+    #if os(iOS) || os(tvOS)
+    /// The checkable role a view's author wrote, for UIKit's toggle: an
+    /// `input type="checkbox"` (a `switch` with that role), or a box whose
+    /// ARIA role is `checkbox` or `switch`. A radio is no toggle.
+    private static func toggleRole(_ node: NodeView) -> String? {
+        if node.kind == "control", ["checkbox", "switch"].contains(ControlKinds.kind(node.props)) { return ControlKinds.kind(node.props) }
+        return node.checkedRole.flatMap { $0.role == "radio" ? nil : $0.role }
+    }
+    private static func isSwitch(_ obj: AnyObject) -> Bool {
+        #if os(tvOS)
+        return false
+        #else
+        return obj is UISwitch
+        #endif
+    }
+    #endif
+
     /// One element (D3, D5, D7): the platform's facts, cut to their bounds.
     private func emit(_ obj: AnyObject, role forced: String?, parent: Int?, exclusion: [String], into w: inout AxWalk) -> Int? {
         if w.elements.count >= w.limit { w.more += 1; return nil }
@@ -394,11 +431,20 @@ extension Presenter {
             switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
         }
         let editable = obj is UITextField || obj is UITextView
-        e["role"] = forced ?? (editable ? "textbox" : names.contains("button") && (value == "checked" || value == "unchecked") ? "checkbox"
+        e["role"] = forced ?? (editable ? "textbox"
             : names.contains("link") ? "link" : names.contains("header") ? "heading" : names.contains("searchField") ? "searchbox"
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
-        if e["role"] as? String == "checkbox" { states["checked"] = value == "checked" }
+        // UIKit's toggle (LLP 1115.000 D13.3, D14.4): the `toggleButton`
+        // trait, or a `UISwitch`, and its value, "1" on and "0" off. It is
+        // UIKit's one form for a checkbox, a switch and a pressed button
+        // alike, so which of them it is here is what its author wrote: the
+        // role or control kind of the view it joins. A toggle whose value is
+        // not UIKit's reports no `checked`, which the comparison names.
+        if forced == nil, names.contains("toggleButton") || Self.isSwitch(obj), let role = id.flatMap({ views[$0] }).flatMap(Self.toggleRole) {
+            e["role"] = role
+            if value == "1" || value == "0" { states["checked"] = value == "1" }
+        }
         // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
         // what it is by its class, its state by `selected`.
         if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }

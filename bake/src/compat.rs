@@ -211,6 +211,26 @@ pub(crate) fn compatibility_digest(inputs: &serde_json::Value) -> String {
     digest[..16].iter().map(|b| format!("{b:02x}")).collect()
 }
 
+fn commands_digest() -> String {
+    let mut h = Sha256::new();
+    for name in contract_syntax::HOST_COMMANDS {
+        let shape = match *name {
+            "share" => "3",
+            "showNotification" => "5",
+            "closeNotification" | "stopSounds" | "playSounds" => "1",
+            "playSound" => "4",
+            "scrollIntoView" => "4|7",
+            "saveFile" => "3|4",
+            _ => "positional",
+        };
+        h.update(format!("{name}:{shape}\n"));
+    }
+    h.finalize()[..16]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
 fn compatibility_with_trust(
     app_dir: &Path,
     platform: &str,
@@ -327,6 +347,9 @@ fn compatibility_with_trust(
         "kernelSchema": format!("{:016x}", exact_kernel::SCHEMA_DIGEST),
         "formatVersion": exact_plan::FORMAT_VERSION,
         "formatDigest": format!("{:016x}", exact_plan::FORMAT_DIGEST),
+        // @ref LLP 1114.001 D1 — an OTA plan with a changed fixed command
+        // shape must not run in a binary that reads its old arguments.
+        "commands": commands_digest(),
         "abi": { "c": abi_version()?, "gpuModule": GPU_MODULE_ABI, "storeCodec": if binary_only { Value::Null } else { json!(exact_update::STORE_CODEC) } },
         "executors": executors,
         "rustMode": rust_mode,
@@ -377,6 +400,13 @@ fn compatibility_with_trust(
         "store": { "L": store, "acceptedKinds": if binary_only { vec![] } else { kinds } },
         "app": manifest.id,
     });
+    if matches!(platform, "macos" | "ios") {
+        if let Some(handlers) = manifest.json.get("protocol_handlers") {
+            if !handlers.as_array().is_some_and(Vec::is_empty) {
+                inputs["protocolHandlers"] = handlers.clone();
+            }
+        }
+    }
     // Which GPU artifact owns which surface (LLP 1009 D6): the manifest's
     // modules, bound into the cohort — a routing change is a new binary. An
     // app with one artifact carries no key, so its id and bytes are as before.
@@ -654,6 +684,46 @@ mod tests {
     }
 
     #[test]
+    fn list_scroll_offset_requires_a_new_binary_cohort() {
+        use sha2::{Digest, Sha256};
+        let digest = |list_shape: &str| {
+            let mut h = Sha256::new();
+            for name in contract_syntax::HOST_COMMANDS {
+                let shape = match *name {
+                    "share" => "3",
+                    "showNotification" => "5",
+                    "closeNotification" | "stopSounds" | "playSounds" => "1",
+                    "playSound" => "4",
+                    "scrollIntoView" => list_shape,
+                    "saveFile" => "3|4",
+                    _ => "positional",
+                };
+                h.update(format!("{name}:{shape}\n"));
+            }
+            h.finalize()[..16]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        let dir = app("scroll-offset-cohort");
+        let manifest = Manifest::read(&dir).unwrap();
+        let current = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap();
+        let mut previous = current.inputs.clone();
+        previous["commands"] = serde_json::json!(digest("4|6"));
+        assert_eq!(current.inputs["commands"], digest("4|7"));
+        assert_ne!(current.id, super::compatibility_digest(&previous));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn mixed_source_ownership_is_hashed_even_when_the_host_ceiling_is_unchanged() {
         let dir = app("mixed-source-grants");
         let manifest = Manifest::read(&dir).unwrap();
@@ -675,6 +745,10 @@ mod tests {
         );
         assert_eq!(compat.inputs["javascriptGrants"], javascript);
         assert_eq!(compat.inputs["rustGrants"], rust);
+        assert_eq!(compat.inputs["commands"], super::commands_digest());
+        let mut without_commands = compat.inputs.clone();
+        without_commands.as_object_mut().unwrap().remove("commands");
+        assert_ne!(compat.id, super::compatibility_digest(&without_commands));
         let first = compat.id.clone();
         super::source_scopes(&mut compat, &format!("{rust}\n{javascript}"), rust);
         assert_eq!(
@@ -893,6 +967,47 @@ mod tests {
         std::fs::write(dir.join("data/src/lib.rs"), "pub struct App; // moved\n").unwrap();
         assert_ne!(with_icon, id(&dir, "ios"), "a data crate edit moves it");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn protocol_handler_templates_move_apple_compatibility() {
+        let dir = app("protocol-identity");
+        let manifest = std::fs::read_to_string(dir.join("app.json")).unwrap();
+        let original = id(&dir, "macos");
+        let undeclared = Manifest::read(&dir).unwrap();
+        let inputs = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &undeclared,
+            Some(""),
+            "development",
+        )
+        .unwrap()
+        .inputs;
+        assert!(inputs.get("protocolHandlers").is_none());
+        let with = |template: &str| {
+            std::fs::write(
+                dir.join("app.json"),
+                manifest.replacen(
+                    '{',
+                    &format!(
+                        r#"{{"protocol_handlers":[{{"protocol":"exacttest","url":"{template}"}}],"#
+                    ),
+                    1,
+                ),
+            )
+            .unwrap();
+            id(&dir, "macos")
+        };
+        let first = with("/open?u=%s");
+        assert_ne!(original, first, "registering a scheme needs a new cohort");
+        assert_ne!(
+            first,
+            with("/callback?u=%s"),
+            "a template edit needs a new cohort"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

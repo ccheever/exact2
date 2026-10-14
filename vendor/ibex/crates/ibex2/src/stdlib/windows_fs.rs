@@ -75,8 +75,14 @@ fn remove(parent: &Directory, leaf: &str) -> io::Result<()> {
     };
     if kind.directory {
         let child = parent.child(leaf, false)?;
-        for name in child.names()? {
-            remove(&child, &name)?;
+        loop {
+            let names = child.names_batch()?;
+            if names.is_empty() {
+                break;
+            }
+            for name in names {
+                remove(&child, &name)?;
+            }
         }
     }
     parent.unlink(leaf)

@@ -96,5 +96,8 @@ font-size ranges, root `rem` scaling, text smoothing or bundled font licensing.
 ## Next action
 
 X48 was filed as [#318](https://github.com/ccheever/exact2/issues/318) on 2026-10-08: this task waits for main fix of #318, then an adoption round; then
-implement the catalog, validation and application path in the example.
+implement the catalog, validation and application path in the example. Main fixed it on 2026-10-12 (`eaf48e05c`: a
+run-time `font-family` list resolves installed families on every host; main's
+`issues/closed/20261009-runtime-installed-font-family.md`), not adopted yet (checked 2026-10-13), so the task waits for
+the next adoption round only.
 Run the affected app tests and a rebuilt macOS comparison before changing verification status.

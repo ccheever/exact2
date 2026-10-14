@@ -15,6 +15,7 @@ import { dragTo, gutterClick, parseLineCellId, pressGutter, pressLine, releaseDr
 import { contentsKey, currentSelection, diffFiles, noteDraftFocus, reviewLinesOf, reviewSection } from './diff';
 import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from './composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
+import { openCitationComment, rememberCitedStart } from './citation-comment';
 import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { closeChipFromPress } from './composer-chip-popover';
@@ -178,20 +179,32 @@ export function citedMessageId(rowId: string): string {
 
 /**
  * Cite (AssistantSelectionToolbar → ChatView insertAssistantCitation): the selected parts of an
- * answer's text stream ("start-end,…|stream") become a t3-citation:// chip at the composer caret.
+ * answer's text stream ("start-end,…|x,y,width,height|stream", the frame the cited text's last part's, diff-cite.contract)
+ * become a t3-citation:// chip at the composer caret, and its comment opens under the cited text (diff-cite-popover DC-1:
+ * ChatComposer citeAssistantText's `citationCommentAnchor`, citation-comment.ts).
  */
-async function citeSelection(client: T3Client, native: Native, rowId: string, value: string): Promise<string> {
-  const bar = value.indexOf('|');
-  if (bar < 0 || !client.threadId) return '';
-  const stream = value.slice(bar + 1);
+export function parseCiteValue(value: string): { ranges: number[][]; source: number[]; stream: string } | null {
+  const bar = value.indexOf('|'), second = bar < 0 ? -1 : value.indexOf('|', bar + 1);
+  if (second < 0) return null;
   const ranges = value.slice(0, bar).split(',').map(part => part.split('-').map(Number)).filter(([start, end]) => Number.isFinite(start) && Number.isFinite(end) && end! > start!);
+  const source = value.slice(bar + 1, second).split(',').filter(part => part !== '').map(Number);
+  return { ranges, source: source.length === 4 && source.every(Number.isFinite) ? source : [], stream: value.slice(second + 1) };
+}
+async function citeSelection(client: T3Client, native: Native, rowId: string, value: string): Promise<string> {
+  const parsed = parseCiteValue(value);
+  if (!parsed || !client.threadId) return '';
+  const { ranges, source, stream } = parsed;
   if (!ranges.length) return '';
   const selector = createAssistantTextSelector(stream, Math.min(...ranges.map(range => range[0]!)), Math.max(...ranges.map(range => range[1]!)));
   if (!selector) return '';
   if (selector.text.length > ASSISTANT_CITATION_MAX_TEXT_LENGTH) throw new ClientError('Selection is too long to cite');
-  const href = formatAssistantCitationHref({ version: 1, environmentId: client.environmentId, threadId: client.threadId, messageId: citedMessageId(rowId), ...selector });
+  const citation = { version: 1 as const, environmentId: client.environmentId, threadId: client.threadId, messageId: citedMessageId(rowId), ...selector };
+  const href = formatAssistantCitationHref(citation);
   if (!parseAssistantCitationHref(href)) throw new ClientError('Unable to cite this selection.');
+  // diff-cite-popover DC-1: where the quote starts in the answer's text stream, for its highlight while the comment is open.
+  rememberCitedStart(client, citation, Math.min(...ranges.map(range => range[0]!)));
   try { await insertContext(client, native, 'citation', href); }
-  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); }
+  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); return ''; }
+  await openCitationComment(native, href, source);
   return '';
 }

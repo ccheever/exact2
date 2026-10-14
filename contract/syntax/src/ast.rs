@@ -188,8 +188,7 @@ pub enum Step {
         dy: f64,
         /// The node it ends on, by `testId`, and where in its box.
         to: Option<(String, Option<(f64, f64)>)>,
-        /// Where it starts, an offset from the node's top left; its middle
-        /// when `None`.
+        /// Where it starts, an offset from the node's top left; its middle when `None`.
         from: Option<(f64, f64)>,
         /// The left button rather than a finger, where a carrier has both.
         mouse: bool,
@@ -266,9 +265,25 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `request POST "/items" {"title": "Bread"} as grace [expect 409]` (LLP 1116.006
+    /// D8): the driver writes through the app's server as another person.
+    Request {
+        /// `GET`, `POST`, `PUT`, `PATCH` or `DELETE`.
+        method: String,
+        /// Under the server URL the app calls (`/items`), or a whole URL.
+        path: String,
+        /// The body, as JSON text.
+        body: Option<String>,
+        /// Whose bearer token it carries.
+        persona: Option<String>,
+        /// `expect 409` (LLP 1116.010 D3): the refusal's status; `None`: any 2xx.
+        status: Option<u16>,
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
-        /// A whole number from 0 through 2^53 − 1.
+        /// A whole number from 0 through 2^32 − 1.
         seed: f64,
         /// Where.
         span: Span,
@@ -354,6 +369,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `expect disabled "testId"` / `expect enabled "testId"` (LLP 1116.010 D3): whether
+    /// the control the node names is disabled (its `disabled` attribute).
+    ExpectDisabled {
+        /// The node, by `testId`.
+        target: String,
+        /// `disabled`, or `enabled`.
+        disabled: bool,
+        /// Where.
+        span: Span,
+    },
     /// `expect text "testId" == "value"`: the node's text — its `text` prop,
     /// else its descendants' text in order (the web's `textContent`), else a
     /// field's value.
@@ -375,6 +400,14 @@ pub enum Step {
     /// it, asking its `beforeunload` first (the driver's `close`, studio
     /// diary R17); a window a handler keeps stays, and the test goes on.
     Close {
+        /// Where.
+        span: Span,
+    },
+    /// `back`: the platform's Back, as a person takes it (LLP 1116.006 D4):
+    /// an open dialog's cancel (Escape), else the top sheet dismissed (its
+    /// swipe down), else the pushed route popped (iOS's Back button, the
+    /// browser's Back, ⌘[). With nothing to go back from, the step fails.
+    Back {
         /// Where.
         span: Span,
     },
@@ -926,8 +959,7 @@ pub enum Stmt {
         /// How many arguments the call itself writes.
         authored: usize,
         /// How many of the callee's own parameters were curried where it
-        /// was passed (`close=dismiss("photo")`); 0 for a same-component
-        /// call.
+        /// was passed (`close=dismiss("photo")`); 0 for a same-component call.
         curried: usize,
         /// The prop's or the `provide`'s binding (`go=move(id)`), for a
         /// prop or inject call.
@@ -1207,6 +1239,8 @@ pub fn text_input_type(value: &Expr) -> bool {
     }
 }
 
+pub use crate::part::{part_attr, PLACEHOLDER_COLOR};
+
 /// `name=expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {
@@ -1216,6 +1250,9 @@ pub struct Attr {
     pub value: Expr,
     /// Where.
     pub span: Span,
+    /// Whether the author wrote it (LLP 1115.000 D2): the parser's are; a
+    /// row the compiler adds to an element (a sheet's, an implied one) is not.
+    pub written: bool,
 }
 
 /// A binary operator.
@@ -1360,6 +1397,7 @@ impl Step {
             | Step::BeforeData { span }
             | Step::FailFetch { span, .. }
             | Step::PassFetch { span, .. }
+            | Step::Request { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
@@ -1367,9 +1405,11 @@ impl Step {
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
             | Step::Close { span }
+            | Step::Back { span }
             | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
+            | Step::ExpectDisabled { span, .. }
             | Step::ExpectText { span, .. }
             | Step::ExpectState { span, .. }
             | Step::ExpectSound { span, .. }

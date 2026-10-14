@@ -11,6 +11,7 @@ mod height;
 mod height_binding;
 mod holds;
 mod image;
+mod list_rows;
 mod media_session;
 mod native_buttons;
 mod native_fields;

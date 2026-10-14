@@ -43,6 +43,8 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::Hyphens, &StyleValue::Text("auto".into()))
         .unwrap();
+    s.set_dynamic(StyleId::TextWrapStyle, &StyleValue::Text("auto".into()))
+        .unwrap();
     // LLP 1093: multi-column layout reaches CSS by its own names.
     for (row, value) in [
         (StyleId::ColumnCount, StyleValue::Number(3.0)),
@@ -117,6 +119,7 @@ fn style_rows_lower_to_css_by_their_names() {
         "letter-spacing:1.2px;",
         "text-indent:-24px;",
         "hyphens:auto;",
+        "text-wrap-style:auto;",
         "column-count:3;",
         "column-width:120px;",
         "column-fill:auto;",
@@ -156,6 +159,7 @@ fn style_rows_lower_to_css_by_their_names() {
 }
 
 #[test]
+#[allow(clippy::field_reassign_with_default)]
 fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
     use exact_motion::{
         Easing, LinearStop, SpringConfig, StepPosition, TimingFunction, Transition,
@@ -214,10 +218,9 @@ fn the_transition_row_lowers_to_css_transition_and_springs_are_named() {
         ])),
         "linear(0 0%,0.9 50%,1 100%)"
     );
-    let mut s = exact_kernel::StyleProps {
-        transition: rows,
-        ..Default::default()
-    };
+    // This row is behind DerefMut; it cannot be a StyleProps initializer.
+    let mut s = exact_kernel::StyleProps::default();
+    s.transition = rows;
     s.mask.set(exact_kernel::StyleId::Transition);
     let (css, skipped) = css_text(&s, &[]);
     assert!(css.starts_with("transition:opacity 0.25s"));
@@ -366,11 +369,34 @@ fn comparison_lengths_lower_to_css_comparisons() {
     assert!(skipped.is_empty(), "{skipped:?}");
     for expected in [
         "padding-bottom:clamp(15px, env(safe-area-inset-bottom), 60px);",
-        "bottom:calc(clamp(15px, env(safe-area-inset-bottom), 60px) + 59px);",
-        "padding-top:max(15px, calc(env(safe-area-inset-top) - 4px));",
+        "bottom:calc(59px + clamp(15px, env(safe-area-inset-bottom), 60px));",
+        "padding-top:max(15px, -4px + env(safe-area-inset-top));",
         "width:min(50vw, 300px);",
         "height:10px;",
     ] {
         assert!(css.contains(expected), "{expected} in {css}");
     }
+}
+
+#[test]
+fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
+    use exact_kernel::{StyleId, StyleProps, StyleValue};
+    // `width: -10px` is invalid CSS (the kernel refuses it); `calc(10px -
+    // 20px)` is valid and clamps to 0 at computed-value time (CSS Values 4
+    // §9.1), so the browser gets 0, while a margin keeps the negative length.
+    let mut s = StyleProps::default();
+    let text = || StyleValue::Text("calc(10px - 20px)".into());
+    s.set_dynamic(StyleId::Width, &text()).unwrap();
+    s.set_dynamic(StyleId::MarginLeft, &text()).unwrap();
+    let (css, _) = css_text(&s, &[]);
+    assert!(css.contains("width:0px;"), "{css}");
+    assert!(css.contains("margin-left:-10px;"), "{css}");
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("calc(10vw - 20vw)".into()),
+    )
+    .unwrap();
+    let (css, _) = css_text(&s, &[]);
+    assert!(css.contains("width:0vw;"), "{css}");
 }

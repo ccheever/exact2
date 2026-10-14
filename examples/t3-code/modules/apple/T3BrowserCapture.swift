@@ -239,48 +239,64 @@ final class T3BrowserPictureInPicture: NSObject, NSWindowDelegate {
     }
 }
 
-/// Downloads a page starts (Manager.ts installDownloadHandler): the reference puts a download from a page the agent drove
-/// into the artifact directory (`browser-download-<id>-<name>`) and lets a person's download ask where with the save
-/// dialog. Pages become agent-driven with part 5 (automation); until then a person's download asks with a save panel and
-/// an agent run, which shows nothing modal, saves into the artifact directory.
+/// Downloads a page starts (Manager.ts installDownloadHandler): a download from a page the agent drove last goes into the
+/// artifact directory (`browser-download-<id>-<name>`) with no dialog, and a person's asks where with the save dialog.
+/// The automation host marks the page agent-driven on each control action that changes it (T3BrowserAutomation
+/// `controlled`: not a snapshot or a wait); a person's press or key on the page (T3BrowserSessions' input monitor, which
+/// the agent's native input never passes) and a navigation hand it back (`handBack`). An agent-mode run shows nothing
+/// modal, so its downloads go to the artifact directory too. Nothing is shown or returned about a download either way.
 final class T3BrowserDownloads: NSObject, WKDownloadDelegate {
     weak var session: T3BrowserSession?
     var directory: () -> URL = { FileManager.default.temporaryDirectory }
+    /// Manager.ts `agentDrivenWebContents`.
     var agentDriven = false
     var changed: (() -> Void)?
+    /// The save dialog: a sheet on the page's window (tests answer it): the suggested name, the window, the answer.
+    var askWhere: (String, NSWindow?, @escaping (URL?) -> Void) -> Void = T3BrowserDownloads.savePanel
     private var count = 0
     private(set) var entries: [[String: Any]] = []
     private var destinations: [ObjectIdentifier: URL] = [:]
 
     func adopt(_ download: WKDownload) { download.delegate = self }
 
+    /// handleHumanInput, `navigate`: the page is the person's again; its next download asks.
+    func handBack(_ reason: String) {
+        guard agentDriven else { return }
+        agentDriven = false
+        FileHandle.standardError.write(Data("t3.browser: handed back \(session?.id.prefix(120) ?? "") (\(reason))\n".utf8))
+    }
+
     func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
         let name = (suggestedFilename as NSString).lastPathComponent.isEmpty ? "download" : (suggestedFilename as NSString).lastPathComponent
-        let toArtifacts = agentDriven || session?.dialogs == false
-        if toArtifacts {
+        let by = agentDriven ? "agent" : "person"
+        if agentDriven || session?.dialogs == false {
             let folder = directory()
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             // The start time keeps names unique across restarts; the count keeps two same-name downloads apart.
             let id = "\(T3BrowserArtifacts.millis36(Date()))-\(String(count, radix: 36))"
             count += 1
             let target = folder.appendingPathComponent("browser-download-\(id)-\(name)")
-            return accept(download, target, name: name, completionHandler)
+            return accept(download, target, name: name, by: by, completionHandler)
         }
+        askWhere(name, session?.web.window) { [weak self] url in
+            guard let self, let url else { self?.record(name: name, path: "", state: "cancelled", by: by); return completionHandler(nil) }
+            try? FileManager.default.removeItem(at: url) // the panel already confirmed a replacement
+            self.accept(download, url, name: name, by: by, completionHandler)
+        }
+    }
+
+    static func savePanel(_ name: String, _ window: NSWindow?, _ answer: @escaping (URL?) -> Void) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name
         panel.directoryURL = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
-        let finish: (NSApplication.ModalResponse) -> Void = { [weak self] result in
-            guard let self, result == .OK, let url = panel.url else { self?.record(name: name, path: "", state: "cancelled"); return completionHandler(nil) }
-            try? FileManager.default.removeItem(at: url) // the panel already confirmed a replacement
-            self.accept(download, url, name: name, completionHandler)
-        }
-        if let window = session?.web.window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
+        let finish: (NSApplication.ModalResponse) -> Void = { result in answer(result == .OK ? panel.url : nil) }
+        if let window { panel.beginSheetModal(for: window, completionHandler: finish) } else { finish(panel.runModal()) }
     }
 
-    private func accept(_ download: WKDownload, _ target: URL, name: String, _ completionHandler: @escaping (URL?) -> Void) {
+    private func accept(_ download: WKDownload, _ target: URL, name: String, by: String, _ completionHandler: @escaping (URL?) -> Void) {
         destinations[ObjectIdentifier(download)] = target
-        record(name: name, path: target.path, state: "downloading")
-        FileHandle.standardError.write(Data("t3.browser: download \(target.lastPathComponent.prefix(200))\n".utf8))
+        record(name: name, path: target.path, state: "downloading", by: by)
+        FileHandle.standardError.write(Data("t3.browser: download \(target.lastPathComponent.prefix(200)) by=\(by)\n".utf8))
         completionHandler(target)
     }
 
@@ -293,8 +309,9 @@ final class T3BrowserDownloads: NSObject, WKDownloadDelegate {
         changed?()
     }
 
-    private func record(name: String, path: String, state: String) {
-        entries.append(["name": String(name.prefix(200)), "path": path, "state": state])
+    /// The tab's report (`presentation.browserTabs[id].downloads`, the agent's `state`): who started each one.
+    private func record(name: String, path: String, state: String, by: String) {
+        entries.append(["name": String(name.prefix(200)), "path": path, "state": state, "by": by])
         if entries.count > 8 { entries.removeFirst(entries.count - 8) }
         changed?()
     }

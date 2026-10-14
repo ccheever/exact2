@@ -8,7 +8,9 @@
 // header's popover (264pt inside its 8pt viewport, 60pt down, 13pt in). The
 // dropdown-glass card has a 22pt radius and no shadow; rows are 32pt, 10pt
 // radius, 13pt medium foreground/80 with a 16pt muted glyph; only Lineage keeps
-// its 11pt heading.
+// its 11pt heading. A floating player folds the docked card (chat-canvas-view.ts):
+// its rows go compact, then essential, and with no 160pt placement left it is the
+// popover (ThreadDetailsCard, ThreadDetailsPanel's density).
 //
 // Window z scale (1e2ecbd975, e19a48d220: popover variant="panel" sits at --z-sheet,
 // below the floating preview player and every dialog). The reference: docked sheets
@@ -39,11 +41,17 @@ use kmArrow from "./menu-keys.contract"
 use kmOpenTarget from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 
-// The popover presentation, with its click-away backdrop.
+// The popover presentation, with its click-away backdrop: drawn in the chat column (app-main.contract ChatColumn),
+// under the floating player, which closes it on its own press; a press beside the column closes it too
+// (app-window.contract outsidePressDown).
 component ThreadDetailsPanel
   props
     details: ShellDetails
+    // ThreadDetailsCard's density (chat-canvas-view.ts): full, compact or essential.
+    density: string
     right: number
+    // How far the click-away backdrop reaches below its holder: the terminal drawer under the chat column.
+    below: number
     maxHeight: number
     editorsOpen: bool
     act: action
@@ -52,15 +60,16 @@ component ThreadDetailsPanel
     // prefers-reduced-motion: the running automation's dot stays still.
     still: bool
   view
-    box position="absolute" left=0 top=0 right=0 bottom=0 z-index=35 testId="thread-details-layer"
+    box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
       button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
-        DetailsBody(details=details, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
+        DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
 // The inline presentation: an aside pinned 12pt from the canvas's top right, as tall as its content.
 component ThreadDetailsInline
   props
     details: ShellDetails
+    density: string
     maxHeight: number
     editorsOpen: bool
     act: action
@@ -70,13 +79,20 @@ component ThreadDetailsInline
     still: bool
   view
     column position="absolute" top="4rem" right="0.75rem" width="17.5rem" max-height=maxHeight z-index=20 box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="complementary" aria-label="Thread details" testId="thread-details-inline"
-      DetailsBody(details=details, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
+      DetailsBody(details=details, density=density, inline=true, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
+// ThreadDetailsPanel's rows by density: `full` everything; `compact` without the Run on and workspace rows,
+// Automations and Lineage, Version Control unseparated and the Git action group only while an action runs or just
+// finished (GitActionsControl compact); `essential` also without Open in. The parts only `full` shows report their
+// frames, so the canvas knows the compact height from a full layout (thread-details-card-layout.ts).
 component DetailsBody
   inject
     rem: number
   props
     details: ShellDetails
+    density: string
+    // The docked card (280pt) or the popover (264pt): the Git and Run on menus take its inner width.
+    inline: bool
     maxHeight: number
     editorsOpen: bool
     act: action
@@ -121,8 +137,11 @@ component DetailsBody
     act("editors", "", "")
   view
     scroll width="100%" min-height=0 max-height=(maxHeight - 2)
-      // The content's full height, scrolled or not: the canvas keeps a floating player below it (chat-canvas-view.ts).
+      // The content's full height, scrolled or not: the canvas keeps a floating player below it and folds the rows by it
+      // (ThreadDetailsCard: chat-canvas-view.ts measures the frames named here).
       column width="100%" position="relative" hatch="t3-frame" data-frame="details-content"
+        when density == "compact"
+          box position="absolute" left=0 top=0 width=0 height=0 pointer-events="none" aria-hidden=true hatch="t3-frame" data-frame="details-density-compact"
         DetailsSection(title="Workspace", separated=false, heading=false)
           // server-update-banner: "Client and server versions differ" (ThreadDetailsPanel.tsx), dismissed with the composer's notice.
           when details.versionServer != ""
@@ -134,35 +153,39 @@ component DetailsBody
                 text `Client ${details.versionClient} · ${details.versionLabel} ${details.versionServer}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="details-version-detail"
               button press=act("su:dismiss", "", "") aria-label="Dismiss version mismatch warning" testId="details-version-dismiss" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
                 ShellIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
-          when details.envShow
-            // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label (lane r4-git).
-            R4EnvRow(details=details, act=act)
-          when details.envModeSelect
-            // BranchToolbarEnvModeSelector as a select row (THREAD_DETAILS_PANEL_SELECT_ROW_CLASS): its value, the kind, a hairline and the chevron.
-            box position="relative" width="100%"
-              button popovertarget="details-workspace-menu" hover=hover("workspace") aria-label="Workspace" testId="details-workspace" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "workspace" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
-                ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #818181)")
-                row flex=1 min-width=0 gap="0.375rem" align-items="center"
-                  when details.folderName != ""
-                    text details.folderName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-folder-name"
+          // BranchToolbar's workspace section: `full` only.
+          when density == "full"
+            column width="100%" hatch="t3-frame" data-frame="details-full-top"
+              when details.envShow
+                // BranchToolbarEnvironmentSelector: a Select for a draft with somewhere else to run, else its static label (lane r4-git).
+                R4EnvRow(details=details, inline=inline, act=act)
+              when details.envModeSelect
+                // BranchToolbarEnvModeSelector as a select row (THREAD_DETAILS_PANEL_SELECT_ROW_CLASS): its value, the kind, a hairline and the chevron.
+                box position="relative" width="100%"
+                  button popovertarget="details-workspace-menu" hover=hover("workspace") aria-label="Workspace" testId="details-workspace" width="100%" height="2rem" padding-left="0.6875rem" padding-right=0 box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "workspace" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center" title=""
+                    ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #818181)")
+                    row flex=1 min-width=0 gap="0.375rem" align-items="center"
+                      when details.folderName != ""
+                        text details.folderName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-folder-name"
+                      when details.folderLabel != ""
+                        text details.folderLabel flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717bb3, #818181b3)" testId="details-folder-kind"
+                    box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+                      box position="absolute" left=-1 top="0.5rem" width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
+                      ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
+                  WorkspaceMenu(details=details, act=act)
+              else
+                row width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.625rem" testId="details-folder"
+                  box display="flex" flex-shrink=0
+                    ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #818181)")
+                  // Mounted with its name: a text first drawn empty here was never repainted once the panel loaded.
+                  row flex=1 min-width=0
+                    when details.folderName != ""
+                      text details.folderName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-folder-name"
                   when details.folderLabel != ""
                     text details.folderLabel flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717bb3, #818181b3)" testId="details-folder-kind"
-                box width="2rem" height="2rem" position="relative" flex-shrink=0 display="flex" align-items="center" justify-content="center"
-                  box position="absolute" left=-1 top="0.5rem" width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
-                  ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
-              WorkspaceMenu(details=details, act=act)
-          else
-            row width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" align-items="center" border-radius="0.625rem" testId="details-folder"
-              box display="flex" flex-shrink=0
-                ShellIcon(name=details.envIcon, size=16, color="light-dark(#71717b, #818181)")
-              // Mounted with its name: a text first drawn empty here was never repainted once the panel loaded.
-              row flex=1 min-width=0
-                when details.folderName != ""
-                  text details.folderName flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)" testId="details-folder-name"
-              when details.folderLabel != ""
-                text details.folderLabel flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717bb3, #818181b3)" testId="details-folder-kind"
-          // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts).
-          when details.editorShow
+          // OpenInPicker (panel form): shown for this machine, and for other machines unless they open locally (remote-open.ts);
+          // not in the essential rows.
+          when details.editorShow and density != "essential"
             row height="2rem" align-items="center" border-radius="0.625rem" background-color=(hovered == "editor" or hovered == "editor-menu" or editorsOpen ? "light-dark(#0000000e, #ffffff13)" : "#00000000")
               button press=act("shell:open-editor", details.cwd, details.editorId) hover=hover("editor") testId="details-open-editor" flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" disabled=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "") opacity=(details.cwd == "" or details.editorId == "" or details.editorUnavailable != "" ? 0.64 : 1)
                 when details.editorId != ""
@@ -183,23 +206,27 @@ component DetailsBody
                 ShellIcon(name="plus", size=14, color="light-dark(#27272acc, #f5f5f5cc)")
               text "Add project script" flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color="light-dark(#27272acc, #f5f5f5cc)"
         when details.cwd != ""
-          DetailsSection(title="Version Control", separated=true, heading=false)
-            // lane r4-git: the branch select, the split Git action (or Initialize Git) and Changes.
-            R4GitRows(details=details, act=act, local=local)
-            when details.error != ""
-              text details.error padding-left="0.6875rem" padding-right="0.6875rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="details-vcs-error"
-        when details.automations.show
-          ThreadAutomationsSection(automations=details.automations, still=still, act=act)
-        when details.showLineage
-          DetailsSection(title=details.lineageTitle, separated=true, heading=true)
-            LineageGroups(details=details, act=act)
+          column width="100%" hatch="t3-frame" data-frame="details-vcs"
+            DetailsSection(title="Version Control", separated=(density == "full"), heading=false)
+              // lane r4-git: the branch select, the split Git action (or Initialize Git) and Changes.
+              R4GitRows(details=details, compact=(density != "full"), inline=inline, act=act, local=local)
+              when details.error != ""
+                text details.error padding-left="0.6875rem" padding-right="0.6875rem" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="details-vcs-error"
+        // ThreadAutomationsPanel and ThreadRelationshipsPanel: `full` only.
+        when density == "full"
+          column width="100%" hatch="t3-frame" data-frame="details-full-tail"
+            when details.automations.show
+              ThreadAutomationsSection(automations=details.automations, still=still, act=act)
+            when details.showLineage
+              DetailsSection(title=details.lineageTitle, separated=true, heading=true)
+                LineageGroups(details=details, act=act)
         // OpenInPicker's menu, 4pt under its row and as wide: drawn over the card (it paints last) with a
         // click-away layer under it, since a popover would anchor at the chevron rather than the row.
         when scriptsOpen and details.scriptName != ""
-          R6ScriptMenu(details=details, top=((76 + (details.envShow ? 32 : 0) + (details.editorShow ? 32 : 0)) * rem / 16), act=act, close=toggleScripts)
-        when editorsOpen
+          R6ScriptMenu(details=details, top=((44 + (density == "full" ? (details.envShow ? 64 : 32) : 0) + (details.editorShow and density != "essential" ? 32 : 0)) * rem / 16), act=act, close=toggleScripts)
+        when editorsOpen and density != "essential"
           button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop" title=""
-          column position="absolute" left="0.5rem" right="0.5rem" top=(details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
+          column position="absolute" left="0.5rem" right="0.5rem" top=(density != "full" ? "2.75rem" : details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"
             when details.editorUnavailable != ""
               DisabledEditorItem(label=details.editorUnavailable, testId="details-editor-no-route")
             when details.editorEmpty
@@ -334,7 +361,7 @@ component WorkspaceMenu
     act: action
   view
     // Popovers anchor at the invoker's bottom edge and ignore margins: the 4pt side offset is padding.
-    column id="details-workspace-menu" popover="auto" position="absolute" padding-top="0.25rem" width="16.5rem" testId="details-workspace-menu"
+    column id="details-workspace-menu" popover="auto" position-try-fallbacks="none" position="absolute" padding-top="0.25rem" width="16.5rem" testId="details-workspace-menu"
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="listbox" aria-label="Workspace"
         text "Workspace" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
         WorkspaceOption(label="Current checkout", icon="folder", selected=(details.envMode == "local"), op="cclocal:env-mode", value="local", act=act)

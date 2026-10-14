@@ -25,8 +25,9 @@ mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
-use fonts::{font_catalog, font_faces, font_names};
+use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
 #[path = "document.rs"]
 pub mod document;
 #[path = "element.rs"]
@@ -41,6 +42,8 @@ pub use height_drag::HeightDragBinding;
 mod flow_host;
 #[path = "layers.rs"]
 pub mod layers;
+#[path = "own.rs"]
+mod own;
 #[path = "reorder_drag.rs"]
 mod reorder_drag;
 #[path = "transform_drag.rs"]
@@ -453,7 +456,7 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
         runner.set_device_links(links.device);
-        let font_names = font_names(runner.plan());
+        let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
             runner,
@@ -593,19 +596,6 @@ impl<D: DataSource> Host<D> {
         self.now_ms = now_ms.max(self.now_ms);
         // At the event's time: an action's `performanceNow()` is the page's (LLP 1096 D3).
         let a = self.runner.dispatch_at(view, event, self.now_ms);
-        self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
-    }
-
-    /// The platform's own Back from visit `id` (LLP 1115 D5), at `now_ms`.
-    pub fn host_back(&mut self, id: u64, now_ms: f64) -> String {
-        let mut a = self.runner.advance_timed(now_ms.max(self.now_ms));
-        self.now_ms = a.now_ms.max(self.now_ms);
-        let at_ms = self.now_ms;
-        match a.error.is_none().then(|| self.runner.host_back(id)) {
-            Some(Ok(r)) => a.receipts.extend(r.map(|receipt| Timed { at_ms, receipt })),
-            Some(Err(e)) => a.error = Some(e),
-            None => {}
-        }
         self.batch_for(&a.receipts, a.error.map(|e| format!("{e:?}")).as_deref())
     }
 
@@ -901,6 +891,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn batch_from(&mut self, mut batch: Batch, receipts: &[Timed], error: Option<&str>) -> String {
+        self.sync_runtime_font_names();
         self.emit_receipts(receipts, &mut batch);
         self.complete(batch, error.map(str::to_string))
     }

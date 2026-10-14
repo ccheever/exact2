@@ -505,29 +505,35 @@ function stopStream(stream: RecordingStream | null): void { for (const track of 
 // ── Upload (browserRecordingUpload.ts): the encoded file once, as an attachment ─────────────────
 /** PROVIDER_SEND_TURN_MAX_FILE_BYTES. */
 export const RECORDING_UPLOAD_MAX_BYTES = 50 * 1024 * 1024;
+// The contracts' recording transfer errors (packages/contracts/src/previewAutomation.ts), their messages verbatim.
 export class PreviewAutomationRecordingTooLargeError extends BrowserRecordingError {
-  constructor(readonly fields: { threadId: string }) { super('PreviewAutomationRecordingTooLargeError', 'The recording is too large to attach.'); }
+  constructor(readonly fields: { threadId: string }) { super('PreviewAutomationRecordingTooLargeError', 'The recording exceeds 50 MiB. The saved copy remains on the desktop.'); }
 }
 export class PreviewAutomationRecordingTransferError extends BrowserRecordingError {
-  constructor(readonly fields: { threadId: string; cause?: unknown }) { super('PreviewAutomationRecordingTransferError', 'The recording could not be transferred.'); }
+  constructor(readonly fields: { threadId: string; cause?: unknown }) {
+    super('PreviewAutomationRecordingTransferError', 'Preview recording could not be saved to the agent environment. The saved copy remains on the desktop.');
+  }
 }
 export class PreviewAutomationRecordingDeadlineExpiredError extends BrowserRecordingError {
-  constructor(readonly fields: { threadId: string; cause?: unknown }) { super('PreviewAutomationRecordingDeadlineExpiredError', 'The recording transfer deadline expired.'); }
+  constructor(readonly fields: { threadId: string; cause?: unknown }) { super('PreviewAutomationRecordingDeadlineExpiredError', 'The recording transfer deadline expired. The saved copy remains on the desktop.'); }
 }
-/** The attachment upload cycle the clone's composer uses (createUploadUrl, POST, finish). */
-export type RecordingUploader = (input: { name: string; mimeType: string; sizeBytes: number; path: string; remainingMs: number }) => Promise<{ status: 'uploaded'; attachmentId: string } | { status: 'failed' | 'cancelled'; attachmentId?: string; error?: unknown }>;
+/** The recording transfer errors a host answers as they are (previewAutomationErrors.ts PreviewAutomationHostError). */
+export const RECORDING_TRANSFER_ERROR_TAGS: ReadonlySet<string> = new Set(['PreviewAutomationRecordingTooLargeError', 'PreviewAutomationRecordingTransferError', 'PreviewAutomationRecordingDeadlineExpiredError']);
+/** runAttachmentUploadCycle over the request's environment (createUploadUrl, then the bytes, POSTed with the file's type).
+ *  The transfer keeps the request's host deadline itself (the module's clock: a data module has none): it does not start
+ *  with a second or less left, gives up at that point, and says whether a failure came at or past it (`expired`, the
+ *  reference's `Date.now() >= deadlineMs - 1_000`). */
+export type RecordingUploader = (input: { name: string; mimeType: string; sizeBytes: number; path: string; deadlineMs: number }) =>
+  Promise<{ status: 'uploaded'; attachmentId: string } | { status: 'failed' | 'cancelled'; attachmentId?: string | null; error?: unknown; expired?: boolean }>;
 /** uploadBrowserRecording: sends the finished file once; frames never cross the environment connection. */
-export async function uploadBrowserRecording(ref: ScopedRecordingThreadRef, artifact: RecordingArtifact, blob: RecordingBlob, deadlineMs: number, nowMs: number,
+export async function uploadBrowserRecording(ref: ScopedRecordingThreadRef, artifact: RecordingArtifact, blob: RecordingBlob, deadlineMs: number,
   upload: RecordingUploader, remove: (attachmentId: string) => void): Promise<string> {
   if (blob.size > RECORDING_UPLOAD_MAX_BYTES) throw new PreviewAutomationRecordingTooLargeError({ threadId: ref.threadId });
-  // Encoding, saving and minting consume the same request budget. Leave time to reply.
-  const remainingMs = deadlineMs - nowMs - 1_000;
-  const result = remainingMs <= 0 ? { status: 'failed' as const, error: new Error('Recording transfer deadline expired.') }
-    : await upload({ name: artifact.path.split(/[\\/]/).at(-1) ?? artifact.id, mimeType: artifact.mimeType, sizeBytes: blob.size, path: blob.path || artifact.path, remainingMs });
+  const result = await upload({ name: artifact.path.split(/[\\/]/).at(-1) ?? artifact.id, mimeType: artifact.mimeType, sizeBytes: blob.size, path: blob.path || artifact.path, deadlineMs });
   if (result.status !== 'uploaded') {
     if (result.attachmentId) remove(result.attachmentId);
     const cause = result.status === 'failed' ? result.error : undefined;
-    if (remainingMs <= 0) throw new PreviewAutomationRecordingDeadlineExpiredError({ threadId: ref.threadId, cause });
+    if (result.status === 'failed' && result.expired === true) throw new PreviewAutomationRecordingDeadlineExpiredError({ threadId: ref.threadId, cause });
     throw new PreviewAutomationRecordingTransferError({ threadId: ref.threadId, cause });
   }
   return result.attachmentId;

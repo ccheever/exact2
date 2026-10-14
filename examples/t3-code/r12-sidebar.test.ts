@@ -143,7 +143,10 @@ describe('the rows\' key handlers and the host\'s ContextMenu default (exact2 #3
       '    if name != "Enter" and name != " "',
       '      run("legacy-row-key", t.id, name)',
     ].join('\n'));
-    expect(await source('legacy-sidebar.contract')).toContain('contextmenu=run("legacy-thread-menu", t.id, "") key=rowKey ');
+    // The pointer's menu is `openMenu` (legacy-sidebar-full review 2: it closes the row's tooltip first), then the same op.
+    const legacy = await source('legacy-sidebar.contract');
+    expect(legacy).toContain('contextmenu=openMenu key=rowKey ');
+    expect(legacy).toContain('  action openMenu\n    hoverTipAt(legacyTipOff(), "trigger", false)\n    run("legacy-thread-menu", t.id, "")');
   });
 
   test('a thread row leaves ContextMenu to the host: its key handler prevents nothing', async () => {

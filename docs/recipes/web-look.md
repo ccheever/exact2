@@ -7,14 +7,15 @@ box (emphasis is a part: [content-design](content-design.md)).
 
 | You write | The web draws |
 |---|---|
-| `button` (or `buttonStyle="bordered"`, `"gray"`) | a neutral fill, the accent's ink, 8 px corners, hover and pressed fills |
-| `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: the screen's one primary action |
+| `button` (or `buttonStyle="bordered"`); `"gray"` | an outline, a wash on hover and press; a grey fill |
+| `buttonStyle="bordered-prominent"` (`"filled"`) | the accent as its fill: once a screen, the action people came for |
 | `buttonStyle="plain"`, `"tinted"` | the accent as text; as a light tint |
-| `destructive=true` | the system red, in the button's style |
-| `row role="tablist"` in the content; a root `tablist` (`aria-controls`) | a segmented control; a tab bar |
+| `destructive=true` | red, in the button's style |
+| a card with a `press`, a custom `button`, a `link` | a wash on hover; dims while pressed and from Space (`-exact-press-scale` replaces the dim); dimmed when disabled |
+| `row role="radiogroup"` of `button role="radio"` (a value from two to five); a root `tablist` (`aria-controls`) | a segmented control, arrows move the choice; a tab bar |
 | a route's `header` | an app bar, sticky on a page that scrolls |
-| `dialog role="alertdialog"` | the system alert: its `aria-label` the title |
-| `input type="checkbox" switch` | a switch |
+| `dialog role="alertdialog"` | an alert: its `aria-label` the title |
+| an `input` checkbox, radio, range; `switch` | in the accent; a switch |
 | `input`, `textarea`, `select`, a `date` or `time` | 36 px fields; the browser's picker |
 | `text role="heading" aria-level=1…3` | the level's text style, bold |
 
@@ -23,13 +24,18 @@ The one colour to write is that accent, a role or one `light-dark(light, dark)` 
 page, card or text colour is a role (a card on a plain page `-exact-secondary-background`,
 text `-exact-label`) or unsaid: a hex stays the same in dark mode while the controls change.
 
-- `buttonStyle="bordered-prominent"` once a screen, for the action people came for;
-  `destructive=true` on anything that deletes, asked first with a `dialog
+- `destructive=true` on anything that deletes, asked first with a `dialog
   role="alertdialog"`; `list appearance="auto" listStyle="inset-grouped"` of `section`s
   for settings.
-- **Use a wide window:** a phone's column centred on a desktop is "a stretched phone UI".
-  `resource viewport = exactViewport() as shape Viewport` (`width: number`), `derive wide
-  = viewport.width >= 720`, and `when wide` chooses the composition. A list beside its
-  detail, which a phone pushes, is `pattern list-detail`'s (its `wide`, the `when wide`
-  column): the selection is the router's, so it survives a resize, and the selected row
-  is the accent, not a painted box. Cards that wrap: [responsive-columns](responsive-columns.md).
+- **Compose for a wide window by what the content is.** One number and its actions (a
+  tracker, a timer): a focused column, centred, `max-width` a phone's width or a little more;
+  stretched to the window, its buttons sit at the two edges with a gap between. A list and its
+  detail, or a dashboard of cards: two columns. A root tab bar is a sidebar and a list whose
+  rows push (the `forward-chevron`) sits beside its detail, with nothing to write
+  ([tabs](tabs.md), [navigation-stack](navigation-stack.md)); wrapping cards and a layout
+  chosen by width (`exactViewport()`): [responsive-columns](responsive-columns.md).
+- **A route is a page.** The tab's title is the route `header`'s heading (a `head`'s
+  `title` wins), focus moves to it on a push and back to the row on Back, a sheet is a dialog
+  to a screen reader, a tab bar and a menu take arrow keys: nothing to write. A row that only
+  navigates is a `link href=path(…)`, not a `button` (a new tab, "Copy Link" and the status
+  bar's address work: [navigation-stack](navigation-stack.md)).

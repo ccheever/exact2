@@ -6,6 +6,7 @@
 // store and the walk are T3SavedEnvironments and T3Routes.swift.
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
+import { letGo } from './let-go';
 import {
   connectionRouteAddress, connectionRouteLabel, isLearned, mergeLearnedRoutes, registerRoute, reorderRoutes, routesAfterRemoving,
   savedRoutes, storedRoute, type ConnectionRoute, type RouteSshTarget,
@@ -20,8 +21,9 @@ async function call(native: Native, request: Obj) {
 }
 export async function savedList(native: Native): Promise<Obj[]> { return arr(obj((await call(native, { op: 'environments' })).value).saved); }
 export const savedEntry = (saved: Obj[], environmentId: string) => saved.find(entry => str(entry.environmentId) === environmentId);
-export async function writeRoutes(native: Native, environmentId: string, routes: ConnectionRoute[]): Promise<Obj[]> {
-  return arr(obj((await call(native, { op: 'setRoutes', environmentId, routes: routes.map(storedRoute) as unknown as Obj[] })).value).saved);
+/** The new routes, to the store and to the transport of that environment: the focused one, or the background one `fleet` names. */
+export async function writeRoutes(native: Native, environmentId: string, routes: ConnectionRoute[], fleet?: string): Promise<Obj[]> {
+  return arr(obj((await call(native, { op: 'setRoutes', environmentId, routes: routes.map(storedRoute) as unknown as Obj[], ...(fleet ? { fleet } : {}) })).value).saved);
 }
 
 /**
@@ -45,17 +47,20 @@ type FocusLike = { environmentId: string; connection?: string; config?: Obj };
 /**
  * learnRoutesFrom: after each server config, the addresses it reports (directEndpoints) become
  * learned routes that borrow the credential of the route in use. Runs for the focused
- * environment and every connected background one; writes only when the routes change.
+ * environment and every connected background one; writes only when the routes change. The
+ * write goes to that environment's own transport, which checks at once whether a learned route
+ * now ranks above the one in use and moves to it with the borrowed credential (supervisor.ts
+ * requestBetterRouteCheck after learnRoutesFrom; network-routes-followups NR-1).
  */
 export async function learnRoutes(native: Native, fleet: Learner, focused: FocusLike): Promise<void> {
-  const connected: { environmentId: string; config: Obj; activeRouteId: string }[] = [];
+  const connected: { environmentId: string; config: Obj; activeRouteId: string; fleet?: string }[] = [];
   if (focused.environmentId && focused.connection === 'connected' && focused.config && Array.isArray(focused.config.directEndpoints)) {
     // The focused transport names the route it connected over in its status.
     const status = await bridgeReply(native, { op: 'status' });
     if (status.ok) connected.push({ environmentId: focused.environmentId, config: focused.config, activeRouteId: str(obj(status.value).activeRouteId) });
   }
-  for (const entry of fleet.entries.values()) {
-    if (entry.phase === 'connected' && Object.keys(entry.config).length) connected.push({ environmentId: entry.environmentId, config: entry.config, activeRouteId: str(entry.activeRouteId) });
+  for (const [key, entry] of fleet.entries) {
+    if (entry.phase === 'connected' && Object.keys(entry.config).length) connected.push({ environmentId: entry.environmentId, config: entry.config, activeRouteId: str(entry.activeRouteId), fleet: key });
   }
   for (const live of connected) {
     const reported = arr(live.config.directEndpoints).map(endpoint => ({ httpBaseUrl: str(endpoint.httpBaseUrl) })).filter(endpoint => endpoint.httpBaseUrl);
@@ -66,7 +71,12 @@ export async function learnRoutes(native: Native, fleet: Learner, focused: Focus
     const activeRoute = routes.find(route => route.id === live.activeRouteId);
     if (!activeRoute) continue;
     const next = mergeLearnedRoutes({ entry: { environmentId: live.environmentId, label: str(saved.label), routes }, activeRoute, reported, allowInsecure: true });
-    if (next) fleet.saved = await writeRoutes(native, live.environmentId, next);
+    if (!next) continue;
+    // One environment's failed write (its fleet transport stopped since the pass read it: "That environment is not
+    // connected.") leaves the others to learn; the next pass learns its routes again (the reference learns per
+    // environment, supervisor.ts learnRoutesFrom).
+    try { fleet.saved = await writeRoutes(native, live.environmentId, next, live.fleet); }
+    catch (error) { if (letGo(error)) throw error; }
   }
 }
 

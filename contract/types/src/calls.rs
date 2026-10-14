@@ -7,7 +7,7 @@ use contract_syntax::inline::calls::{shown, MARK};
 use contract_syntax::{one_spelling_edit, Component, Expr, Span, Stmt, TemplatePart};
 
 /// The prefix of a lifted action's capture parameters.
-const CAPTURE: &str = "@capture:";
+pub(crate) const CAPTURE: &str = "@capture:";
 
 /// The action `e` calls for its value, if it is a call of an action, an
 /// action prop or an injected action: what `infer` would type as an action
@@ -249,6 +249,23 @@ pub(super) fn check(
     arg_types(name, given, &own[*curried..], scope, shapes)
 }
 
+/// Whether this action can refine a callee, following the same statement
+/// positions as `each_call`, never a call's body (the callee's own).
+fn has_call(body: &[Stmt]) -> bool {
+    body.iter().any(|stmt| match stmt {
+        Stmt::Call { .. } => true,
+        Stmt::If {
+            then, otherwise, ..
+        } => has_call(then) || has_call(otherwise),
+        Stmt::Match { some, none, .. } => has_call(&some.1) || has_call(none),
+        Stmt::Let { .. }
+        | Stmt::Assign { .. }
+        | Stmt::Command { .. }
+        | Stmt::Send { .. }
+        | Stmt::Refresh { .. } => false,
+    })
+}
+
 /// Each call in `body` (not in a call's body: that is its callee's own),
 /// with the scope where it stands: what [`refine`] types parameters from.
 fn each_call<'b>(
@@ -298,6 +315,9 @@ fn each_call<'b>(
 pub(super) fn refine(c: &Component, ct: &mut ComponentTypes, types: &Types) {
     let shapes = &types.shapes;
     for ai in 0..c.actions.len() {
+        if !has_call(&c.actions[ai].body) {
+            continue;
+        }
         let mut scope = types.component_scope(c, ct);
         scope.push(
             c.actions[ai]
@@ -381,6 +401,14 @@ pub(super) fn unknown_function(
         return TypeError {
             id: "type-refused-idiom",
             message: why,
+            span,
+        };
+    }
+    // @ref LLP 1116.014 D1 — an `empty()` outside a resource's `else` is a list's `[]`.
+    if name == crate::placeholder::EMPTY {
+        return TypeError {
+            id: "type-unknown-function",
+            message: "write `[]` for an empty list; `empty()` is only a resource's `else`".into(),
             span,
         };
     }

@@ -85,6 +85,14 @@
     {"input": "/.//x/y", "expected": "//x/y"}
   ],
   "location_of": [
+    {"input": "https://example.com\\thread\\42", "expected": "/thread/42"},
+    {"input": "https:\\\\example.com\\thread", "expected": "/thread"},
+    {"input": "app:/thread/42", "expected": "//thread/42"},
+    {"input": "app:///thread/42", "expected": "//thread/42"},
+    {"input": "file:///tmp/x", "expected": "//tmp/x"},
+    {"input": "app://line\u2028break", "expected": "/line%E2%80%A8break"},
+    {"input": "/reports/q3|q4", "expected": "/reports/q3%7Cq4"},
+    {"input": "https://exa mple.com/thread/42", "expected": "/thread/42"},
     {"input": "https://interview.app/post/42?x=1#frag", "expected": "/post/42?x=1"},
     {"input": "interview://post/42", "expected": "/post/42"},
     {"input": "interview://", "expected": "/"},

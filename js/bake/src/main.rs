@@ -35,6 +35,10 @@ fn main() -> ExitCode {
                 .source_map
                 .or_else(|| development_map(Path::new(app), &baked.plan));
             baked.write_new(Path::new(output))?;
+            // stdout is the receipt; the compiler's warnings go beside it.
+            for warning in &baked.warnings {
+                eprintln!("{warning}");
+            }
             println!("{}", baked.receipt);
             Ok(())
         },

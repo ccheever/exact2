@@ -46,6 +46,7 @@ fn fixture() -> (Host<Rows>, ReorderBinding) {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: Some(h.runner.kernel().node_by_key(handle).unwrap().id),
             measurements: c
@@ -230,6 +231,7 @@ fn refused_missing_source_pin_does_not_advance_clock_or_take_property() {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         measurements: vec![],
         focus_view: None,
         interaction_view: None,
@@ -392,6 +394,7 @@ fn remeasure(h: &mut Host<Rows>, b: ReorderBinding, source: f64) {
         port_cross: 320.,
         port_main: 100.,
         cross: 320.,
+        padding: [0.0; 2],
         focus_view: None,
         interaction_view: Some(h.runner.kernel().node_by_key(b.handle).unwrap().id),
         measurements: c
@@ -433,6 +436,9 @@ fn a_float_noise_remeasure_of_the_translated_source_keeps_the_preview() {
 struct Board(Vec<(String, String)>);
 impl DataSource for Board {
     fn query(&mut self, name: &str, args: &[DataValue]) -> Result<DataValue, DataError> {
+        if name == "fail" {
+            return Err(DataError::UnknownSource(name.into()));
+        }
         if name == "move" {
             let item = args[0].as_str().unwrap().to_owned();
             let at = self.0.iter().position(|(id, _)| *id == item).unwrap();
@@ -496,6 +502,7 @@ fn op_21_moves_the_gap_into_another_grouped_list_and_drops_there() {
                 port_cross: 100.,
                 port_main: 100.,
                 cross: 100.,
+                padding: [0.0; 2],
                 focus_view: None,
                 interaction_view: c.rows.iter().any(|r| r.root == pin).then_some(pin),
                 measurements: c
@@ -575,14 +582,136 @@ fn op_21_moves_the_gap_into_another_grouped_list_and_drops_there() {
         r.contains("\"certified\":true") && r.contains(&format!("\"target\":{view}")),
         "{r}"
     );
-    let r = h.reorder_motion(&wire(&h, 17, 0, target, true, 5.));
+    assert!(
+        r.contains("\"at\":100"),
+        "preview must use the packet clock: {r}"
+    );
+    let mut drop = wire(&h, 17, 0, target, true, 5.);
+    drop[168..176].copy_from_slice(&20_000f64.to_le_bytes());
+    let r = h.reorder_motion(&drop);
     assert!(
         r.contains("\"dispatched\":true") && r.contains("\"ending\":\"landed\""),
         "{r}"
     );
     assert_eq!(h.runner.slot("log"), Some(&DataValue::str("a1 a>b")));
-    accepted(&h.reorder_motion(&wire(&h, 20, 0, b.list, false, 0.)));
+    assert_eq!(h.runner.now_ms(), 20_000.);
+    let mut finish = wire(&h, 20, 0, b.list, false, 0.);
+    finish[168..176].copy_from_slice(&20_010f64.to_le_bytes());
+    accepted(&h.reorder_motion(&finish));
     assert!(h.reorder_drags.active.is_none());
+}
+
+#[test]
+fn refused_group_drop_publishes_timer_receipts() {
+    crate::link::link_for_tests();
+    let source = BOARD.replace(
+        "  state log = \"\"",
+        "  state log = \"\"\n  state notice = \"Undo\"\n  task expire mount\n    after(1000, clearNotice)\n  action clearNotice\n    notice = \"\"",
+    ).replace("    send moved = move(item, \"b\")", "    send moved = fail()")
+        .replace("  view\n    row", "  view\n    column\n      text notice testId=\"notice\"\n      row")
+        .replace("\n      list id=", "\n        list id=")
+        .replace("\n        each c in", "\n          each c in")
+        .replace("\n          column reorderFor", "\n            column reorderFor");
+    let cards = [("a1", "a"), ("a2", "a"), ("b1", "b")]
+        .map(|(i, c)| (i.to_owned(), c.to_owned()))
+        .to_vec();
+    let (mut h, _) = Host::boot(
+        &contract::compile(&source).unwrap().encode(),
+        Board(cards),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let handle = h.runner.kernel().find_by_test_id("grip-a1")[0];
+    let pin = h.runner.kernel().node_by_key(handle).unwrap().id;
+    for _ in 0..3 {
+        for c in h.runner.collections() {
+            let f = CollectionFeedback {
+                view: c.view,
+                revision: c.revision,
+                scroll_sequence: c.scroll_sequence + 1,
+                offset: 0.,
+                port_cross: 100.,
+                port_main: 100.,
+                cross: 100.,
+                padding: [0.; 2],
+                focus_view: None,
+                interaction_view: c.rows.iter().any(|r| r.root == pin).then_some(pin),
+                measurements: c
+                    .rows
+                    .iter()
+                    .map(|r| RowMeasurement {
+                        view: r.view,
+                        epoch: r.epoch,
+                        size: 20.,
+                    })
+                    .collect(),
+            };
+            h.collection_feedback(&f.encode().unwrap());
+        }
+    }
+    let b = h.runner.reorder_binding(handle).unwrap();
+    let target = h.runner.kernel().find_by_test_id("b")[0];
+    let view = h.runner.kernel().node_by_key(target).unwrap().id;
+    let wire = |h: &Host<Board>, op: u32, list: NodeKey, record: bool, now: f64| {
+        let g = h.runner.reorder_geometry(list).unwrap();
+        let token = h
+            .reorder_drags
+            .active
+            .as_ref()
+            .map_or(0, |a| a.token.serial());
+        let mut v = Vec::new();
+        for n in [3u32, op] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [
+            h.reorder_drags.runtime,
+            motion_node(b.handle),
+            motion_node(b.list),
+            motion_node(b.wrapper),
+            motion_node(b.root),
+            b.row_epoch,
+            token,
+            g.revision,
+            g.scroll_sequence,
+        ] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [u32::from(record), u32::from(op == 15)] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [
+            g.scroll_top,
+            g.port_width,
+            g.port_height,
+            g.row_width,
+            g.total_extent,
+            5.,
+            0.,
+            0.,
+            0.,
+            0.,
+            now,
+        ] {
+            v.extend(n.to_le_bytes());
+        }
+        if record {
+            v.extend(u64::from(view).to_le_bytes());
+            v.extend(0u64.to_le_bytes());
+            v.extend(0f64.to_le_bytes());
+            v.extend(0f64.to_le_bytes());
+        }
+        v
+    };
+    accepted(&h.reorder_motion(&wire(&h, 15, b.list, false, 100.)));
+    accepted(&h.reorder_motion(&wire(&h, 21, target, true, 120.)));
+    let reply = h.reorder_motion(&wire(&h, 17, target, true, 2_000.));
+    assert!(reply.contains("\"accepted\":false"), "{reply}");
+    assert_eq!(h.runner.slot("notice"), Some(&DataValue::str("")));
+    assert!(
+        reply.contains("\"text\":\"\""),
+        "timer removal missing from batch: {reply}"
+    );
 }
 
 /// A row's first measurement at its estimate, after the list's first report,
@@ -613,6 +742,7 @@ fn a_first_measurement_at_the_estimate_publishes_the_grip_binding() {
             port_cross: 320.,
             port_main: 100.,
             cross: 320.,
+            padding: [0.0; 2],
             focus_view: None,
             interaction_view: None,
             measurements: if measured {

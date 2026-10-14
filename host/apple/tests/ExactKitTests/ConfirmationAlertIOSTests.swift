@@ -50,8 +50,9 @@ final class ConfirmationAlertIOSTests: XCTestCase {
     }
     /// An alertdialog popover `confirm` (2) opened by 1, with the given
     /// text rows (10…), actions (3…, the first destructive) and, if asked,
-    /// a hide-only Cancel (9).
-    private func confirmation(label: String?, texts: [String], actions: [String], cancel: Bool) -> (Presenter, UIViewController, Bool) {
+    /// a hide-only Cancel (9). `bareLead`: the first action is a button
+    /// its author drew (`appearance="none"`), with that style.
+    private func confirmation(label: String?, texts: [String], actions: [String], cancel: Bool, bareLead: [String: Any]? = nil) -> (Presenter, UIViewController, Bool) {
         var titles: [UInt32: String] = [9: "Cancel"]
         for (i, title) in actions.enumerated() { titles[UInt32(3 + i)] = title }
         let (p, controller, scene) = presenting(titles)
@@ -70,6 +71,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         }
         for i in actions.indices {
             ops += native(3 + i, closes.merging(i == 0 ? ["destructive": "true"] : [:]) { $1 }, y: Double(40 * i))
+            if i == 0, let bareLead { ops[ops.count - 2] = ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "props": closes, "style": bareLead] }
             children.append(3 + i)
         }
         if cancel { ops += native(9, closes, press: false, y: 160); children.append(9) }
@@ -106,6 +108,33 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         unsafeBitCast(block, to: Handler.self)(action)
     }
 
+    func testHideThenShowDuringDismissalKeepsCommandOrderAndCoalescesToggle() throws {
+        let (p, controller, scene) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true)
+        defer { dismiss(p, controller) }
+        let pop = try XCTUnwrap(p.views[2])
+        pop.handlers.insert("toggle")
+        var events: [String] = []
+        p.onClipboard = { _, _, payload in events.append(payload) }
+        p.menus.action("showPopover", ["confirm"])
+        spin(20) { events.count == 1 && (!scene || !p.menus.inTransition) }
+        let first = try XCTUnwrap(controller.presentedViewController)
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "logical visibility closes immediately")
+        p.menus.action("showPopover", ["confirm"])
+        XCTAssertTrue(p.menus.isOpen(pop), "show follows hide before animation completes")
+        let turn = expectation(description: "the command batch's toggle task")
+        DispatchQueue.main.async { turn.fulfill() }
+        wait(for: [turn], timeout: 20)
+        XCTAssertEqual(events, ["closed,open", "open,open"])
+        if scene {
+            spin(20) { !p.menus.inTransition && controller.presentedViewController !== first }
+            XCTAssertNotNil(controller.presentedViewController)
+            XCTAssertTrue(p.menus.isOpen(pop))
+        }
+        p.menus.action("hidePopover", ["confirm"])
+        XCTAssertFalse(p.menus.isOpen(pop), "a later hide cancels a queued reopen too")
+    }
+
     /// "Remove book?" — the shape of React Native's `Alert.alert`: a
     /// centred alert, titled by the label, its text the message, the
     /// destructive action and the Cancel both drawn.
@@ -113,6 +142,7 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         let (p, controller, scene) = confirmation(label: "Remove book?", texts: ["\u{201C}Piranesi\u{201D} will be removed."], actions: ["Remove"], cancel: true)
         defer { dismiss(p, controller) }
         XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true, "its invoker opens it")
+        XCTAssertEqual(p.openTopLayerFrames.map(\.0), [2], "the structural read sees the native confirmation as open")
         let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
         XCTAssertEqual(alert.preferredStyle, .alert)
         XCTAssertEqual(alert.title, "Remove book?")
@@ -126,6 +156,26 @@ final class ConfirmationAlertIOSTests: XCTestCase {
         print("alert: \(box) in \(window!.bounds)")
         XCTAssertEqual(box.midX, window!.bounds.midX, accuracy: 2, "centred")
         XCTAssertEqual(box.midY, window!.bounds.midY, accuracy: 40, "centred")
+    }
+
+    /// LLP 1115.000 D2: an alert has one tint, the colour its first action's
+    /// author wrote on it, a platform colour as much as a literal. A colour
+    /// the action only inherits leaves UIKit's (LLP 1115 D4).
+    func testAnAlertsTintIsTheColourItsFirstActionsAuthorWrote() throws {
+        let red: [String: Any] = ["sys": "systemRedColor", "c": [[255, 56, 60, 255], [255, 66, 69, 255]]]
+        func tint(_ lead: [String: Any]) throws -> [CGFloat] {
+            let (p, controller, _) = confirmation(label: "Keep?", texts: ["A message."], actions: ["Keep"], cancel: true, bareLead: lead)
+            defer { dismiss(p, controller) }
+            XCTAssertEqual(p.menus.activate(try XCTUnwrap(p.views[1])), true)
+            let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+            var (r, g, b, a): (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+            XCTAssertTrue(try XCTUnwrap(alert.view.tintColor).getRed(&r, green: &g, blue: &b, alpha: &a))
+            return [r, g, b]
+        }
+        let written = try tint(["text_color": red, "written": ["text_color"]])
+        XCTAssertTrue(written[0] > 0.9 && written[1] < 0.4 && written[2] < 0.4, "the platform's red its author wrote: \(written)")
+        let inherited = try tint(["text_color": red])
+        XCTAssertFalse(inherited[0] > 0.9 && inherited[2] < 0.4, "the same red, only inherited, leaves UIKit's tint: \(inherited)")
     }
 
     /// Without a label, the first line titles the alert and the rest is

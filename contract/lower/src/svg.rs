@@ -440,9 +440,9 @@ impl Lowerer<'_> {
                         .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
                         .or_else(|| {
                             colour
-                                .then(|| crate::values::role_hint(&value))
+                                .then(|| crate::edits::role_hint(&value, true))
                                 .flatten()
-                                .map(|h| h.trim_start_matches("; ").to_string())
+                                .map(|edit| edit.clause())
                         });
                     if let Some(hint) = hint {
                         ok = false;
@@ -823,6 +823,7 @@ impl Lowerer<'_> {
             name: "animation".into(),
             value,
             span: first.span,
+            written: longs.iter().chain(short.iter()).any(|a| a.written),
         });
         Ok(Some(out))
     }
@@ -898,8 +899,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                 };
                 Attr {
                     name: name.into(),
-                    value: a.value.clone(),
-                    span: a.span,
+                    ..a.clone()
                 }
             })
             .collect();
@@ -919,8 +919,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                 };
                 Attr {
                     name: name.into(),
-                    value: a.value.clone(),
-                    span: a.span,
+                    ..a.clone()
                 }
             })
             .collect();
@@ -951,9 +950,8 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                         unreachable!("unitless is a string")
                     };
                     return Attr {
-                        name: a.name.clone(),
                         value: Expr::Number(exact_num::parse_f64(t.trim()).unwrap_or(0.0), *span),
-                        span: a.span,
+                        ..a.clone()
                     };
                 }
                 if !is_length_prop(&a.name) {
@@ -964,11 +962,7 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                     Expr::Number(n, span) => Expr::Str(exact_num::Shortest(*n).to_string(), *span),
                     other => Expr::Template(vec![TemplatePart::Expr(other.clone())], a.span),
                 };
-                Attr {
-                    name: a.name.clone(),
-                    value,
-                    span: a.span,
-                }
+                Attr { value, ..a.clone() }
             })
             .collect(),
     )
