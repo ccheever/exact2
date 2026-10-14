@@ -88,6 +88,10 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=run("flow", item.target, item.extra))
         when item.kind == "terminal-close"
           ShortcutButton(item=item, press=closeTerminal(item.target, item.extra, item.label))
+        // terminal-links-and-close G1-4: while a terminal close confirm is open its chord runs nothing ("ui:refuse" is no
+        // window op), and holding the chord keeps it from the window's Close (keyboard-dispatch.ts refuseTerminalClose).
+        when item.kind == "refuse"
+          ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))
         when item.kind == "command"
           ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
         when item.kind == "settings"
