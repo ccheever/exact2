@@ -3,11 +3,11 @@ name: 20261014-css-workaround-retirements
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-css-workaround-retirements
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/577
 verified_commit: null
 ---
 
@@ -565,7 +565,11 @@ recorded above as known differences; the runtime rows stay as the drive table sa
 
 ## Next action
 
-Implemented, checked and driven once on 2026-10-14 (above); verification stays unverified. The final real-input
-session takes the bottom-edge popup by physical input and the pending card's Discard by a real click. The KW-4
-ground dismissal needs a pooled-limits fixture again, and the unresolved chip needs a thread that already holds an
-unresolved reference. Follow-up 7, `timeline-and-window-hooks`, waits for this task's merge.
+Merged as [#577](https://github.com/ccheever/exact2/pull/577), feature commit
+`6ef85eb1c` (squash). The task stays unverified for the bottom-edge popup by physical
+input, the pending card's Discard by a real click, the KW-4 ground dismissal (the pooled-limits
+fixture no longer exists), the unresolved chip and large popovers at 840×620. Known
+differences: the filter menu cuts "All projects" to "All proje…"; plain textareas use the muted
+placeholder colour; themed fields use `pal.muted` at full strength; a popover that fits on no
+side runs past the window edge. Follow-up 7, `timeline-and-window-hooks`, starts from this
+feature head.
