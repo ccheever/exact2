@@ -39,6 +39,7 @@ const GUARDED: Record<string, string> = {
   'pages-usage-dialogs.contract dialogId': 'usage-dialog',
   'pages-welcome.contract "welcome-dialog"': 'welcome',
   'palette.contract view.testId': 'palette', // CommandPaletteBody, then PaletteDialog (link-pr), below
+  'palette.contract "pull-request-thread-picker"': 'pr-thread-picker', // PaletteThreadPicker (pr-list-place-and-thread-picker PR-PICKER)
   'providers-wizard.contract "add-provider-dialog"': 'add-provider',
   'providers-wizard.contract "usage-hub-dialog"': 'usage-hub',
   'providers-wizard.contract "usage-hub-remove-dialog"': 'usage-hub-remove',
@@ -376,7 +377,8 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     'browser-profiles.contract "browser-profile-remove-dialog"': 'task removalFocus',
     'browser-profiles.contract `browser-import-step-${wizard.step}`': 'task importWizardStepFocus',
   };
-  const opens = (line: string) => /^DialogOpenFocus\(target=(.*)\)$/.exec(line.trim())?.[1];
+  // A field that opens with its text selected takes the focus the same way (dialog-trap.contract FieldOpenSelect).
+  const opens = (line: string) => { const m = /^(?:DialogOpenFocus\(target=(.*)\)|FieldOpenSelect\(target=(.*?), length=.*\))$/.exec(line.trim()); return m ? m[1] ?? m[2] : undefined; };
 
   test('DialogOpenFocus moves the focus to its target once, at the popup\'s first layout, and again only after it was hidden', () => {
     const trap = source('dialog-trap.contract');
@@ -453,6 +455,7 @@ describe('every modal dialog gives the focus back as it closes (Base UI\'s final
     'pages-usage-dialogs.contract dialogId': { final: ['app-main.contract', '(usage.detail.open ? `usage-model-${usage.detail.key}` : "usage-environment")'] },
     'pages-welcome.contract "welcome-dialog"': { none: 'it opens at launch, before anything holds the focus' },
     'palette.contract view.testId': { own: ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'] },
+    'palette.contract "pull-request-thread-picker"': { own: ['app.contract', 'focus(palettePage == "pr-link-thread" ? "pull-request-more"'] },
     'providers-wizard.contract "add-provider-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
     'providers-wizard.contract "usage-hub-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },
     'providers-wizard.contract "usage-hub-remove-dialog"': { final: ['app-settings.contract', '(providerDialog == "hub" ? "add-usage-hub" : (providerDialog == "hub-remove" ? `remove-usage-hub-${providerTarget}` : "add-provider"))'] },

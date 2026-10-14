@@ -141,13 +141,13 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // The popover lies in the chat column under the floating player (the reference's popover sits below the player;
     // z-index orders siblings here), not in the window's overlays.
     const column = await component('app-main.contract', 'ChatColumn');
-    const popover = column.indexOf('when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen)) and scheme == "dark"\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
+    const popover = column.indexOf('when detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))\n        ThreadDetailsPanel(details=details, density=canvas.density, right=13,');
     expect(popover).toBeGreaterThan(0);
     expect(column.indexOf('R6DeviceMiniPlayer(')).toBeGreaterThan(popover);
     expect(column.indexOf('BrowserMiniPlayer(')).toBeGreaterThan(popover);
     // Over a right panel sheet (a narrow window) the window draws it, above the sheet, as the base did.
     const overlays = await component('app-overlays.contract', 'WindowOverlays');
-    expect(overlays).toContain('when detailsSheet and scheme == "dark"\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
+    expect(overlays).toContain('when detailsSheet\n      ThreadDetailsPanel(details=details, density=detailsDensity, right=13,');
     const window = await component('app-window.contract', 'T3Window');
     expect(window).toContain('derive detailsSheet = detailsOpen and narrowDiff and (rightPanel or shell.panel.open or data.diffOpen)');
     expect(window).toContain('detailsSheet=detailsSheet, detailsDensity=canvas.density');
@@ -178,13 +178,13 @@ describe('DP-2: the card becomes the header\'s popover where no placement is lef
     // The column's z-index lays it, and so the popover, over the terminal drawer under it (the reference's popover is
     // portaled over the drawer), at the reference's height (100dvh − 6.5rem); its backdrop reaches the window's foot.
     expect(column).toContain('    column flex=1 min-width=0 min-height=0 height="100%" position="relative" z-index=1 inert=pageCover hatch="t3-frame" data-frame="chat"');
-    expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104),').length - 1).toBe(2);
-    expect(overlays.split('ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0,').length - 1).toBe(2);
+    expect(column.split('ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104),').length - 1).toBe(1);
+    expect(overlays.split('ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0,').length - 1).toBe(1);
     expect(layer).toContain('box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"');
     const stack = under(window, 'column flex=1 min-width=0 height="100%" // terminal-drawer');
     expect([stack.findIndex(line => line.includes('ChatColumn(')), stack.findIndex(line => line.includes('TerminalDrawer('))]).toEqual([0, 1]);
     // The header's button is pressed for the presentation it toggles (selectThreadPanelOpen).
-    expect(column.split('detailsOpen=(detailsOpen or (details.inline and canvas.cardShown))').length - 1).toBe(2);
+    expect(column.split('detailsOpen=(detailsOpen or (details.inline and canvas.cardShown))').length - 1).toBe(1);
     expect(column).toContain('ThreadDetailsInline(details=details, density=canvas.density,');
     // The popover's menus take its inner width, not the docked card's.
     const body = await component('shell-details.contract', 'DetailsBody');

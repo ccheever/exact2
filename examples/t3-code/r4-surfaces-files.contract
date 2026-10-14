@@ -26,8 +26,7 @@ use kmKeyEnd from "./menu-keys.contract"
 use kmArrow from "./menu-keys.contract"
 use kmEndKeyed from "./menu-keys.contract"
 
-// The surface body under the panel's tab bar. Rebuilt per scheme so SVG glyphs
-// resolve their light-dark() side (file icons, chevrons).
+// The surface body under the panel's tab bar; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88) (file icons, chevrons).
 component R4FilesBody
   props
     files: R4Files
@@ -38,10 +37,7 @@ component R4FilesBody
     local: action
     searchFocus: action
   view
-    when scheme == "dark"
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
-    else
-      R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
+    R4FilesSurface(files=files, documents=documents, scheme=scheme, sheet=sheet, local=local, searchFocus=searchFocus)
 
 component R4FilesSurface
   props

@@ -230,7 +230,7 @@ describe('#298 bugs 6 and 5: Escape goes to the palette over Custom snooze, and 
     expect(dialog).toContain('aria-keyshortcuts=(covered ? "" : "Escape") testId="snooze-cancel"');
     expect(await source('sidebar-overlays.contract')).toContain('SidebarSnoozeDialog(data=data, busy=busy, covered=covered, local=local, run=run)');
     const window = await source('app-window.contract');
-    expect(window.split('covered=paletteOpen)').length - 1).toBe(2);
+    expect(window.split('covered=paletteOpen)').length - 1).toBe(1);
   });
 
   test('a sidebar dialog takes the focus at its first stop again as the palette over it closes', async () => {

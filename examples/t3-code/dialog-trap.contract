@@ -50,6 +50,25 @@ component DialogOpenFocus
   view
     box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
 
+// A field that opens with its text selected (PullRequestThreadDialog's open effect, `requestAnimationFrame(() => { focus();
+// select(); })`; RightPanelTabs' rename input, `focus(); select()` as it mounts): DialogOpenFocus's first layout, which
+// then selects the field's whole text with `setSelectionRange` (main 48755525c), so the first key typed replaces it.
+// `length` is the text's length as it opened. It stands where a dialog's DialogOpenFocus would (dialog-trap.test.ts).
+component FieldOpenSelect
+  props
+    target: string
+    length: number
+  state opened = false
+  action laidOut(width: number, height: number)
+    if width == 0 or height == 0
+      opened = false
+    else if not opened
+      opened = true
+      focus(target)
+      setSelectionRange(target, 0, length)
+  view
+    box aria-hidden=true resize=laidOut position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none"
+
 // Base UI's Dialog gives the focus back as it closes (FloatingFocusManager's `returnFocus`, DialogPopup's `finalFocus`
 // left at its default): to its trigger, else to what held the focus as it opened. The clone's popup goes with its `when`,
 // and the focus inside it with it, so a keyboard user was left with nothing focused. A DialogFinalFocus stands beside

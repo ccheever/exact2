@@ -136,7 +136,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     // useNavigateBack: the Usage page and both Pull Requests Backs go to the page before (pageBack), not straight home.
     const cover = await component('app-main.contract', 'PagesCover');
     expect(cover).not.toContain('openPage(""');
-    expect(cover.split('\n').filter(line => /UsagePage\(|PrList\(|PrPanel\(/.test(line)).map(line => /back=pageBack[,)]/.test(line))).toEqual([true, true, true, true, true]);
+    expect(cover.split('\n').filter(line => /UsagePage\(|PrList\(|PrPanel\(/.test(line)).map(line => /back=pageBack[,)]/.test(line))).toEqual([true, true, true]);
     const root = await source('app.contract');
     expect(root).toContain('  action openPage(name: string)\n    pageTrailNote(name)\n    utilityPage = name');
     expect(root).toContain('      if op != "thread-pull-requests"\n        pageTrailNote(op)\n      utilityPage = op == "thread-pull-requests" ? utilityPage : op');
