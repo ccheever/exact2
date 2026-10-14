@@ -374,9 +374,18 @@ pub(crate) fn painted_override(c: ColorValue) -> Option<ColorValue> {
     } else {
         id
     };
-    // Never a tint role again (the compiler refuses one as the tint; a
-    // built plan that names one is read as no override).
-    overridden(id).filter(|o| !matches!(o, ColorValue::Role(r) if *r == id || tint(*r)))
+    match overridden(id).filter(|o| *o != ColorValue::Role(id))? {
+        // A role replaced by a tint role is the tint: the theme's when it sets
+        // one. The tint itself never names one (the compiler refuses it; a
+        // built plan that does is read as no override, so nothing recurses).
+        ColorValue::Role(r) if tint(r) => match id == accent {
+            true => None,
+            false => overridden(accent)
+                .filter(|a| !matches!(a, ColorValue::Role(t) if tint(*t)))
+                .or(Some(ColorValue::Role(r))),
+        },
+        o => Some(o),
+    }
 }
 
 /// `AccentColor`'s id.

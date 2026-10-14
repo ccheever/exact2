@@ -454,7 +454,7 @@ fn theme_map(plan: &Plan) -> Option<String> {
     // name inside one (a `light-dark()` half, LLP 1095 D1); a gradient's
     // stops and a shadow's colour are components, read as names.
     Some(format!(
-        r#"((N,R)=>v=>typeof v==="string"?v.replace(/(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)|url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t):v)({{{}}},{{{}}})"#,
+        r#"((N,R)=>{{const F=/(?<![-\w])(?:light-dark|color-mix|rgba?|hsla?|hwb|lab|lch|oklab|oklch|color|-exact-platform-color)\(/gi,T=/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-￿]+\(?/gi,M=s=>s.replace(T,t=>Object.hasOwn(N,t)?N[t]:Object.hasOwn(R,t.toLowerCase())?R[t.toLowerCase()]:t);return v=>{{if(typeof v!=="string")return v;let o="",at=0,m;F.lastIndex=0;while((m=F.exec(v))){{let d=1,j=F.lastIndex;while(j<v.length&&d){{const c=v[j++];if(c==="(")d++;else if(c===")")d--}}o+=M(v.slice(at,m.index))+v.slice(m.index,j);at=j;F.lastIndex=j}}return o+M(v.slice(at))}}}})({{{}}},{{{}}})"#,
         names.join(","),
         roles.join(",")
     ))
@@ -973,6 +973,8 @@ pub(crate) mod tests {
             "#123456",
             "AccentColor",
             "light-dark(brand, #000)",
+            "light-dark(rgb(0 0 0 / calc((1))), brand)",
+            "linear-gradient(brand, #000)",
         ];
         assert_eq!(
             run(&color_map(&plan), &values),
@@ -988,7 +990,9 @@ pub(crate) mod tests {
                 // The tint's role stays itself, under an authored accent too;
                 // no name is read inside a colour function.
                 run(&SYSTEM_COLOR_MAP, &["AccentColor"])[0].clone(),
-                "light-dark(brand, #000)"
+                "light-dark(brand, #000)",
+                "light-dark(rgb(0 0 0 / calc((1))), brand)",
+                "linear-gradient(#c8102eff, #000)"
             ])
         );
     }

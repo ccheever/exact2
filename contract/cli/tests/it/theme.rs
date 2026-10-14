@@ -188,6 +188,7 @@ fn a_theme_is_checked_where_it_is_declared() {
         ("  none = \"#000\"\n", "lower-theme-name"),
         ("  inherit = \"#000\"\n", "lower-theme-name"),
         ("  top = \"#000\"\n", "lower-theme-name"),
+        ("  srgb = \"#000\"\n", "lower-theme-name"),
         ("  AccentColor = \"LinkText\"\n", "lower-theme-tint"),
     ] {
         let src = format!("theme\n{body}\ncomponent App\n  view\n    text \"a\"\n");
@@ -344,5 +345,16 @@ fn a_refused_boot_keeps_the_threads_overrides() {
     assert_eq!(
         colour(&kept, "t", StyleId::TextColor).resolve(false),
         Color::parse("#010101").unwrap()
+    );
+}
+
+/// A role replaced by a tint role is the tint: under the theme's
+/// `AccentColor`, unsaid text that names `LinkText` paints the accent.
+#[test]
+fn a_role_replaced_by_a_tint_role_paints_the_tint() {
+    let r = boot("theme\n  CanvasText = \"LinkText\"\n  AccentColor = \"#ff0000\"\n\ncomponent App\n  view\n    text \"a\" testId=\"t\"\n");
+    assert_eq!(
+        colour(&r, "t", StyleId::TextColor).resolve(false),
+        Color::parse("#ff0000").unwrap()
     );
 }
