@@ -14,7 +14,8 @@
 //! connection for a worker just freed — for as long as it kept sending; a
 //! worker closing its last connection was held the same way while it
 //! counted as free. One thread waits on all of them at once (`poll`)
-//! instead, and nothing it does is seen by a client: the answer and the end
+//! instead (`WSAPoll` on Windows), and nothing it does is seen by a client:
+//! the answer and the end
 //! of the stream have gone before a socket reaches it.
 //!
 //! What it holds is bounded: each socket for [`HOLD`] from its hand-off,
@@ -25,11 +26,22 @@
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
+#[cfg(windows)]
+use std::net::TcpListener;
 use std::net::{Shutdown, TcpStream};
+#[cfg(unix)]
 use std::os::fd::AsRawFd;
+#[cfg(unix)]
 use std::os::unix::net::UnixStream;
+#[cfg(windows)]
+use std::os::windows::io::AsRawSocket;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+
+#[cfg(unix)]
+type WakeStream = UnixStream;
+#[cfg(windows)]
+type WakeStream = TcpStream;
 
 /// How long a closing socket is held for its peer to close.
 const HOLD: Duration = Duration::from_secs(2);
@@ -89,7 +101,7 @@ struct Inbox {
 
 /// Hands connections to the closing thread.
 #[derive(Clone)]
-pub(crate) struct Closer(Arc<(Mutex<Inbox>, UnixStream)>);
+pub(crate) struct Closer(Arc<(Mutex<Inbox>, WakeStream)>);
 
 impl Closer {
     /// Close `stream`, whose answer is written: the server's half now, the
@@ -133,7 +145,7 @@ impl Closer {
 }
 
 /// Wake the thread from its `poll`: one byte, while none is already there.
-fn wake_thread(inbox: &mut Inbox, mut wake: &UnixStream) {
+fn wake_thread(inbox: &mut Inbox, mut wake: &WakeStream) {
     if !inbox.woken {
         inbox.woken = wake.write(&[0]).is_ok();
     }
@@ -147,7 +159,7 @@ pub(crate) struct Linger {
 
 impl Linger {
     pub(crate) fn start() -> std::io::Result<Linger> {
-        let (wake, woken) = UnixStream::pair()?;
+        let (wake, woken) = wake_pair()?;
         wake.set_nonblocking(true)?;
         woken.set_nonblocking(true)?;
         let inbox = Inbox {
@@ -189,7 +201,20 @@ impl Drop for Linger {
     }
 }
 
-fn run(inbox: &Mutex<Inbox>, mut woken: &UnixStream) {
+#[cfg(unix)]
+fn wake_pair() -> std::io::Result<(WakeStream, WakeStream)> {
+    UnixStream::pair()
+}
+
+#[cfg(windows)]
+fn wake_pair() -> std::io::Result<(WakeStream, WakeStream)> {
+    let listener = TcpListener::bind(("127.0.0.1", 0))?;
+    let wake = TcpStream::connect(listener.local_addr()?)?;
+    let (woken, _) = listener.accept()?;
+    Ok((wake, woken))
+}
+
+fn run(inbox: &Mutex<Inbox>, mut woken: &WakeStream) {
     let mut held = VecDeque::new();
     let mut fds = Vec::new();
     loop {
@@ -215,17 +240,44 @@ fn run(inbox: &Mutex<Inbox>, mut woken: &UnixStream) {
             let left = oldest.until.saturating_duration_since(now).as_millis();
             left as libc::c_int + 1
         });
+        #[cfg(unix)]
         let listen = |fd| libc::pollfd {
             fd,
             events: libc::POLLIN,
             revents: 0,
         };
+        #[cfg(windows)]
+        let listen = |fd| windows_sys::Win32::Networking::WinSock::WSAPOLLFD {
+            fd,
+            events: windows_sys::Win32::Networking::WinSock::POLLIN,
+            revents: 0,
+        };
         fds.clear();
-        fds.push(listen(woken.as_raw_fd()));
-        fds.extend(held.iter().map(|held| listen(held.stream.as_raw_fd())));
+        #[cfg(unix)]
+        {
+            fds.push(listen(woken.as_raw_fd()));
+            fds.extend(held.iter().map(|held| listen(held.stream.as_raw_fd())));
+        }
+        #[cfg(windows)]
+        {
+            fds.push(listen(woken.as_raw_socket() as _));
+            fds.extend(
+                held.iter()
+                    .map(|held| listen(held.stream.as_raw_socket() as _)),
+            );
+        }
         // SAFETY: `fds` is a live array of `fds.len()` entries, and each
         // names a socket this thread keeps open across the call.
+        #[cfg(unix)]
         let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, wait) };
+        #[cfg(windows)]
+        let ready = unsafe {
+            windows_sys::Win32::Networking::WinSock::WSAPoll(
+                fds.as_mut_ptr(),
+                fds.len() as u32,
+                wait,
+            )
+        };
         if ready < 0 {
             // Interrupted, or out of memory: the holds still run out.
             std::thread::sleep(Duration::from_millis(10));
