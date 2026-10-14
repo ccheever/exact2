@@ -821,7 +821,7 @@ browserCheck('a determinate progress is the accent over the system fill in light
 
 browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
   const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
-  const html = `<!doctype html><style>${css}</style><style>.authored {background-color:rgb(20,40,60)}</style>
+  const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>
