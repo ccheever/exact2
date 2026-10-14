@@ -20,6 +20,7 @@
 
 pub mod ast;
 mod clock;
+mod colours;
 pub mod fmt;
 pub mod idioms;
 pub mod inline;

@@ -99,6 +99,7 @@ extension BatchReader {
             case (.create, "kind"): op.kind = try string()
             case (.create, "props"), (.props, "set"): op.props = try strings()
             case (.create, "style"), (.style, "style"): op.style = try style()
+            case (.roles, "roles"): op.style = try values()
             case (.create, "handlers"): op.handlers = Set(try array { try $0.string() })
             case (.props, "clear"): op.clear = try array { try $0.string() }
             case (.paragraph, "runs"): op.runs = try array { try $0.inline() }
@@ -155,7 +156,7 @@ extension BatchReader {
 extension BatchOp {
     var isAdapter: Bool {
         switch op {
-        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy: return false
+        case .create, .props, .style, .children, .paragraph, .frame, .content, .present, .roots, .destroy, .roles: return false
         default: return true
         }
     }
@@ -223,6 +224,7 @@ struct BatchFields {
             op.w = try number("w") ?? 0; op.h = try number("h") ?? 0
             op.property = try string("property") ?? ""
         case .destroy: break
+        case .roles: op.style = try object("roles")
         default: op.payload = fields.mapValues(\.any)
         }
         return op

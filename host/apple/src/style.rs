@@ -523,6 +523,8 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// presenter resolves per view against its traits, and the fallback pair.
 /// A `-exact-platform-color()` with no name for this platform crosses as its fallback.
 pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
+    // @ref LLP 1095 D4 — a role the theme replaces crosses as what replaces it.
+    let c = c.themed();
     // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
     if let ColorValue::Profiled(id) = c {
         if let Some(p) = exact_kernel::style::profiled::profiled(id) {

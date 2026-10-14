@@ -1051,6 +1051,7 @@ public final class ExactSession {
             let payload = op.payload
             DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { authOp(payload) } }
         }
+        if ThemeRoles.apply(batch) { presenter.applyThemeTint() }
         presenter.apply(batch)
         if !batch.canvasImages.isEmpty { presenter.canvas2d.load(batch.canvasImages) }
         AnimatedRasters.shared.poke()

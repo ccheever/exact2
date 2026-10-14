@@ -475,6 +475,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         UICollectionViewCompositionalLayout { [weak self] index, environment in
             guard let self else { return nil }
             var c = UICollectionLayoutListConfiguration(appearance: model.appearance)
+            // The theme's grouped ground where it replaces the role (LLP 1095 D4).
+            if let ground = ThemeRoles.color("grouped-background") { c.backgroundColor = ground }
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
@@ -720,7 +722,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         let sides = [owner.channels("background_color", dark: false), owner.channels("background_color", dark: true)]
         if sides != skirtKey || view.backgroundColor == nil {
             skirtKey = sides
-            view.backgroundColor = UIColor { traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? .systemGroupedBackground }
+            view.backgroundColor = UIColor { traits in sides[traits.userInterfaceStyle == .dark ? 1 : 0].map(TextEngine.color) ?? ThemeRoles.color("grouped-background", or: .systemGroupedBackground) }
         }
         if view.superview !== container || container.subviews.firstIndex(of: view).map({ $0 > (container.subviews.firstIndex(of: viewport) ?? 0) }) == true {
             container.insertSubview(view, belowSubview: viewport)
@@ -792,7 +794,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // pressable standard row still shows UIKit's highlight while pressed.
         if card(of: id) {
             cell.configurationUpdateHandler = nil
-            cell.backgroundConfiguration = cell.defaultBackgroundConfiguration()
+            var card = cell.defaultBackgroundConfiguration()
+            if let fill = ThemeRoles.color("secondary-grouped-background") { card.backgroundColor = fill }
+            cell.backgroundConfiguration = card
         } else {
             let highlights = row.pressable && !row.custom && !row.disabled
             cell.configurationUpdateHandler = { cell, state in
@@ -826,16 +830,21 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // A `line-clamp` or a line kept whole, and the author's colour and
         // font, as outside a list (D7); a destructive row's own colour is
         // red where its author gave none.
+        // Where the author gave none, the theme's label colours (LLP 1095 D4).
+        if row.titleLook.color == nil, let ink = ThemeRoles.color("label") { c.textProperties.color = ink }
+        if row.secondaryLook.color == nil, let ink = ThemeRoles.color("secondary-label") { c.secondaryTextProperties.color = ink }
         row.titleLook.apply(to: &c.textProperties, engine: owner.text)
         row.secondaryLook.apply(to: &c.secondaryTextProperties, engine: owner.text)
         if row.destructive {
-            if row.titleLook.color == nil { c.textProperties.color = .systemRed }
-            c.imageProperties.tintColor = .systemRed
+            let red = ThemeRoles.color("system-red", or: .systemRed)
+            if row.titleLook.color == nil { c.textProperties.color = red }
+            c.imageProperties.tintColor = red
         }
         if row.disabled {
-            c.textProperties.color = .tertiaryLabel
-            c.secondaryTextProperties.color = .tertiaryLabel
-            c.imageProperties.tintColor = .tertiaryLabel
+            let gray = ThemeRoles.color("tertiary-label", or: .tertiaryLabel)
+            c.textProperties.color = gray
+            c.secondaryTextProperties.color = gray
+            c.imageProperties.tintColor = gray
         }
         cell.contentConfiguration = c
         cell.marginsIgnoreSafeArea()

@@ -432,7 +432,13 @@ fn theme_map(plan: &Plan) -> Option<String> {
             serde_json::to_string(&css).unwrap()
         ));
         let role = plan.str(row.role);
-        if !role.is_empty() {
+        // The tint's roles stay themselves (`ColorValue::themed`): the page's
+        // `--exact-accent` carries the theme's colour under an authored one.
+        let tint = exact_kernel::style::roles::role(role).is_some_and(|id| {
+            exact_kernel::style::roles::follows_accent(id, false)
+                || exact_kernel::style::roles::follows_accent(id, true)
+        });
+        if !role.is_empty() && !tint {
             roles.push(format!(
                 "{}:{}",
                 serde_json::to_string(&role.to_ascii_lowercase()).unwrap(),

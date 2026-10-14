@@ -478,6 +478,14 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
+        // The theme's label colour on the bar's titles (LLP 1095 D4); its
+        // glyphs take the app's tint, which the theme's `AccentColor` sets.
+        if let ink = ThemeRoles.color("label") ?? ThemeRoles.color("CanvasText") {
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+            #if !os(tvOS)
+            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+            #endif
+        }
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true

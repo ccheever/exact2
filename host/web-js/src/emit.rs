@@ -732,6 +732,8 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         js
     };
     let mut css = fonts.css.clone();
+    // @ref LLP 1095 D4 — the theme's reach into the host's own sheet.
+    css.push_str(&exact_kernel::style::roles::theme_css());
     css.push_str("#exact-root#exact-root{");
     for (i, c) in em.classes.iter().enumerate() {
         let _ = write!(css, ".c{}{{{c}}}", i + 1);

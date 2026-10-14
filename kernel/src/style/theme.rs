@@ -69,14 +69,21 @@ pub(crate) fn resolved<T>(text: &str, parse: impl FnOnce(&str) -> T) -> Option<T
         return None;
     }
     let table = ENTRIES.with(|e| e.borrow().clone())?;
-    let value = &table
+    let role_key = |name: &str| name.starts_with('-') || name.starts_with(char::is_uppercase);
+    let (key, value) = table
         .iter()
-        .find(|(name, _)| {
-            **name == *text
-                || (name.starts_with('-') || name.starts_with(char::is_uppercase))
-                    && name.eq_ignore_ascii_case(text)
-        })?
-        .1;
+        .find(|(name, _)| **name == *text || role_key(name) && name.eq_ignore_ascii_case(text))?;
+    // A role an Apple platform draws in the view's tint stays the role in
+    // its row: the host makes the theme's colour the app's tint, under which
+    // an authored `accent-color` still wins (`ColorValue::themed`). Asked
+    // only of a role's key the table holds, so other rows allocate nothing.
+    if role_key(key)
+        && super::roles::role(text).is_some_and(|id| {
+            super::roles::follows_accent(id, false) || super::roles::follows_accent(id, true)
+        })
+    {
+        return None;
+    }
     INSIDE.with(|i| i.set(true));
     struct Out;
     impl Drop for Out {

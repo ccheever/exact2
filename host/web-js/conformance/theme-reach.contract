@@ -1,0 +1,23 @@
+// Synthetic conformance plan: LLP 1095 D4's reach on the web. The theme
+// replaces the page's colour and ground (CanvasText, Canvas), the accent,
+// and a separator; unsaid text, a rule, an accent-coloured control and an
+// authored accent-color below (which wins for its subtree) read them on
+// both web targets alike.
+theme
+  CanvasText = "#5a1f2b"
+  Canvas = "#fbf3e9"
+  AccentColor = "#c8102e"
+  separator = "#d4a373"
+
+component ThemeReach
+  state on = true
+  action flip(checked: bool)
+    on = checked
+  view
+    column gap=8 padding=12
+      text "Unsaid" testId="unsaid"
+      hr
+      input type="checkbox" checked=on change=flip aria-label="On" testId="on"
+      column accent-color="#1083fe"
+        input type="checkbox" checked=on change=flip aria-label="Own" testId="own"
+        text "Link" testId="link" color="AccentColor"

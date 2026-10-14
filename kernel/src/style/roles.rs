@@ -291,6 +291,56 @@ pub fn set_overrides(next: Vec<(u8, ColorValue)>) -> bool {
     replaced
 }
 
+impl ColorValue {
+    /// What a host is sent for this colour: a role the theme replaces is
+    /// what replaces it (LLP 1095 D4), anything else itself.
+    ///
+    /// A role an Apple platform draws in the view's tint (`AccentColor`,
+    /// `LinkText`, a symbol's default) stays itself: a host makes the theme's
+    /// colour the app's tint, under which an authored `accent-color` still
+    /// wins for its subtree (LLP 1095 D1, the author over the design).
+    pub fn themed(self) -> ColorValue {
+        match self {
+            ColorValue::Role(id) if follows_accent(id, false) || follows_accent(id, true) => self,
+            ColorValue::Role(id) => overridden(id).filter(|o| *o != self).unwrap_or(self),
+            other => other,
+        }
+    }
+}
+
+/// The web's reach (LLP 1095 D4): the overridden roles as `:root` custom
+/// properties the host's own sheet reads (`--exact-<role>`, a CSS system
+/// colour's as `--exact-<name>` in lower case, `AccentColor` as
+/// `--exact-accent`, which an authored `accent-color` redeclares below),
+/// and the page's colour and ground where `CanvasText` and `Canvas` are
+/// replaced. Empty without overrides.
+pub fn theme_css() -> String {
+    let mut out = String::new();
+    for id in 0..=u8::MAX {
+        let Some(role) = role_of(id) else { break };
+        let Some(o) = overridden(id) else { continue };
+        let name = match role.name {
+            "AccentColor" => "accent".to_string(),
+            n if is_css_system(role) => n.to_ascii_lowercase(),
+            n => n.to_string(),
+        };
+        out.push_str("--exact-");
+        out.push_str(&name);
+        out.push(':');
+        crate::gradient::color_css(&mut out, o);
+        out.push(';');
+        match role.name {
+            "CanvasText" => out.push_str("color:var(--exact-canvastext);"),
+            "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
+            _ => {}
+        }
+    }
+    if out.is_empty() {
+        return out;
+    }
+    format!(":root{{{out}}}")
+}
+
 /// What the theme replaces a role with, if it does.
 pub fn overridden(id: u8) -> Option<ColorValue> {
     OVERRIDES.with(|t| {
@@ -456,14 +506,24 @@ pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
             };
             // @ref LLP 1095 D4 — a role the theme replaces crosses as what
             // replaces it, on the wire and in CSS.
+            // The browser's accent roles read the nearest `accent-color`
+            // first, so an authored one still wins; the theme's colour is
+            // what they fall back to.
+            let accent = mode == ColorText::Css && web_accent(r);
             match overridden(id) {
+                Some(o) if accent && !matches!(o, ColorValue::Role(_)) => {
+                    out.push_str("var(--exact-accent, ");
+                    crate::gradient::color_text(out, o, mode);
+                    out.push(')');
+                    return;
+                }
                 Some(ColorValue::Role(next)) if next != id => {
                     return reference_css(out, ColorValue::Role(next), mode)
                 }
                 Some(ColorValue::Role(_)) | None => {}
                 Some(o) => return crate::gradient::color_text(out, o, mode),
             }
-            if mode == ColorText::Css && web_accent(r) {
+            if accent {
                 let named = r.name != "AccentColor";
                 if named {
                     // An Exact role's name is lower case already.
