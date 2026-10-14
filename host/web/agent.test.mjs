@@ -707,7 +707,7 @@ function inputFixture() {
     removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
-  vm.runInContext(module.replace('export function', 'function') + '\n' + declaration('attach'), f);
+  vm.runInContext(module.replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput') + '\n' + declaration('attach'), f);
   f.attach(el, 7, ['pan']);
   function event(extra = {}) {
     return { isPrimary: true, button: 0, pointerId: 1, clientX: 0, clientY: 0,

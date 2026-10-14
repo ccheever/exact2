@@ -6,7 +6,7 @@ import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-const source = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8').replace('export function', 'function');
+const source = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8').replaceAll('export function', 'function').replace('export const agentInput', 'const agentInput');
 function page(chords) {
   const clicks = [], listeners = [];
   const buttons = chords.map(chord => ({ isConnected: true, disabled: false, getClientRects: () => [{}],
