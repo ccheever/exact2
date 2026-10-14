@@ -72,6 +72,7 @@ export async function assertWebDistApp(dist, app) {
 }
 const openWeb = async options => (await import('./agent-launch.mjs')).exclusiveWebStore(options, () => openWebUnlocked(options));
 async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall', lineHeight = null, port: fixed = null }) {
+  env = { ...process.env, ...env };
   if (!pageURL) await (await import('./agent-test.mjs')).backendPreflight(resolveApp(app), resolve(webDist ?? defaultWebDist()));
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');

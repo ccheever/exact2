@@ -16,6 +16,11 @@ for (const online of [false, true]) for (const mode of ['dev', 'serve']) test(`n
   const run = (command, args, cwd = project) => {
     const result = spawnSync(command, args, {cwd, env, encoding: 'utf8', timeout: 300_000});
     assert.equal(result.status, 0, `${command} ${args.join(' ')}\n${result.stdout}\n${result.stderr}`);
+    if (args.includes('test') && args.includes('web') && env.PORT_LO && env.PORT_HI) {
+      const page = /served at http:\/\/127\.0\.0\.1:(\d+)/.exec(result.stderr);
+      assert.ok(page, `test web did not report its page origin: ${result.stderr}`);
+      assert.ok(Number(page[1]) >= Number(env.PORT_LO) && Number(page[1]) <= Number(env.PORT_HI), `test web escaped its assigned range: ${page[1]}`);
+    }
     return result.stdout;
   };
   try {
