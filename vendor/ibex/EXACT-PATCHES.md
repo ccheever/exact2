@@ -293,24 +293,33 @@ own clean revisions.
 ### Windows render-host HTTP follow-up — 2026-10-14
 
 The completed follow-up at Exact
-`16347325632e431d7588764ef29be026f34419e7`, based on
-`a01c62241440300f3644ecde83592606262c58e7` and consuming Ibex
-`c4aa839ea35c3eef875de12309d048fa8df2123d`, closes the current Windows
+`b195e96dc953733589e54167286da92f59725389`, with current main
+`0d2d2e28e972ae5bf603105c794b45fecc6a2b08` merged and the vendored Ibex pin
+`e60b3e0570315f31710744c1187f3cec5574fedf`, closes the current Windows
 render-host boundary without changing Q's historical receipts. Windows now
 uses a private loopback TCP wake pair with WinSock `WSAPoll`; Unix keeps its
-existing `UnixStream` and `poll` path. Both retain LLP 1048.000 D10's two
-second deadline, 64 KiB read cap, 256 held-connection cap, bounded inbox,
-immediate half-close and `Stopper` drain.
+existing `UnixStream` and `poll` path. Pending wake state clears only after a
+byte is consumed, and wake-channel failure releases queued and held sockets.
+Both platforms retain LLP 1048.000 D10's 2-second per-socket hold, 64 KiB read
+cap, 256 held-connection cap, bounded inbox, and immediate half-close. The
+server's separate `Stopper` drain remains bounded by the lesser of twice the
+render deadline and 10 seconds.
 
-The native Windows focused loopback executor test passed, followed by 154
-render tests with nine ignored and no failures, all-target clippy, and caps.
-With `EXACT_HTTP_ASYNC` unset, the Hermes-backed Weatherlight renderer served
-its generated plan over loopback: health and `/` returned 200, and `/` carried
-113,075 bytes of rendered Weatherlight HTML. This run reused the authenticated
-v5 receipt and archive hashes recorded above. An independent native Linux run
-of the same commit passed 156 render tests with nine ignored and all-feature
-clippy. The source-attributed commands, hashes, retained failures, and app
-drive are recorded in the
+On native Windows, the focused real loopback executor test passed, followed by
+118 unit tests, 37 integration tests, and one look test, with nine ignored and
+no failures. All six focused linger tests, all-target clippy, and caps passed.
+With `EXACT_HTTP_ASYNC` unset, the directly built Hermes-backed Weatherlight
+renderer served its generated plan over loopback: health and `/` returned 200,
+and `/` carried 100,584 bytes of rendered Weatherlight HTML. The standard web
+build's existing colour-warning gate failure remains a retained failed attempt,
+not a whole-app build pass. This run reused the authenticated v5 receipt and
+archive hashes recorded above.
+
+An independent native Linux run of the same corrected source passed 120 unit
+tests, 37 integration tests, and one look test, with nine ignored and no
+failures; all six linger tests and all-target, all-feature clippy passed. The
+source-attributed commands, hashes, superseded first implementation, retained
+failures, and app drive are recorded in the
 [closed Windows HTTP issue](../../issues/closed/20261013-exact-render-windows-http.md).
 
 ### Remaining rollout and device boundaries

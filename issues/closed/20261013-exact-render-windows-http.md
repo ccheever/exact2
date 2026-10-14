@@ -43,31 +43,44 @@ with request-construction-only evidence.
 
 ## Resolution
 
-Exact `16347325632e431d7588764ef29be026f34419e7`, based on
-`a01c62241440300f3644ecde83592606262c58e7` and consuming Ibex
-`c4aa839ea35c3eef875de12309d048fa8df2123d`, adds a platform-neutral linger
+Exact `b195e96dc953733589e54167286da92f59725389`, with current main
+`0d2d2e28e972ae5bf603105c794b45fecc6a2b08` merged and the vendored Ibex pin
+`e60b3e0570315f31710744c1187f3cec5574fedf`, adds a platform-neutral linger
 seam. Unix retains its `UnixStream` and `poll` implementation. Windows uses a
-private loopback TCP wake pair and WinSock `WSAPoll`, preserving the 2 second
-drain deadline, 64 KiB read cap, 256 held-connection cap, bounded inbox,
-immediate half-close, and actual `Stopper` drain.
+private loopback TCP wake pair and WinSock `WSAPoll`. A notification remains
+pending until a byte is actually consumed; interrupted reads and writes retry
+without losing it, and wake EOF or a hard error marks the inbox gone and
+releases queued and held sockets. Later handoffs after that failure close
+immediately.
+
+The implementation preserves LLP 1048.000 D10's 2-second per-socket hold,
+64 KiB read cap, 256 held-connection cap, bounded inbox, and immediate
+half-close. The server's separate `Stopper` drain remains bounded by the lesser
+of twice the render deadline and 10 seconds.
 
 On native x86_64 Windows, with four Cargo jobs and `EXACT_HTTP_ASYNC` unset:
 
+- The six focused linger tests passed. They cover delayed notification
+  delivery, interrupted sends, coalescing, EOF cleanup of queued peers, two
+  independent real wake cycles, post-thread handoff, and the held-socket bound.
 - `cargo test --locked --offline -j 4 -p exact-render --test it
   a_fetch_runs_through_the_native_executor -- --exact` passed its one real
   loopback test (36 filtered).
 - `cargo test --locked --offline -j 4 -p exact-render --lib --tests
-  --no-fail-fast` passed 154 tests with nine existing ignored tests and no
-  failures, including all linger cases and
-  `a_drained_server_answers_what_it_took_and_stops`.
+  --no-fail-fast -- --test-threads=1` passed 118 unit tests, 37 integration
+  tests, and one look test, with nine existing ignored tests and no failures.
+  This includes `a_drained_server_answers_what_it_took_and_stops`.
 - `cargo clippy --locked --offline -j 4 -p exact-render --all-targets --
   -D warnings` and `bun scripts/caps.mjs` passed.
-- The real `weatherlight-render.exe` (SHA-256
-  `7d37c2280844e17f5bcef370ac2d4b2670ca7c669cf8da9b937dcf01d8be2feb`)
-  served its generated app plan over loopback. `/.exact/health` returned 200
-  and `/` returned 200 with 113,075 bytes of rendered Weatherlight HTML
+- `cargo build --locked --offline -j 4 --profile host-dev
+  -p weatherlight-linux --bin weatherlight-render` built the real
+  `weatherlight-render.exe` (SHA-256
+  `f11ba349477977a47f2db2a79e0e5c7bf41126ed6832b1e2b782d1d2afbd0885`).
+  That binary served its generated app plan over loopback.
+  `/.exact/health` returned 200 and `/` returned HTTP/1.1 200 with
+  `text/html; charset=utf-8` and 100,584 bytes of rendered Weatherlight HTML
   (SHA-256
-  `d5316910d47a246ef0ce579103444b75be19d9693217e06c47f97280430d363a`).
+  `87c2c20abbe594f2681e2863c1defee908ac76648ce1b52d906c92773d6c75e5`).
   The owned server PID was recorded before launch and was the only process
   stopped after the drive.
 
@@ -77,18 +90,21 @@ schema `ibex/hermes-upstream-pinned-receipt/2`, receipt SHA-256
 and archive SHA-256
 `db9233d08c25a33d7b1cdd2d0eb9428e98020fa6de7ab396b0adfb241b61d1e0`.
 The standard web build compiled and ran the native Weatherlight renderer before
-stopping at Weatherlight's existing colour-warning gate; that unrelated failure
-is retained beside the successful server-drive receipt rather than represented
-as a successful whole-app build.
+stopping at Weatherlight's existing colour-warning gate. That surrounding
+build failure is retained beside the successful direct render-binary build and
+server drive; it is not a whole-app build pass.
 
-An independent native Linux run at the same Exact commit passed 156 render
-tests with nine ignored tests and no failures, including the loopback
-drain/redirect/deadline coverage, followed by all-target, all-feature
-`exact-render` clippy. Its worktree remained clean.
+An independent native Linux run at the same Exact source passed 120 unit tests,
+37 integration tests, and one look test, with nine ignored and no failures.
+All six linger tests and all-target, all-feature `exact-render` clippy passed;
+the worktree remained clean. Its receipt archive SHA-256 is
+`90a519daf438f0603cfe9172a7b6b763910f6021a816a04f3c87ae32acac7420`.
 
-The original locked-run refusal before the dependency lock update, the first
-Windows socket-type compile error, the Weatherlight warning-gate failure, all
-successful command logs, PID cards, response receipt, and hashes are retained
-under
+The earlier `16347325632e431d7588764ef29be026f34419e7` checkpoint is retained as
+superseded evidence: independent review found that it could clear a pending
+notification before the wake byte arrived. The original locked-run refusal,
+the first Windows socket-type compile error, the review-triggered corrections,
+the Weatherlight warning-gate failure, all successful command logs, PID cards,
+response receipt, and hashes are retained under
 `C:/Users/Charlie Cheever/targets/exact2-consumer-release-windows/logs/native-followup`
 and the run ledger. No async scheduler mode was enabled.
