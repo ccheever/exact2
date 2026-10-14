@@ -538,7 +538,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         .flatten()
         .map(|(axis, value)| (axis.as_str(), value.as_str().unwrap_or_default()))
         .collect();
-    if let Err(e) = p.host().runner().check_modes(&pins) {
+    if let Err(e) = mode.map_or(Ok(()), |_| p.host().runner().check_modes(&pins)) {
         return error(&format!("prefer mode: {e:?}"));
     }
     if let Some(fold) = fold {

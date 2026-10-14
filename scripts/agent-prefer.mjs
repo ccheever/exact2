@@ -22,7 +22,7 @@ export function preferGroups(facts) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
     if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
     else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
-    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number.isFinite(Number(value))) page[name] = Number(value);
+    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);

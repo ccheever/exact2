@@ -471,9 +471,9 @@ public final class Agent {
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
-            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
+            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
-            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: PageFacts.agentDisplayScale = Double(value)!
+            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
@@ -489,9 +489,10 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
-        if let mode, !mode.isEmpty {
-            let batch = session.runtime.setModes(mode)
-            session.apply(batch)
+        if let mode {
+            // An empty group asks again: the other facts' commits may have run a `setMode`.
+            let batch = session.runtime.setModes(mode, check: mode.isEmpty)
+            if !mode.isEmpty { session.apply(batch) }
             if let error = batch.error { return ["error": "prefer mode: \(error)"] }
             modes = batch.modes
         }
