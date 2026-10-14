@@ -179,10 +179,18 @@ pub fn project_tree<D: DataSource>(
     writing: Writing<'_>,
 ) -> Result<(Document, String), DocumentError> {
     let handlers = tree.handlers(runner.plan());
+    let presses = tree
+        .nodes()
+        .iter()
+        .filter_map(|n| {
+            exact_runner::press_writes_router(runner.plan(), n.site?).map(|writes| (n.id, writes))
+        })
+        .collect();
     let (out, keyframes, scroll_document, _, sent) = write(
         tree,
         tree.roots(),
         handlers,
+        presses,
         font_names_for_runner(runner),
         None,
         writing,
@@ -235,10 +243,16 @@ fn walk<D: DataSource>(
 ) -> Result<(Document, Option<Computed>), DocumentError> {
     let src = KernelSource(runner.kernel());
     let roots = runner.roots();
+    let handlers = runner.handlers();
+    let presses = handlers
+        .keys()
+        .filter_map(|id| runner.press_writes_router(*id).map(|writes| (*id, writes)))
+        .collect();
     let (out, keyframes, scroll_document, computed, _) = write(
         &src,
         &roots,
-        runner.handlers(),
+        handlers,
+        presses,
         font_names_for_runner(runner),
         computed,
         Writing::default(),
@@ -264,6 +278,7 @@ fn write<S: Source>(
     src: &S,
     roots: &[ViewId],
     handlers: SortedMap<ViewId, Vec<EventKind>>,
+    presses: SortedMap<ViewId, bool>,
     fonts: Vec<String>,
     computed: Option<Computed>,
     writing: Writing<'_>,
@@ -274,6 +289,7 @@ fn write<S: Source>(
         computed,
         fonts,
         handlers,
+        presses,
         routes: SortedMap::new(),
         keyframes: SortedMap::new(),
         out: String::new(),
@@ -484,6 +500,7 @@ struct Walk<'r, 'w, S: Source> {
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
+    presses: SortedMap<ViewId, bool>,
     routes: SortedMap<ViewId, Route>,
     keyframes: SortedMap<String, String>,
     out: String,
@@ -540,6 +557,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         let resolve = |from: ViewId, target: &str| src.resolve(from, target);
         let mut props = props_of(&node);
+        super::element::router_press(&mut props, self.presses.get(&id).copied());
         svg_props_of(&resolve, &node, &mut props);
         self.scroll_document |= props
             .get("data-scrolldocument")

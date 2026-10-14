@@ -187,8 +187,6 @@ impl Lowerer<'_> {
         let first = parent_tag.is_none() && arm.is_none() && order == 0;
         let back = self.nav_place.unnamed(first, expanded, *span);
         let expanded = back.as_deref().unwrap_or(expanded);
-        let unsplit = self.unsplit(expanded, children, *span);
-        let expanded = unsplit.as_deref().unwrap_or(expanded);
         values::check_glass_group(&t, expanded)?;
         let has = |names: &[&str]| expanded.iter().any(|a| names.contains(&a.name.as_str()));
         let parent_stacks = !matches!(parent_tag, Some("row") | Some("canvas"));

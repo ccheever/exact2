@@ -101,8 +101,9 @@ pub use request::{
     MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
-    canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, BackgroundState,
-    BlockPlacement, CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command,
+    canvas_engine, press_writes_router, routing, virtual_frame, Advanced, Announce, AuthLinks,
+    BackgroundState, BlockPlacement, CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint,
+    Command,
     ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent,
     Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight,
     InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits, ListTextPolicy,

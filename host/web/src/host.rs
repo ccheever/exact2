@@ -1369,7 +1369,7 @@ impl<D: DataSource> Host<D> {
             Some((view, ..)) if *view == id => self.computed.pop(),
             _ => None,
         };
-        let (props, css) = match kept {
+        let (mut props, css) = match kept {
             // The projection's, for this view of this tree: the same values.
             Some((_, kept, props, css)) if kept == tag => (props, self.paint_css(&node, css)),
             _ => {
@@ -1384,6 +1384,7 @@ impl<D: DataSource> Host<D> {
                 (props, self.paint_css(&node, css))
             }
         };
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         let handlers: Vec<&str> = kinds
             .iter()
             .filter(|e| !matches!(e, EventKind::Reachstart | EventKind::Reachend))
@@ -1435,6 +1436,7 @@ impl<D: DataSource> Host<D> {
             .zip(crate::link::linked().materials)
             .and_then(|(name, material)| (material.1)(name));
         let mut props = props_for(&node);
+        element::router_press(&mut props, self.runner.press_writes_router(id));
         svg_props(self.runner.kernel(), &node, &mut props);
         let css = self.view_css(&node);
         let m = self.mirror.entry(id).or_default();
