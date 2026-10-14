@@ -13,6 +13,7 @@ import { surfaceStore, type PanelState } from './r4-surfaces-panel';
 import { openPullRequestIn } from './r5-panels-surfaces';
 import { prTarget } from './r5-panels-pr';
 import { currentPullRequestLink } from './shell-pr';
+import { branchPullRequest } from './sidebar-branch-pr';
 import { findProjectForChangeRequest, parseChangeRequestUrl } from './palette-linkpr';
 import { openInSystemBrowser, openLink } from './browser-links';
 import { patchDraftContext } from './composer-controls-branch';
@@ -75,7 +76,8 @@ async function modifierHeld(client: T3Client, native: Native): Promise<boolean> 
  */
 export async function openRowPullRequest(client: T3Client, native: Native, id: string, page: string): Promise<string> {
   const row = rowThread(client, id);
-  const url = row ? str(currentPullRequestLink(row.thread.pullRequests)?.url) : '';
+  // `prStatus?.url ?? currentLinkedPr?.url`: the link's, else the branch's pull request (sidebar-hover-archive-and-glyph B12).
+  const url = row ? str(currentPullRequestLink(row.thread.pullRequests)?.url) || str(branchPullRequest(client, { ...row.thread, id })?.url) : '';
   if (!row || !url) return '';
   const linkFailed = (error: unknown) => {
     if (letGo(error)) throw error;

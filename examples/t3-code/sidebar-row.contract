@@ -219,12 +219,12 @@ component ThreadRow
                   when t.canWake
                     row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
                       SidebarTip(tip=`${t.hoverKey}#wake`, hoverCard=hoverCard)
-                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsnooze", t.id, "") focus=hoverCard("", false) pointerdown=hoverCard("", false) pan=sweep(t.id, "unsnooze") panrelease=dragEnd(`sweep|unsnooze|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Wake thread now" testId=`wake-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="alarm-clock-off", size=12, color=(hoverId == `${t.hoverKey}#wake` ? "light-dark(#27272a, #f1f3f7)" : tool))
                   when t.canUnsettle
                     row align-items="stretch" flex-shrink=0 margin-right=(hovering ? "-0.25rem" : "0px") max-width=(hovering ? "3.75rem" : "0px") overflow="hidden" opacity=(hovering ? 1 : 0) aria-hidden=(not hovering)
                       SidebarTip(tip=`${t.hoverKey}#unsettle`, hoverCard=hoverCard)
-                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
+                        button cursor="pointer" id=`sweep-${t.id}` press=run("unsettle", t.id, "") focus=hoverCard("", false) pointerdown=hoverCard("", false) pan=sweep(t.id, "unsettle") panrelease=dragEnd(`sweep|unsettle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Un-settle thread" testId=`unsettle-${t.id}` height="1.5rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" title=""
                           SidebarIcon(name="undo-2", size=14, color=(hoverId == `${t.hoverKey}#unsettle` ? "light-dark(#27272a, #f1f3f7)" : tool))
                   when not t.woke and not (hovering and (t.canWake or t.canUnsettle))
                     row align-items="center"
@@ -276,7 +276,10 @@ component SidebarTip
       children
 
 // The card's hover actions: Discard draft, Snooze (its menu) and Settle,
-// each with its reference tooltip.
+// each with its reference tooltip. A press on Snooze or Settle (and the slim rows'
+// Wake and Un-settle) closes its tooltip at once, as Base UI's tooltips close on press
+// (sidebar-hover-archive-and-glyph SW-3a): the window's `sidebarHover("", false)` moves
+// the card and the tips away; the row keeps its hover and the press its gesture.
 component SidebarCardActions
   props
     t: Thread
@@ -307,12 +310,12 @@ component SidebarCardActions
       when t.canSnooze
         SidebarTip(tip=`${t.hoverKey}#snooze`, hoverCard=hoverCard)
           box position="relative" display="flex"
-            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
+            button cursor="pointer" press=hoverCard("", false) key=snoozeKey focus=snoozeArm(true) blur=snoozeArm(false) popovertarget=`snooze-${t.id}` pointerdown=hoverCard("", false) disabled=busy aria-label="Snooze thread" testId=`snooze-${t.id}` width="1.5rem" height="1.25rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               SidebarIcon(name="clock", size=12, color=(hoverId == `${t.hoverKey}#snooze` ? lit : tool))
             KeyMenuOpen(menuId=`snooze-${t.id}`, armed=snoozeArmed, opened=snoozeOpened)
       when t.canSettle
         SidebarTip(tip=`${t.hoverKey}#settle`, hoverCard=hoverCard)
-          button cursor="pointer" id=`sweep-${t.id}` press=run("settle", t.id, "") focus=hoverCard("", false) pan=sweep(t.id, "settle") panrelease=release(`sweep|settle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Settle thread" testId=`settle-${t.id}` height="1.25rem" margin-right="-0.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+          button cursor="pointer" id=`sweep-${t.id}` press=run("settle", t.id, "") focus=hoverCard("", false) pointerdown=hoverCard("", false) pan=sweep(t.id, "settle") panrelease=release(`sweep|settle|${t.section}|${t.id}|${sweepKeys}`) touch-action="none" disabled=busy aria-label="Settle thread" testId=`settle-${t.id}` height="1.25rem" margin-right="-0.25rem" padding-left="0.375rem" padding-right="0.375rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
             SidebarIcon(name="check", size=14, color=(hoverId == `${t.hoverKey}#settle` ? lit : tool))
             text "Settle" font-size="0.75rem" line-height="1rem" color=(hoverId == `${t.hoverKey}#settle` ? lit : tool)
 

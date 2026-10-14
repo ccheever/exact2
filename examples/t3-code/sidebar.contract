@@ -200,6 +200,10 @@ component Sidebar
 // on, else the window's.
 fn sweepRowHover(live: bool, rest: string, restSeq: number, seq: number, hoverId: string): string = live ? "" : rest != "" and seq == restSeq ? rest : hoverId
 
+// The row a control's hover key belongs to (`<row>#<control>`: SidebarTip, DraftCard's Discard), "" for a row's own key
+// or another hover (sidebar-hover-archive-and-glyph SW-2: the window gives the row its hover back as the tip ends).
+fn sidebarTipRow(id: string): string = includes(id, "#") ? slice(id, 0, indexOf(id, "#")) : ""
+
 // A shelf of rows. Working, Snoozed and Settled carry the collapsible header
 // (CollapsibleSectionHeader: muted, Snoozed in the info tone); a collapsed
 // shelf still paints the open thread, which the projection already decided.
