@@ -103,18 +103,13 @@ impl<D: DataSource> Bridge<D> {
     /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
-    /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
-    /// D4 part B): set where its stylesheet is the neutral one, and every
-    /// role then falls back to the table's neutral column and every metric
-    /// reads its neutral cell. Bits 26–27 carry gamut, 28 HDR, and 29–31
-    /// display mode; unpack these above the low byte for the runner.
+    /// three `exactViewport` fields. Bit 25 is reserved. Bits 26–27 carry
+    /// gamut, 28 HDR, and 29–31 display mode; unpack these above the low
+    /// byte for the runner.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences =
             exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8));
         self.fold = fold_bits(bits);
-        if bits & (1 << 25) != 0 {
-            exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-        }
     }
 
     /// UTF-8 launch location carried after optional plan bytes.

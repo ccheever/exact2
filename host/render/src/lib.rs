@@ -272,6 +272,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     projection: Projection,
     now_ms: f64,
 ) -> Result<Rendered, String> {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let direct = direct_for(plan, ids, projection)?;
     let page = settle_at(
         plan, data, viewport, location, deadline, direct, now_ms, None,
@@ -872,16 +873,6 @@ fn run(executor: &Executor, held: &mut Held, r: RequestOut, dispatch: Dispatch) 
     }
 }
 
-/// The look a shell was built in (LLP 1115.000 D4 part B). The neutral look's
-/// stylesheet says so on the root (`--exact-look: neutral`,
-/// host/web/neutral.css), and a document rendered over that shell resolves a
-/// role in the table's neutral column, as the page it becomes will.
-pub fn shell_look(shell: &str) {
-    if shell.contains("--exact-look:neutral") || shell.contains("--exact-look: neutral") {
-        exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-    }
-}
-
 /// An app's pages as documents, for the web build and the parity check:
 ///
 /// `<app>-render [--plan <app.plan>] [--viewport <w>x<h>] [--name <name>]
@@ -1016,9 +1007,6 @@ pub fn main<D: DataSource + 'static>(baked: &[u8], data: fn() -> D) -> std::proc
             return ExitCode::FAILURE;
         }
     };
-    if let Some(shell) = &shell {
-        shell_look(shell);
-    }
     if let Some(dist) = serve {
         let grants = data().grants().to_string();
         let config = Serve {

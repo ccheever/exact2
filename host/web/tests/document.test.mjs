@@ -13,13 +13,13 @@ import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../sc
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 // The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
-const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'), DEFAULT_LOOK);
+const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();

@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
@@ -20,7 +20,7 @@ const check = need('chrome', unavailable);
 
 const radio = (id, label, checked, extra = '') =>
   `<button type="button" data-button-style="bordered" data-native role="radio" aria-checked="${checked}" id="${id}"${extra}><span data-exact-text>${label}</span></button>`;
-const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <button type="button" data-button-style="bordered" data-native id="before">Before</button>
   <div role="radiogroup" aria-label="Tip" id="tip" style="display:flex">

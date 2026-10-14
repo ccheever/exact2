@@ -420,8 +420,7 @@ const PLATFORM: &str = "-exact-platform-color(";
 
 /// A bound row whose code can push a metric's name (LLP 1115.002 D6: a
 /// sheet the compiler wrote, choosing between two by a flag) reads each as
-/// its value in the column of the look this build draws (the neutral
-/// look's, or the web's first under `EXACT_WEB_LOOK=apple`), which is what
+/// its value in the neutral column this build draws, which is what
 /// the kernel reads a literal one as: a number, the row's own CSS text, or
 /// nothing where the look has no row (`null`: the row unset). `None` when
 /// the code names none.

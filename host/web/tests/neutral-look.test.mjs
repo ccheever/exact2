@@ -1,44 +1,28 @@
-// LLP 1115.000 D4 part B: the web's neutral look, which is every build's since its switch was thrown
-// (host/web/look.mjs; Charlie, 2026-10-12).
-//
-// A build's shell is the shell's own stylesheet with the neutral sheet (neutral.css) after it, and what the
-// author left unsaid is drawn the same in Chrome, Firefox and WebKit: the last test measures one page in
-// each engine against one set of numbers. Its colours are the role table's neutral column, which the second
-// test holds the sheet to. `EXACT_WEB_LOOK=apple` still builds LLP 1116 D1's look, the shell's own bytes: the
-// first test holds the bytes and the third a handful of that look's computed styles. The nodes are as the
-// hosts write them.
+// LLP 1115.000 D4 part B: one neutral web presentation in Chrome, Firefox and WebKit.
+// The role and metric censuses hold the sheet to the schema; the browser oracle
+// keeps the same geometry, colours and author precedence in all three engines.
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { DEFAULT_LOOK, LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 const shell = read('../index.html'), neutral = read('../neutral.css');
-const sheet = (look) => withLook(shell, look).match(/<style>([\s\S]*?)<\/style>/)[1];
+const sheet = () => withLook(shell).match(/<style>([\s\S]*?)<\/style>/)[1];
 
-test('the switch is thrown: a build is the shell with the neutral sheet, and `apple` is still the shell\'s own bytes', () => {
-  expect(DEFAULT_LOOK).toBe('neutral');
-  // The neutral sheet is the end of the shell's own stylesheet, and says which look the page is.
-  expect(withLook(shell, DEFAULT_LOOK)).toBe(shell.replace('</style>', () => neutral + '</style>'));
-  expect(/:root \{ --exact-look: neutral;/.test(neutral)).toBe(true);
-  // `EXACT_WEB_LOOK=apple` builds LLP 1116 D1's look as it was: the shell's own bytes, which name no look.
-  expect(withLook(shell, 'apple')).toBe(shell);
-  expect(shell.includes('--exact-look')).toBe(false);
-  // A build draws the look its environment names, and the default where it names none.
-  expect(LOOK).toBe(process.env.EXACT_WEB_LOOK || DEFAULT_LOOK);
-  expect(withLook(shell)).toBe(withLook(shell, LOOK));
+test('a build composes the neutral sheet after the browser resets', () => {
+  expect(withLook(shell)).toBe(shell.replace('</style>', () => neutral + '</style>'));
 });
 
 test('the neutral sheet\'s colours are the role table\'s neutral column', () => {
   const rows = JSON.parse(read('../../../kernel/tables/schema.json')).colors;
   const pair = new Map(rows.map(([name, , , , , , light, dark]) => [name, `light-dark(${light.padEnd(9, 'f')}, ${dark.padEnd(9, 'f')})`]));
-  const root = /:root \{ --exact-look: neutral;([^}]*)\}/.exec(neutral)[1];
+  const root = /:root \{([^}]*)\}/.exec(neutral)[1];
   const defined = new Map([...root.matchAll(/--exact-([a-z-]+): (light-dark\([^)]*\))/g)].map((m) => [m[1], m[2]]));
   // A role by its own name; a CSS system colour the sheet needs as a value by its name in lower case.
   const role = (name) => pair.get(name) ?? pair.get({ 'gray-text': 'GrayText' }[name]);
   for (const [name, value] of defined) expect([name, value]).toEqual([name, role(name)]);
-  // Every role the two sheets name is one the neutral sheet defines: none is left at Apple's pair, which
-  // is what the shell's own fallbacks say (element.rs holds those to the table's first column).
+  // Every role named by either sheet is defined in the neutral column.
   const named = new Set([...(shell + neutral).matchAll(/var\(--exact-([a-z-]+)/g)].map((m) => m[1]).filter((name) => role(name)));
   expect([...named].filter((name) => !defined.has(name))).toEqual([]);
   expect([...defined.keys()].filter((name) => !named.has(name))).toEqual([]);
@@ -141,7 +125,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
   expect(rows.filter(([name, kind]) => kind === 'number' && !RATIO[name] && !['control-line-height', 'control-weight', 'select-line-height'].includes(name)).map(([name]) => name)).toEqual([]);
 });
 
-// The page both browser tests draw: one of each control the looks differ on.
+// The page each browser draws: one of each control.
 const fixture = `
 <div id="exact-root">
   <main navigationKey="1" navigationBack="back" id="nav" style="display:flex;flex-direction:column;height:240px;position:relative">
@@ -194,44 +178,6 @@ const launch = async (engine) => {
   return playwright[engine].launch({ headless: true, ...(engine === 'chromium' ? { executablePath: browserPath().executable } : {}) });
 };
 
-test('`EXACT_WEB_LOOK=apple`: a page looks as it did (a handful of computed styles of LLP 1116 D1\'s look)', async () => {
-  const browser = await launch('chromium');
-  try {
-    const page = await browser.newPage({ viewport: { width: 1000, height: 700 }, colorScheme: 'light' });
-    await page.setContent(`<style>${sheet('apple')}</style>${fixture}<script>${helpers}</script>`);
-    const got = await page.evaluate(() => { document.getElementById('alert').showModal(); return {
-      look: getComputedStyle(document.documentElement).getPropertyValue('--exact-look'),
-      bordered: [css('bordered', 'backgroundColor'), css('bordered', 'borderTopStyle'), css('bordered', 'borderRadius'), box('bordered')[3]],
-      field: [css('field', 'borderTopColor'), css('field', 'color')],
-      check: [css('check', 'appearance'), box('check').slice(2)],
-      toggle: [css('switch', 'width', '::before'), css('switch', 'height', '::before')],
-      bar: [css('bar', 'backgroundColor'), css('bar', 'backdropFilter'), css('bar', 'borderBottomWidth')],
-      tabs: css('tabs', 'backgroundColor'),
-      chosen: css('chosen', 'boxShadow') !== 'none',
-      alert: [css('alert', 'width'), css('alert', 'textAlign'), css('alert', 'borderRadius')],
-      list: [css('list', 'backgroundColor'), css('card', 'borderRadius')],
-      menu: [css('menu', 'positionArea'), css('menu', 'boxShadow')],
-      sheet: css('sheet', 'position'),
-      pressable: css('pressable', 'backgroundImage'),
-    }; });
-    expect(got).toEqual({
-      look: '',
-      bordered: ['rgba(118, 118, 128, 0.12)', 'none', '8px', 34], // Apple's tertiary fill, no edge
-      field: ['rgb(199, 199, 204)', 'rgb(255, 0, 0)'], // the page's ink, inherited
-      check: ['auto', [13, 13]], // the browser's own
-      toggle: ['38px', '22px'],
-      bar: ['rgba(249, 249, 249, 0.92)', 'saturate(1.8) blur(20px)', '0px'],
-      tabs: 'rgba(249, 249, 249, 0.92)',
-      chosen: true,
-      alert: ['300px', 'center', '14px'],
-      list: ['rgb(242, 242, 247)', '26px'],
-      menu: ['none', 'none'],
-      sheet: 'absolute',
-      pressable: 'none',
-    });
-  } finally { await browser.close(); }
-}, 30000);
-
 // One set of numbers for the three engines. A colour is what the engine paints: [r, g, b, alpha].
 const INK = { light: [0, 0, 0, 1], dark: [255, 255, 255, 1] }, GROUND = { light: [255, 255, 255, 1], dark: [18, 18, 18, 1] };
 const SURFACE = { light: [255, 255, 255, 1], dark: [30, 30, 30, 1] }, LINE = { light: [0, 0, 0, 0.45], dark: [255, 255, 255, 0.45] };
@@ -243,11 +189,10 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
       const context = await browser.newContext({ viewport: { width: 1000, height: 700 }, colorScheme: scheme });
       const page = await context.newPage();
       // The navigation glue's `contextAt`, which both runtimes open a context menu through.
-      await page.setContent(`<style>${sheet('neutral')}</style>${fixture}<script>${helpers}</script><script type="module">${read('../navigation.js')}\nwindow.contextAt = contextAt; window.ready = true;</script>`);
+      await page.setContent(`<style>${sheet()}</style>${fixture}<script>${helpers}</script><script type="module">${read('../navigation.js')}\nwindow.contextAt = contextAt; window.ready = true;</script>`);
       await page.waitForFunction('window.ready === true');
       const at = (name) => [engine, scheme, name];
       const got = await page.evaluate(() => ({
-        look: getComputedStyle(document.documentElement).getPropertyValue('--exact-look').trim(),
         page: [color('exact-root'), rgba(getComputedStyle(document.documentElement).backgroundColor)],
         bordered: [color('bordered'), color('bordered', 'backgroundColor'), color('bordered', 'borderTopColor'), css('bordered', 'borderTopWidth'), box('bordered')[3]],
         gray: [color('gray'), css('gray', 'borderTopStyle'), box('gray')[3]],
@@ -268,7 +213,6 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
         list: [color('list', 'backgroundColor'), css('card', 'borderTopLeftRadius'), color('list-said', 'backgroundColor')],
         sheet: [color('sheet', 'backgroundColor'), css('sheet', 'position'), box('sheet')[2]],
       }));
-      expect(got.look).toBe('neutral');
       expect([at('page'), got.page]).toEqual([at('page'), [INK[scheme], GROUND[scheme]]]);
       // The unsaid button: an outline in the label's ink, whatever the page's `color`; 36 px.
       expect([at('bordered'), got.bordered]).toEqual([at('bordered'), [INK[scheme], [0, 0, 0, 0], LINE[scheme], '1px', 36]]);
@@ -374,7 +318,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: the neu
     // A narrow window: the sheet is the page's own box, full-bleed. A coarse pointer: a control is 44 px.
     const narrow = await browser.newContext({ viewport: { width: 390, height: 700 }, ...(engine === 'chromium' ? { hasTouch: true, isMobile: true } : {}) });
     const page = await narrow.newPage();
-    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet('neutral')}</style>${fixture}<script>${helpers}</script>`);
+    await page.setContent(`<meta name="viewport" content="width=device-width, initial-scale=1"><style>${sheet()}</style>${fixture}<script>${helpers}</script>`);
     expect([engine, await page.evaluate(() => css('sheet', 'position'))]).toEqual([engine, 'absolute']);
     if (engine === 'chromium') expect(await page.evaluate(() => [matchMedia('(pointer: coarse)').matches, box('bordered')[3], box('field')[3], box('select')[3]])).toEqual([true, 44, 44, 44]);
   } finally { await browser.close(); }
@@ -388,19 +332,19 @@ test('a size the author wrote on a platform button is its box, and an unsized bu
   try {
     const page = await browser.newPage({ viewport: { width: 600, height: 400 }, colorScheme: 'light' });
     const button = (id, style, said) => `<button type="button" data-native data-button-style="bordered" id="${id}" style="${style}"${said ? ` data-exact-said="${said}"` : ''}>Go</button>`;
-    await page.setContent(`<style>${sheet('neutral')}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
+    await page.setContent(`<style>${sheet()}</style><div id="exact-root">${button('unsized', '')}${button('sized', 'width:84px;height:24px', 'width height')}${button('square', 'width:28px;height:28px', 'width height')}${button('short', 'height:24px', 'height')}${button('unsaid', 'width:28px;height:28px')}</div><script>${helpers}</script>`);
     const got = await page.evaluate(() => ({ unsized: box('unsized')[3], sized: box('sized').slice(2), square: box('square').slice(2), short: box('short')[3], unsaid: box('unsaid').slice(2) }));
     expect(got).toEqual({ unsized: 36, sized: [84, 24], square: [28, 28], short: 24, unsaid: [36, 36] }); // `unsaid`: the floor, were the host not to say
   } finally { await browser.close(); }
 }, 90000);
 
 // A part colour's alpha is its only opacity. Removing it restores the look's default.
-for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authored placeholder colour and reset in both looks`, async () => {
+for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authored placeholder colour and reset in both schemes`, async () => {
   const browser = await launch(engine);
   try {
-    for (const look of ['apple', 'neutral']) {
-      const page = await browser.newPage({ colorScheme: 'light' });
-      await page.setContent(`<style>${sheet(look)}</style><div id="exact-root">
+    for (const scheme of ['light', 'dark']) {
+      const page = await browser.newPage({ colorScheme: scheme });
+      await page.setContent(`<style>${sheet()}</style><div id="exact-root">
         <input data-native placeholder="Search"><textarea data-native placeholder="Notes"></textarea>
       </div>`);
       const sample = () => page.evaluate(() => [...document.querySelectorAll('input, textarea')].map(el => {
@@ -412,11 +356,11 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authore
         await page.evaluate(color => {
           for (const el of document.querySelectorAll('input, textarea')) el.style.setProperty('--exact-placeholder-color', color);
         }, color);
-        expect([look, await sample()]).toEqual([look, [[color, '1'], [color, '1']]]);
+        expect([scheme, await sample()]).toEqual([scheme, [[color, '1'], [color, '1']]]);
         await page.evaluate(() => {
           for (const el of document.querySelectorAll('input, textarea')) el.disabled = true;
         });
-        expect([look, 'disabled', await sample()]).toEqual([look, 'disabled', [[color, '1'], [color, '1']]]);
+        expect([scheme, 'disabled', await sample()]).toEqual([scheme, 'disabled', [[color, '1'], [color, '1']]]);
         await page.evaluate(() => {
           for (const el of document.querySelectorAll('input, textarea')) el.disabled = false;
         });
@@ -424,7 +368,7 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: authore
       await page.evaluate(() => {
         for (const el of document.querySelectorAll('input, textarea')) el.removeAttribute('style');
       });
-      expect([look, await sample()]).toEqual([look, original]);
+      expect([scheme, await sample()]).toEqual([scheme, original]);
       await page.close();
     }
   } finally { await browser.close(); }

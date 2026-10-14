@@ -260,18 +260,10 @@ test('dev startup rebuilds changed Rust even when the app identity still matches
     let identity=true;
     const start=source.indexOf('async function currentWebBuild()');
     const end=source.indexOf('\nif (!await currentWebBuild())',start);
-    // The startup check of a loop run in `look`, where the default look is the neutral one (look.mjs).
-    const startup=look=>new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs','DEFAULT_LOOK','LOOK',
+    const current=new Function('builtAppMatches','dist','app','graphPath','readFileSync','pendingBuildInputs',
       'const producersOnly=false;'+source.slice(start,end)+';return currentWebBuild;')
-      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs,'neutral',look);
-    const current=startup('neutral');
+      (async()=>identity,dir,{},graphPath,readFileSync,pendingBuildInputs);
     assert.equal(await current(),true);
-    // A bake in another look than this run's is not the loop's (LLP 1115.000 D4 part B): its receipt names its
-    // look where that is not the default one.
-    assert.equal(await startup('apple')(),false);
-    writeFileSync(graphPath,JSON.stringify({...build,binary:{...build.binary,configuration:{flags:{EXACT_WEB_LINK:'all',EXACT_WEB_LOOK:'apple'}}}}));
-    assert.deepEqual([await startup('apple')(),await current()],[true,false]);
-    writeFileSync(graphPath,JSON.stringify(build));
     writeFileSync(join(dir,'notes.txt'),'unrelated edit');
     assert.equal(await current(),true);
     writeFileSync(input,'fn speed() -> u32 { 8 }');
