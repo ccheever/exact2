@@ -323,11 +323,6 @@ pub fn color_targets(
     if wanted.is_empty() {
         return Vec::new();
     }
-    // A role drawn in the accent moves to the nearest authored one, as it
-    // paints (`roles::authored_accent`).
-    let _accent = crate::style::roles::authored_accent(
-        node.computed_row(StyleId::AccentColor, |s| s.accent_color),
-    );
     let s = node.computed_style(crate::StyleMask::EMPTY);
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {

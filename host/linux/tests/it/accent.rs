@@ -59,6 +59,11 @@ fn a_role_drawn_in_the_accent_reads_the_nearest_authored_one() {
         "the nearest authored one"
     );
     assert_eq!(
+        at(&p, "kept", 20),
+        [0, 200, 0, 255],
+        "accent-color=AccentColor keeps the one around"
+    );
+    assert_eq!(
         at(&p, "after", 20),
         tint,
         "a sibling after the authored subtree"

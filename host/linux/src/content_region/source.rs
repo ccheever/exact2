@@ -141,7 +141,7 @@ impl Capture<'_> {
             // painting scope when the scheme changes.
             let color = exact_kernel::style::roles::accented(
                 node.text_color(),
-                crate::paint::accent_of(&node),
+                crate::paint::accent_of(node),
             );
             self.palette.push(RunPaint {
                 color: if crate::paint::paints(self.kernel, node.id, None) {

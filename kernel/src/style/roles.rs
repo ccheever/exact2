@@ -426,14 +426,13 @@ thread_local! {
 /// `var(--exact-accent, AccentColor)` reads the nearest one. Restored when
 /// the scope ends.
 ///
-/// An accent that is itself a role drawn in the accent (`accent-color=
-/// "AccentColor"`) keeps the one around, as css.rs leaves `--exact-accent`
-/// inherited for it and Apple's tint stays the ancestor's.
+/// `accent-color="AccentColor"` keeps the one around, as css.rs leaves
+/// `--exact-accent` inherited for exactly that and Apple's tint stays the
+/// ancestor's; another role (`LinkText`) is the platform's colour, read with
+/// no scope ([`painted_accent`]).
 pub fn authored_accent(accent: Option<ColorValue>) -> AccentScope {
     let accent = match accent {
-        Some(ColorValue::Role(id)) if role_of(id).is_some_and(web_accent) => {
-            AUTHORED.with(|a| a.get())
-        }
+        Some(ColorValue::Role(id)) if id == self::accent() => AUTHORED.with(|a| a.get()),
         other => other,
     };
     AccentScope(
