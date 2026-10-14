@@ -12,7 +12,8 @@ The only required reading; the rest is lookup.
    colour or size names a role (`-exact-secondary-label`, `font="-exact-footnote"`; `bun
    <exact2>/scripts/no-tells.mjs .` lists literals). The one colour you write is the
    accent, on the root: a system colour (`accent-color="-exact-system-teal"`) or a
-   `light-dark(light, dark)` pair. A card is `-exact-secondary-background`
+   `light-dark(light, dark)` pair. A brand is an `app.tamber`; a colour or size names a
+   role or a token (`recipes/tamber.md`). A card is `-exact-secondary-background`
    (`-exact-secondary-grouped-background` on a grouped page). White text on a prominent
    button fails on green, mint, teal, cyan, yellow, orange (`check` refuses it;
    `RoundButton` tints them).

@@ -134,7 +134,7 @@ pub(crate) fn load(
 
 /// Where the app's design is (LLP 1121 D2): the file `app.json`'s
 /// `"tamber"` names, else `app.tamber` beside the app's `app.contract`.
-fn design_path(root: &Path) -> Option<PathBuf> {
+pub fn design_path(root: &Path) -> Option<PathBuf> {
     let dir = root.parent()?;
     let named = std::fs::read_to_string(dir.join("app.json"))
         .ok()

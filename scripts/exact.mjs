@@ -597,6 +597,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                --assets declares game.assets
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
+  exact tamber check|eval|ir <app>  the app's design (app.tamber): checked, its
+                               tokens in one mode (eval --mode dark-style=dim),
+                               or its IR, tamber.json (ir -o <file>)
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -880,6 +883,8 @@ function main(argv) {
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
+  // An app's design on its own (LLP 1121 D2): the compiler's `tamber` verbs.
+  if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {

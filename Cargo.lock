@@ -665,6 +665,7 @@ dependencies = [
  "exact-motion",
  "exact-plan",
  "exact-runner",
+ "exact-tamber",
  "serde_json",
  "sha2",
 ]

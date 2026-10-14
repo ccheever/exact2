@@ -15,3 +15,20 @@ test('a `theme` word continuing an expression starts no theme', () => {
   const list = 'component A\n  view\n    text [\ntheme\n      ].join("") color="#fff"\n';
   assert.deepEqual(tellsIn(list).map(t => [t.line, t.property]), [[5, 'color']]);
 });
+
+// LLP 1121: an app's design names its tokens, and an expression over tokens and
+// roles is folded by the build, not a literal.
+test('a design token and an expression over tokens are no tells', () => {
+  const tokens = new Set(['surface.card', 'accent.fill']);
+  const source = 'component A\n  view\n    text "x" color="surface.card" background-color="color-mix(in oklab, accent.fill 40%, surface.card)"\n    text "y" border-color="rgb(from surface.card r g b / 0.5)" outline-color="oklch(from CanvasText l c h / 0.4)"\n    text "z" color="rgb(from #fff r g b)" background-color="color-mix(in srgb, accent.fill, white)" border-color="rgb(0 0 0 / 0.5)"\n';
+  assert.deepEqual(tellsIn(source, tokens).map(t => [t.line, t.property]), [[5, 'color'], [5, 'background-color'], [5, 'border-color']]);
+  // Without the design, a relative colour from an unknown name is one.
+  assert.deepEqual(tellsIn('component A\n  view\n    text "y" border-color="rgb(from surface.card r g b / 0.5)"\n').map(t => t.property), ['border-color']);
+});
+
+test("an app's design is read for its token names", async () => {
+  const { designTokens } = await import('./no-tells.mjs');
+  const names = designTokens(new URL('../apps/theme-fixture/app.contract', import.meta.url).pathname);
+  for (const name of ['surface.page', 'text.primary', 'accent.soft', 'AccentColor']) assert.ok(names.has(name), name);
+  assert.ok(!names.has('dark-style'));
+});

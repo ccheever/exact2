@@ -40,7 +40,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{Package, Source, SourceGraph};
+pub use sources::{design_path, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 

@@ -859,3 +859,33 @@ fn a_mode_is_written_axis_equals_value_and_a_colon_is_refused() {
         "{journal:?}"
     );
 }
+
+/// LLP 1121 D7 — `layout <node>` shows the token beside each row's value,
+/// from the runner's index: what it named, its text, the tuple it was set
+/// in, and whether a boundary set it.
+#[test]
+fn layout_of_a_node_names_the_token_each_row_read() {
+    let path = app(
+        "layout",
+        &[
+            ("app.tamber", MODES),
+            ("app.contract", "component App\n  view\n    column testId=\"page\" background-color=\"page\" color=\"ink\"\n      column testId=\"card\" -exact-mode=\"dark-style=dim\"\n        text \"b\"\n"),
+        ],
+    );
+    let r = booted(contract::compile_path(&path).unwrap());
+    let node = |id: &str| {
+        let key = r.kernel().find_by_test_id(id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        exact_runner::agent::handle(&r, &format!("{{\"op\":\"node\",\"id\":{view}}}"))
+    };
+    let page = node("page");
+    assert!(
+        page.contains("\"token\":{\"names\":[\"page\"],\"text\":\"page\",\"modes\":\"dark-style=black\",\"implied\":false}"),
+        "{page}"
+    );
+    let card = node("card");
+    assert!(
+        card.contains("\"token\":{\"names\":[\"ink\"],\"text\":\"ink\",\"modes\":\"dark-style=dim\",\"implied\":true}"),
+        "{card}"
+    );
+}

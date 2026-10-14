@@ -23,6 +23,8 @@ contract-lower = { path = "../lower" }
 contract-syntax = { path = "../syntax" }
 contract-types = { path = "../types" }
 exact-kernel = { path = "../../kernel" }
+# `contract tamber`: the design's own check, eval and IR (LLP 1121 D2).
+exact-tamber = { path = "../../tamber" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
 # The app manifest, diagnostics and source maps as JSON; plan digests.

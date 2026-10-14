@@ -2793,6 +2793,22 @@ row and inside shadows and gradients (`color="brand"`,
 colour. An entry named like a role (`-exact-secondary-label`, or LLP 1095 D4's
 bare `secondary-label`, or `Canvas`) overrides that role where a row names it.
 Cycles, and a name inside `light-dark()`, are refused (LLP 1095 D4).
+An app with a brand, or modes the person picks, writes its design in
+`app.tamber` beside `app.contract` (or the file `app.json`'s `"tamber"` names)
+instead (LLP 1121): a `theme` block of tokens (`surface.card =
+light-dark(#f1f3f5, #16181c)`, written as CSS, dotted names allowed), and an
+`axes` block of app modes (`dark-style = black | dim  under scheme=dark`), each
+token's value in a mode on its own `when dark-style=dim: …` line. Rows name a
+token as they name a role, and an expression over tokens
+(`color-mix(in oklab, accent.fill 40%, surface.card)`) is folded by the build.
+`setMode("dark-style", "dim")` sets the window's mode; `-exact-mode="dark-style=black"`
+on a node holds its subtree in one (pins are `axis=value`, by spaces or commas;
+`axis:value` is refused), and inherited text inside takes the pin's value. The
+agent's `prefer mode dark-style=dim` sets it from a drive, `layout <id>` shows
+the token beside each row's value, and `bun exact.mjs tamber check | eval --mode
+… | ir` checks the design, prints its tokens in a mode, or writes its IR. The
+rule: a role if the platform has one, a token if it is the brand. Recipe:
+[a brand](recipes/tamber.md).
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).

@@ -11,7 +11,12 @@ use exact_plan::Value;
 impl<D: DataSource> Runner<D> {
     /// The window's app modes: each axis of the plan with its value.
     pub fn modes(&self) -> Vec<(String, String)> {
-        let mut rest = self.ids.theme.window;
+        self.modes_of(self.ids.theme.window)
+    }
+
+    /// Tuple `tuple`'s modes: each axis of the plan with its value.
+    fn modes_of(&self, tuple: u32) -> Vec<(String, String)> {
+        let mut rest = tuple;
         let mut out: Vec<(String, String)> = Vec::new();
         for axis in self.plan.axes.iter().rev() {
             let values: Vec<&str> = self.plan.str(axis.values).split('|').collect();
@@ -168,6 +173,44 @@ impl<D: DataSource> Runner<D> {
         value: &str,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
         self.set_modes(&[(axis, value)])
+    }
+
+    /// `view`'s `style` row as D7's index holds it, for `layout <node>`:
+    /// the tokens it read (the theme's names its text names), its text, the
+    /// tuple it was set in as `axis=value` by commas, and whether a boundary
+    /// set it (an implied row) rather than its author. `None` when it read
+    /// no token.
+    pub fn row_token(
+        &self,
+        view: exact_kernel::ViewId,
+        style: exact_kernel::StyleId,
+    ) -> Option<(Vec<String>, String, String, bool)> {
+        let row = self.ids.theme.row(view, style)?;
+        let text = match &row.text {
+            t @ exact_plan::str_value!() => t.text().to_string(),
+            other => {
+                let mut s = String::new();
+                crate::agent::untyped_json(other, &mut s);
+                s
+            }
+        };
+        let mut names: Vec<String> = Vec::new();
+        for t in self.plan.theme.iter() {
+            let name = self.plan.str(t.name);
+            if row.tokens & exact_kernel::style::theme::name_bit(name) != 0
+                && text.contains(name)
+                && !names.iter().any(|n| n == name)
+            {
+                names.push(name.to_string());
+            }
+        }
+        let modes = self
+            .modes_of(row.tuple)
+            .into_iter()
+            .map(|(a, v)| format!("{a}={v}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        Some((names, text, modes, !row.written))
     }
 
     /// The window's modes as JSON, `{"axis": "value", …}`, for a host's reply.

@@ -27,6 +27,10 @@
  * literals are the palette, not tells, and a colour property naming an entry
  * (`color="brand"`, `light-dark(brand, ink)`) names what the colour is. Lowering
  * refuses an entry spelled as a CSS colour name, so a name here is never one.
+ * So is an app's design (`app.tamber`, or the file `app.json`'s `"tamber"`
+ * names, LLP 1121): a token name is not a literal, and neither is an
+ * expression over tokens and roles (`color-mix(in oklab, accent.fill 40%,
+ * surface.card)`, `rgb(from surface.card r g b / 0.5)`), which the build folds.
  *
  * A numeric readout is design, not a tell (LLP 1116 D3): a literal `font-size` on
  * a node that also sets `font-variant-numeric="tabular-nums"` (a timer's or a
@@ -150,9 +154,15 @@ function withoutPairs(literal) {
   return out;
 }
 
-function colourIn(literal) {
+// A role, which a relative colour may take its colour from (`from CanvasText`).
+const ROLE = /^(-exact-[a-z0-9-]+|-apple-system-[a-z0-9-]+|[A-Z][A-Za-z]+)$/;
+
+function colourIn(literal, tokens = new Set()) {
   if (HEX.test(literal)) return '#' + literal.match(HEX)[2];
-  if (COLOUR_FUNCTION.test(literal)) return literal.match(COLOUR_FUNCTION)[0] + '…)';
+  // A colour function relative to a token or a role is an expression over it.
+  const relative = [...literal.matchAll(new RegExp(COLOUR_FUNCTION.source, 'gi'))]
+    .every(m => { const from = /^\s*from\s+([^\s,()]+)/i.exec(literal.slice(m.index + m[0].length)); return from && (tokens.has(from[1]) || ROLE.test(from[1])); });
+  if (COLOUR_FUNCTION.test(literal) && !relative) return literal.match(COLOUR_FUNCTION)[0] + '…)';
   const named = literal.split(/[\s,()]+/).find(word => NAMED.has(word.toLowerCase()));
   return named ?? null;
 }
@@ -171,8 +181,9 @@ function nodeHeads(lines) {
   return heads;
 }
 
-/** Every tell in one `.contract` source: `{ line, column, property, value, kind }`. */
-export function tellsIn(source) {
+/** Every tell in one `.contract` source: `{ line, column, property, value, kind }`;
+ * `tokens`, the app design's token names. */
+export function tellsIn(source, tokens = new Set()) {
   const text = withoutTheme(uncomment(source)), lines = source.split('\n'), found = [];
   // The nodes that are numeric readouts: their literal `font-size` is design.
   const heads = nodeHeads(text.split('\n'));
@@ -192,7 +203,7 @@ export function tellsIn(source) {
       if (bad !== undefined) found.push({ line, column, property: name, value, kind: 'type' });
     } else if (COLOUR_PROPERTY.test(property)) {
       for (const literal of literals(value)) {
-        const colour = colourIn(property === 'accent-color' ? withoutPairs(literal) : literal);
+        const colour = colourIn(property === 'accent-color' ? withoutPairs(literal) : literal, tokens);
         if (colour) { found.push({ line, column, property: name, value, kind: 'colour', colour }); break; }
       }
     }
@@ -231,12 +242,37 @@ function contractBlocks(text) {
   return blocks.filter(b => !b.skip).map(b => ({ at: b.at, source: b.lines.join('\n') }));
 }
 
+/** The token names of the design beside `file`'s app (LLP 1121 D2): the
+ * `"tamber"` file `app.json` names, else `app.tamber`, in the nearest
+ * directory up that has either. Its `theme` block's entries, each `name = …`
+ * one indent in. */
+export function designTokens(file) {
+  for (let dir = resolve(file, '..'); ; dir = resolve(dir, '..')) {
+    let named = null;
+    try { named = JSON.parse(readFileSync(join(dir, 'app.json'), 'utf8')).tamber ?? null; } catch {}
+    const path = named ? join(dir, named) : join(dir, 'app.tamber');
+    if (existsSync(path)) {
+      const names = new Set();
+      let inTheme = false;
+      for (const line of uncomment(readFileSync(path, 'utf8')).split('\n')) {
+        if (/^\S/.test(line)) inTheme = /^theme\s*$/.test(line);
+        const entry = inTheme && /^ {2}([^\s=]+)\s*=/.exec(line);
+        if (entry) names.add(entry[1]);
+      }
+      return names;
+    }
+    // The app's directory is the last one looked in.
+    if (named || existsSync(join(dir, 'app.json')) || dir === ROOT || dir === resolve(dir, '..')) break;
+  }
+  return new Set();
+}
+
 /** Every tell in an app's (or a file's) Contract, each with its file; a Markdown
  * file's lines are the document's. */
 export function tells(target) {
   return contractFiles(target).flatMap(file => file.endsWith('.md')
     ? contractBlocks(readFileSync(file, 'utf8')).flatMap(b => tellsIn(b.source).map(t => ({ file, ...t, line: t.line + b.at })))
-    : tellsIn(readFileSync(file, 'utf8')).map(t => ({ file, ...t })));
+    : tellsIn(readFileSync(file, 'utf8'), designTokens(file)).map(t => ({ file, ...t })));
 }
 
 export const ADVICE = `These are tells (LLP 1115, "Write the web, ship the platform"): values one platform's
@@ -246,7 +282,8 @@ screenshot had, which miss dark mode, Increased Contrast, Dynamic Type and the n
   -exact-separator, -exact-fill, -exact-grouped-background, -exact-system-red …
   The one authored colour is the accent: a role, or one light-dark(light, dark) pair
   on accent-color (docs/contract-for-agents.md, "Colours: say a role, not a value").
-  An app's own palette goes in its root \`theme\` block, and rows name its entries.
+  An app's own palette is its design (app.tamber, LLP 1121) or its root \`theme\`
+  block, and rows name its tokens.
 - Type: leave body text unsaid; say a heading (text role="heading" aria-level=1..4) or
   a text style (font="-exact-footnote", -exact-headline, -exact-caption1 …)
   (docs/contract-for-agents.md, "Type: say a heading, not a size").

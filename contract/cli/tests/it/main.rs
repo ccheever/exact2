@@ -119,6 +119,7 @@ mod surface;
 mod svg;
 mod symbols;
 mod tamber;
+mod tamber_cli;
 mod tests_decl;
 mod text_item;
 mod text_selection;

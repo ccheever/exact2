@@ -252,6 +252,8 @@ Ports    none. Runs to completion.`,
   test <file.test.contract>               the compiled tests, as JSON (bun exact.mjs test runs them)
   verify <file.contract> [--types] [--prove <Module>] · rust <file.contract> [-o <shapes.rs>]
   lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
+  tamber check | eval [--mode <axis>=<value>] | ir [-o <tamber.json>] <app dir | app.contract | file.tamber>
+                                          the app's design (LLP 1121): checked, its tokens in one mode, its IR
 The first call compiles the compiler (minutes on a cold checkout).
 Ports    none. Runs to completion: exit 0 when it compiled.`,
     example: 'bun exact.mjs contract build app.contract --json',
@@ -268,6 +270,19 @@ wrote it is replaced; one you edited is refused unless --force. Each pattern pas
 tests and no-tells; rest's run with test or verify, which run its server.
 Ports    none. Runs to completion.`,
     example: 'bun exact.mjs pattern list-detail && bun exact.mjs test web',
+  },
+  tamber: {
+    line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
+    usage: 'bun exact.mjs tamber check | eval [--mode <axis>=<value>] | ir [-o <tamber.json>] <app dir | app.contract | file.tamber>',
+    flags: [
+      ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
+      ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there'],
+    ],
+    body: `The design is the file app.json's "tamber" names, else app.tamber beside app.contract
+(LLP 1121). check prints each refusal at its line; eval prints "name = value" a token.
+docs/recipes/tamber.md.
+Ports    none. Runs to completion.`,
+    example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
   hatch: {
     line: 'an access hatch: a stub for each target the app builds, and its app.json entry',

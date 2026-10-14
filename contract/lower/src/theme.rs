@@ -56,7 +56,7 @@ fn parses(text: &str) -> bool {
 }
 
 /// The schema's roles, as the crate checks a design against them.
-fn vocab() -> tamber::Vocab {
+pub fn vocab() -> tamber::Vocab {
     let hex = |c: u32| format!("#{c:08x}");
     tamber::Vocab {
         roles: exact_kernel::COLOR_ROLES

@@ -69,6 +69,11 @@ impl ThemeIndex {
         self.rows.insert((view, row.style as u16), row);
     }
 
+    /// `view`'s `style`, when it read a token.
+    pub fn row(&self, view: ViewId, style: StyleId) -> Option<&ThemedRow> {
+        self.rows.get(&(view, style as u16))
+    }
+
     /// `view`'s `style` reads no token now.
     pub(super) fn drop_row(&mut self, view: ViewId, style: StyleId) {
         if !self.rows.is_empty() {
