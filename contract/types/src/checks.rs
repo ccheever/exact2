@@ -995,10 +995,11 @@ pub(super) fn check_command(
     Ok(())
 }
 
-/// `setRootFontSize(px)`, a number of CSS pixels, or `setRootFontSize("medium")`,
-/// CSS's keyword for the host's own size (LLP 1069.000 D3). A size the
-/// source spells as zero or less is refused here; a computed one, when it
-/// runs.
+/// `setRootFontSize(px)`, a number of CSS pixels, `setRootFontSize("125%")`,
+/// a percentage of the host's size that follows it (LLP 1121 D6), or
+/// `setRootFontSize("medium")`, CSS's keyword for the host's own size (LLP
+/// 1069.000 D3). A size the source spells as zero or less, or a string that
+/// is neither, is refused here; a computed one, when it runs.
 fn root_font_size_args(
     args: &[Expr],
     scope: &Scope,
@@ -1006,9 +1007,9 @@ fn root_font_size_args(
     span: Span,
 ) -> Result<(), TypeError> {
     let fits = match args {
-        [Expr::Str(s, _)] => s == "medium",
+        [Expr::Str(s, _)] => s == "medium" || exact_num::css_percent(s).is_some(),
         [Expr::Number(n, _)] => *n > 0.0,
-        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number | Ty::String),
         _ => false,
     };
     if fits {
@@ -1016,7 +1017,7 @@ fn root_font_size_args(
     }
     err(
         "type-root-font-size",
-        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), or `setRootFontSize(\"medium\")` for the host's own size",
+        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), `setRootFontSize(\"125%\")` a percentage of the host's size above 0, which keeps following it, or `setRootFontSize(\"medium\")` for the host's own size",
         span,
     )
 }

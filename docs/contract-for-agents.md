@@ -2019,8 +2019,11 @@ heights, paddings) and what should not in `px`; an action calling
 The app's size stands over the host's (the browser's setting, iOS Dynamic Type's
 body, 13 on macOS, 16 on Linux), as an author's `html { font-size: 20px }` stands over a
 browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
-"Default" choice that follows Dynamic Type calls that. A size of 0 or less is
-refused (a literal at compile time, a computed one in `logs`). It is not kept
+"Default" choice that follows Dynamic Type calls that. Smaller and Larger that
+should scale Dynamic Type instead of replacing it are percentages:
+`setRootFontSize("87.5%")`, `("125%")`, CSS's percentage of `medium`, so the root
+is that share of the host's size and follows it when Dynamic Type or the browser's
+setting changes. A size of 0 or less is refused (a literal at compile time, a computed one in `logs`). It is not kept
 across a launch: a root `task restore mount` with `after(1, applySize)` sets the
 stored size again. Do not multiply a scale factor into every size instead.
 
