@@ -1,6 +1,10 @@
 # Queue
 
-- PR #381's remaining UIKit failures on iOS 27.1 are offscreen-row reveal and authored top-tab content; both also fail on the base branch. The public push/pop operation test passes, while copied-title pixel parity on this runtime still needs a real-touch comparison.
+- PR #381's remaining UIKit test failures on iOS 27.1 are offscreen-row reveal and authored top-tab content; both also fail on the base branch. Real-touch title comparisons have recordings from the foldable inner panel and tablets. First-Back timing on a focused tablet push and conventional iPhone coverage remain open. Evidence: `target/pr381-fullcoverage/`.
+
+- **iOS 27.1 Hinge Duo inner panel: the floating tab container intercepts right bar items.** Tapping Pop leaves the pushed route up; More leaves Scrolled up. The Pop button's native hit test returns `_UITabContainerView`. Both head and base fail Pop, while the matched UIKit reference accepts it. Evidence: `target/pr381-fullcoverage/`.
+
+- **iOS 27.0 iPad: Back returns a focused field's text without its software keyboard.** Focus Draft, type, push with More, then tap native Back. Head and base preserve the text and leave the keyboard closed through the recorded settled interval; UIKit restores it. Tab return restores the keyboard. Evidence: `target/pr381-fullcoverage/`.
 
 - **iOS 27.1 Hinge Duo cover display: native Back is outside the touch target, and plain scrolling removes the header actions.** A real touch on `BackButton` leaves the pushed route up; its native hit test returns the enclosing SwiftUI view. Scrolling the Scrolled tab removes Away and More, while a hand-built UIKit app keeps both and its inline title. Both failures reproduce at PR #381's head `4569f5e` and base `26fcf466`, with the same contract and SDK 27.1. The cover's title and tab geometry also differ from UIKit, so its copied-title animation has no pixel-parity verdict. Evidence: `target/pr381-battle/` (recordings, frame inspection and report).
 
