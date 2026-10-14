@@ -3,7 +3,7 @@ name: 20261014-chat-markdown-media-and-code
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: stale
-delivery: draft-pr
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: 'feat(example)/t3-code-chat-markdown-media-and-code'
@@ -309,3 +309,7 @@ Draft PR [#541](https://github.com/ccheever/exact2/pull/541) into `feat(example)
 
 The repair checks passed; implementation is ready for fresh verification. The coordinator performs independent
 review, updates the draft PR from the local repair, decides the plan size, and runs the real-input steps.
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#541](https://github.com/ccheever/exact2/pull/541) was read back at `c8b10717e5e6efe115b15b79bf3f80fedfd625bd`, based on `feat(example)/t3-code`. Repeated occurrence verified natively; plan-size decision and real pointer remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.

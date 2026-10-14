@@ -3,7 +3,7 @@ name: 20261014-terminal-input-and-ime
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft-pr
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-input-and-ime
@@ -236,3 +236,7 @@ Repair verification (2026-10-14, local logs under `target/tii/ime-review-*`):
   correctly refused startup; native terminal behavior is covered by the AppKit suite above.
 - The branch's additional workspace check passed: `cargo check --workspace --all-targets --keep-going`
   (`ime-review-workspace.log`, 5m 18s; existing authored-colour warnings emitted).
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#533](https://github.com/ccheever/exact2/pull/533) was read back at `ce8cc79bb16f0caa3d7372a7818ffa51b6f031f9`, based on `feat(example)/t3-code`. IME consumed/declined Control handling; real middle press and live IME remain open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.

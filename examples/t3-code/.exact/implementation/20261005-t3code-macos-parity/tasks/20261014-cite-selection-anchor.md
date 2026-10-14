@@ -3,7 +3,7 @@ name: 20261014-cite-selection-anchor
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: stale
-delivery: draft-pr
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-cite-selection-anchor
@@ -240,3 +240,7 @@ above identify the prior implementation, not this repair.
 Implementation is ready for verification. The coordinator binds independent review to the repair commit, publishes
 the amended draft PR within the authorized workflow, and handles integrated checks and the remaining real-input batch.
 
+
+## Coordinator publication, 2026-10-14
+
+Draft PR [#540](https://github.com/ccheever/exact2/pull/540) was read back at `706f3d3f44a718d19f90996e82258718ec6e3e49`, based on `feat(example)/t3-code`. Pending/stale cancellation verified by tests and native drive; final real input remains open. The combined repository gates and app drive are pending. This local integration bookkeeping does not close the task or replace the earlier verification revision.
