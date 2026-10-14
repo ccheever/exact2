@@ -1,7 +1,7 @@
 # LLP 1121: Tamber — a design system in any language, edited through one API
 
 **Type:** RFC
-**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`); stage 2's commits 1 and 9 are on main. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
+**Status:** **Accepted; stage 1 landed, stage 2 in progress** (Charlie, 2026-10-13: "Can we start building tamber"; ".tamber is probably fine"). §9's open questions stand, each with the RFC's recommendation as the provisional default until he rules. §10 records what was built where it differs. Stage 1 landed 2026-10-14 (`7a95dcce4`..`13f49af39`). Stage 2's commits 1–5 and 9 are on main; commit 6 (the web) is next. Draft history: r7 (2026-10-13) is r6 with the system named **Tamber (provisional)** (Charlie, 2026-10-13; earlier Saturi, and Facet in r5–r6); nothing else changed. r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict after round 1 was RIGHT WITH CHANGES. r5 wrote in Charlie's rulings on r4's questions (2026-10-13): the system was named Facet, which r7 replaces; a design changes through a public, versioned edit API whose main client is the design tool (D13, D14); components declare their tweakable params in Contract (D15); a component library and a base scale are later stages. Round 4 reviewed r5 (both RIGHT WITH CHANGES; Grok found one BLOCKER, how the live table reaches a running build), and r6 takes its findings without another round (§0). Reviews: `llp/reviews/rfc-2026-10-13-design-system-r{1,2,3,4}.{astra,grok}.md`; they cite this file by its earlier name, `llp/1121-design-system.rfc.md` (it was then `llp/1121-facet.rfc.md`, then `llp/1121-saturi.rfc.md`). Nothing built. Builds on LLP 1095 D4 (`theme`) and its reach (Charlie, 2026-10-12; LLP 1095 §5 item 6), stage 1 here, not redesigned. Stages 3 and 4 need DEFERRED admissions (§9 Q3).
 **Systems:**
 - A new leaf crate, `tamber/` (`exact-tamber`): the `.tamber` grammar, its checker and the build's evaluator.
 - Contract: token names in rows, the `params` section (D15), state parts (D8), `setMode` and `-exact-mode` (D5).
@@ -1675,3 +1675,142 @@ the lead, 2026-10-13; Charlie told).
   - its stars are drawn in `ButtonText`, which is `controlTextColor` there;
   - its links keep `linkColor`;
   - `color` doesn't tint a symbol image on the Mac, with or without a theme (in QUEUE).
+
+### Stage 2, commit 2: the compiler reads designs (`1861578bc`..`d15a3f8ed`; core `280ddc710`)
+
+Built as D2, D3 and D7 say, except:
+- **Inline `theme` goes through the crate.** It is built into a design, one token per entry,
+  and checked by `exact_tamber::check_design` like `app.tamber`, so its refusals use the
+  crate's ids (`tamber-cycle`, `tamber-duplicate`, `tamber-unknown-token`,
+  `tamber-name-reserved`). Lowering keeps what the crate doesn't know: `lower-theme-tint`,
+  `lower-theme-name` for gradient, shadow and colour-space words, and `lower-theme-value`
+  for profile misuse.
+- **The inline block's syntax is unchanged:** `name="colour"` lines only, with no `when` and
+  no other kinds. Its values are now the crate's, so a name inside an entry's
+  `light-dark()` is read and folded. That widens LLP 1095 D4 ("a name inside light-dark()
+  … is not read") for entries; rows still read names only whole.
+- **Synthetic tokens are named by their expression text** in the plan's table. The kernel's
+  scope matches that text exactly, and no other text with `(` is ever a name. The JS
+  target's map reads them the same way, and treats a dotted name as one name.
+- **Only colour rows must fold.** A literal in a colour row's value (through `?:`, `match`
+  and `let`) must fold. A literal elsewhere (a `fn`, a state, a derive, an action, a call
+  argument, a condition) becomes a synthetic token if it folds and is dropped if it
+  doesn't, so a label that only looks like a colour never fails a build.
+- **Plan values use the crate's serialization** (`#c8102eff`, `light-dark(#ffffffff,
+  #17181bff)`). Every kept entry in Expose and the readers was checked to read in the
+  kernel exactly as its authored text did.
+- **Profile colours are carried as written.** The crate is told `transparent` for
+  `color(--profile …)` entries and whole-name references to them; their names are still
+  checked. Any other use, including a `when` that holds at the default modes, is
+  `lower-theme-value`. So a profile entry can't take part in a folded expression yet.
+- **App axes are folded, but until commit 3 the plan carries the default tuple only.**
+
+### Stage 2, commit 3: app axes, the slice, boundaries (`c609fb23d`..`9c8b4df46`; core `2ef82a085`)
+
+**D7 is built in the runner, not the kernel.** The runner is where a name already becomes
+a value, since it evaluates each style binding and parses it with the theme bound. So:
+- the runner picks a node's slice by binding the theme table for the node's tuple, built
+  once per tuple and swapped in by pointer;
+- the runner keeps the token beside the row, in its own per-node index;
+- the kernel receives an ordinary selected value, as D7 says.
+
+The index is per runner, which means per session. A token value change, a pin change or
+`setMode` re-runs the indexed bindings through the normal binding path. The kernel compares
+the re-parse's result, not the source text, and does its usual work for the changed row
+(paint only for colours).
+
+**The plan.** An `axes` table (each axis's name and values, the default first). The `theme`
+rows hold the default tuple's values. A `theme_slices` table gives each varying token one row
+per full tuple; the tuple index is mixed-radix in axis order.
+
+**`-exact-mode`** is an inherited row. At every pin, the runner writes the node's full
+canonical tuple as an implied row, so hosts, the wasm CSS and the web's `data-x-modes` read a
+complete tuple. The author's partial text stays the authored value `layout` shows.
+
+**Boundary implied rows** (at `-exact-mode` and `color-scheme` nodes, for `color`,
+`caret-color`, `fill`, `stroke`) are written by the runner and indexed under their token, so
+edits refresh them too.
+
+**`layout` reports the token beside each row**, from the runner's index (for LLP 1122 D5's
+inspect).
+
+**Further details:**
+- **The digest breaks once.** `-exact-mode` is bit 211.
+- **A pin is stored as the full tuple** it makes over the tuple around the node, as the tuple
+  index plus one, so hosts and the kernel read a complete tuple.
+- **One spelling for a mode: `axis=value`**, everywhere a mode is written: a `.tamber`
+  `when` condition, an `-exact-mode` pin (space- or comma-separated, each axis once),
+  `prefer mode`, and the CLI's `--mode`. D5's pin example (`dark-style:dim`) is amended to
+  match. `axis:value` is refused, with `tamber-mode` naming the right spelling; nothing had
+  shipped with it, so no deprecation period is needed. A bad pin is refused at compile time
+  and unsets the row at run time.
+- **Boundary rows cover all eight inherited colour rows** in the schema: `color`,
+  `caret-color`, `fill`, `stroke`, `accent-color`, `text-shadow`,
+  `-webkit-text-stroke-color` and `-exact-symbol-palette`. An ancestor's unset row passes on
+  the token above it, and a boundary's own colour coming and going restores its implied
+  row.
+- **The index** keeps each themed row's text, tuple, written flag and a 64-bit bloom of the
+  token names. It is maintained at mount, binding rewrite and unset, and pruned when a view
+  retires. A collection remembers the modes around it, for rows it mounts later and for
+  reused rows.
+- **The gate measurement holds, so the no-`Ref` design stands.** `Runner::set_token` on the
+  1,000-row fixture sets exactly the rows that read the token: no tree walk, no binding
+  evaluation, no layout. In release builds it took 0.27–0.77 ms, against 1.08–2.32 ms for a
+  pin flip over the same list (test `a_token_edit_sets_only_its_rows_and_paints`).
+- **Role overrides may not vary by axis** (`tamber-role-axis`): a role crosses to the hosts
+  once, for the surfaces they draw.
+- **`set_token`'s limits.** It refuses a role override (an edit does not yet reach the
+  kernel's defaults or the hosts' roles); edits belong to the plan; a bloom collision re-sets
+  extra rows harmlessly.
+- **Detached renders fall back.** The document fold refuses a design with axes or a themed
+  `color-scheme` boundary, and the render runs again with a kernel.
+- **The web** writes nothing for `-exact-mode` until commit 6; the JS target shows the default
+  tuple until then.
+- **A known cost** (not changed): a pin change or mode switch re-evaluates a virtualized
+  list's keys once. They compare equal, so nothing remounts.
+
+
+### Stage 2, commit 4: `setMode` and `prefer mode` (`de4ed34e5`..`b9b0a25c0`; core `b28f6bf38`, the gate test `44a19d999`, the spelling `11996b734`)
+
+Built as D5 and D13 say:
+- **`setMode(axis, value)`** is a runner command.
+  - It sets the window's tuple in the action's own commit and re-sets every themed row, laying
+    out only where a selected value is in a layout row.
+  - No host is told: hosts learn the result through the rows. A refused commit restores the
+    tuple.
+  - An undeclared literal is refused at compile time (`tamber-mode`); a computed one is
+    journaled.
+  - It takes one axis and one value. Nothing persists across a launch (§9 Q5's default).
+  - **The gate line holds:** a colour-only `setMode` on 1,000 rows does no relayout
+    (`44a19d999`).
+- **`prefer mode axis=value`** is the fourth `prefer` group. It runs `setMode`, leaves
+  `prefers-color-scheme` alone, checks every pin before setting any, and answers with the
+  window's modes.
+  - It works on Linux, the wasm web host, Apple, and the browser carriers.
+  - The JS target refuses it until commit 6.
+- **A known gap:** the web glue's own page group still accepts a root font size the kernel
+  cannot store, when the request doesn't come through the agent. The agent refuses it.
+
+### Stage 2, commit 5: the Apple hosts (`b9b0a25c0`..`3bd831dfb`; core `a82d688e4`)
+
+**No host code was needed.** Because the runner picks the slice (commit 3), an Apple host
+receives ordinary rows:
+- a token that varies only by scheme or contrast stays a dynamic `UIColor`/`NSColor`;
+- a token that varies by app axis arrives as the node's slice;
+- `setMode` and pin changes re-set the rows, which the existing refresh paths show.
+
+Both reviewers traced those paths (CGColor layers, gradients, filters and shadows, SVG paint,
+transition targets, text caches) and found nothing that holds a stale value. `ThemeRoles` stays
+one table, which `tamber-role-axis` guarantees.
+
+**The evidence is `apps/theme-fixture`:**
+- one axis;
+- a card whose border, shadow, gradient, `drop-shadow()` filter and SVG paint all read
+  tokens, with a transition;
+- a token whose value is a role;
+- Light, Dim and Black previews with text inherited from the page;
+- a pin swap.
+
+Driven on the Mac and the iOS simulator (`~/x2p2/tf-shots/`). Everything changes to Dim, the
+previews keep their own pins (a Black preview on a Dim page and the reverse), the card
+transitions between the two dark values, and light is unchanged.
