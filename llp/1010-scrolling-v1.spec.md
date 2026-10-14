@@ -96,8 +96,11 @@ the document as for any page. Ordinary scroll containers remain platform-owned. 
 
 > **LLP 1115 gives how scrolling feels to the platform.** What scrolls and how far is layout
 > and stays CSS; elasticity, momentum, the wheel's step and the scroller's style are AppKit's.
-> LLP 1115.000 D8 proposes reversing this section on that ground. Not yet accepted, so the
-> code is still as described here.
+> LLP 1115.000 D8.2 and D8.5 are the current implementation: AppKit runs a person's scroll,
+> and its key actions and line size set the keyboard scroll. D8.4 is partly built: an ordinary
+> Mac element reveal animates for omitted, `auto` and `smooth`, while `instant`, Reduce Motion
+> and the agent's frozen clock land at once. Focus reveal, keyed lists and UIKit are separate.
+> Inner scrollers remain overlay until D8.3 lands with the kernel's gutter.
 
 **The page.** The window's content view is an `NSScrollView` (the
 viewport); its document is a flipped view holding the roots, sized after
@@ -132,27 +135,18 @@ height, the in-flow page; descendants overflowing a root's frame
 extent on macOS, where CSS's document `scrollHeight` includes them — a
 declared deviation until `fitDocument` reads the root's `content`.
 
-**Chaining** (`ChainingScrollView.scrollWheel`): deltas are points when
-the event has precise deltas (a trackpad) and lines × 40 pt otherwise (a
-wheel; a browser-like tick — the *inner* consumer's constant; the page's
-scroll view is a plain `NSScrollView` with AppKit's own line size). Per
-axis, the view can take the delta when that axis scrolls, its document
-overflows on it, and it is not already at that edge. The event's
-**dominant axis** (the larger delta; a tie is vertical) decides who owns
-it: if the view can take that axis, it scrolls itself by every axis
-it can take — clamped, applied directly to the clip view, **never through
-AppKit** — otherwise the whole event goes to the next responder, up
-through the node views to the page's scroll view. This is CSS's
-`overscroll-behavior: auto`, and it is not AppKit's default, which swallows
-the event: on the first try the Caltrain app's `scroll` node — which does
-not overflow, because its parent is a block with auto height and so the
-*page* is what overflows, exactly as in the browser — trapped every wheel.
-Scrolling itself rather than through AppKit was the second finding: a
-nested `NSScrollView` may move the *enclosing* view or animate later for
-an event handed to `super`, so any "did it move?" fallback can double a
-delta; taking the delta directly is deterministic. What is given up: AppKit's
-rubber-banding on inner scroll nodes (momentum still arrives, as further
-events, and is applied the same way).
+**Chaining** (`ChainingScrollView.scrollWheel`): precise trackpad deltas are
+points; a wheel uses AppKit's line height. A phase-less wheel tick belongs to
+the deepest scroller that can take either component. A phased gesture is
+owned by the first scroller that can move in its dominant direction, then
+stays with that scroller through its zero-delta lift and momentum end. A
+person's owned event goes whole to `NSScrollView`, so AppKit supplies the
+movement, momentum and rubber band. `overscroll-behavior: contain` and `none`
+keep the gesture in the inner scroller; `auto` may route it outward when the
+gesture begins at the edge. Under the agent, a wheel is applied directly and
+at once because the drive reads the offset in the same turn. `ScrollRoutingTests`
+cover the routing decision and the agent seam; physical trackpad and notched
+wheel qualification remains separate.
 
 ## 4. Held by
 
