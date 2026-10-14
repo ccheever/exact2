@@ -107,12 +107,14 @@ pub(crate) fn inactive(kernel: &Kernel, id: ViewId) -> bool {
 }
 
 /// Whether `route`, one the navigation root `root` has not selected, is
-/// shown all the same: it is the first of its stack, and the route the root
-/// selected is in that stack and laid out in a pane a host reported (a
-/// containing block that is the size on both axes, LLP 1115.002 D8.2). A
-/// host that shows a stack's top in a pane of its own shows the stack's
-/// list beside it, live (LLP 1115.002 D4); under a sheet, whose block is a
-/// maximum, the list is covered as before.
+/// shown all the same: it is the first of its stack, laid out in the page,
+/// and the route the root selected is in that stack and laid out in a pane
+/// a host reported (a containing block that is the size on both axes, LLP
+/// 1115.002 D8.2). A host that shows a stack's top in a pane of its own
+/// shows the stack's list beside it, live (LLP 1115.002 D4); under a sheet,
+/// whose block is a maximum, the list is covered as before. A host that
+/// gives the list a block of its own too lays each route out in its own
+/// container (LLP 1123 D2): the route over it covers it.
 fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
     use exact_kernel::BlockAxis;
     let Some(key) = root.1.str(PropId::NavigationKey) else {
@@ -133,6 +135,7 @@ fn beside_a_pane(kernel: &Kernel, root: &HeadNode<'_>, route: ViewId) -> bool {
         .filter(|id| key_of(*id).is_some())
         .collect();
     stack.first() == Some(&route)
+        && kernel.host_block(route).is_none()
         && stack
             .iter()
             .find(|id| key_of(**id) == Some(key))

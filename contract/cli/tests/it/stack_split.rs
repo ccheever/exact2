@@ -256,3 +256,39 @@ fn the_list_beside_a_route_in_a_hosts_pane_is_not_inactive() {
     r.kernel_mut().set_host_block(top, None).unwrap();
     assert!(r.inactive(row));
 }
+
+/// A host that lays every route out in a block of its own, as iOS gives
+/// each route its controller's view (LLP 1123 D2), shows no list beside a
+/// pane: the route under a pushed route, and under a sheet the size of its
+/// detent, stays covered.
+#[test]
+fn a_list_in_a_block_of_its_own_is_covered_by_the_route_over_it() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let mut r = boot(&app("", "", LINKS));
+    let root = r.kernel().roots()[0];
+    let screen = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(874.0),
+    };
+    let home = view(&r, "home");
+    r.kernel_mut().set_host_block(home, Some(screen)).unwrap();
+    r.dispatch(root, Event::Navigate("/item/b".into())).unwrap();
+    let item = view(&r, "item-b");
+    r.kernel_mut().set_host_block(item, Some(screen)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a pushed route covers its list"
+    );
+    r.dispatch(root, Event::Navigate("/".into())).unwrap();
+    r.dispatch(view(&r, "add"), Event::Press).unwrap();
+    let sheet = HostBlock {
+        width: BlockAxis::Is(402.0),
+        height: BlockAxis::Is(814.0),
+    };
+    let form = view(&r, "form");
+    r.kernel_mut().set_host_block(form, Some(sheet)).unwrap();
+    assert!(
+        r.inactive(view(&r, "row-a")),
+        "a sheet covers the screen under it"
+    );
+}
