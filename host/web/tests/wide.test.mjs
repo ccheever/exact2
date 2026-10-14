@@ -354,7 +354,7 @@ check('retained visit URLs restore href selection after adoption, replace and sa
     await evaluate(`push(3, '/edit', [[1, '/'], [2, '/item/b'], [3, '/edit']])`);
     expect(await evaluate(marks)).toEqual(['row-b']);
     // A same-top reset must replace the snapshot before its history fast path returns.
-    await evaluate(`(async () => { const {navigation} = await import('./navigation.js'); navigation.reset({top:3,url:'/edit',visits:[[1,'/'],[2,'/unknown'],[3,'/edit']]}); select(3); })()`);
+    await evaluate(`(async () => { const {navigation} = await import('/navigation.js'); navigation.reset({top:3,url:'/edit',visits:[[1,'/'],[2,'/unknown'],[3,'/edit']]}); select(3); })()`);
     expect(await evaluate(`[${marks}, back('r3')]`)).toEqual([[], true]);
     await evaluate(`push(3, '/edit', [[1, '/'], [2, '/item/a'], [3, '/edit']]); document.getElementById('row-a').setAttribute('data-exact-router-press', 'false'); select(3)`);
     expect(await evaluate(marks)).toEqual([]);
@@ -380,7 +380,7 @@ check('only an ordinary outer press associates its row with navigation', () => {
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
     await evaluate(`document.getElementById('owner').click(); push(3, '/item/b')`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([true, false]);
-    await evaluate(`(async () => { const {navigation} = await import('./navigation.js'); navigation.reset({top:3,url:'/item/b',visits:[[3,'/item/b']]}); select(3); })()`);
+    await evaluate(`(async () => { const {navigation} = await import('/navigation.js'); navigation.reset({top:3,url:'/item/b',visits:[[3,'/item/b']]}); select(3); })()`);
     expect(await evaluate(`[document.getElementById('owner').hasAttribute('data-exact-split-row'), back('r3')]`)).toEqual([false, true]);
   });
 }, 30000);

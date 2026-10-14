@@ -476,7 +476,10 @@ component App
     main navigationKey=`${top(nav).id}` navigationBack="back"
       for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0
-          list testId="rows" role=(wide ? "presentation" : "list") estimated-item-width=(wide ? 180 : 0)
+          list testId="strip" virtualized=true display="flex" height=120 overflow-x="scroll" overflow-y="hidden" estimated-item-width=180
+            for n in ["a", "b"] key=n
+              text n width=180
+          list testId="rows" role=(wide ? "presentation" : "list")
             link "A" href="/item/a" testId="href"
             link "Pick" href="/item/a" press=toggle testId="local"
             button "Open" press=open testId="push"
@@ -497,6 +500,23 @@ component App
             .get("data-exact-list")
             .map(String::as_str),
         Some("")
+    );
+    assert!(!part("rows")
+        .props
+        .contains_key("data-exact-estimated-item-width"));
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-list")
+            .map(String::as_str),
+        Some("")
+    );
+    assert_eq!(
+        part("strip")
+            .props
+            .get("data-exact-estimated-item-width")
+            .map(String::as_str),
+        Some("180")
     );
     for (name, fact) in [
         ("href", None),
