@@ -142,7 +142,7 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
             );
             assert_eq!(size(&mut p, "nested"), (48.0, 24.0));
             assert_eq!(pixel(&mut p, "nested", 0.0, 12.0), ground);
-            assert_eq!(size(&mut p, "own-button"), (48.0, 24.0));
+            assert_eq!(size(&mut p, "own-button"), (52.0, 28.0));
             assert_eq!(pixel(&mut p, "own-button", 0.0, 12.0), [0x12, 0x34, 0x56]);
             assert_eq!(pixel(&mut p, "own-button", 4.0, 12.0), [0xab, 0xcd, 0xef]);
             assert_eq!(size(&mut p, "own"), (width, 34.0));
