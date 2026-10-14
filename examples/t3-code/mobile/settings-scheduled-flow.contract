@@ -4,6 +4,8 @@
 use SettingsColors, SettingsTextRoles from "./settings.contract"
 use SettingsScheduledTasks, SettingsScheduledEditor, SettingsScheduledModel, SettingsScheduledBranch, ScheduledTasksData, ScheduledEditorData from "./settings-scheduled.contract"
 use SettingsUsage, SettingsUsageAccount, MobileUsageData, MobileUsageAccountData from "./settings-usage.contract"
+shape ScheduledClockTime
+  now: number
 shape AutomationPrepared
   revision: number
 shape AutomationData

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { answer } from './app';
 import { mobileClient } from './client';
 import { MobileDraftClient } from './mobile-draft-recovery';
 import { obj, type Obj } from './shared/domain';
@@ -30,15 +31,18 @@ test('dirty signature is stable for reordered days/options; explicit permissions
 });
 let original:{client:PropertyDescriptorMap;entries:typeof fleet.entries;saved:typeof fleet.saved;revision:number};
 function clearClientFields(){for(const key of Reflect.ownKeys(mobileClient))Reflect.deleteProperty(mobileClient,key);}
-beforeEach(()=>{
+beforeEach(async()=>{
   original={client:Object.getOwnPropertyDescriptors(mobileClient),entries:fleet.entries,saved:fleet.saved,revision:fleet.revision};
   const fresh=new MobileDraftClient();clearClientFields();
   // Copy fresh field values, not accessors that close over the temporary client.
   for(const key of Reflect.ownKeys(fresh))Object.defineProperty(mobileClient,key,{value:Reflect.get(fresh,key),writable:true,enumerable:true,configurable:true});
   fleet.entries=new Map();fleet.saved=[];fleet.revision=0;
+  answer('scheduledClockTime',[false,'',0,0]);
+  await answer('automationPrepare',['','', '', '', '',0,0,0]);
 });
-afterEach(()=>{
-  try{mobileScheduledClose(true);}finally{clearClientFields();Object.defineProperties(mobileClient,original.client);fleet.entries=original.entries;fleet.saved=original.saved;fleet.revision=original.revision;}
+afterEach(async()=>{
+  try{mobileScheduledClose(true);answer('scheduledClockTime',[false,'',0,0]);await answer('automationPrepare',['','', '', '', '',0,0,0]);}
+  finally{clearClientFields();Object.defineProperties(mobileClient,original.client);fleet.entries=original.entries;fleet.saved=original.saved;fleet.revision=original.revision;}
 });
 const scope=JSON.stringify({environmentIds:['scheduled-test'],members:[{environmentId:'scheduled-test',id:'p'}],projectLabel:'Project'});
 function transport(options:{tasks?:Obj[]|null;streamError?:string;auth?:'ok'|'error'|'abort';permissions?:string[]}={}){
@@ -112,4 +116,87 @@ test('native time cancel preserves draft; repeat choice uses actual menu descrip
   const {native}=transport();await mobileScheduledBegin(scope,'scheduled-test','',native);
   const controls:Native={...native,async later(input){const request=obj(input);return request.op==='mobileScheduledTime'?{ok:true,generation:0,value:{cancelled:true}}:request.op==='mobileScheduledMenu'?{ok:true,generation:0,value:{choice:'every_day'}}:native.later(input);}};
   await mobileScheduledNativeMenu('time',scope,controls);expect(mobileScheduledEditor().time).toBe('09:00');await mobileScheduledNativeMenu('repeat',scope,controls);expect(mobileScheduledEditor().repeatLabel).toBe('Every day');
+});
+
+const clockEpoch=Date.UTC(2026,9,14,12);
+function clockFixture(){
+  return transport({permissions:[],tasks:[75,100].map(seconds=>({...task,id:`due-${seconds}`,title:`Due ${seconds}`,
+    schedule:{type:'interval',everyMs:60_000},nextRunAt:new Date(clockEpoch+seconds*1000).toISOString()}))});
+}
+function scheduledClock(entry:string,token:number,seconds:number,native?:Native){
+  return answer('scheduledClockTime',[true,entry,token,clockEpoch+seconds*1000],undefined,undefined,native);
+}
+function prepareTasks(now:number,native:Native,selectedScope=scope,revision=0){
+  return answer('automationPrepare',['settingsScheduledTasks',selectedScope,'','','',now,revision,0],undefined,undefined,native);
+}
+function taskRows(){return answer('automationSnapshot',[{},false]).scheduled.sections.flatMap(section=>section.rows);}
+function holdEnvironments(native:Native){
+  let enter!:()=>void,release!:()=>void,held=false;
+  const entered=new Promise<void>(resolve=>{enter=resolve;}),released=new Promise<void>(resolve=>{release=resolve;});
+  const gated:Native={...native,async later(input){
+    const request=obj(input);
+    if(!held&&request.op==='environments'){held=true;enter();await released;}
+    return native.later(input);
+  }};
+  return {native:gated,entered,release};
+}
+test('Scheduled focus at30 samples synchronously; ordinary refresh at60 holds until its minute at90',async()=>{
+  const f=clockFixture(),focus=scheduledClock('entry-a',0,30,f.native);
+  expect(focus).toEqual({now:clockEpoch+30_000});expect(focus).not.toBeInstanceOf(Promise);expect(f.calls).toHaveLength(0);
+  await prepareTasks(focus.now,f.native);
+  expect(taskRows().map(row=>row.subtitle)).toEqual(['Every minute · Next run in less than a minute','Every minute · Next run in 1 minute']);
+  const reads=f.calls.length,refresh=scheduledClock('entry-a',0,60,f.native);
+  expect(refresh).toEqual(focus);expect(f.calls).toHaveLength(reads);
+  await prepareTasks(refresh.now,f.native,scope,1);
+  expect(taskRows()[1]!.subtitle).toBe('Every minute · Next run in 1 minute');
+  const minute=scheduledClock('entry-a',90_000,90,f.native);expect(minute.now).toBe(clockEpoch+90_000);
+  await prepareTasks(minute.now,f.native,scope,2);
+  expect(taskRows().map(row=>row.subtitle)).toEqual(['Every minute · Next run due','Every minute · Next run in less than a minute']);
+  const currentReads=f.calls.length;expect(scheduledClock('entry-a',90_000,95,f.native)).toEqual(minute);expect(f.calls).toHaveLength(currentReads);
+  expect(f.calls.every(call=>call.op==='environments'||call.op==='http'&&call.path==='/api/auth/session')).toBe(true);
+});
+test('Scheduled cover/resume and distinct same-route entry sample anew; off-route clock leaves Usage anchors intact',async()=>{
+  const f=clockFixture();await prepareTasks(scheduledClock('entry-a',0,30).now,f.native);
+  expect(answer('scheduledClockTime',[false,'usage-entry',0,0],undefined,undefined,f.native)).toEqual({now:0});
+  const reads=f.calls.length;expect(answer('scheduledClockTime',[false,'usage-entry',60_000,clockEpoch+300_000],undefined,undefined,f.native)).toEqual({now:0});expect(f.calls).toHaveLength(reads);
+  await answer('automationPrepare',['settingsUsage',scope,'','','',clockEpoch+50_000,0,0]);
+  expect(answer('automationSnapshot',[{},false]).now).toBe(clockEpoch+50_000);
+  await answer('automationPrepare',['settingsUsage',scope,'','','',clockEpoch+80_000,1,0]);
+  expect(answer('automationSnapshot',[{},false]).now).toBe(clockEpoch+50_000);
+  const resumed=scheduledClock('entry-a',0,100);expect(resumed.now).toBe(clockEpoch+100_000);
+  await prepareTasks(resumed.now,f.native);expect(taskRows()[1]!.subtitle).toBe('Every minute · Next run due');
+  // Distinct physical ID, not an assertion that router replace creates one.
+  const distinct=scheduledClock('entry-b',0,110);expect(distinct.now).toBe(clockEpoch+110_000);
+  await prepareTasks(distinct.now,f.native);expect(answer('automationSnapshot',[{},false]).route).toBe('settingsScheduledTasks');
+  expect(scheduledClock('entry-b',0,115)).toEqual(distinct);
+});
+test('a held ordinary Scheduled refresh cannot restore the pre-minute subtitles or clock',async()=>{
+  const f=clockFixture();await prepareTasks(scheduledClock('entry-a',0,30).now,f.native);
+  const gate=holdEnvironments(f.native),older=prepareTasks(scheduledClock('entry-a',0,40).now,gate.native,scope,1);
+  await gate.entered;
+  try{
+    const reads=f.calls.length;expect(scheduledClock('entry-a',0,60,f.native).now).toBe(clockEpoch+30_000);expect(f.calls).toHaveLength(reads);
+    await prepareTasks(scheduledClock('entry-a',90_000,90).now,f.native,scope,2);
+    expect(taskRows()[1]!.subtitle).toBe('Every minute · Next run in less than a minute');
+  }finally{gate.release();await older;}
+  expect(taskRows()[1]!.subtitle).toBe('Every minute · Next run in less than a minute');
+  expect(scheduledClock('entry-a',90_000,95).now).toBe(clockEpoch+90_000);
+});
+test('a held scope refresh neither resamples the focused clock nor replaces the successor project rows',async()=>{
+  const f=clockFixture();f.entry.shell.projects.push({id:'q',title:'Other',workspaceRoot:'/tmp/other'});
+  liveFleetEvent(f.entry,{key:'scheduled-tasks',generation:101,subscriptionId:'test-110',value:{tasks:[
+    {...task,id:'old-project',schedule:{type:'interval',everyMs:60_000},nextRunAt:new Date(clockEpoch+75_000).toISOString()},
+    {...task,id:'new-project',projectId:'q',schedule:{type:'interval',everyMs:60_000},nextRunAt:new Date(clockEpoch+100_000).toISOString()},
+  ]}});
+  await prepareTasks(scheduledClock('entry-a',0,30).now,f.native);expect(taskRows()[0]!.id).toBe('old-project');
+  const gate=holdEnvironments(f.native),older=prepareTasks(scheduledClock('entry-a',0,40).now,gate.native,scope,1);
+  await gate.entered;
+  const nextScope=JSON.stringify({environmentIds:['scheduled-test'],members:[{environmentId:'scheduled-test',id:'q'}],projectLabel:'Other'});
+  try{
+    const held=scheduledClock('entry-a',0,60);expect(held.now).toBe(clockEpoch+30_000);
+    await prepareTasks(held.now,f.native,nextScope,2);
+    expect(taskRows()).toMatchObject([{id:'new-project',subtitle:'Every minute · Next run in 1 minute'}]);
+  }finally{gate.release();await older;}
+  expect(taskRows()).toMatchObject([{id:'new-project',subtitle:'Every minute · Next run in 1 minute'}]);
+  expect(scheduledClock('entry-a',0,65).now).toBe(clockEpoch+30_000);
 });
