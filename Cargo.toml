@@ -90,7 +90,11 @@ lto = "fat"
 
 [profile.dev]
 opt-level = 0
-debug = true
+# File and line for panics and backtraces, without variables and types for a
+# debugger: a one-line kernel edit rebuilds the workspace's targets in about a
+# third less CPU, and `target/debug` is half the size. For lldb, build with
+# `CARGO_PROFILE_DEV_DEBUG=true`.
+debug = "line-tables-only"
 
 # Every dependency outside the workspace is optimized, as the game workspace's
 # are: tests spend much of their time in them, and nobody steps through them.
