@@ -33,7 +33,7 @@ use SbPicker from "./settings-b-icons.contract"
 use PickerCatalog, PickerTarget, ComposerBranches from "./composer-shapes.contract"
 use ComposerEditorView from "./composer-editor.contract"
 use ShellView, ShellDetails from "./shell-shapes.contract"
-use Sidebar from "./sidebar.contract"
+use Sidebar, sidebarTipRow from "./sidebar.contract"
 use LegacySidebar from "./legacy-sidebar.contract"
 use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
 use ComposerMenus from "./composer-controls.contract"
@@ -473,6 +473,12 @@ component T3Window
   // pr-list-scroll-and-sidebar-sweep (X13): how many hover events the sidebar has had, so a cancelled row-action
   // sweep's resting hover (sidebar.contract ThreadSection) holds only until the window's hover moves on.
   state sidebarHoverSeq = 0
+  // sidebar-hover-archive-and-glyph SW-2: the row the host hovers (a row's own key, no `#`). Since main #327 the hover is
+  // the hit's ancestor path, so a row stays hovered under its controls and hears no new enter when the pointer leaves one
+  // for the row itself: the control's tip ending while its row is still hovered gives the row its hover and its card back,
+  // as the reference's card closes for a frame and reopens. A tip a press closed (SW-3a: `sidebarHover("", false)` moves
+  // the card and tips away) gives the row back with them still away, until the pointer enters again.
+  state sidebarHoverHeld = ""
   state sidebarScrollY = 0
   state dragId = ""
   state dragSection = ""
@@ -647,13 +653,23 @@ component T3Window
     sidebarScrollY = y
   action sidebarHover(id: string, over: bool)
     sidebarHoverSeq = sidebarHoverSeq + 1
+    let row = sidebarTipRow(id)
+    let back = not over and row != "" and row == sidebarHoverHeld and sidebarHoverId == id
     if over
       sidebarHoverLast = id
       sidebarHoverY = frame(`row-${id}`).y - sidebarScrollY
       sidebarHoverH = frame(`row-${id}`).height
+    else if back
+      sidebarHoverLast = row
+      sidebarHoverY = sidebarHoverY == -10000 ? -10000 : frame(`row-${row}`).y - sidebarScrollY
+      sidebarHoverH = frame(`row-${row}`).height
     else if id == ""
       sidebarHoverY = -10000
-    sidebarHoverRoot(id, over)
+    if over and row == ""
+      sidebarHoverHeld = id
+    else if not over and id == sidebarHoverHeld
+      sidebarHoverHeld = ""
+    sidebarHoverRoot(back ? row : id, over or back)
   action sidebarDrag(id: string, section: string, dx: number, dy: number)
     if section != "working" and data.sidebar.dragEnabled and not commandPending
       if dragId != id

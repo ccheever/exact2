@@ -17,6 +17,7 @@ import { snoozePresets } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
 import { syncFavicons } from './r3-sidebar-glyph';
+import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
 import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
@@ -349,13 +350,15 @@ export async function sidebarSelecting(client: T3Client, nativeHandle: Native, i
 }
 /**
  * After each refresh (client.ts, awaited): a success pill's exit is scheduled
- * while this refresh's handle is live, and new projects' favicons are asked
- * for inside the refresh (a reply after its answer ended would be dropped).
+ * while this refresh's handle is live, and new projects' favicons and the
+ * linkless threads' branch pull requests are asked for inside the refresh (a
+ * reply after its answer ended would be dropped).
  */
 export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): Promise<void> {
   commitExpiredUndos(client); // r11-upstream: the notice's expiry repaint commits what can no longer be undone
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
+  await syncBranchPullRequests(client, nativeHandle, wall(client)); // sidebar-hover-archive-and-glyph B12: a linkless thread's branch pull request
   await watchRowPorts(client, nativeHandle); // legacy-sidebar-full LS-2: the legacy rows' discovered ports
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
 }
