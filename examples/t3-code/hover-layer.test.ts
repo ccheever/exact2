@@ -128,10 +128,10 @@ describe('#246 bug 9: an unavailable model row says why beside the picker', () =
 });
 
 describe('the layer and its timing', () => {
-  test('T3Window holds the hover state, provides it, and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
+  test('T3Code holds the hover state; T3Window provides it and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
     expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
-    expect(window).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+    expect(await source('app.contract')).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
       let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
@@ -179,7 +179,7 @@ describe('the layer and its timing', () => {
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverWait=hoverWait, hoverHold=hoverHold,');
+    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt,');
   });
 });
 
