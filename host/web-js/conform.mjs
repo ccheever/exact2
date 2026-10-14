@@ -62,8 +62,9 @@
 //   glyphs 1.6-3.3 px apart), scroll offsets 1 px; a wrap moves a box by a
 //   whole line at the pinned line height, so it still fails. Larger
 //   CSS-permitted differences must be named in
-//   conformance/known-<engine>.json and print as KNOWN. Screenshots from both
-//   engines are saved for inspection and are never pixel-compared. Install
+//   conformance/known-<engine>.json and print as KNOWN. Screenshots are never
+//   pixel-compared across engines; both are saved, for inspection, only at a
+//   checkpoint that differed (a failure or a known difference). Install
 //   the browsers outside this repo with:
 //     bunx playwright@1.63.0 install firefox webkit
 import { spawn, spawnSync } from 'node:child_process';
@@ -381,6 +382,12 @@ async function drive(t, report, fail, dir, ws, js) {
         const paint = `Array.from(document.querySelectorAll('#exact-root > *, [data-testid="runtime"]'), e => { const s = getComputedStyle(e), d = e.style; return [e.dataset.testid ?? '$root', s.isolation, s.position, d.gridTemplateColumns, d.gridTemplateRows, d.gridColumn, d.gridRow, d.gridAutoFlow, d.justifyItems]; })`;
         const [fw, fj] = await pair(() => W.carrier.evaluate(paint), () => J.carrier.evaluate(paint));
         const op = []; diffJSON(fw, fj, 'paint', op); op.forEach(x => fail(step, x)); st += op.length;
+      }
+      // Cross-browser pictures are never compared (each engine rasterizes text its own way): both are kept only as
+      // evidence for a checkpoint that differed
+      if (crossBrowser && st === 0) {
+        report.steps.push({ target: t.name, step, differences: st, maxLayoutDelta: o3.maxDelta });
+        return tw;
       }
       driveAt = `${step} screenshot`;
       const slug = step.replace(/[^a-z0-9]+/gi, '-');
