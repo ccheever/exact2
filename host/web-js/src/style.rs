@@ -566,7 +566,12 @@ static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 
 static TINT_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     let mut initial = String::new();
-    exact_kernel::gradient::color_css(&mut initial, exact_kernel::StyleProps::default().tint_color);
+    exact_kernel::gradient::color_css(
+        &mut initial,
+        exact_kernel::StyleProps::default()
+            .tint_color
+            .expect("schema initial tint color"),
+    );
     format!(r#"v=>v==null?v:/^\s*unset\s*$/i.test(v)?{initial:?}:v"#)
 });
 
