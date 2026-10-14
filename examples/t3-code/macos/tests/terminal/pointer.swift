@@ -92,6 +92,29 @@ final class TerminalPointerTests: XCTestCase {
         XCTAssertEqual((view.actions.status["items"] as? [[String: Any]])?.compactMap { $0["label"] as? String }, ["Copy", "Paste"])
     }
 
+    /// realinput-1011c G1-3: a middle press takes the focus from the composer into the terminal (the
+    /// pane's focus-in activates it), as T3 Code's pane does for every button, and pastes nothing.
+    func testMiddlePressFocusesTheTerminalWithoutPasting() {
+        let composer = NSTextView(frame: NSRect(x: 0, y: 0, width: 160, height: 30))
+        window.contentView!.addSubview(composer)
+        defer { composer.removeFromSuperview() }
+        XCTAssertTrue(window.makeFirstResponder(composer))
+        spin(until: { !self.view.focused }, timeout: 3)
+        let typed = view.dataBytes
+        for type in [CGEventType.otherMouseDown, .otherMouseUp] {
+            NSApp.sendEvent(placed(CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: .zero, mouseButton: .center)!, point(240, 60)))
+        }
+        spin(until: { self.window.firstResponder === self.view.web && self.view.focused }, timeout: 3)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let page = debug()
+        print("terminal G1-3 middle press: responder \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil") native focus \(view.focused) page focus \(page["focused"] ?? "") typed \(view.dataBytes - typed) composer \(composer.string.debugDescription)")
+        XCTAssertTrue(window.firstResponder === view.web, "the focus stayed in \(window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")")
+        XCTAssertTrue(view.focused, "the terminal did not report its focus (the pane's focus-in)")
+        XCTAssertEqual(page["focused"] as? Bool, true, "the page's input is not focused")
+        XCTAssertEqual(view.dataBytes, typed, "a middle press sent bytes")
+        XCTAssertEqual(composer.string, "")
+    }
+
     func testClickAndMetaClickActivateALink() {
         view.resetAndWrite("open src/a.ts:10:5 or https://example.com/docs now\r\n")
         spin(until: { (self.debug()["text"] as? [String])?.first?.hasPrefix("open src") == true }, timeout: 5)
