@@ -897,6 +897,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
+        cancelElementScroll()
         let y = pendingScrollTop.map { CGFloat($0) == sv.contentView.bounds.minY ? sv.contentView.bounds.minY : min(max(CGFloat($0), 0), max(0, doc.bounds.height - sv.contentView.bounds.height)) } ?? sv.contentView.bounds.minY
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentView.bounds.minX ? sv.contentView.bounds.minX : min(max(CGFloat($0), 0), max(0, doc.bounds.width - sv.contentView.bounds.width)) } ?? sv.contentView.bounds.minX
         let target = NSPoint(x: x, y: y)
