@@ -798,6 +798,7 @@ sits on that list carries the trade it would take.
 
 ## Cheap, any time
 
+- **A store write that fails to persist is dropped** (2026-10-14): the web glue's and the JS target's `persist` swallow a `localStorage` error, and the Apple and Linux hosts likewise, while the runner keeps the value. Keep a failed write and retry it, or report it to the app. Keeping an unchanged value is no write, so a later identical `set` no longer retries it by chance.
 - **scrollend gaps on the hosts that have it** (2026-10-13; LLP 1005):
   - Apple unbracketed moves use a 100 ms `DispatchWorkItem`; known instant commands and discrete wheel notches should complete without that quiet delay.
   - Apple visible layout clamps can arm an end through `scrollEndMoved`; classify clamps separately from scroll operations.
