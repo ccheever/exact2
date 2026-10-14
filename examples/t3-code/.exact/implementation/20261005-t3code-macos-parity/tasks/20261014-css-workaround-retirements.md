@@ -563,7 +563,19 @@ and the Contract build. Non-blocking notes and handling: the alignment guard's e
 two KW-2 lines (`pages-prs.test.ts`); the textarea colour, the missing clamp and the prompt-preview alpha are
 recorded above as known differences; the runtime rows stay as the drive table says.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| KW-6 bottom-edge popup, physical (step 27) | PASS: a real click on #112's checks icon (the list's bottom row) opens the checks popup above the row | `s27-e-crop.png`, `s27-f-crop.png` |
+| KW-7 pending card Discard by a real click (step 29) | PASS: dashed card "Pending — sent when you submit the review" with wrapped text; a real click on the trash removes it; `gh-calls.tsv` holds no review or other write | `s29-o-crop.png`, `s29-q`, `gh-calls.tsv` |
+| KW-4 Limits dismissal, unresolved chip, large popovers at 840×620 | UNVERIFIED: fixtures gone or not set up; not driven | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed both attended rows (bottom-edge popup and the pending card's Discard by a real click). KW-4's Limits fixture, the unresolved chip and the 840×620 large popovers stay open.
 
 Merged as [#577](https://github.com/ccheever/exact2/pull/577), feature commit
 `6ef85eb1c` (squash). The task stays unverified for the bottom-edge popup by physical

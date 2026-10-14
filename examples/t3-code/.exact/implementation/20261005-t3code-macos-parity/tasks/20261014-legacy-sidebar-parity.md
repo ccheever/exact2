@@ -552,7 +552,23 @@ The [published proof](https://github.com/ccheever/exact2/blob/741e9780b1bbcbfff1
 includes the native capture and bounded before/after readbacks. Delivery is merged;
 full task verification remains open.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| LS-4 (steps 14, 15) | PASS: with the composer focused, a real double-click on another row and on the open row opens rename with the whole title selected (AX range 1..30); typing replaces it, Escape restores. The emoji-title variant was not run (no fixture) | `s14-d`, `s14-e`, `s14-f`, `s15-b` |
+| LS-6, local project (step 17) | PASS: the project menu's Project settings opens Settings with Project scope: work; Remove shows "Environment: Daehyeon's MacBook Pro" and traps Tab both ways; Cancel removes nothing. Background-environment half UNVERIFIED (no second environment) | `s17-a-small.png`, `s17-d`, `s17-e` |
+| LS-8 (step 16) | PASS: ⌘-click A, ⌘-click C, ⇧-click B selects three; ⌘ toggle off then ⇧-click extends from the new anchor | `s16-c-crop.png`, `s16-e-crop.png` |
+| LSF-3 drop 4 | UNVERIFIED: no background environment, and a Finder drag would drive another app | — |
+| LSF-4b (step 19) | PASS: with Archive confirmation on, a real click on the inline Archive shows Confirm with the native focus on it; Tab away reverts it. An accessibility-path press archives at once (known difference) | `s19-n`, `s19-o`, `s19-q` |
+| LS-7, local (step 18) | PASS: Mark unread on the no-run thread shows no toast. Background half UNVERIFIED | `s18-c-crop.png`, `s18-f-small.png` |
+| LEG-TIP (step 20) | UNVERIFIED: the tip shows at rest, but no keyboard path removed its row with the pointer still | `s20-b-crop.png` |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed LS-4, LS-8, LSF-4b and the local halves of LS-6 and LS-7 by real input; LSF-3 drop 4, the background-environment halves and LEG-TIP's row removal stay open for a session with a second environment. No new task; the new differences seen are in `STATUS.md` "Known differences".
 
 Continue `connections-network-settings` from the actual merged feature branch.
 Resume the seven physical-input qualifications only when screen input is authorized

@@ -444,7 +444,22 @@ are additive to the original proof. No raw preferences backup predates the live 
 so complete historical domain restoration is not claimed. Future live-input tests
 must verify their actual process preferences domain and credential isolation.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| KD-pointer-opened-dialog (step 23) | PASS: Settings search focused by a click, the + opened Add provider by pointer (focus on Provider, step 1), Escape gave the focus back to Search settings and a typed letter landed there | `s23-e`…`s23-k` |
+| G2-12, Remove project confirm caller (step 17) | PASS: focus on Cancel at opening; Tab and Shift+Tab cycle Cancel/Confirm from both buttons (settled readbacks); Escape cancels, nothing removed | `s17-e`, `s17-l`…`s17-p` |
+| ICON-TOGGLE (step 24) | PASS: Right/Left move the selection Icons→Emoji→Monogram→Emoji with the focus on the group; Tab to Custom emoji, Shift+Tab back (one stop); Escape returns the focus to Settings search | `s24-e`…`s24-y` |
+| G2-16 disabled-copy/busy, BUSY-GUARD all-disabled | UNVERIFIED: no G2 machines fixture in this lane (pairing would write the Keychain) | — |
+| ADDPROV-TAB signed-in and nested sign-out | UNVERIFIED: no ACP stand-in in this lane | — |
+| All 16 owners, VoiceOver | UNVERIFIED: three owners driven; VoiceOver not turned on (AX read only) | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed the pointer-opened return (Add provider), the Remove project confirm's two-way trap and ICON-TOGGLE by real keys; G2-16's busy states, BUSY-GUARD's all-disabled case, ADDPROV-TAB's signed-in states and the remaining owners still need fixtures this lane did not have. No new task (the user's rule); the open rows stay here.
 
 Coordinator readback, 2026-10-14: implementation commit
 `a70632fdea2a67a4265bb3d3d9b8502694e5907c` exactly matches the reviewed 70-file

@@ -363,7 +363,24 @@ recorder repair) found no blocking defect and confirmed the disposition tables a
 - A keyboard or chord press carries no click modifiers (the native read used the live keyboard): ⇧⌘O opens the palette, as the reference does.
 - Shift+F10 on a right-panel tab, draft/media keyboard menus and the other retained sites still answer "dismissed" under the agent, as before.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| Real menu-bar tracking (step 2) | PASS by keys (all six menus walked); pointer on the menu bar UNVERIFIED (`orca` clicks stay in the window) | `s02-g-menu-*.png` |
+| 2-Set chords (steps 4, 5, 6, 7) | PASS: ⌘K palette; ⌘B reaches the composer's bold chord; ⌘⌥B launcher and ⇧F open Files; the recorder takes ⌘K as mod+k by the physical key | `s04-b-cmdk`, `s05-a-cmdb.png`, `s06-b-shiftf`, `s07-d-cmdk-window.png` |
+| US chords | UNVERIFIED: the source was 2-Set and is read only | — |
+| Recorder Escape after a chord (step 7) | FAIL: one Escape drops the unsaved mod+k but also closes Settings | `s07-e-esc` |
+| Context menus, moved sites (steps 12, 28) | PASS: archive row NSMenu Unarchive / Delete, Escape closes only the menu (Settings stays: the agent-only Escape difference does not occur), Unarchive works; PR number NSMenu Copy link / Open on GitHub | `s12-i-small.png`, `s12-j`, `s28-b-menu.png` |
+| Context menus, retained sites (steps 10, 11) | PASS: thread row NSMenu (13 items); Files tree row NSMenu | `s10-k-menu-screen.png`, `s11-g-small.png` |
+| Launcher letter after a remount (steps 8, 11) | FAIL (seen): after the panel was closed and reopened, the focus is on the root and ⇧B/⇧F type into the composer or do nothing | `s08-e-shiftb`, `s11-d-f.png` |
+| Held-⌘ hints, Send intent, PR speed mode, VoiceOver | UNVERIFIED: no separate modifier hold in `orca`; no provider send; VoiceOver not turned on | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed menu-bar tracking by keys, the 2-Set chords and the context menus of both moved sites and two retained sites; the recorder's Escape closing Settings and the launcher letter after a remount failed (in `STATUS.md`). US chords, the pointer on the menu bar, held-⌘ hints, Send intent and VoiceOver stay open.
 
 Merged as [#587](https://github.com/ccheever/exact2/pull/587), feature commit
 `aa4fd19c3` (squash). The task stays unverified for real menu-bar tracking, US and 2-Set

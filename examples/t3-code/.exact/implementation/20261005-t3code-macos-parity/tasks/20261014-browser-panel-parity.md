@@ -465,7 +465,19 @@ draft itself is local-only and uncommitted; the coordinator must publish an auth
 task record before relying on it for another machine. There have been zero browser-task
 implementation or repair rounds in this preparation.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| Physical ⇧⌘J (step 8) | PASS: the first hides the panel and floats the Browser as a mini player, the second shows the panel with the same tab (Files, Browser) | `s08-qr-pair.png` |
+| Physical hover on Appearance (step 9) | UNVERIFIED: the More menu opens by a real click, but `orca` has no pointer move and refuses clicks over a painted popover | `s09-c-crop.png` |
+| G5-A3 natively, zoom below 100% | UNVERIFIED: no Safari-profiles fixture; sizes need the probe | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed the physical ⇧⌘J (STATUS row G4-18 removed). Physical hover on Appearance needs a pointer-move input the tool does not have; G5-A3 and sub-100% zoom stay open.
 
 Merged as [#571](https://github.com/ccheever/exact2/pull/571), feature commit
 `70eec59fd8b345df77c5932eeb2a474b40a16e54` (squash). The task stays unverified for physical

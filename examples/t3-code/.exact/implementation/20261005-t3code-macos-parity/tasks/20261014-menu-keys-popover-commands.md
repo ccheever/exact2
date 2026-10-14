@@ -736,7 +736,21 @@ Tab there (`NativeButtonsMac.swift:85`).
 Still unverified: real NSMenu tracking in a normal (non-agent) launch, Enter activation of
 G2 rows under the agent driver (Space passes), spoken VoiceOver.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| Real NSMenu tracking, normal launch (steps 2, 3) | PASS by keys: ⇧⌘/ opened Help, Left walked Window, View, Edit, File and the app menu, Down/Return picked Settings…. The pointer half UNVERIFIED: `orca` cannot click outside the window | `s02-f-helpmenu-screen.png`, `s02-g-menu-*.png`, `s03-a-settings-highlight.png` |
+| Legacy clamp, Tab after the stepper (step 21) | PASS: 22 typed in Visible threads, Tab leaves (the popover closes, focus to the composer); reopened: 15 with + disabled | `s21-fg.png`, `s21-i-crop.png` |
+| Snooze Escape, pointer outside the menu (step 22) | FAIL: Escape closes the menu but no element holds the focus afterwards and the trigger draws no ring | `s22-h-crop.png`, `s22-k` |
+| Enter on menu rows | FAIL (seen): in the panel's + menu, Return and Right on the highlighted Browser row do nothing; Space opens Browser | `s08-n-small.png`, `s08-o-crop.png`, `s08-p-small.png` |
+| G2 Enter rows, spoken VoiceOver | UNVERIFIED: no G2 fixture; VoiceOver not turned on | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed NSMenu tracking by keys in a normal launch and the Legacy clamp's Tab; the Snooze pointer-outside Escape failed (no focus after Escape) and Return on a + menu row does nothing; both are in `STATUS.md` "Known differences". G2 Enter and VoiceOver stay open.
 
 Merged as [#568](https://github.com/ccheever/exact2/pull/568), feature commit
 `b229a2658029a18584b2d5efb4528f4cc2af98ac` (squash). The task stays unverified for real

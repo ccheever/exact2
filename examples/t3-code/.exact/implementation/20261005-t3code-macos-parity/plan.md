@@ -329,6 +329,8 @@ real lane accounts; #227/#228 stay with the user.
 
 Continuation on 2026-10-14: the [first-wave report](reviews/20261014-first-wave-resume.md) records eleven published repair PRs and their source reviews. [Round 14](tasks/closed/20261014-adopt-main-fixes-r14.md) locally adopts main `178ae7237`, migrates the application to the new Contract syntax, and passes the repository gates and application suites. Native integration passed; all eleven repair PRs merged at feature checkpoint `1e3152209`. Round 14 PR [#549](https://github.com/ccheever/exact2/pull/549) is also merged at `3710af842`, preserving main ancestry. The eight dependent follow-up tasks can now start serially; attended real-input rows remain unverified while the desktop is locked.
 
+`realinput-1015` (2026-10-15), the final real-input session after the eight serial follow-ups, ran on the bundle of `db3c4540f` (code `aa4fd19c3`) in one normally launched lane copy, with real keys and pointer through `orca computer`: 27 of 32 steps passed, 2 failed (the keybinding recorder's Escape also closes Settings; Snooze leaves no focus after Escape) and 3 were not verified (hover on a painted submenu, a legacy tip's row removal, wheel settling). Each of the eight task records has the session's table; all eight stay unverified for rows that need fixtures, VoiceOver or input the session did not have. Failures and new differences went to `STATUS.md` "Known differences", which drops the five rows the session showed fixed.
+
 Coordinator additions:
 - [settings-pages-subscribed-config](tasks/closed/20261009-settings-pages-subscribed-config.md): #353's "Found, not changed"
   (six Settings pages re-read the server config on every wake). After settings-diagnostics-and-scope.

@@ -419,7 +419,21 @@ Non-blocking notes taken: a stale `fallbackJump` is now cleared whenever another
 restoration with the current anchor (the marker sits at a fixed place, so none were seen); `data.citing` arrives with the
 snapshot that switches the thread (observed in the drive: no override).
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| Real full-screen entry and exit (step 32) | PASS: View › Enter Full Screen (by Help search and Return) and Exit Full Screen; the window ends windowed at 1280×840. Difference: in full screen an empty 52-pt titlebar band covers the title row | `s32-titlerow-windowed-vs-fullscreen.png`, `s32-f-small.png` |
+| Real-clock smooth motion (step 30) | PASS: a minimap jump moves through three intermediate positions in about 350 ms and then holds the first turn at the top | `s30-burst-sheet.png` |
+| Each thread keeps its place (step 31) | PASS: switch to another thread and back restores the same place | `s31-restore-pair.png` |
+| Trackpad/wheel settling (step 31) | UNVERIFIED: two `orca` wheel scrolls moved nothing; tool and app cannot be told apart | `s31-g*.jpg` |
+| Reduced-motion animation, IME/Korean composition | UNVERIFIED: no system-setting change; input source read only | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 passed real full-screen entry/exit (with a covered title row, now in `STATUS.md`) and real-clock minimap motion; wheel settling, reduced motion and IME stay open.
 
 Merged as [#584](https://github.com/ccheever/exact2/pull/584), feature commit
 `47f3ed1bd` (squash). The task stays unverified for real full-screen entry and exit,

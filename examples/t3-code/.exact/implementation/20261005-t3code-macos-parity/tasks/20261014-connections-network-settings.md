@@ -177,6 +177,19 @@ Published evidence: [frozen Connections settings packet](https://github.com/cche
 
 The earlier ignored draft was `target/fix-wave/connections-network-settings-task.md`. This tracked task now records actual predecessor merges, the fresh base and branch. Raw captures and failed attempts remain in the task-owned ignored target directory; the sanitized evidence packet will carry the reviewer-visible assertions and hashes. Do not copy credentials, historical private state or machine-local artifact paths into claims of reviewer-accessible proof.
 
+### Real-input session realinput-1015, 2026-10-15
+
+Bundle of `db3c4540f` (code `aa4fd19c3`) in a lane copy (`com.exact.t3code.macos.ri1015-1`) launched through LaunchServices (a normal launch, not agent mode), port 16915, isolated homes from audit lane `ri1012-b10` plus the real-GitHub lane's sandbox (read only). Real keys and pointer through `orca computer`; the input source was `com.apple.keylayout.2SetHangul` (read only, not changed). While a painted popover or dialog is open the window's accessibility tree collapses and `orca` refuses input, so those keys went as System Events key codes to the lane (front process checked first). Evidence is local in the session worktree's `target/realinput-1015/` (`notes.txt`, `ev/`). 32 steps in all: 27 passed, 2 failed, 3 not verified.
+
+| Row | Result | Evidence (`target/realinput-1015/ev/`) |
+| --- | --- | --- |
+| KW-10 normal changed-PID relaunch (step 25) | PASS: Local environment off → "T3 Code will restart…" → Restart and turn off: pid 5625 → 52270, the server gone, `desktop-settings.json` `{"localEnvironmentEnabled":false}`; on again: pid 52270 → 54535, server 54623 on 16915 | `s25-e-small.png`, `s25-g-local-off.png`, `s25-k-small.png`, `../pids.txt` |
+| Relaunch restores state (step 26) | PASS: after both relaunches the legacy sidebar setting, projects and threads are back | `s25-g`, `s26-a` |
+| Cross-process route persistence, physical route-grip drag | UNVERIFIED: routes need a paired environment, which writes the Keychain | — |
+| Spoken VoiceOver, live tailnet | UNVERIFIED: VoiceOver not turned on; no tailnet | — |
+
 ## Next action
+
+After realinput-1015 (2026-10-15): Keep `verification: unverified`. realinput-1015 qualified the normal changed-PID relaunch both ways in a LaunchServices-launched lane copy (the desktop-activation blocker did not occur with a distinct bundle id). Route persistence across processes and the physical grip drag need a paired environment; VoiceOver and a live tailnet stay open.
 
 The bounded repair is merged in PR #566. Start `menu-keys-popover-commands` from the refreshed feature head containing this merge and both serial predecessors. Keep this task active and unverified for normal changed-PID relaunch, cross-process route persistence, physical OS pointer dragging, spoken VoiceOver and live-tailnet qualification. Preserve the recorded desktop activation and drag limitations; do not retry normal launch or begin another source repair without new authority. The pinned evidence above distinguishes accepted source/keyboard/focus behavior from those open qualifications.

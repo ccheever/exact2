@@ -63,3 +63,5 @@ Follow-up order (one task PR at a time): `dialog-focus-return-and-traps`,
 Evidence policy, 2026-10-14: the `t3-code-evidence` branch was deleted from the repository
 (Charlie, #99: heavy evidence stays out of the repository). Evidence logs stay in each task
 worktree's ignored `target/`; PR images are GitHub attachments (`gh issue comment --attach`).
+
+realinput-1015 ran on 2026-10-15 (bundle `db3c4540f`): 27 of 32 steps passed, 2 failed, 3 not verified; results are in each task record and `STATUS.md` "Known differences"; all eight tasks stay unverified.
