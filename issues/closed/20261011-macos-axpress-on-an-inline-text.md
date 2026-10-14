@@ -1,6 +1,7 @@
 # macOS: AXPress on an inline text run answers kAXErrorAttributeUnsupported although the press lands
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by #529
 **Systems:** host/apple macOS, accessibility
 **Severity:** P3
 **Author:** Daehyeon Mun
