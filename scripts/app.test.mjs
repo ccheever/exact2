@@ -445,7 +445,6 @@ test('autofocus is deferred and consumed per mounted control, preserving other U
   assert.equal(document.activeElement, victory, 'a canvas yields raw input focus to its new UI control');
 });
 
-
 test('applying autofocus props cannot trigger browser focus during a batch', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
@@ -498,7 +497,6 @@ test.each(['rlib', 'staticlib', 'executable', 'windows-executable'].flatMap(kind
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-
 test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build directory %s requires unique compiler evidence', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-wasm-dep-'));
@@ -526,10 +524,13 @@ test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build
     writeFileSync(expected, `${artifact}: ${src}\n`);
     assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
     unit('a11ce', 'selected wasm');
+    const deps = resolve(metadata.build_directory, 'wasm32-unknown-unknown/web/deps'), stale = resolve(deps, 'game_gpu.d'); // another toolchain's unit: the JS target's stable GPU build
+    mkdirSync(deps, {recursive:true}); writeFileSync(resolve(deps, 'game_gpu.wasm'), 'stable wasm'); writeFileSync(stale, `${stale}: ${src}\n`);
     assert.equal(unitDepInfo(message, root, metadata), expected);
     assert.match(readFileSync(expected, 'utf8'), /env-dep:EXACT_GAME_PARANOID=0/);
     unit('aabbcc', 'selected wasm');
     assert.throws(() => unitDepInfo(message, root, metadata), /ambiguous rustc unit/);
+    writeFileSync(resolve(deps, 'game_gpu.wasm'), 'selected wasm'); assert.equal(unitDepInfo(message, root, metadata), stale, 'the unit Cargo copied out of deps/');
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
@@ -549,7 +550,6 @@ test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info ac
     assert.equal(unitDepInfo(message, root, metadata), resolve(metadata.build_directory, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
 }, 60_000);
-
 
 test('R12 resolution is lazy and does not create a workspace', () => fixture(({app, dir}) => {
   const started = performance.now();
