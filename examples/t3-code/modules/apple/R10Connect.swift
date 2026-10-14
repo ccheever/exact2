@@ -11,12 +11,18 @@ import AppKit
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
 ///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
-///   (`aria-keyshortcuts`) and the host's command menu items that way; it does not reach the
-///   menu's standard and app-added items (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text),
-///   the terminal's web view, or this module's own key readers that read the event's characters
-///   (the composer's queued-edit chords, the SnapShot shortcut). So the event is still re-issued
-///   with that letter, and each of them matches it anywhere in the
-///   window. Composition keeps its own keys (the composer ends it first, R9Input.swift).
+///   (`aria-keyshortcuts`, the launcher's letters among them) and the host's command menu items
+///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`); it does not
+///   reach the menu's standard and app-added items, which AppKit matches by the typed character
+///   (Copy, Cut, Paste, Undo, Redo, Select All, Quit, Hide, Minimize, Close Window, Reload, Paste
+///   as Text, Actual Size, Zoom In, Zoom Out), the terminal's web view, or this module's own key
+///   readers that read the event's characters (the composer's queued-edit chords, the SnapShot
+///   shortcut). So the event is still re-issued with that letter, and each of them matches it
+///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
+///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
+///   not a per-route one: what contract-keys-and-menu-bar (X15) retired is the surface launcher's
+///   own re-post of its letters (R8KeysLauncher), now declared shortcuts matched by the physical
+///   key. Composition keeps its own keys (the composer ends it first, R9Input.swift).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
 /// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
 final class R10Connect {

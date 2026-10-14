@@ -1151,7 +1151,7 @@ component T3Code
       send changed = command("select-thread", id, "", 0)
       jumpRequest = jumpRequest + 1
       utilityPage = ""
-  action openThread(id: string, how: string) // Sidebar (sidebar-commands.ts): a row press says how it opened ("click" reads ⌘/⇧ to multi-select, "search" clears it).
+  action openThread(id: string, how: string) // Sidebar (sidebar-commands.ts): a row press says how it opened ("click", "click:meta" and "click:shift" multi-select, "search" clears it).
     if not commandPending and id != ""
       draftOwner = "__unset__"
       commandPending = true
@@ -1176,11 +1176,11 @@ component T3Code
   action resetSidebarWidth
     draggedWidth = 0
     send localChanged = command("sidebarlocal:width-reset", "", "", 0)
-  action sidebarNewThread
+  action sidebarNewThread(e: MouseEvent) // ⇧-click creates at once (the press's own modifiers; a chord's press has none)
     if not commandPending
       if data.sidebar.projectGroupCount > 1
         commandPending = true
-        send changed = command("sidebar:new-thread-click", "", "", 0)
+        send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)
       else
         if data.projectId != ""
           draftOwner = "__unset__"
@@ -1204,13 +1204,13 @@ component T3Code
     draft = value
     draftOwner = `${composerOwner}${data.requestKey}`
     send localChanged = command("draft", "", value, 0)
-  action send
+  action send(held: string) // held: a pointer press's own modifiers (press-modifiers.contract), "" from a key or a call
     if not commandPending and editor.overLimit and data.requestMode != "question"
       send localChanged = command("editorlocal:arm-limit", "", "", 0)
     if not commandPending and (not editor.overLimit or data.requestMode == "question")
       if data.requestMode == "question" or (data.canSend and (composerText != "" or data.snapshotDrafts.length > 0))
         commandPending = true
-        send changed = command("send", "", composerText, 0)
+        send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
   action editorOp(op: string, id: string, value: string) // composer-editor.ts: menu picks, the stash
@@ -1333,7 +1333,7 @@ component T3Code
     if commandPending or not data.canSend or data.requestMode == "question"
       chatLocal("surface-browser-annotation-held", "", "")
     else
-      send()
+      send("")
   state automationRecordingHandled = 0
   task automationRecording when shell.panel.automationRecording.serial > automationRecordingHandled key=shell.panel.automationRecording.serial
     after(1, automationRecordingNow)

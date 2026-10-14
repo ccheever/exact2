@@ -17,6 +17,7 @@ use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
 use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
 use NoticeMachines from "./auto-balance.contract" // auto-balance
 use UsageLimitsBody, UsageAccountLabel from "./usage-bars.contract" // usage-reset-and-feedback
+use heldModifiers from "./press-modifiers.contract" // contract-keys-and-menu-bar: Send's ⌘-click is its own press's
 
 // The composer footer and its docked banners (lane composer-controls): the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -393,6 +394,10 @@ component PrimaryActions
     over = value ? name : (over == name ? "" : over)
     overThread = value ? data.threadId : overThread
   derive blocked = busy or not data.canSend
+  // contract-keys-and-menu-bar KW-11a: a pointer press's modifiers ride with it (⌘-click is the follow-up alternate);
+  // a keyboard or shortcut press holds none, and the app reads the Return gesture natively (T3ComposerIntent).
+  action sendPress(e: MouseEvent)
+    send(heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
   view
     row gap="0.5rem" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="actions"
       if data.composer.attach
@@ -406,7 +411,7 @@ component PrimaryActions
             circle cx=12 cy=12 r=9.75 fill="none" stroke=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)") stroke-width=3 stroke-linecap="round" stroke-dasharray=61.26 stroke-dashoffset=data.composer.contextOffset
       if data.composer.planReady and (hasText or not data.composer.canResume)
         if hasText
-          button press=send hover=hover("refine") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-refine" height="2rem" padding-left="1rem" padding-right="1rem" border-radius="1rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 background-color=(over == "refine" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(blocked ? "none" : "0 1px 2px 0 #1b4ed83d")
+          button press=sendPress hover=hover("refine") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-refine" height="2rem" padding-left="1rem" padding-right="1rem" border-radius="1rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 background-color=(over == "refine" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(blocked ? "none" : "0 1px 2px 0 #1b4ed83d")
             text (busy ? "Sending..." : "Refine") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
         else
           row align-items="center" flex-shrink=0 testId="implement-actions" hatch="t3-anchor" data-anchor="implement"
@@ -428,7 +433,7 @@ component PrimaryActions
                 SendGlyph(icon="play", spinner=data.composer.sendSpinner)
           else
             box position="relative" display="flex" flex-shrink=0 hover=hover("send")
-              button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
+              button press=sendPress id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff" title=""
                 SendArt()
                 SendGlyph(icon=(sendable ? data.composer.sendIcon : "arrow"), spinner=data.composer.sendSpinner)
               TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
@@ -465,6 +470,8 @@ component ComposerFooter
   action sendHover(value: bool)
     sendOver = value
     sendThread = value ? data.threadId : sendThread
+  action sendPress(e: MouseEvent) // as PrimaryActions' sendPress
+    send(heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
   derive sendable = data.canSend and (text != "" or data.snapshotDrafts.length > 0)
   derive locked = busy or not data.connected
   // The send tooltip shifts left to stay 5pt inside the window (Base UI collision padding):
@@ -505,7 +512,7 @@ component ComposerFooter
         PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
     if resting
       box position="absolute" right="0.5rem" top="0.4375rem" width="2rem" height="2rem" display="flex" hover=sendHover
-        button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff" title=""
+        button press=sendPress id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=(citeOpen ? "" : data.composer.sendChords) disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff" title=""
           SendArt()
           SendGlyph(icon="arrow", spinner=data.composer.sendSpinner)
         TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(sendOver and sendThread == data.threadId))

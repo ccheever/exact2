@@ -223,10 +223,19 @@ describe('pull request text (remarkPullRequestAutolinks, PullRequestLinkPreview)
     expect(await openLink(client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe(`pr-select:${target}`);
     expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101`, surface)).toBe('');
     expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101']);
-    gestures.push({ modifiers: 'meta', source: 'pointer' });
+    // The click's own modifiers, a fourth line (markdown.contract PrLinkRun `open`); a recorded gesture is not this click's.
+    gestures.push({ modifiers: 'meta', source: 'key' });
     opened.length = 0;
-    expect(await openLink(client, native, true, `\n${target}\nhttps://github.com/lane/sandbox/pull/101`, surface)).toBe('');
-    expect(opened).toEqual(['https://github.com/lane/sandbox/pull/101']);
+    expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n`, surface)).toBe('');
+    expect(opened).toEqual([]);
+    expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101', 'https://github.com/lane/sandbox/pull/101']);
+    for (const held of ['meta', 'shift', 'alt', 'control+alt']) {
+      opened.length = 0;
+      expect(await openLink(client, native, true, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n${held}`, surface)).toBe('');
+      expect(opened).toEqual(['https://github.com/lane/sandbox/pull/101']);
+    }
+    expect(gestures).toHaveLength(1); // never asked for
+    gestures.length = 0;
     const issue = fakeClient(defaults({ 'pullRequests.preview': () => { throw new Error('not a pull request'); } }));
     opened.length = 0;
     expect(await openLink(issue.client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe('');

@@ -31,18 +31,15 @@ final class T3Module: ExactModule {
     let exportsRoot: URL? // Agent runs export into the isolated data root (T3ContextMenu.saveText).
     let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
-    let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
-    private let launcher = R8KeysLauncher() // lane r8-keys: the surface launcher's focus and letters (R8KeysLauncher.swift).
+    let sidebar: T3Sidebar // Thread menu, held-key hints and speed mode (T3Sidebar.swift).
     let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     let browserSessions: T3BrowserSessions // browser-surface: this session's Browser pages (T3BrowserSessions.swift)
     let browserAutomation: T3BrowserAutomation // browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift)
     private let r10: R10Connect // lane r10-connect: wake, chords by physical key, hover under a still pointer (R10Connect.swift).
     let textMenu: T3TextContextMenu // realinput-1010d, shell-context-menu: the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
-    // Settings → Keybindings capture field (T3KeyRecorder.swift).
-    // The SSH password dialog's secure field (T3SshAuth.swift).
-    override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) },
-                                                              "t3-ssh-password": ExactNativeFactory { props, events in T3SshPasswordField(props: props, events: events) },
+    // The SSH password dialog's secure field (T3SshAuth.swift). (The keybinding recorder is Contract's, key-recorder.contract.)
+    override class var views: [String: ExactNativeFactory] { ["t3-ssh-password": ExactNativeFactory { props, events in T3SshPasswordField(props: props, events: events) },
                                                               "t3-terminal": T3TerminalView.factory,
                                                               "t3-browser": T3BrowserView.factory] } // browser-surface: a Browser tab's page (T3BrowserView.swift)
 
@@ -84,7 +81,6 @@ final class T3Module: ExactModule {
         browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
         exportsRoot = context.agent ? context.data.appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
-        composer.launcher = launcher
         textMenu.richEditors = { [weak self] in [self?.composer.editor.textView, self?.promptPreview.textView].compactMap { $0 } } // contenteditables in the reference: Select All stays enabled when empty
         DispatchQueue.main.async { [sidebar, textMenu] in sidebar.install(); textMenu.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
@@ -122,7 +118,7 @@ final class T3Module: ExactModule {
         panelTabs.install(element); toolIcons.install(element); timelineTips.install(element)
         frames.install(element); scrollEnds.install(element)
         composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
-        launcher.install(element); measure.install(element); r9.install(element); mediaFocus.install(element)
+        measure.install(element); r9.install(element); mediaFocus.install(element)
         T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
         rowDrop.install(element) // legacy-sidebar-full LS-3: a legacy row's file drop target
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
@@ -133,7 +129,7 @@ final class T3Module: ExactModule {
         T3TerminalCommandKey.remove(element)
         panelTabs.remove(element); toolIcons.remove(element); timelineTips.remove(element)
         frames.remove(element); scrollEnds.remove(element)
-        composer.remove(element); promptPreview.remove(element); launcher.remove(element); measure.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
+        composer.remove(element); promptPreview.remove(element); measure.remove(element); timeline.remove(element); turns.remove(element); video.remove(element); media.remove(element); devices.remove(element); mediaFocus.remove(element)
         rowDrop.remove(element)
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hatch == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }

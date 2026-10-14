@@ -23,6 +23,8 @@ import { toasts } from './toast';
 import type { Obj } from './domain';
 import { scopedThreadKey } from './terminal-ui-state';
 import { BrowserSettingsReadError } from './browser-profiles';
+import { contractComponent } from './contract-action-fixture';
+import { contractFns } from './contract-fn-fixture';
 
 const click = { metaKey: false, ctrlKey: false };
 describe('resolveLinkTarget', () => {
@@ -199,15 +201,26 @@ describe('openLink (useOpenLink)', () => {
 });
 
 describe('links from the UI (chatlocal:link-open)', () => {
-  it('a chat link reads the click’s ⌘ or Ctrl from the module; a check’s button has none', async () => {
-    const held = linkClient({ modifiers: 'meta' });
-    await chatLocal(held.client, held.native, 'link-open', 'link', 'https://example.com/');
-    expect(external(held.ops)).toEqual(['https://example.com/']);
-    const plain = linkClient({ modifiers: '' });
-    await chatLocal(plain.client, plain.native, 'link-open', 'link', 'https://example.com/');
-    expect(plain.rpcs.some(call => call.method === 'preview.open')).toBe(true);
+  it('a chat link reads the click’s ⌘ or Ctrl from its own press; a check’s button has none', async () => {
+    // contract-keys-and-menu-bar: app-window.contract linkOpen sends `link|meta+shift`, the press's MouseEvent; the
+    // module's gesture recorder is never asked.
+    for (const held of ['meta', 'control', 'meta+shift', 'control+alt']) {
+      const link = linkClient({ modifiers: '' });
+      await chatLocal(link.client, link.native, 'link-open', `link|${held}`, 'https://example.com/');
+      expect(external(link.ops)).toEqual(['https://example.com/']);
+      expect(link.ops.some(op => op.op === 'composerSendIntent')).toBe(false);
+    }
+    for (const held of ['', 'alt', 'shift']) {
+      const plain = linkClient({ modifiers: 'meta' }); // a recorded gesture is not this click's
+      await chatLocal(plain.client, plain.native, 'link-open', `link|${held}`, 'https://example.com/');
+      expect(plain.rpcs.some(call => call.method === 'preview.open')).toBe(true);
+      expect(external(plain.ops)).toEqual([]);
+    }
+    const bare = linkClient({ modifiers: '' });
+    await chatLocal(bare.client, bare.native, 'link-open', 'link', 'https://example.com/');
+    expect(bare.rpcs.some(call => call.method === 'preview.open')).toBe(true);
     const button = linkClient({ modifiers: 'control' });
-    await openLinkFromUi(button.client, button.native, 'button', 'https://ci.example.com/run/1');
+    await openLinkFromUi(button.client, button.native, 'button|meta', 'https://ci.example.com/run/1');
     expect(button.ops.some(op => op.op === 'composerSendIntent')).toBe(false);
     expect(button.rpcs.find(call => call.method === 'preview.open')?.payload.url).toBe('https://ci.example.com/run/1');
     const page = linkClient();
@@ -260,18 +273,18 @@ describe('links from the UI (chatlocal:link-open)', () => {
       for (const url of ['#notes', '#summary']) {
         const { client, rpcs, ops, native } = linkClient({ preference });
         client.shell = { projects, threads, sequence: 1 };
-        expect(await openLinkFromUi(client, native, 'link', url)).toBe('sidebar:new-thread');
+        expect(await openLinkFromUi(client, native, 'link|', url)).toBe('sidebar:new-thread');
         expect([client.threadId, client.projectId]).toEqual(['', 'work']);
-        expect(ops.map(op => op.op)).toEqual(['composerSendIntent']);
+        expect(ops.map(op => op.op)).toEqual([]); // the click's own modifiers ride with it (contract-keys-and-menu-bar)
         expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
         expect(toasts(client)).toEqual([]);
       }
     }
     // ⌘, ⌥, ⇧ or ⌃ held: the handler returns before preventDefault and the shell denies the new window it asks for.
     for (const modifiers of ['meta', 'alt', 'shift', 'control', 'meta+shift']) {
-      const { client, rpcs, ops, native } = linkClient({ modifiers });
+      const { client, rpcs, ops, native } = linkClient();
       client.shell = { projects, threads, sequence: 1 };
-      expect(await openLinkFromUi(client, native, 'link', '#notes')).toBe('');
+      expect(await openLinkFromUi(client, native, `link|${modifiers}`, '#notes')).toBe('');
       expect([client.threadId, client.projectId]).toEqual(['thread-1', 'p']);
       expect(external(ops)).toEqual([]);
       expect(rpcs).toEqual([]);
@@ -347,5 +360,28 @@ describe('the "Open links in" setting', () => {
     expect(saved).toBe('app');
     await expect(restCommand(client, native, storage, 'browser-link-target', ':', 'chrome')).rejects.toThrow('Unsupported device setting.');
     expect(linkTargetPreference(client)).toBe('app');
+  });
+});
+
+// contract-keys-and-menu-bar KW-11a: a link's click modifiers are its press's MouseEvent's, sent with it, not the module's
+// recorded gesture (T3ComposerIntent no longer reports pointers).
+describe('a link press carries its own modifiers', () => {
+  const fns = contractFns('press-modifiers.contract');
+  const mouse = (mods: string) => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
+  it('the window\'s linkOpen sends `kind|modifiers`', () => {
+    const window = contractComponent('app-window.contract', 'T3Window');
+    for (const [kind, mods, id] of [['link', '', 'link|'], ['link', 'meta', 'link|meta'], ['link', 'ctrl shift', 'link|control+shift'], ['button', 'alt', 'button|alt']]) {
+      const sent: unknown[][] = [];
+      window.call('linkOpen', {}, { ...fns, chatLocal: (...args: unknown[]) => sent.push(args) }, [kind, 'https://example.com/', mouse(mods!)]);
+      expect(sent).toEqual([['link-open', id, 'https://example.com/']]);
+    }
+  });
+  it('a pull request link in the text adds them as a fourth line', () => {
+    const run = contractComponent('markdown.contract', 'PrLinkRun');
+    for (const [mods, held] of [['', ''], ['meta', 'meta'], ['shift', 'shift']]) {
+      const sent: unknown[][] = [];
+      run.call('open', {}, { ...fns, local: (...args: unknown[]) => sent.push(args), chip: { detail: 'reference', target: '{}' }, run: { href: 'https://h/p/1' } }, [mouse(mods!)]);
+      expect(sent).toEqual([['pr-link-open', '', `reference\n{}\nhttps://h/p/1\n${held}`]]);
+    }
   });
 });

@@ -111,18 +111,15 @@ export async function openLink(client: T3Client, native: Native, url: string, op
 /** `chatlocal:link-open`: a chat Markdown link ("link": its click's ⌘ or Ctrl, read from the module's last gesture),
  *  a button that opens a URL ("button": check details, the published repository; no modifier), or a web search
  *  result in the work-log inspector ("external": the system browser). */
-export async function openLinkFromUi(client: T3Client, native: Native, kind: string, url: string): Promise<string> {
+export async function openLinkFromUi(client: T3Client, native: Native, pressed: string, url: string): Promise<string> {
+  // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen; contract-keys-and-menu-bar).
+  const bar = pressed.indexOf('|'), kind = bar < 0 ? pressed : pressed.slice(0, bar), held = bar < 0 ? [] : pressed.slice(bar + 1).split('+').filter(Boolean);
   if (!url) return '';
-  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native);
+  if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native, held);
   // reply-links RL-1: ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
-  let event = NO_MODIFIER;
-  if (kind === 'link') {
-    const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, generation: 0, value: {} }))).value);
-    const held = str(gesture.modifiers).split('+');
-    event = { metaKey: held.includes('meta'), ctrlKey: held.includes('control') };
-  }
+  const event = kind === 'link' ? { metaKey: held.includes('meta'), ctrlKey: held.includes('control') } : NO_MODIFIER;
   // A button on the pull request page ("button-page") has no thread to open beside: the system browser.
   // A work-log web result ("external") is the reference's target=_blank link: always the system browser (setWindowOpenHandler).
   try {
@@ -142,9 +139,8 @@ export async function openLinkFromUi(client: T3Client, native: Native, kind: str
  *  `createHashHistory`) reads as the index route, whose IndexDraftLanding opens the draft of the most recently active
  *  project and the composer takes the focus (`sidebar:new-thread`, app.contract commandCompleted). A click with ⌘, ⌥, ⇧
  *  or ⌃ held the handler leaves to the shell, which opens nothing for it (a new window it denies). */
-export async function openFragmentLink(client: T3Client, native: Native): Promise<string> {
-  const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, generation: 0, value: {} }))).value);
-  if (str(gesture.modifiers) !== '') return '';
+export async function openFragmentLink(client: T3Client, native: Native, held: string[] = []): Promise<string> {
+  if (held.length) return '';
   try { await client.openDraft(native, mostRecentProjectId(client.shell)); }
   catch (error) { if (letGo(error)) throw error; }
   return 'sidebar:new-thread';

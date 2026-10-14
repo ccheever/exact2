@@ -51,7 +51,7 @@
    "what": "dialog caps calc(100vh - Nrem)"
   },
   {
-   "file": "modules/apple/T3RootFont.swift (+ T3KeyRecorder, T3SshAuth, R6MediaPreview, R7DeviceTools, T3Menus)",
+   "file": "modules/apple/T3RootFont.swift (+ T3SshAuth, R6MediaPreview, R7DeviceTools, T3Menus)",
    "what": "native module text: the root size arrives with devicePresentation (client.ts rootFontSize); text-xs/text-sm/text-3xs/text-2xl and their paddings scale"
   }
  ],

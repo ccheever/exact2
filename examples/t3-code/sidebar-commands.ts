@@ -319,15 +319,14 @@ export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
 }
 
 /**
- * The row press (`value` "click"): ⌘-click toggles the multi-selection and
- * ⇧-click extends it in sidebar order; a plain click clears it. "search"
- * opens a result and clears the search. True when the press only selected.
+ * The row press (`value` "click", "click:meta" or "click:shift": the press's own MouseEvent, sidebar-row.contract
+ * `openPress`): ⌘-click toggles the multi-selection and ⇧-click extends it in sidebar order; a plain click clears it.
+ * "search" opens a result and clears the search. True when the press only selected.
  */
-export async function sidebarSelecting(client: T3Client, nativeHandle: Native, id: string, value: string): Promise<boolean> {
+export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, id: string, value: string): Promise<boolean> {
   const session = sidebarSession(client);
-  if (value === 'click') {
-    let flags: Obj = {};
-    try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
+  if (value === 'click' || value.startsWith('click:')) {
+    const flags = { command: value === 'click:meta', shift: value === 'click:shift' };
     // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
     const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
@@ -448,10 +447,9 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // r11-upstream (95edeb753b): a draft row's context menu; r12-sidebar: Shift+F10 anchors it to the row
   if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // r12-sidebar: a focused row's ContextMenu key
   if (op === 'new-thread-click') {
-    let flags: Obj = {};
-    try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create.
-    if (flags.shift !== true && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
+    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
+    // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
+    if (value !== 'shift' && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';

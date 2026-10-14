@@ -27,7 +27,7 @@ import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane 
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 import { letGo } from './let-go';
-import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
+import { pullRequestLinkPick } from './context-menu-actions'; // context-menu-gaps
 import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
 import { stackLayerTarget } from './pages-pr-stack';
 import { openLinkFromUi } from './browser-links';
@@ -87,7 +87,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // browser-surface part 5: "Open links in" (browser-links.ts)
   if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // shell-context-menu: a reply's web link menu (external-link-menu.ts)
-  if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
+  if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // context-menu-gaps: the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // pr-header-actions-and-stacks: a stack layer beside a thread

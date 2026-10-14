@@ -38,6 +38,7 @@ use Sidebar, sidebarTipRow from "./sidebar.contract"
 use LegacySidebar from "./legacy-sidebar.contract"
 use ChatColumn, RightPanels, PagesCover, RightSheets from "./app-main.contract"
 use ComposerMenus from "./composer-controls.contract"
+use heldModifiers from "./press-modifiers.contract"
 use ProjectPicker, WelcomeLayer, WindowOverlays from "./app-overlays.contract"
 use SettingsWindow, ProjectDialogs, SettingsModals from "./app-settings.contract"
 use ThemeEditorHost from "./settings-appearance-editor.contract"
@@ -435,9 +436,10 @@ component T3Window
       let target = (e.shiftKey ? available.slice(-1) : available.slice(0, 1)).join("")
       focus(target == "" ? popup : target)
   // browser-surface part 5: a link that follows "Open links in" (browser-links.ts `openLinkFromUi`): a Markdown link
-  // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button").
-  action linkOpen(kind: string, href: string)
-    chatLocal("link-open", kind, href)
+  // ("link": ⌘ or Ctrl held opens the default browser), a check's details or the published repository ("button"). The
+  // click's modifiers are its press's own (`kind|meta+shift`; contract-keys-and-menu-bar, no native gesture read).
+  action linkOpen(kind: string, href: string, e: MouseEvent)
+    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)
   // shell-context-menu: a Markdown web link's own menu (ChatMarkdown's anchor onContextMenu, external-link-menu.ts). A page
   // over the thread (the pull request page's detail) has no thread: its ChatMarkdown gets threadRef null ("page").
   action linkMenu(href: string)
@@ -822,7 +824,7 @@ component T3Window
       dragDx = 0
       dragDy = 0
   view
-    main testId="t3-code" focusin=windowFocused focusout=windowBlurred pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
+    main testId="t3-code" -exact-menu-remove="show-tab-bar show-all-tabs" focusin=windowFocused focusout=windowBlurred pointerdown=outsidePressDown pointerup=outsidePressUp viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=settingsCore.interfaceFont color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text) id="t3-code" data-paint="canvas text" data-pick=(("canvas" == "" ? "" : "canvas") != "" ? ("canvas" == "" ? "" : "canvas") : (("text" == "" ? "" : "text") != "" ? ("text" == "" ? "" : "text") : ""))
       // The skill chip details' Escape, the window's first node so it is the oldest shortcut that declares Escape
       // (composer-chip-popover.contract ChipPopoverEscape, realinput-1010c-fixes RC-4); outside the SSH prompt's inert
       // background, so it gives the key up while the prompt shows, as the details under it did.

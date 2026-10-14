@@ -1,7 +1,7 @@
 ---
 name: 20261014-contract-keys-and-menu-bar
 plan: 20261005-t3code-macos-parity
-implementation: prepared
+implementation: complete
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -221,7 +221,10 @@ For exportable proof, keep artifacts in the existing evidence workflow and link 
 - Read-only preparation completed against the inspected base and pinned reference.
 - First-wave and R14 adoption merge facts reconciled. The seven serial predecessors merged; prepared from `294db9696` on 2026-10-15 in the isolated checkout `t3-code-contract-keys-and-menu-bar`.
 - Actual public capture/menu APIs, native routing, four readers, bridge consumers, menu bar and all four `T3MenuTurn` callers inventoried at the inspected base; refresh against the prepared base.
-- Implementation, compilation, native launch and verification have not run yet.
+- 2026-10-15: implemented one reader at a time on base `0d85b6453`, every row given a final disposition (migrated and
+  tested, or retained native with its exact reason); checks, the native AFTER drive (one repair, one retry) and an
+  independent review are recorded in "Implementation and verification, 2026-10-15". Verification stays unverified until
+  the final real-input session.
 
 ## Attempts and evidence
 
@@ -238,16 +241,130 @@ Preparation evidence is source/record inspection, not a runtime reproduction:
 
 Store actual implementation attempts here with source/framework/tool versions, fixture, command, assertion, exit code, artifact location and limitation. Preserve failed-before and passing-after results; bound a fix loop to three rounds. The draft's assertions must be refreshed after predecessors change their callers.
 
+## Implementation and verification, 2026-10-15
+
+Prepared base `0d85b6453` (feature head `294db9696` plus this ticket); framework pin unchanged. App-only changes under
+`examples/t3-code`. Public APIs used: `keycapture=` with `KeyboardEvent.code`, `autofocus`, plain-letter
+`aria-keyshortcuts`, `press` with `MouseEvent`, `-exact-menu`, root `-exact-menu-remove`, `contextmenu` + `contextPopover`.
+
+### Disposition: KW-11a / X25 (the four readers)
+
+| Reader responsibility | Disposition | Where / reason |
+| --- | --- | --- |
+| `T3KeyRecorder` (Settings › Keybindings and the project action editor) | Migrated | `key-recorder.contract` `KeyRecorder`: a `tabindex=0` box (`id` = its test id) with `autofocus`, `keycapture=keys` (every key prevented and stopped; Escape sends `escape`; a modifier alone records nothing) and `blur=cancel`; the chord is `keybindingFromKeyboardEvent` as `fn recorderBinding` over `key`/`code` (an a–z layout letter, else the physical punctuation or digit, else the physical Latin letter for a key that types none, so Korean 2-Set's ⌘ㅠ records `mod+b` with or without R10's re-issue). Both callers use it; the native view, its factory and the `t3-key-recorder` module entry are deleted. The action editor's recording row is `aria-modal` now (its shortcuts were not scoped before), its Keybinding press moves the focus to the recorder (`focus("action-keybinding-recorder")`: the drive showed `autofocus` leaving it in the Name field), and its Escape/blur keep the old binding (the native view's `escape` was saved as the binding `escape`). |
+| `R8KeysLauncher` (mount focus, letters from any non-typing focus, repost) | Migrated | `shell-panels.contract`: the launcher is `autofocus`; each available row declares `aria-keyshortcuts="<l> Shift+<L>"`, which the host presses before any key handler, never from an input context (`Shortcut.permits`), never behind a modal or while inert, once per press, by the physical key under a non-Latin layout. `R8KeysLauncher.swift` is deleted. Retained: `T3Composer.launcherLetter`, a 10-line guard so the composer's own type-to-focus monitor leaves a live launcher's letters to Exact's monitor (AppKit runs local monitors in no fixed order). |
+| `T3Sidebar` click modifiers (`sidebarModifiers`, the click monitor) | Migrated | Row presses `openPress(e: MouseEvent)` (`sidebar-row.contract`, `legacy-sidebar.contract`) send `click`, `click:meta` or `click:shift`; the legacy PR glyph `prPress` sends `mod:<page>` for ⌘/Ctrl; `app.contract sidebarNewThread(e: MouseEvent)` sends `shift`. The op, monitor and `record`/`pressModifiers` are deleted. A keyboard or chord press carries no modifiers: ⇧⌘O (chat.new) now opens the palette as the reference's `chat.new` handler does (the old read of the live keyboard created at once). |
+| `T3Sidebar` held ⌘ jump hints and ⇧ PR speed mode | Retained native | Exact runs `key`/`keyup` handlers only on the path of a focused node (`host/apple/Sources/ExactKit/KeyEvents.swift:225` `keyTarget` is nil for the window or a module's web view, so `keyEvent`, lines 98–141, has an empty path); the reference's window listeners hear ⌘ with nothing focused. Speed mode also needs `isEditableFocused`, and a Contract `KeyboardEvent` names no target. |
+| `T3ComposerIntent` pointer gestures (Send ⌘-click, chat and pull request link clicks, fragment links) | Migrated | Each press passes its own `MouseEvent` modifiers: `composer-controls.contract sendPress` → `app.contract send(held)` → `send` op `pointer:<mods>` (`composer-editor-intent.ts pressGesture`); `app-window.contract linkOpen(kind, href, e)` sends `kind|mods`; `markdown.contract PrLinkRun open(e)` adds a fourth line (`press-modifiers.contract heldModifiers`). `browser-links.ts` and `pages-pr-links.ts` no longer ask the module. The module records no pointer gesture; a click only retires the Return gesture before it, so a stale ⌘↩ never resolves a later plain click (a plain click and a keyboard press look alike to a `MouseEvent`). |
+| `T3ComposerIntent` Return gesture and held ⌘/Ctrl (the Send button's label) | Retained native | A Send chord is an `aria-keyshortcuts` press, which runs before any key handler (grammar "Shortcuts") and carries no modifiers, so no Contract handler can tell ⌘↩ from ⌥⌘↩; the plain-Return send is `T3Composer`'s own monitor, which defers to the native slash-command menu and stash state; the held ⌘ is window-level (the `keyTarget` gap above). Fan-out's Shift+Return reads the same gesture; its Shift-click was already the press's own (CO-7). |
+
+### Disposition: KW-11b / X26 (menu bar, per item)
+
+| Item | Disposition | Reason |
+| --- | --- | --- |
+| App ▸ Check for Updates... and Help ▸ Check for Updates... | Retained native | Tried as two `-exact-menu="app"`/`"help"` buttons and reverted after review: the host enables an `-exact-menu` item only while its window is key with no sheet (`host/apple/Sources/ExactKit/Mac/ShortcutsMac.swift:489–492` `validateMenuItem`), and its press went through the busy-guarded `command`; the reference's item is always enabled and reopens the main window (`ensureMain`). No window-independent menu command exists. `T3Menus` keeps its items, order and box unchanged. |
+| View ▸ Show Tab Bar, Show All Tabs | Migrated | Root `-exact-menu-remove="show-tab-bar show-all-tabs"` (`app-window.contract`); `R8KeysMenus`' removal loop and its `allowsAutomaticWindowTabbing = false` are deleted (the host already disallows tabbing for a one-window app, `ExactDocuments.furnish`). |
+| App ▸ Settings… | Already Contract | `ShortcutDispatch` ⌘, (unchanged). |
+| About, Services, Hide, Hide Others, Show All, Cut, Copy, Paste, Delete, Select All, Speech, Enter Full Screen, the Window menu | Host | Standard roles the host owns. |
+| Quit (immediate from the menu, held/double ⌘Q from the keyboard) | Retained native | `T3QuitHold` reads raw keydown/keyup/flags and auto-repeat cadence; no Contract quit API; menu Quit stays the host's `terminate:`. |
+| File ▸ Close Window (⌘W closes the right panel first; menu click closes the window; held ⌘W repeats dropped) | Retained native | Needs the keystroke-versus-click distinction (`NSApp.currentEvent`) and raw repeats; `-exact-menu` gives one press for both. |
+| Concealed app commands in File and Edit (hidden, still key equivalents) | Retained native | A hidden button leaves the menu with its equivalent; there is no hidden-equivalent contract. |
+| Edit ▸ Undo (text history in a field, thread Undo by keystroke only) | Retained native | Responder-chain routing and keystroke detection. |
+| Edit ▸ Paste as Text (⇧⌘V) | Retained native | The responder chain's `pasteAsPlainText:`; `-exact-menu` supplies a button press, not a role. |
+| Edit template extras (Paste and Match Style, Find, Spelling and Grammar, Substitutions, Transformations), Help's book item | Retained native | Not in `-exact-menu-remove`'s identifiers. |
+| Go and Develop removed, Save Trace kept as a hidden ⌥⌘T | Retained native | Whole menus are not removable by policy; Develop stays in development builds by the framework's contract. |
+| View ▸ Reload, Force Reload | Retained native | The Develop menu's reload action. |
+| View ▸ Actual Size, Zoom In (+ hidden ⌘+), Zoom Out | Retained native | No Contract API zooms the main window's content; an app chord is heard only inside a shown modal while one is up (`Shortcuts.swift` `shortcutModal`), while the reference's menu zoom works under a dialog; the host files app View items at index 0, ahead of Reload (`ShortcutsMac.swift` `sync`). |
+
+### Disposition: X15
+
+| Route | Disposition | Reason |
+| --- | --- | --- |
+| The launcher's letter re-post (`R8KeysLauncher` `NSApp.postEvent`) | Removed | Its letters are declared shortcuts, matched by the physical key (`ShortcutsMac.swift:66–74`). |
+| The keybinding recorder | Removed (no reissue needed) | It binds by `KeyboardEvent.code`. |
+| `R10Connect` Latin re-issue | Retained | One event-level transform. Still needed by the items AppKit matches on the typed character (Copy, Cut, Paste, Undo, Redo, Select All, Quit, Hide, Minimize, Close Window, Reload, Paste as Text, Actual Size, Zoom In, Zoom Out), the terminal's web view, the queued-edit and SnapShot readers. The host's physical fallback covers only its `ShortcutHost` items (`ShortcutsMac.swift:66–74`, `166–176`). `wake` unchanged. |
+| `T3QuitHold.key` (Q by key code), `T3Menus.dropsHeldClose` (W by key code), `R9Input.chordKey` (⌘B/⌘I) | Retained | Native readers' own raw-event matching. |
+| Terminal `WKWebView` | Retained | Input-context-first composition. |
+
+### Disposition: X292 (module context menus)
+
+| Site | Disposition | Reason |
+| --- | --- | --- |
+| Settings › Archived threads row (Unarchive, —, Delete with the trash glyph) | Migrated | `settings-archive.contract ArchiveMenu` context popover; `archive-pick` runs the choice (`settings-a-archive.ts`). |
+| Pull request number (list row and detail header): Copy link, Open on <host> | Migrated | `pages-prs.contract PrLinkMenu` (used by `pages-pr-detail.contract`); `pullRequestLinkPick`; rows carry `linkOpenLabel`. |
+| Files tree row; Files, diff and Markdown file links; chat web links | Retained native (`T3ContextMenu`) | TypeScript builds the rows at the click from per-target state (configured editors, path, preview capability, thread-link state); a context popover lists only rows the plan already holds when its `contextmenu` runs (LLP 1021 §5.1), so moving them needs per-row menu data for every tree row and link: the broad refactor this task excludes. |
+| Branch name (trigger and picker rows) | Retained native | The rows sit inside the open branch picker popover and share one item model with the trigger; a host context menu over that open picker was not established. |
+| Right-panel tab Shift+F10 | Retained native | Shift+F10 has no menu default on macOS (grammar); the native `anchor: focus` opens at the focused view. Pointer and ContextMenu already use `r4-tab-menu`. |
+| Draft row ContextMenu/Shift+F10, media menus | Retained native | Bottom-left keyboard anchor; Exact opens a ContextMenu-key popover at the focused node's centre. Media also keeps async signed URLs and native save/copy. |
+| Legacy thread and project rows | Retained native (`sidebarMenu`) | TypeScript computes them at the click (the bulk menu over the selection, legacy branch rows); no per-row menu data. |
+| Terminal selection and context menus | Retained native | They come from the `WKWebView`. |
+| `T3MenuTurn` | Retained | Callers: `T3ContextMenu.perform`, `T3MediaActions.perform` (`mediaMenu`), `T3Module+Sidebar` (`sidebarMenu`), `T3TerminalActions.show`, The two moved sites are scheduled by the host. |
+
+### Tests and checks (final source, after the review and the drive repair)
+
+| Check | Result |
+| --- | --- |
+| Full app Bun suite (336 tracked `.test.ts` files, explicit `./` paths) | 5,239 pass, 1 skip, 0 fail |
+| Strict `tsc` on `app.ts` | exit 0 |
+| `cargo run -q -p contract -- build examples/t3-code/app.contract -o target/t3-keys.plan` | exit 0; 254 warnings (colour-role lint, as before); 29,330,831 bytes; SHA-256 `55fd11a2f111664bf15c637ad84cb27c2c435aa359e0ce2775a0b7ee2f2718f8` |
+| `cargo test -p t3-code-macos --lib --no-fail-fast` | 49 passed (new `contract_keys_tests`: the root's `menuRemove`; the launcher's `autofocus` and row shortcuts, none on an unavailable row; a row press's `click`/`click:meta`/`click:shift`; the recorder's capture by physical key, modifier-only and Escape) |
+| AppKit binaries (README recipe) | composer 78/78, intent 4/4, sidebar 5/5, r9-input 6/6, r5-composer 3/3, contextmenu 70/70, r12-sidebar 3/3, r8-pointer 2/2, r10-connect 3/3, r5-panels 6/6, menus 47/47, r8-keys 5/5 |
+| `real-key-chords` | Fixed to compile (it named `R8KeysLauncher` and the removed `R10Connect.install`); not run: it activates the app and takes the key window on an unlocked desktop, which this task leaves to the attended session |
+| `timeline-keyboard` (ExactKit recipe) | Compiles; fails `Tab must leave the result region`. It builds its own `Presenter`/`NodeView` fixture and calls no app module or plan; this diff touches no ExactKit file |
+| `git add -A examples/t3-code && bun scripts/caps.mjs` | all budgets within cap (`app.contract` 1,500 lines) |
+| `cargo fmt --all -- --check`; `cargo check --workspace --all-targets --keep-going` | exit 0; exit 0 |
+| Native bundle (`build.mjs t3-code-macos --bundle`) | exit 0, three times (first change, after the review revert, after the drive repair); final executable SHA-256 prefix `f1b9586b935ab0be` |
+
+Test changes: `r3-settings-keys.test.ts` (recorder chord table, capture handler, both callers, action editor `capture`/`record`), `settings-escape.test.ts`, `r4-surfaces.test.ts` (row shortcuts, `autofocus`), `sidebar.test.ts`, `legacy-sidebar.test.ts`, `legacy-sidebar-full.test.ts`, `dialog-focus.test.ts` (press payloads; the AppKit `testRowPressReadsTheClickEventsModifiers` cases ported here), `composer-editor-send.test.ts`, `composer-controls.test.ts`, `browser-links.test.ts`, `pages-pr-links.test.ts`, `reply-links-reference-behavior.test.ts`, `timeline-work-rows.test.ts`, `browser-capture.test.ts` (pointer modifiers), `settings-a.test.ts`, `sidebar-hover-archive-and-glyph.test.ts`, `context-menu-actions.test.ts`, `context-menu-hookup.test.ts`, `menu-keys.test.ts`, `adopt-main-fixes-r12.test.ts` (the two popovers), `r8-keys.test.ts` (root policy); AppKit `r8-keys` (launcher test ported to the shortcut route in either monitor order), `intent` (a click retires a Return gesture), `sidebar` (no modifier op).
+
+### Native AFTER drive
+
+Agent mode (`scripts/agent.mjs macos --json --size 1280x840`, storage `contract-keys-a`), the bundle's executable (`EXACT_MAC_BIN`), the audit runtime `t3-0.0.46-nightly.20261005.2667` (`T3_LOCAL_RUNTIME_DIR`), port 16714, telemetry off, homes copied from the audit lane `ri1012-b10` into `target/contract-keys/lane`, external opens recorded to its `logs/opened-urls.txt`. No provider message was sent. Fixture effect: one thread archived and unarchived in the copied home. Evidence: `target/contract-keys/drive/` (`.jsonl` per segment, PNGs); segments A, B, B2, B3, C, D1–D3 ran on the first build, R and R2 on the repaired one. Early aborts were driver targeting (a page still loading, a label, an ambiguous "Back"), rerun with corrected targets. The app and its server were stopped by the driver; port 16714 is free.
+
+| Row | Result | Evidence |
+| --- | --- | --- |
+| Launcher takes the focus on mount | PASS: after ⌘⌥B the focused view is `surface-chooser` (`autofocus`) | `A-launcher.jsonl` 15–16, `A02-launcher-focused.png` |
+| Launcher letters: rows declare them, unavailable rows do not | PASS: `b Shift+B`, `t Shift+T`, `f Shift+F`, `d Shift+D`, `m Shift+M`; Pull request / Linked pull requests none | `A-launcher.jsonl` 16 |
+| No typing-context theft | PASS: `f` with the composer focused typed `f` into it; no surface opened | `A-launcher.jsonl` 18–21 |
+| A letter from another, non-typing focus | PASS: ⇧F with a sidebar row focused opened Files once (one `tab-files`) | `A-launcher.jsonl` 24–29, `A03-files-by-shift-f.png` |
+| Settings recorder | PASS: focus on the recorder at mount; Shift alone records nothing; ⌘K records `mod+k` (palette stays closed, recording ends); Escape restores `mod+n` and Settings stays open; ⌃⇧↑ records `ctrl+shift+arrowup` | `B-recorder.jsonl`, `B2-recorder.jsonl`, `B01`–`B03` |
+| Project action editor recorder | FAIL then PASS: the first build left the focus in the Name field (`autofocus` did not take it); repaired (`focus("action-keybinding-recorder")`), the retry shows the recorder focused, ⌘⇧T records `mod+shift+t`, and Escape keeps it (before this task Escape saved `escape`) | `B3-action-editor.jsonl` 19, 23, 28; `R-retry.jsonl` 18–22, `R01-action-editor-recorded.png` |
+| Sidebar click modifiers | PASS: ⌘-click on two rows multi-selects them and opens neither; ⇧-click ranges from the anchor; a plain click clears and opens | `C-sidebar-links.jsonl` 18–32, `C01`, `C02` |
+| A chat link's ⌘-click | PASS: the system browser (recorded `https://example.test`), not the preview | `opened-urls.txt`, `C03-link-meta-click.png` |
+| Archive row menu (pointer) | PASS: the painted popover lists Unarchive, Delete (menu, menuitem roles; trash glyph, separator) | `D2-archive-menu.jsonl` 16–17, `D03-archive-menu-light.png` |
+| Archive row menu (ContextMenu key, dark) | PASS: opens from the focused Unarchive button, focus kept there; Unarchive returns the thread to the sidebar and empties the page | `D3-archive-keyboard.jsonl` 15–26, `D04-archive-menu-keyboard-dark.png`, `D05` |
+| App-menu command through the agent's path | PASS for Settings… (⌘, opens Settings, B segments); no Contract menu command was added (Check for Updates... stays native) | `B-recorder.jsonl` |
+| Light and dark | PASS: launcher, recorder, editor light; archive menu dark | PNGs above |
+| Launcher remount after the last tab closes | Not observed: closing the last tab closes the panel here, so no launcher mounts | `R2-launcher.jsonl` 15 |
+| Held-modifier state after page blur, sidebar hints, PR speed mode | UNVERIFIED: retained native; the agent's synthetic keys bypass local monitors | — |
+| Non-Latin layout chords | UNVERIFIED live (the agent sends no `KeyboardEvent.code`); covered by `r3-settings-keys.test.ts`, the Rust recorder test and the r8-keys AppKit test | — |
+| Send ⌘-click / ⌘↩ intent | UNVERIFIED live (no provider sends); Bun client tests | — |
+| Pull request number menu | UNVERIFIED live (the fixture has no pull request rows); Bun tests | — |
+| Real menu-bar tracking, real US/2-Set chords, actual context menus by physical input, VoiceOver | UNVERIFIED: the final real-input session | — |
+
+PR images (local): `target/contract-keys/pr-images/01-launcher-autofocus-letter-shortcuts.png`, `02-settings-recorder-captured-mod-k.png`, `03-action-editor-recorder.png`, `04-archive-context-menu-dark.png`.
+
+### Review
+
+A fresh reviewer read the ticket and the staged diff and reported two blocking defects, both in the first Check for Updates... move: the press went through the busy-guarded `command` (dropped while another command was out), and the host enables an `-exact-menu` item only while its window is key with no sheet, where the old item was always enabled. Both were resolved by keeping the native items (disposition above) and reverting that move; the Bun and Rust tests for it were rewritten to the root policy. A second pass over the delta (the revert and the drive's
+recorder repair) found no blocking defect and confirmed the disposition tables against the staged code. Non-blocking notes taken: the recorder test's ⌘Q wording (T3Menus' monitor may see ⌘Q first, as with the native view); ⇧⌘O now matches the reference's `chat.new`. Left as noted: the r8-keys AppKit test stands in for the host's shortcut rules (the drive and the Rust plan test cover the declarations); some tests read source next to behaviour tests.
+
+### Framework gaps (no framework edit made)
+
+- `host/apple/Sources/ExactKit/KeyEvents.swift:225` (`keyTarget`) and `:98–141` (`keyEvent`): with no Exact node focused (the window, a module's web view) no Contract `key`/`keycapture`/`keyup` handler runs, so window-level held-modifier state (sidebar hints, PR speed mode, the Send label) stays native; a `KeyboardEvent` also names no target, so `isEditableFocused` is not expressible.
+- `host/apple/Sources/ExactKit/Mac/ShortcutsMac.swift:489–492` (`validateMenuItem`): an `-exact-menu` item is enabled only while its window is key with no sheet; no window-independent menu command.
+- `-exact-menu` gives a press, not a responder-chain role (Paste as Text), and no hidden-but-usable equivalent, order or separator policy; `-exact-menu-remove` has no ids for Edit's template extras, Help's book item or whole menus.
+- A ContextMenu-key popover opens at the focused node's centre; source-specific bottom-left keyboard anchors (draft rows, media) are not expressible.
+
+### Known differences
+
+- The painted archive menu under the agent: Escape closes the menu and also reaches Settings' Back (the popover is no modal scope); with real input the host shows an `NSMenu`, which takes Escape (unverified until the real-input session).
+- The keybinding recorder is a focused box: the host may draw its focus ring (the native view drew none); `outline` is refused on a box.
+- A keyboard or chord press carries no click modifiers (the native read used the live keyboard): ⇧⌘O opens the palette, as the reference does.
+- Shift+F10 on a right-panel tab, draft/media keyboard menus and the other retained sites still answer "dismissed" under the agent, as before.
+
 ## Next action
 
-Prepared on 2026-10-15 from feature head `294db9696` in the isolated checkout
-`t3-code-contract-keys-and-menu-bar` (branch `feat(example)/t3-code-contract-keys-and-menu-bar`).
-Implement this one-PR unit one reader at a time. Completion requires the per-reader and per-menu
-disposition table (migrated and tested, or retained native with an exact reason), meaningful tests
-and an independent review; a count of deleted Swift files is not completion evidence.
-
-Verification budget (overrides the per-reader drive recipe above): one native agent AFTER drive at
-the end, at most one retry after a repair. No before drive unless a comparison image is needed.
-Attended rows (real menu-bar tracking, US/2-Set chords, actual context menus, VoiceOver) go to the
-one final real-input session after this task; until then they stay unverified. Evidence stays local
-in `target/`; PR images are GitHub attachments.
+Implemented on 2026-10-15 and committed locally on `feat(example)/t3-code-contract-keys-and-menu-bar` (not pushed).
+Next: the parent's PR and review flow, then the final real-input session for the rows marked UNVERIFIED above (real
+menu-bar tracking, US and 2-Set chords, actual context menus by physical input, held-⌘ hints after a blur, VoiceOver).

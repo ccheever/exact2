@@ -18,7 +18,7 @@ describe('AD-1: the Mac\'s own presentations main gives what the clone writes st
 
   test('every popover keeps the painted layer (LLP 1115.002 D7.3): `popover="auto"` and an authored fallback row', async () => {
     const popovers = (await contracts()).flatMap(({ lines }) => lines.filter(line => code(line) && /\bpopover="/.test(line)));
-    expect(popovers.length).toBe(62);
+    expect(popovers.length).toBe(64); // contract-keys-and-menu-bar: the archived row's and the pull request number's context popovers
     for (const line of popovers) {
       expect(line).toContain('popover="auto"');
       expect(line).toMatch(/\sposition-try-fallbacks=/);
@@ -67,6 +67,7 @@ const reviewed: Record<string, Site[]> = {
     ['PrSortMenu', 'id="pr-sort-menu"', q('bottom span-right'), FLIP, 'routes/_chat.pull-requests.tsx:2281 start'],
     ['PrHostMenu', 'id="pr-host-menu"', q('bottom span-right'), FLIP, 'routes/_chat.pull-requests.tsx:2281 start'],
     ['PrFiltersMenu', 'id="pr-filters-menu"', q('bottom span-left'), FLIP, 'pullRequest/PullRequestListFilters.tsx:511 end'],
+    ['PrLinkMenu', 'id=menuId', '', q('none'), 'pullRequestLinkContextMenu.ts showPullRequestLinkContextMenu (native menu)'],
   ],
   'pages-usage-prices.contract': [['UsagePricesApply', 'id="usage-prices-apply"', q('bottom span-right'), FLIP, 'usage/UsagePriceOverrides.tsx:310 start']],
   'pages-usage.contract': [
@@ -92,6 +93,7 @@ const reviewed: Record<string, Site[]> = {
   'settings-a-fonts.contract': [['FontFamilyPicker', 'id=`font-picker-${rowId}`', q('bottom span-left'), FLIP, 'settings/FontFamilyPicker.tsx:219 end']],
   'settings-a-hosts.contract': [['HostRowView', 'id=`device-host-tools-${host.id}`', q('bottom span-left'), FLIP, 'device/DeviceToolVersions.tsx:48 end']],
   'settings-appearance-import.contract': [['AddThemeDialog', 'id="add-theme-sort-menu"', q('bottom span-left'), FLIP, 'settings/ThemeSearchSection.tsx:324 Select end']],
+  'settings-archive.contract': [['ArchiveMenu', 'id="archive-menu"', '', q('none'), 'SettingsPanels.tsx ArchivedThreadsPanel api.contextMenu.show (native menu)']],
   'settings-b-accent.contract': [['ProviderAccentPicker', 'id=`provider-accent-${editorId}`', q('bottom span-right'), FLIP, 'settings/ProviderAccentColorPicker.tsx:94 start, offset 6']],
   'settings-b-actions.contract': [['ProjectActionEditor', 'id="action-icon-picker"', q('bottom span-right'), FLIP, 'projectScriptEditor.tsx:329 start']],
   // CnMenu: each caller names its area (below).

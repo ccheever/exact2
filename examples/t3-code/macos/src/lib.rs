@@ -32,3 +32,6 @@ mod connections_settings_tests;
 
 #[cfg(test)]
 mod timeline_hooks_tests;
+
+#[cfg(test)]
+mod contract_keys_tests;

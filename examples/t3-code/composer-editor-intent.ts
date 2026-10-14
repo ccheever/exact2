@@ -3,7 +3,8 @@
 // runs is the follow-up alternate, ⌘↩ or ⌥⌘↩ in a new-thread draft starts it
 // in the background (composer.sendBackground), and ⌥⌘↩ on an existing thread
 // sends and then opens a fresh new-thread composer (composer.sendAndNewThread).
-// The gesture is T3ComposerIntent.swift's newest Return or pointer press.
+// The gesture is a pointer press's own modifiers (its MouseEvent, `pressGesture`) or, for any other press,
+// T3ComposerIntent.swift's newest Return.
 import { arr, obj, str, type Obj } from './domain';
 
 export type SendIntent = 'foreground' | 'alternate' | 'background';
@@ -54,6 +55,17 @@ export function chordsFor(config: Obj, command: string, extra: Record<string, bo
   const rules = Array.isArray(config.keybindings) ? arr(config.keybindings) : DEFAULT_SEND_RULES;
   const chords = [...new Set(rules.filter(rule => rule.command === command).map(rule => chordOf(obj(rule.shortcut))))];
   return chords.filter(chord => chordCommand(config, chord, extra) === command);
+}
+
+/**
+ * A press that carried modifiers (`pointer:meta+alt`, press-modifiers.contract heldModifiers): the pointer gesture it
+ * was, now. Null for a press with none (a plain click, a key, an assistive or shortcut press), whose gesture is the
+ * module's newest Return, if any.
+ */
+export function pressGesture(pressed: string): Obj | null {
+  if (!pressed.startsWith('pointer:')) return null;
+  const modifiers = pressed.slice('pointer:'.length).split('+').filter(name => ['meta', 'control', 'alt', 'shift'].includes(name)).join('+');
+  return modifiers ? { modifiers, source: 'pointer', ageMs: 0 } : null;
 }
 
 /** The gesture's chord: T3ComposerIntent names modifiers meta, control, alt, shift. */

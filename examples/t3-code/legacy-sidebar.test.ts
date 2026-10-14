@@ -170,7 +170,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
 
 interface Fake { client: T3Client; calls: Obj[]; writes: Obj[]; dispatched: Obj[]; drafts: string[]; opened: string[] }
 const identity = (name: string) => ({ projectMark: name.slice(0, 2), projectInk: 'ink', projectSurface: 'surface' });
-function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; picks?: string[]; modifiers?: Obj; projects?: Obj[]; hints?: boolean } = {}): Fake {
+function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; picks?: string[]; projects?: Obj[]; hints?: boolean } = {}): Fake {
   const calls: Obj[] = [], writes: Obj[] = [], dispatched: Obj[] = [], drafts: string[] = [], opened: string[] = [], picks = [...(options.picks ?? [])];
   let ids = 0;
   const client = {
@@ -191,7 +191,6 @@ function fake(threads: Obj[], options: { settings?: Obj; threadId?: string; pick
       call: async (request: Obj) => {
         calls.push(request);
         if (request.op === 'sidebarMenu') return { id: picks.shift() ?? null };
-        if (request.op === 'sidebarModifiers') return options.modifiers ?? {};
         return {};
       },
     }),
@@ -333,9 +332,9 @@ describe('legacy gestures (LegacySidebar.tsx handlers)', () => {
     expect(drafts).toEqual(['p2']);
   });
   test('⇧-click ranges over the project list', async () => {
-    const { client } = fake([...many(4), thread('b', { projectId: 'p2', latestUserMessageAt: at(55) })], { modifiers: { shift: true } });
+    const { client } = fake([...many(4), thread('b', { projectId: 'p2', latestUserMessageAt: at(55) })]);
     sidebarSession(client).anchor = 'p1-t0';
-    expect(await sidebarSelecting(client, native, 'p1-t2', 'click')).toBe(true);
+    expect(await sidebarSelecting(client, native, 'p1-t2', 'click:shift')).toBe(true);
     expect(sidebarSession(client).selection).toEqual(['p1-t0', 'p1-t1', 'p1-t2']);
   });
   test('thread menu: rename starts the inline edit; copy path toasts; delete asks first', async () => {

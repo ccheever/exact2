@@ -312,10 +312,10 @@ export function forgetPreviews(client: object): void { previews.delete(client); 
  * thread's surface; on the page, the page's selection (answered as `pr-select:<ref>`).
  */
 export async function openLink(client: T3Client, native: Native, page: boolean, value: string, openSurface: (url: string, target: string) => Promise<void>): Promise<string> {
-  const [kind = '', target = '', href = ''] = value.split('\n');
-  const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, value: {} }))).value);
+  // The fourth line: the click's own modifiers (markdown.contract PrLinkRun `open`; contract-keys-and-menu-bar).
+  const [kind = '', target = '', href = '', held = ''] = value.split('\n');
   const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
-  if (str(gesture.modifiers)) return browser(href);
+  if (held) return browser(href);
   // No project to open it beside: an ordinary link, which follows "Open links in" (useOpenPrLink → useOpenLink; browser-links.ts).
   if (!target) { if (href) await openLinkByTarget(client, native, href); return ''; }
   let url = href;

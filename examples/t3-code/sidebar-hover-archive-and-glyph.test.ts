@@ -168,14 +168,14 @@ describe('G4-14b: the archived thread\'s delete confirm and its Unarchive button
   const native = { available: true } as unknown as Native;
   test('the confirm says "this thread": the live store holds no archived thread', async () => {
     const c = client([{ id: 't1', projectId: 'p1', title: 'Archive fixture B', archivedAt: '2026-10-12T00:00:00.000Z' }]);
-    await archiveCommand(c, native, {} as never, 'archive-menu', 'env1:p1:t1', 'Archive fixture B');
+    await archiveCommand(c, native, {} as never, 'archive-pick', 'env1:p1:t1', 'delete');
     expect(archiveConfirmation(c)).toEqual({ id: 'env1:p1:t1', title: 'this thread' });
     const dialog = await source('settings-a-dialogs.contract');
     expect(dialog).toContain('SettingsConfirm(title=`Delete thread "${core.archiveConfirm.title}"?`');
   });
   test('a thread the live store still holds keeps its title (resolveThreadTarget)', async () => {
     const c = client([{ id: 't2', projectId: 'p1', title: 'Still live', archivedAt: null }]);
-    await archiveCommand(c, native, {} as never, 'archive-menu', 'env1:p1:t2', 'Still live');
+    await archiveCommand(c, native, {} as never, 'archive-pick', 'env1:p1:t2', 'delete');
     expect(archiveConfirmation(c).title).toBe('Still live');
   });
   test('Unarchive is named by its text', async () => {

@@ -272,7 +272,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     const entry = await component('timeline-work.contract', 'WorkEntry');
     expect(entry).toContain('InspectorItem(item=item, codeSize=codeSize, open=linkOpen)');
     expect(entry).toContain('button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}`');
-    expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string)\n    chatLocal("link-open", kind, href)');
+    expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string, e: MouseEvent)\n    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)');
   });
   test('TH-10: every work-log image icon is muted but a live row’s highlight: opacity 0.7 here, brightness 0.6 in light in the hook', async () => {
     const line = await component('timeline-work.contract', 'WorkLine');

@@ -102,8 +102,8 @@ describe('follow-up dispatch', () => {
     await command('send', '', 'Queued one');
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', dispatchMode: { type: 'queue_after_active' } });
     expect(native.committed.at(-1)!.deliveryIntent).toBeUndefined();
-    native.gesture = { modifiers: 'meta', source: 'pointer', ageMs: 10 };
-    await command('send', '', 'Steer one');
+    // A ⌘-click: the press's own modifiers (app.contract `send`), not the module's recorded gesture.
+    await command('send', 'pointer:meta', 'Steer one');
     expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
     await command('device-setting', 'followUpBehavior', 'steer');
     client.local.clientSettings.followUpBehavior = 'steer';

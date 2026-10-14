@@ -362,7 +362,7 @@ describe('a dialog keeps Tab and Shift+Tab inside, in the reference order', () =
     expect(terminal).toContain('id="terminal-close", elementId=`terminal-close-${view.surface}`, strip=strip, edge=true, press=askClose)');
     const overlays = await source('sidebar-overlays.contract');
     expect(overlays).toContain('cancel=dismissDialog, confirm=run("dialog-confirm", "", ""))');
-    const rows = (await source('sidebar-row.contract')).split('\n').filter(line => line.includes('testId=`thread-${t.id}`') && line.includes('press=open(t.id, "click")'));
+    const rows = (await source('sidebar-row.contract')).split('\n').filter(line => line.includes('testId=`thread-${t.id}`') && line.includes('press=openPress'));
     expect(rows.length).toBe(2);
     for (const row of rows) expect(row).toContain('id=`thread-${t.id}`');
   });
