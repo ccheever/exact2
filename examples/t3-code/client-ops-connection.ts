@@ -28,6 +28,7 @@ export async function connectionOps(this: T3Client, op: string, id: string, valu
     } else if (CONNECTION_OPS.includes(op)) {
       const focused = op === 'environment-forget' && value === this.environmentId ? value : '';
       const result = await runConnectionOp(native, op, id, value, this.connection === 'connected', this);
+      if (result.relaunch) out.relaunch = true;
       if (result.status) this.adoptStatus(result.status, result.generation);
       if (focused && result.status && !str(result.status.origin)) this.dropFocus(focused);
       this.error = '';

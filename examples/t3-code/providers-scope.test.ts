@@ -160,3 +160,24 @@ test('with no environment chosen, Providers takes the primary, else a connected 
   expect(scopeMachine(client, 'general', '', candidates)).toBe('');
   expect(scopeMachine(client, 'providers', '', [])).toBe('');
 });
+
+
+test('provider mutation sources return the complete Change shape without requesting relaunch', async () => {
+  const files = storage().files;
+  for (const [source, args] of [
+    ['providerChange', ['upkeep:update', 'codex', '', '', '']],
+    ['providerChange', ['setup:codex-enable', 'codex', '', '', '']],
+    ['providerChange', ['setup:chatgpt-connect', 'codex', '', '', '']],
+    ['providerChange', ['setup:auth-start', 'codex', '', '', '']],
+    ['providerChange', ['provider-enabled', 'codex', '', 'false', '']],
+    ['providerAdd', ['codex', 'Work', '', '', '', '', '', '', '', '']],
+    ['command', ['endpoint-default', '', 'tailscale:ip:http', 0]],
+  ] satisfies [string, unknown[]][]) {
+    const result = obj(await answer(source, args, null, files, null));
+    expect(Object.keys(result).sort()).toEqual(['message', 'relaunch', 'revision', 'routeReorder']);
+    expect(result.relaunch).toBe(false);
+    expect(result.routeReorder).toBe(0);
+    expect(typeof result.message).toBe('string');
+    expect(typeof result.revision).toBe('number');
+  }
+});

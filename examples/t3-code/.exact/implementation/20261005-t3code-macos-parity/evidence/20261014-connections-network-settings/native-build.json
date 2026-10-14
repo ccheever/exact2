@@ -1,0 +1,45 @@
+{
+  "app": {
+    "id": "com.exact.t3code.macos",
+    "name": "T3 Code (Exact)",
+    "origin": null,
+    "declared": true
+  },
+  "built": "2026-10-14T09:47:26.764Z",
+  "started": "2026-10-14T09:44:01.604Z",
+  "toolchain": {
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0"
+  },
+  "compatibilityId": "936b0ded39ce74c8e7c982682913cbfb",
+  "composition": "embedded",
+  "platform": "macos",
+  "target": "aarch64-apple-darwin",
+  "sdk": "/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk",
+  "identity": "0F0D033A608847E7D530336B8242E6D68A5B3EAE",
+  "sourceAggregate": "af34fbd9753f1d09c0c618ef90623dd64295ccbd8d5fd98b4f74872e06184ef8",
+  "buildCommand": "EXACT_APP_DIR=\"$PWD/examples/t3-code\" PATH=<Bun 1.4.2>:$PATH bun host/apple/build.mjs t3-code-macos --bundle",
+  "exitCode": 0,
+  "files": {
+    "T3 Code (Exact)": "560b34e3d44bb63ec61d7b4556856e1cd02a5ed875e3e195dcbc5f32736a0266",
+    "T3 Code (Exact)-Info.plist": "74514820227f697beb98d324fb6ccfb1731a975d4a805d3d47ace79100b6d7fb",
+    "libexact_canvas_gpu.dylib": "c3baad93b453319de1235b59becffcc88e9b85016955010d8e0fe3feaacdbe47",
+    "libexact_modules.dylib": "33f3b7a08406d233b8f31ddd8ae9238221f8d8f4a1a0d0927068762d6d234d3c",
+    "libexact_sound.dylib": "0a97a36967b2a491b00f256b176d38023445bccec1f2d62e952a60d609d86e66",
+    "libexact_svg.dylib": "52172fc22ba72c66a063989c798afb52600f4cb0f9381b40d06b14c07d1512a2",
+    "libexact_video.dylib": "ace54ea2ca26a16c8a10ca1a12faf6e3d8520092025960f78f65045e89f386ca",
+    "libexact_web.dylib": "49bcab132226e9d073fcc8b66596be5ccdcff537d8455d025d44107094eda6c1",
+    "receipt.json": "979b29cc2e0d03fc2cc5bd2ceb208429ff52d4d92878d51d74c062bae4730a85"
+  },
+  "buildLogSHA256": "c586240b2fce68d9b01d4eb4ce622ac59f6e5dcd7afa9d411807c434d2210df6",
+  "freshness": "All 28 candidate hashes rechecked after build; default current task client with no EXACT_MAC_BIN override.",
+  "platformObserved": {
+    "macOS": "26.6.2 (25G83)",
+    "Xcode": "27.0 (27A266a)",
+    "Bun": "1.4.2",
+    "Rust": "1.97.0 (2d8144b78)",
+    "Swift": "6.4 (swiftlang-6.4.0.34.1)"
+  },
+  "normalBundlePolicy": "development; no distribution.json in the task bundle"
+}

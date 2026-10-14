@@ -15,7 +15,8 @@ use WelcomeView from "./pages-welcome.contract"
 use PaletteView, PaletteResult from "./palette.contract"
 use ProviderPage from "./providers.contract"
 use ProviderWizard, AcpRegistry from "./providers-wizard.contract"
-use ConnectionsPage, SbSshHosts from "./connections.contract"
+use ConnectionsPage, SbSshHosts, routeKeyboardSource from "./connections.contract"
+use routeKeyboardIdle, routeKeyboardLive, routeKeyboardNext, routeKeyboardCancel, routeKeyboardValue, routeKeyboardComplete from "./connections-routes.contract"
 use KeybindingPage from "./settings-keybindings.contract"
 use ScheduledPage from "./settings-scheduled.contract"
 use KeyDispatch from "./settings-shortcuts.contract"
@@ -74,6 +75,8 @@ component T3Code
   provide
     codeCopyDone
     welcomeCopyDone
+    routeKeyboard
+    routeKeyboardInput
   mutation balanceLoaded as shape Change refreshes data // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
     after(1, balanceLoadNow)
@@ -489,6 +492,21 @@ component T3Code
   state connectionRemove = ""
   state connectionMenu = ""
   resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ConnectionsPage
+  state routeKeyboard = routeKeyboardIdle()
+  derive routeKeyboardReady = settingsOpen and settingsRoute == "connections" and page.hasFocus and page.visibilityState == "visible" and not connecting and not projectsOpen and not paletteOpen and not welcome.show and providerDialog == "" and restEditor == "" and connectionRemove == ""
+  derive routeKeyboardOwned = routeKeyboardReady and routeKeyboardLive(routeKeyboard, routeKeyboardSource(connectionsPage, routeKeyboard.environmentId, routeKeyboard.rowKey))
+  task routeKeyboardLost when routeKeyboard.phase != "" and (not routeKeyboardOwned or (commandPending and routeKeyboard.phase == "lifted") or (routeKeyboard.phase == "saving" and not commandPending and not pending(changed)))
+    after(1, cancelRouteKeyboard)
+  action cancelRouteKeyboard
+    routeKeyboard = routeKeyboardCancel(routeKeyboard)
+  action routeKeyboardInput(environmentId: string, rowKey: string, routeId: string, k: string, repeat: bool)
+    let next = routeKeyboardNext(routeKeyboard, environmentId, rowKey, routeId, k, repeat, routeKeyboardSource(connectionsPage, environmentId, rowKey), routeKeyboardReady, commandPending)
+    if routeKeyboard.phase == "lifted" and next.phase == "saving" and not commandPending
+      commandPending = true
+      pendingModal = "connection"
+      modalError = ""
+      send changed = command("environment-route-move", next.rowKey, routeKeyboardValue(next), next.serial)
+    routeKeyboard = next
   resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision, providerPage.environment) as shape AcpRegistry
   state settingsOpen = false
   state settingsRoute = "general"
@@ -703,6 +721,9 @@ component T3Code
     noticeExit = ""
     match changed
       case some(result)
+        routeKeyboard = routeKeyboardComplete(routeKeyboard, result.routeReorder, result.message, routeKeyboardOwned)
+        if result.relaunch
+          relaunch()
         if pendingModal != ""
           modalError = result.message.startsWith("toasted:") ? "" : result.message
         if result.message == ""
@@ -788,7 +809,6 @@ component T3Code
     if op == "chatlocal:item-detail"
       send timelineDisclosureChanged = command(op, id, value, n)
     else if op == "diffreview" and (id.startsWith("drag:") or id.startsWith("gutter:") or id.startsWith("comment:") or id == "to" or id == "end" or id == "press")
-      // RF-3: queue gutter press/move/release and + separately so later mutations cannot replace a pending press.
       send lineDragChanged = command(op, id, value, n)
     else
       if op.endsWith(":focus-in") or op.endsWith(":focus-out")
@@ -800,7 +820,6 @@ component T3Code
       else
         if not commandPending
           commandPending = true
-          // SH-2: pass the window clock so keyboard undo notices use the same time as sidebar notices.
           send changed = command(op, id, value, (n == 0 and op.startsWith("chat:")) ? wallTime.epochAtZero + performanceNow() : n)
   action editKeybindingQuery(value: string)
     keybindingQuery = value
@@ -859,7 +878,6 @@ component T3Code
   action openProviderSettings(id: string)
     let machine = settingsOpen ? settingsCore.scopeEnvironment : settings.environmentId // a setup link names its environment: Settings' own the scope's representative (ProjectDefaultsSettings.tsx:168-173), none without one; the chat's its thread's (ChatView.tsx:5217-5223)
     if not settingsOpen or machine != ""
-      // audit-wave-followups FU-4: a link to another target remounts the Providers page (app-settings.contract providerLinkVisit).
       providerVisit = providerLinkVisit(providerVisit, settingsOpen and settingsRoute == "providers", settingsMachine, providerLinkTarget, id == "" ? "" : machine, id == "" ? "" : `target:${id}`)
       openSettings() // retainSettingsScope: a link from outside Settings starts with no scope
       settingsRoute = "providers"
@@ -878,17 +896,14 @@ component T3Code
     settingsProjectId = ""
     modalError = ""
   action focusSettingsTarget
-    if settingsOpen and settingsFocusTarget != ""
-      if settingsRoute != "storage" or storageSettings.available
-        if settingsRoute != "archived" or archives.available
-          if settingsRoute != "diagnostics" or diagnostics.available
-            if settingsRoute != "keybindings" or bindings.available
-              if settingsRoute != "scheduled-tasks" or scheduled.available
-                if (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available)
-                  if (settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)
-                    settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
-                    focus(settingsFocusTarget)
-                    settingsFocusTarget = ""
+    if settingsOpen and settingsFocusTarget != "" and (settingsRoute != "storage" or storageSettings.available) and (settingsRoute != "archived" or archives.available) and (settingsRoute != "diagnostics" or diagnostics.available)
+      if settingsRoute != "keybindings" or bindings.available
+        if settingsRoute != "scheduled-tasks" or scheduled.available
+          if (settingsRoute != "source-control" or sourceControl.available) and (settingsRoute != "integrations" or integrations.available)
+            if (settingsRoute != "general" and settingsRoute != "appearance") or (settingsCore.ready and settingsCore.route == settingsRoute and settingsCore.sections.length > 0)
+              settingsScrollTop = max(0, frame(settingsFocusTarget).y - frame("settings-content-column").y + frame(settingsFocusTarget).height / 2 - frame("settings-content-scroll").height / 2) + (settingsScrollTop == floor(settingsScrollTop) ? 0.25 : 0)
+              focus(settingsFocusTarget)
+              settingsFocusTarget = ""
   task settingsSearchFocus mount
     every(1000, focusSettingsTarget)
   action editSettingsQuery(value: string)
@@ -1145,9 +1160,7 @@ component T3Code
       utilityPage = ""
   action sidebarLocal(op: string, id: string, value: string)
     send localChanged = command(`sidebarlocal:${op}`, id, value, 0)
-  // SH-1: row handlers take menu shortcuts only; Enter/Space stay presses and modifiers must not set commandPending.
   action sidebarRun(op: string, id: string, value: string)
-    // R11-X63: row menus take composer focus, making Archive undo thread.undo rather than composer undo.
     if composerFocused and (op == "menu-choice" or op == "draft-choice" or op == "legacy-thread-menu")
       blur()
     if not commandPending and ((op != "row-key" and op != "legacy-row-key") or (value != "Enter" and value != " " and value != "Meta" and value != "Shift" and value != "Control" and value != "Alt" and value != "CapsLock"))
@@ -1219,7 +1232,6 @@ component T3Code
     browseProvider = id
     modelQuery = ""
     focus("model-search")
-  // Model picks target the composer (Shift adds), General, scheduled-task draft or Source Control writer.
   action selectModel(id: string, provider: string, additive: bool)
     if id != "" and modelTarget.id.startsWith("task-model:")
       taskModelPick = `${provider}:${id}`
@@ -1235,7 +1247,6 @@ component T3Code
       send changed = command(modelTarget.id == "" ? "model" : "settings-core", modelTarget.id == "" ? id : modelTarget.id, modelTarget.id == "" ? provider : `${provider}|${id}`, additive and modelTarget.id == "" ? 1 : 0)
       modelsOpen = additive and modelTarget.id == "" and catalog.multiple
       focus(additive and modelTarget.id == "" and catalog.multiple ? "model-search" : (modelTarget.id == "" ? "composer" : `setting-${modelTarget.id.slice(0, modelTarget.id.indexOf(":"))}`))
-  // S2-4: other Settings model pickers anchor to setting-<row>; context identifies the catalog and destination.
   state taskModelPick = "" // the open scheduled task editor's picked `instance:model`, until it closes
   action pickModel(row: string, context: string)
     openModels()
@@ -1243,10 +1254,8 @@ component T3Code
   action chatLocal(op: string, id: string, value: string)
     if op == "fold" or op == "group" or op == "attempt" or op == "tree-all" or op == "tree-dir"
       foldHold = true
-    // Floating preview/device and a sheet Files-search Escape close the right panel, matching the reference.
     if op == "surface-close-others" or op == "surface-close-to-right" or op == "surface-close-all" or (op == "surface-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length == 0) or (op == "surface-browser-float" and not shell.panel.browser.capture.floating) or op == "surface-r6dev-float" or (op == "surface-files-search-key" and id == "sheet" and value == "Escape")
       rightPanelAt = ""
-    // FU-3: queue Files preview comments separately so composer draft writes and focus reports cannot replace a pending save.
     if op.startsWith("surface-files-comment-")
       send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)
     else if op == "pr-code-drag" or op == "pr-code-begin"
@@ -1274,9 +1283,7 @@ component T3Code
   state shellOpenHandled = ""
   resource page = exactPage() as shape Page // the window's focus and visibility (document.hasFocus(), exact2 #219): thread notifications and activity reports
   resource shell = shellView(data.revision, wallTime.epochAtZero + shellClock, toastDismissed, toastHover, viewport.width <= 980, page.hasFocus, page.visibilityState) as shape ShellView
-  // PA-3/FW-2: Files and sent-attachment rendered Markdown share one panel source; only one can be visible.
   resource filesMarkdown = renderFileMarkdown(shell.panel.files.markdownSource.concat(shell.panel.attachment.markdownSource)) as shape TranscriptMarkdown
-  // FU-2: hold the panel's open state for shell.panel.key until the client answers. Fresh drafts/other threads start closed.
   state rightPanelAt = ""
   derive rightPanel = (rightPanelAt != "" and rightPanelAt == shell.panel.key) or shell.panel.launcher
   state detailsOpen = false
@@ -1285,9 +1292,7 @@ component T3Code
   action canvasGesture(value: string)
     canvasGestureValue = value
     detailsOpen = detailsOpen and value == "" // a drag on the player is outside the details popover (Base UI's outside press; a press: T3Window outsidePressDown)
-  // Avoid a canvas/details dependency cycle: canvas owns inlineOpen; details reads detailsShown from canvas.
   resource canvas = chatCanvas(data.revision, conversationWidth, viewport.height, conversationWidth >= 984 and data.projectId != "", data.look.chatMax, data.messages.length > 0 or data.threadId != "", canvasGestureValue, `${shell.panel.deviceMini.key}|${shell.panel.browserMini.key}`, shell.panel.deviceMini.show or shell.panel.browserMini.show, conversationWidth >= 984, detailsOpen) as shape ChatCanvasView
-  // Use a header popover when narrow or displaced by the player; mode changes close an already-open popover.
   state detailsEpoch = 0
   derive detailsPopover = canvas.ready ? canvas.popover : conversationWidth < 984
   derive detailsShown = detailsOpen and detailsPopover and detailsEpoch == canvas.popoverEpoch
@@ -1320,7 +1325,6 @@ component T3Code
   action returnTitleFocus
     titleDialog = false
     focus("thread-title")
-  // Annotate Cmd+Return sends immediately; when sending is unavailable, ChatView reports attachment to the draft.
   state annotationSendHandled = 0
   task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend
     after(1, annotationSendNow)
@@ -1330,7 +1334,6 @@ component T3Code
       chatLocal("surface-browser-annotation-held", "", "")
     else
       send()
-  // BR-1: each recording request keeps its reply until start/stop; four independent slots avoid waiting for another upload.
   state automationRecordingHandled = 0
   task automationRecording when shell.panel.automationRecording.serial > automationRecordingHandled key=shell.panel.automationRecording.serial
     after(1, automationRecordingNow)
@@ -1392,7 +1395,6 @@ component T3Code
         utilityPage = ""
         draftOwner = "__unset__"
         jumpRequest = jumpRequest + 1
-  // Launcher keys do not bind Escape; sheets close through their toggle shortcut (r4-surfaces/shell-panels).
   action panelUi(what: string, id: string) // r4-surfaces: tabs and surfaces live in the client (r4-surfaces-panel.ts, shell.panel)
     let closingTerminal = what == "tab-close" and shell.panel.tabs.filter((tab) => tab.id == id and tab.closeTitle != "").length > 0
     rightPanelAt = closingTerminal ? rightPanelAt : (what == "toggle" or what == "close" or what == "tab-close" ? ((what == "toggle" and not data.diffOpen and not rightPanel and not shell.panel.open) or (what == "tab-close" and shell.panel.count > 1)) : (rightPanel or what == "choose")) ? shell.panel.key : ""
@@ -1479,7 +1481,6 @@ component T3Code
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
-  // Cite waits 500 ms after double-click (SELECTION_MULTI_CLICK_INTERVAL_MS) and hides on focus loss; its task belongs here (#108).
   state citeWaitAsked = 0
   state citeWaitDone = 0
   state citeDismissals = 0
@@ -1491,7 +1492,6 @@ component T3Code
     citeWaitAsked = seq
   task citeBlur when not page.hasFocus
     after(1, citeDismissed)
-  // Invalidate permanently on resize or a covered/replaced transcript, including when the former context returns.
   task citeContext key=`${viewport.width}x${viewport.height}|${data.threadId}|${pageCover}|${settingsOpen}|${modal}`
     after(1, citeDismissed)
   action citeDismissed

@@ -254,7 +254,8 @@ export async function connectionsPage(host: ConnectionHost, native: Native | nul
 }
 
 // ── Writes ────────────────────────────────────────────────────────────────
-type Result = { status: Obj | null; generation: number };
+/** `relaunch` records an accepted desktop-settings change, even if later preference work fails. */
+export type ConnectionResult = { status: Obj | null; generation: number; relaunch?: true };
 async function call(native: Native, request: Obj) {
   const reply = await bridgeReply(native, request);
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
@@ -310,7 +311,7 @@ async function abandonPairing(native: Native, before: { origin: string; environm
  * One Connections write. Returns the native status reply for T3Client to adopt
  * (the focused connection changed), or a null status.
  */
-export async function runConnectionOp(native: Native, op: string, id: string, value: string, connected: boolean, client?: T3Client, options: { failureTitle?: string } = {}): Promise<Result> {
+export async function runConnectionOp(native: Native, op: string, id: string, value: string, connected: boolean, client?: T3Client, options: { failureTitle?: string } = {}): Promise<ConnectionResult> {
   if (SSH_OPS.includes(op)) {
     // Add Environment → SSH (settings-b-ssh.ts): tunnel, pair, then keep it connected beside the focus.
     // A failure is the dialog's Alert (setSavedBackendError), not a toast.
@@ -406,7 +407,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       const key = environmentKey(origin, environmentId), focus = focusOf(client);
       const saved = arr(obj((await call(native, { op: 'setEnvironmentEnabled', origin, environmentId, enabled })).value).saved);
       fleet.forget(key);
-      let result: Result = { status: null, generation: -1 };
+      let result: ConnectionResult = { status: null, generation: -1 };
       if (!enabled && focus.environmentId === environmentId && focus.connection !== 'disconnected') {
         // Switching the focused environment off hands focus to the primary when it is ready, else another switched-on saved one.
         let reply = await call(native, { op: 'disconnect', forget: false });

@@ -4,11 +4,14 @@
 use super::PLAN;
 use exact_apple::measure::{CMetrics, CRequest, CallbackMeasurer};
 use exact_plan::{Plan, TypesId};
-use exact_runner::{Answer, DataError, DataSource, Request, Store, Value};
+use exact_runner::{Answer, DataError, DataSource, Outcome, Request, Store, Value};
 use std::collections::HashMap;
 
 #[derive(Default)]
-pub(super) struct Replies(pub(super) HashMap<String, Value>);
+pub(super) struct Replies(
+    pub(super) HashMap<String, Value>,
+    pub(super) Vec<Vec<Value>>,
+);
 
 impl DataSource for Replies {
     fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
@@ -18,15 +21,28 @@ impl DataSource for Replies {
             .ok_or_else(|| DataError::UnknownSource(source.to_owned()))
     }
 
-    fn answer(&mut self, _: &mut Store, source: &str, _: &[Value]) -> Result<Answer, DataError> {
+    fn answer(&mut self, _: &mut Store, source: &str, args: &[Value]) -> Result<Answer, DataError> {
+        if source == "command" {
+            self.1.push(args.to_vec());
+        }
         Ok(self.0.get(source).cloned().map_or_else(
             || Answer::Later(Request::get("https://fixture.invalid/")),
             Answer::Now,
         ))
     }
+
+    fn parse(
+        &mut self,
+        _: &mut Store,
+        source: &str,
+        args: &[Value],
+        _: Outcome,
+    ) -> Result<Answer, DataError> {
+        self.query(source, args).map(Answer::Now)
+    }
 }
 
-fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) {
+pub(super) fn set(plan: &Plan, ty: TypesId, value: &mut Value, path: &[&str], next: Value) {
     let index = plan.field_index(ty, path[0]).expect("fixture field exists");
     let Value::Record(fields) = value else {
         panic!("fixture field is a record")

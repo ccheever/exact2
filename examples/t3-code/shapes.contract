@@ -480,6 +480,8 @@ shape Snapshot
 shape Change
   revision: number
   message: string
+  relaunch: bool
+  routeReorder: number
 shape Viewport
   width: number
   height: number

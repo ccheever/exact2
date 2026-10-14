@@ -105,13 +105,18 @@ export function routesTransportLabel(routes: ConnectionRoute[], activeRouteId: s
 export const routeCountLabel = (count: number) => count <= 1 ? 'Routes' : `${count} routes`;
 
 // ── Writes ─────────────────────────────────────────────────────────────────
-/** Reorder (the list's drop, by pointer or keyboard): `value` is `<route id>><id it lands before>` (empty: the end). */
+/** A pointer drop is `<id>><before>`; keyboard drops append their baseline IDs on separate lines. */
 export async function moveSavedRoute(native: Native, environmentId: string, value: string): Promise<void> {
-  const mark = value.lastIndexOf('>'), id = value.slice(0, Math.max(0, mark)), before = value.slice(mark + 1);
+  const [drop = '', ...baseline] = value.split('\n');
+  const mark = drop.lastIndexOf('>'), id = drop.slice(0, Math.max(0, mark)), before = drop.slice(mark + 1);
   if (mark < 1) throw new ClientError('Choose a route to move.');
   const entry = savedEntry(await savedList(native), environmentId);
   if (!entry) throw new ClientError('That environment is no longer saved on this device.');
   const routes = savedRoutes(entry), ids = routes.map(route => route.id);
+  if (baseline.length && (baseline.length !== ids.length || baseline.some((routeId, index) => routeId !== ids[index])
+    || !ids.includes(id) || (before !== '' && !ids.includes(before)))) {
+    throw new ClientError('Routes changed while reordering. Try again with the current route order.');
+  }
   const next = dropBefore(ids, id, before);
   if (next.join('\n') !== ids.join('\n')) await writeRoutes(native, environmentId, reorderRoutes(routes, next));
 }

@@ -1,0 +1,822 @@
+{
+  "sourceAggregate": "af34fbd9753f1d09c0c618ef90623dd64295ccbd8d5fd98b4f74872e06184ef8",
+  "capturedAt": "2026-10-14T09:56:14.728164+00:00",
+  "buildReceipt": "native-build.json",
+  "buildReceiptSHA256": "ae1f739e8ace44f6e1f9b117885dca42d68f7a0f0fe277bc256110d0664f71fa",
+  "physicalKeyboard": {
+    "appPid": 82736,
+    "carrier": "Orca OS keyboard input into current standalone agent app; native state and visible pixels independently read back",
+    "preference": "Existing agent keyboard-navigation preference set true; no global OS accessibility setting changed",
+    "observations": {
+      "tab-grip": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 0,
+          "environmentId": "",
+          "rowKey": "",
+          "routeId": "",
+          "label": "",
+          "baseline": [],
+          "position": 0,
+          "announcement": ""
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16572",
+          "http://127.0.0.1:16571",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "lift": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "lifted",
+          "serial": 1,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16572",
+            "http://127.0.0.1:16571",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Lifted This device, position 1 of 3. Use up and down arrows to move, Space to drop, Escape to cancel."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16572",
+          "http://127.0.0.1:16571",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "move-down": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "lifted",
+          "serial": 1,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16572",
+            "http://127.0.0.1:16571",
+            "http://localhost:16571"
+          ],
+          "position": 1,
+          "announcement": "Moved This device to position 2 of 3."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16572",
+          "http://127.0.0.1:16571",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "drop": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 1,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16572",
+            "http://127.0.0.1:16571",
+            "http://localhost:16571"
+          ],
+          "position": 1,
+          "announcement": "Dropped This device at position 2 of 3."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "cancel-lift": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "lifted",
+          "serial": 2,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 1,
+          "announcement": "Lifted This device, position 2 of 3. Use up and down arrows to move, Space to drop, Escape to cancel."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "cancel-move": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "lifted",
+          "serial": 2,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Moved This device to position 1 of 3."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "cancel": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 3,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Canceled reordering This device. Showing saved route order."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "remove-tab": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 3,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Canceled reordering This device. Showing saved route order."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2491,
+            "stableId": "environment-route-remove-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-remove-2",
+            "label": "Remove This device route"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "remove-open": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 3,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Canceled reordering This device. Showing saved route order."
+        },
+        "dialog": true,
+        "focused": [
+          {
+            "id": 2616,
+            "stableId": "route-remove-cancel",
+            "testId": "route-remove-cancel",
+            "label": null
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      },
+      "remove-escape": {
+        "settingsOpen": true,
+        "transaction": {
+          "phase": "",
+          "serial": 3,
+          "environmentId": "3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "rowKey": "http://127.0.0.1:16572\n3d5442d9-8f96-421c-86ee-37dd9a34f877",
+          "routeId": "http://127.0.0.1:16572",
+          "label": "This device",
+          "baseline": [
+            "http://127.0.0.1:16571",
+            "http://127.0.0.1:16572",
+            "http://localhost:16571"
+          ],
+          "position": 0,
+          "announcement": "Canceled reordering This device. Showing saved route order."
+        },
+        "dialog": false,
+        "focused": [
+          {
+            "id": 2491,
+            "stableId": "environment-route-remove-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-remove-2",
+            "label": "Remove This device route"
+          }
+        ],
+        "savedOrder": [
+          "http://127.0.0.1:16571",
+          "http://127.0.0.1:16572",
+          "http://localhost:16571"
+        ],
+        "renderedGrips": [
+          {
+            "id": 2495,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16571",
+            "testId": "environment-route-grip-1",
+            "label": "Reorder This device, position 1"
+          },
+          {
+            "id": 2420,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://127.0.0.1:16572",
+            "testId": "environment-route-grip-2",
+            "label": "Reorder This device, position 2"
+          },
+          {
+            "id": 2566,
+            "stableId": "environment-route-grip-3d5442d9-8f96-421c-86ee-37dd9a34f877-http://localhost:16571",
+            "testId": "environment-route-grip-3",
+            "label": "Reorder This device, position 3"
+          }
+        ]
+      }
+    },
+    "assertions": {
+      "tabAndShiftTabReachGrip": true,
+      "visibleFocusRing": true,
+      "sameGripNodeAcrossMoveDropCancel": 2420,
+      "previewReordersRenderedRowsWithoutChangingSavedOrder": true,
+      "dropSavedOrderMatchesPreview": true,
+      "cancelPreservesSavedOrderAndSettings": true,
+      "removeEscapeReturnsActualOpenerWithVisibleRing": 2491
+    },
+    "announcements": "Lift/move/drop/cancel live-region strings observed; spoken VoiceOver was not tested"
+  },
+  "pointer": {
+    "osInput": {
+      "qualified": false,
+      "attempts": [
+        {
+          "kind": "window-local coordinates",
+          "from": [
+            349,
+            618
+          ],
+          "to": [
+            349,
+            510
+          ]
+        },
+        {
+          "kind": "fresh accessibility indexes",
+          "from": 84,
+          "to": 75
+        }
+      ],
+      "actionVerification": "Both reported unverified synthetic input; saved order did not change.",
+      "beforeAndAfter": [
+        "http://127.0.0.1:16571",
+        "http://127.0.0.1:16572",
+        "http://localhost:16571"
+      ],
+      "sourceInference": "MouseReorderMac resets its travel origin at the first recognized drag sample. A single movement sample can therefore produce zero reorder travel; tool event sampling was not instrumented, so this remains an inference."
+    },
+    "agentPlatform": {
+      "outcome": "captured",
+      "appPid": 92473,
+      "before": [
+        "http://127.0.0.1:16572",
+        "http://127.0.0.1:16571",
+        "http://localhost:16571"
+      ],
+      "expected": [
+        "http://localhost:16571",
+        "http://127.0.0.1:16572",
+        "http://127.0.0.1:16571"
+      ],
+      "after": [
+        "http://localhost:16571",
+        "http://127.0.0.1:16572",
+        "http://127.0.0.1:16571"
+      ],
+      "reply": {
+        "tapped": 2585,
+        "target": 2585,
+        "at": [
+          349,
+          619
+        ],
+        "drag": {
+          "dx": 0,
+          "dy": -99.5,
+          "press": 100,
+          "over": 350,
+          "hold": 50,
+          "to": 2420
+        },
+        "lifted": [
+          349,
+          519.5
+        ],
+        "delivery": "platform",
+        "carrier": "macos",
+        "mode": "agent",
+        "epoch": 47,
+        "incarnation": 1,
+        "clock": 2450
+      },
+      "mode": "EXACT_AGENT=1; existing phased native pointer delivery; not OS computer-use"
+    }
+  },
+  "toolingAttempt": {
+    "input": "ArrowDown",
+    "result": "Orca rejected unsupported key before dispatch; preserved error, then used its Down key name. No app repair."
+  },
+  "screenshots": {
+    "route-grip-focus.png": {
+      "sha256": "cc1d544bd733058b48944e7b4093c91cf498863ca8413e517879e32300e09d75",
+      "capture": "Direct screencapture -R 332,555,930,140 while the target window was visible; no image editing"
+    },
+    "route-keyboard-preview.png": {
+      "sha256": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+      "capture": "Direct screencapture -R 332,555,930,140 while the target window was visible; no image editing"
+    },
+    "route-keyboard-drop.png": {
+      "sha256": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+      "capture": "Direct screencapture -R 332,555,930,140 while the target window was visible; no image editing"
+    },
+    "route-keyboard-cancel.png": {
+      "sha256": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+      "capture": "Direct screencapture -R 332,555,930,140 while the target window was visible; no image editing"
+    },
+    "route-remove-focus-return.png": {
+      "sha256": "e5ee5744fc32444db6ec6435b67a1087d9c9796ec4227befdaa9e3473e297ebf",
+      "capture": "Direct screencapture -R 332,555,930,140 while the target window was visible; no image editing"
+    }
+  },
+  "cleanup": {
+    "at": "2026-10-14T09:55:13.415177+00:00",
+    "appPidsExited": [
+      82736,
+      92473
+    ],
+    "fixtureProcesses": [
+      {
+        "role": "proxy",
+        "pid": 65782,
+        "identityChecked": true,
+        "signal": "SIGTERM"
+      },
+      {
+        "role": "backend",
+        "pid": 65781,
+        "identityChecked": true,
+        "signal": "SIGTERM"
+      }
+    ],
+    "recordedPidsExited": true,
+    "portsFree": {
+      "16570": true,
+      "16571": true,
+      "16572": true
+    },
+    "keepAwakeOwner": "coordinator; not touched"
+  },
+  "limits": [
+    "Normal public relaunch and process replacement remain unverified because desktop activation repeatedly selected an older checkout; no retry after bounded fallback.",
+    "Native saved-route persistence across processes remains unverified; agent credentials/catalog are in memory.",
+    "Physical OS pointer dragging remains unqualified; final native phased pointer delivery passed separately.",
+    "Spoken VoiceOver and a live tailnet remain unverified.",
+    "KW-3 port OS evidence is historical833746 in physical-before-focus-repair.json; the final fourth repair changes only the grip markup."
+  ],
+  "privateRawSHA256": {
+    "focus-repair/backend.log": "1025cfe6142e091693078c8aa52061163a73c6ab007f18f9faaa46135cad02fe",
+    "focus-repair/before-backend.json": "e97e1de2dcef9a1e29e3dcfbaf02cccebb9ab2eda4810c0793c33e225a81a97b",
+    "focus-repair/before-localhost.json": "2842cdfd4bff777caaefd7fc8f3f7ccac8a5ab3d37b818cbbb3007118a42948c",
+    "focus-repair/cleanup.json": "445798aaf5c2f309922b70bcb07cad1ea689a26d74b98816ce661eb0d02dee42",
+    "focus-repair/connections.json": "8245afbfc207bb2d9948b86922b9c2ef539dca6a93452c1da295f07fa8a43282",
+    "focus-repair/driver.log": "878e33896fe4ab2b616909c729f0d3c700af2d27e21b56a90a9b7bc3e370a814",
+    "focus-repair/final-cleanup.json": "d8287149adbf6ad4b6cc06a1388a1fe5eda05fd6d2dea62ddde3152db5dbe360",
+    "focus-repair/fixture-processes.json": "17c95266e42c203688fcbf4ef95be834a1a292b02e60a8cf00c586e97caced72",
+    "focus-repair/fixture-stop-actions.json": "8b193d50f7c4c333b320d2575d4437b4c0470d45bd6bdc8fd3f8042642743937",
+    "focus-repair/logs.json": "982fd0f2790fe95a06f92c0e49c513227d4e85f14c4dd4726493a710533604ea",
+    "focus-repair/os-input/cancel-lift-native.json": "e6ff782a44d98971c4b17dd8be23f4e014f9b448e29a3a47b2c2b541ab6ca76e",
+    "focus-repair/os-input/cancel-lift-observation.json": "056d1e20e7c0eed8c14e8f8fa303276d7a5ebce650d94da61115d1cd4f6f0e3d",
+    "focus-repair/os-input/cancel-lift-raw.png": "35ee1103c09696f5808bc0408da5ef21455b07cb495b0333eff441167ea9eb06",
+    "focus-repair/os-input/cancel-lift.json": "c3558ce2b872eba113c6b66d0be4641c8f626fe14fe8ff3c1b0af611cca4b019",
+    "focus-repair/os-input/cancel-move-native.json": "60cb1be93a3bf590877e98e718b72a7cdfb607c29bdc153200a80df42c29da26",
+    "focus-repair/os-input/cancel-move-observation.json": "545074f0a6ab8b4eb3d5b783963f8e4130eb35d80e0f9a6e87cddd98f05910a8",
+    "focus-repair/os-input/cancel-move-raw.png": "0e543eadee4dd2a28b3c4d0abc44c5f31aac7f337c4aa96d00a02c25b45df004",
+    "focus-repair/os-input/cancel-move-region.png": "cc1d544bd733058b48944e7b4093c91cf498863ca8413e517879e32300e09d75",
+    "focus-repair/os-input/cancel-move.json": "4aa481d85487e1a80e9f79c8a0f34fe4f9f1f716642a200e68ae1dd607614d96",
+    "focus-repair/os-input/cancel-native.json": "ca3a396066ec4326408e4ad844c75272cbddf46ff7805d223682d0010ed4f3d3",
+    "focus-repair/os-input/cancel-observation.json": "705b1e6168c28abaaf5a80d65ecdc7c8027b23b46d7e0f9a8aaf12e4273bde9d",
+    "focus-repair/os-input/cancel-raw.png": "35ee1103c09696f5808bc0408da5ef21455b07cb495b0333eff441167ea9eb06",
+    "focus-repair/os-input/cancel-region.png": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+    "focus-repair/os-input/cancel.json": "1ff484a8314ff1644e8fb39986115ced09a94fcce83ef9a6668040bd5bd45769",
+    "focus-repair/os-input/drop-native.json": "73061fa6704010d5bad6a6ceb314a4040b674af3911141e5394f6c3f19011e21",
+    "focus-repair/os-input/drop-observation.json": "8ec77699477e8b52c34e0e95742f861f1921e069ede39811e271432f5ae69527",
+    "focus-repair/os-input/drop-raw.png": "35ee1103c09696f5808bc0408da5ef21455b07cb495b0333eff441167ea9eb06",
+    "focus-repair/os-input/drop-region.png": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+    "focus-repair/os-input/drop.json": "a295f050c75a657a11ddbb604ea1153b7878522eeb772180d4bbbd8f1cbd84e6",
+    "focus-repair/os-input/grip-click-native.json": "39f2f56ebfff0a278ff680b5be80163b96926639ae27ec627ab3175db293d94b",
+    "focus-repair/os-input/grip-click-observation.json": "c01c4cd5889a113abd80ab4e25525e6a863748ffaa2a6b03271647dc33672f1e",
+    "focus-repair/os-input/grip-click-raw.png": "2a443ec79ab2a339624df1add26b7c7a89dfa154dcb083091f293928e15bd309",
+    "focus-repair/os-input/grip-click.json": "be4fb705125a9a86a5054b5f1f6c28dc31acf5c6664116694b721ba4a6de7e66",
+    "focus-repair/os-input/initial-region.png": "8eb1d841c7db299f0a9d9c140bb7d2369ce06b941eabec317d2965398ac34b84",
+    "focus-repair/os-input/initial.json": "7b5cc75839b76995c09f115cbb1d8998b627116bc1b9221b4d2abf62d34fac42",
+    "focus-repair/os-input/initial.png": "c3332ca957a5be6e6e562b39f97c12749102ebf080df234772740834c11f42fc",
+    "focus-repair/os-input/lift-native.json": "a432ae0241c178383d796104b993a8f1dbda4138b43a612156143e6c3db678b8",
+    "focus-repair/os-input/lift-observation.json": "f81963573002397c595ad863011a8bf3a45432c3f960d20561cb9ac21951d2d3",
+    "focus-repair/os-input/lift-raw.png": "0e543eadee4dd2a28b3c4d0abc44c5f31aac7f337c4aa96d00a02c25b45df004",
+    "focus-repair/os-input/lift-region.png": "cc1d544bd733058b48944e7b4093c91cf498863ca8413e517879e32300e09d75",
+    "focus-repair/os-input/lift.json": "4cba4dad42a2ff6c2cc6be27a0716be09c8463d767b525374d8f15ad1e2bf9d8",
+    "focus-repair/os-input/move-down-invalid-key.json": "774c1490d551b0b7ded2293c0ecf03bb971234e93cbab05dd2f83f3b599a7755",
+    "focus-repair/os-input/move-down-native.json": "50dc5893ea1c62fc595b582f98b6db614f07be4868bcdc595f272a85a3a2031a",
+    "focus-repair/os-input/move-down-observation.json": "2a8139a5baae896f40072cdd24841e947f5537790459e7033db4f47d3055333c",
+    "focus-repair/os-input/move-down-raw.png": "35ee1103c09696f5808bc0408da5ef21455b07cb495b0333eff441167ea9eb06",
+    "focus-repair/os-input/move-down-region.png": "881d69d238f3f3ae5f0576616963f74da00b021abe01eb8b6f5a7e7f2757fb11",
+    "focus-repair/os-input/move-down.json": "13cb48c1304ae0271a523cf3adc3399cf2a41089b0574ad15f3627a9492baf91",
+    "focus-repair/os-input/pointer-drag-raw.png": "35ee1103c09696f5808bc0408da5ef21455b07cb495b0333eff441167ea9eb06",
+    "focus-repair/os-input/pointer-drag-unmatched-native.json": "f84f7e62ddb2e7dc08f6da2af3d78a391788b37cd5043ec711fdca3ab2ade73b",
+    "focus-repair/os-input/pointer-drag.json": "ada6e7274cc161f5b424cca75ca7c33a96fca955078fc47cfea414ddba9e18e6",
+    "focus-repair/os-input/pointer-fresh.json": "f77fd29d0959597910af9a7464c42550b4d994ed9c336326bf31d708a92b966a",
+    "focus-repair/os-input/pointer-index-attempt-native.json": "2f540946aaf8b7f0c824a8053d4df2f704b999f2c403c134fa063d821523b950",
+    "focus-repair/os-input/pointer-index-attempt-observation.json": "31a574fa96b3ab9fbf9e237ec3e3fd6b80ccbf7953e26c4a8891064aeb68bc3f",
+    "focus-repair/os-input/pointer-index-attempt-raw.png": "4ed4b4ef89543c53135020f800be0e5c5999a95d332ae95c01138b514816238a",
+    "focus-repair/os-input/pointer-index-attempt-region.png": "e5ee5744fc32444db6ec6435b67a1087d9c9796ec4227befdaa9e3473e297ebf",
+    "focus-repair/os-input/pointer-index-attempt.json": "d601061cfb8cdae9768cf1ce3790e3cb4a772a5f424ced6d77a30d2c4dcd385b",
+    "focus-repair/os-input/remove-escape-native.json": "cb719a9e9063f53ef15c1f73eaa379bf8e60db2dbaf9838a9cb26776310275a9",
+    "focus-repair/os-input/remove-escape-observation.json": "31a574fa96b3ab9fbf9e237ec3e3fd6b80ccbf7953e26c4a8891064aeb68bc3f",
+    "focus-repair/os-input/remove-escape-raw.png": "47e079c21d1848b8310f13c4b72f753d54bad2d498712d7accbe32f6c604b018",
+    "focus-repair/os-input/remove-escape-region.png": "e5ee5744fc32444db6ec6435b67a1087d9c9796ec4227befdaa9e3473e297ebf",
+    "focus-repair/os-input/remove-escape.json": "41bbd5466558a463dba49fe8ecdabcd218c6f9478c64b93def5d855a27ffc746",
+    "focus-repair/os-input/remove-open-native.json": "39d1cdd07126a532c585e523efa6e6904392d63db14d7fe317e806b7dc6e3fba",
+    "focus-repair/os-input/remove-open-observation.json": "d057e95eaa48e0a943595c823b118b8057bbb9960acc3425cde4ad5a98036c51",
+    "focus-repair/os-input/remove-open-raw.png": "79b61fbb1341fa640b3d142a510fb7a0e1287460b3160c80d335c137ad93f1e0",
+    "focus-repair/os-input/remove-open.json": "e7b875be7c16e338d3905cff159d712338ccd023c9299059a253aefdbaba7e56",
+    "focus-repair/os-input/remove-tab-native.json": "ff80c5aff160fa63c832e11bd1550e6f667f7531002ffa74381abc3cc1ac917f",
+    "focus-repair/os-input/remove-tab-observation.json": "31a574fa96b3ab9fbf9e237ec3e3fd6b80ccbf7953e26c4a8891064aeb68bc3f",
+    "focus-repair/os-input/remove-tab-raw.png": "7509a8ac00a7499f1bd34d54ab1b273c982bd913d325d4ec938d3699c77785d6",
+    "focus-repair/os-input/remove-tab.json": "99c1808e4a4cda0bf9f390a9e97c2eae6d564c67685b0e8e46ccdf9d3176a910",
+    "focus-repair/os-input/routes-region-initial.png": "ca3341091b732e29429ae7875fab287c5412b4dae45f3c3517d39acd9c2bd639",
+    "focus-repair/os-input/tab-grip-native.json": "da791c7b5799e0da0bbe085698f9e942457cd76290cd92b5931df5bb4edcd773",
+    "focus-repair/os-input/tab-grip-observation.json": "c01c4cd5889a113abd80ab4e25525e6a863748ffaa2a6b03271647dc33672f1e",
+    "focus-repair/os-input/tab-grip-raw.png": "af8480d85522c7c884d6c1344f72de11f6c602126166712c15bb4298c44d279b",
+    "focus-repair/os-input/tab-grip-region.png": "cc1d544bd733058b48944e7b4093c91cf498863ca8413e517879e32300e09d75",
+    "focus-repair/os-input/tab-grip.json": "5a779b434c99f8a52a82ddf16073ba943a09197243a4bb33009a8d053b12dedd",
+    "focus-repair/os-input/tab-remove-native.json": "9c792b43f5c5780bb521d51bad0c8c777c4c500012bcf279238aaccf4500c228",
+    "focus-repair/os-input/tab-remove-observation.json": "b7d6620c44131be0db78ac97dd2e8c960223fe5519b563f58e6ff4e327864070",
+    "focus-repair/os-input/tab-remove-raw.png": "d2ebd00e1c25f55242e7fb78d503dd3a56be12926725632b61217498522e89d0",
+    "focus-repair/os-input/tab-remove.json": "cfe6282bb3993987aea42f11348ee133e74e79033ad86b5306c2957903eec1db",
+    "focus-repair/os-input/windows.json": "9b6d9402ade8b0b561efefbbf1971c72fcc0571e301845d7b8e18c35d281bfa9",
+    "focus-repair/paired.json": "8d3592ba6c88ca4461648c1ca25c17eaef4f273f5b6316e9592352777257950f",
+    "focus-repair/physical-live.json": "602f1ad3228f9f3f0663e50b8437d63fae58321b79ab93e87f8cf1f233918f5a",
+    "focus-repair/poll-connect-dialog.json": "7d85a5968e8e9e0d30bbe8d1781c62d62bb5c97f9e3123445214a2ccaf7723c0",
+    "focus-repair/poll-connect-ready.json": "cdc32ffc98eeb22f6704c825e2aa762c0ae59b0440808a357dc71179d9154578",
+    "focus-repair/poll-page.json": "d053585f780d9fab2d6a0ed555d46c0e6846bedb185e1c68681aaaf13219a545",
+    "focus-repair/poll-paired.json": "f7f8856b9b355d1d8e3a835db489d065d45f7a513d3dc19cf076acd7722fe909",
+    "focus-repair/poll-ready.json": "7ca59216f7d06dd61525c7ce2a178fbb2d35e8c7d18c0dc4696df6e4d9386937",
+    "focus-repair/poll-route-added-backend.json": "5d7b2236d21e7c57feae424428f120534dd0a1509742c0b1f8b1da398aa0af3e",
+    "focus-repair/poll-route-added-localhost.json": "47c8a32d176dab7305c50d6db797cde175a17bac0e1a06d7208bf6b3a0828f69",
+    "focus-repair/poll-route-connect-ready-backend.json": "4f6dd2ace0912c4d9375417dd7b70254bec63775df92c2b0877ee3cc6aa5c691",
+    "focus-repair/poll-route-connect-ready-localhost.json": "499bb1de50e0e519883e5f0da0492bc9553e10baed46bd818bf7bf64c844ab54",
+    "focus-repair/poll-route-dialog-backend.json": "a58b7ce3e8d866dafc59cf5fdfefb0cacb12bfb889b184996853e947f6918f27",
+    "focus-repair/poll-route-dialog-localhost.json": "d68d520bf164dce5552d25383b40b123f519785447513aced2ed0e43c1e43399",
+    "focus-repair/poll-routes-open.json": "9c5ad7ae86e76f3630544f7ae551dad84d0be09fc74f3f9f7570d25ffd62899b",
+    "focus-repair/poll-settings.json": "6843d76fc51b5258325e0e3ee23f93a880bf7fa7aee3747acba8846dd013b7af",
+    "focus-repair/poll-three-routes.json": "1e4c541794dafbbcd897274daae112962bafda9f8b20afc89ece95985ba3268b",
+    "focus-repair/poll-welcome-agents-continue.json": "9d9f8a4415e6886e97d8c94918afc99d527c8a5aeb8f44f70079d32b5c94c677",
+    "focus-repair/poll-welcome-closed.json": "0d3de1b8816c4f4e0fb7ae8dafaec743d7ea9c283e6ba459b7698e5eb2ccc450",
+    "focus-repair/poll-welcome-continue.json": "aa5aa16deaa88944ed4fc557f849437068814ba9e802866835bbfe0c9a3393f0",
+    "focus-repair/poll-welcome-skip-import.json": "f11129945a5f5e31c4353c7edd0acc2bff3364902caec8d807ae5009eb930a2b",
+    "focus-repair/proxy-rpc.log": "8c5d57f1bbfe99fefca97d9e5a3ae345f1cf56a19fdb3bcdbf3975a5f6c4cad5",
+    "focus-repair/proxy.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "focus-repair/ready.json": "82d5d0426b860440006e75598a0dfcae5ebc032d9aa696b8bd2d47a4cecfe832",
+    "focus-repair/routes-after.json": "ad2e347886cbb4c6eb6e53f7157aafde4dfe2fe465895bbc41dc470674ab2b50",
+    "focus-repair/routes-ax.json": "45b92fbdaede1304386167e95acf7dce9809f977c43d534c839e2091840cba22",
+    "focus-repair/routes-initial.json": "1e4c541794dafbbcd897274daae112962bafda9f8b20afc89ece95985ba3268b",
+    "focus-repair/welcome-check.json": "a780ce9daaf02103b262cd184ae9b8c8d8e092c95dd1355b6f5596f185f1fa42",
+    "focus-pointer/before-backend.json": "dd4f90c28cca0887149d4aef921e940f91340daac49e32736aa2039f88101c7d",
+    "focus-pointer/before-localhost.json": "8b4cf57161f3398e539b7c3c4dd4e70333e25a560a6d75ed8d5c5593b6ed518b",
+    "focus-pointer/cleanup.json": "eddd43ac541d488a82b748218ef0266d0ff9fdaa0189d1ef4d0fab507ea365c6",
+    "focus-pointer/connections.json": "87c983b6af3420a87aae2091410667a6b9a91a70ab4da319c55a64f9dd6f9d04",
+    "focus-pointer/driver.log": "b0af9ea0275531ff22da0820727244ade144fd7dc513d9dee0e9743c571cc3f6",
+    "focus-pointer/logs.json": "e358734a8cd5e1babd53fb3c95fda6849ef275ee6b9fce92c16885c1e69155d7",
+    "focus-pointer/paired.json": "af3b446c31f2b15cebb22d640eeeb3f293d3570ff083645fd74bdab7e333e76d",
+    "focus-pointer/pointer-before.json": "11c108a35d2d200607f4a810922ca2323e2b722ebd2e62e9041bb3fd6c970b87",
+    "focus-pointer/pointer-summary.json": "9dc8ebdaefb5a223063baf666652482508604fd2b12dd99d83d58764236e13fc",
+    "focus-pointer/poll-connect-dialog.json": "522681e5f006028756ef31e6bd67fbe2a5909926f45345c182642fb9f747e53b",
+    "focus-pointer/poll-connect-ready.json": "36b77115f2e7c7989e730541598e2db0a7b42b8d258bc57cfc65f780bc7f9406",
+    "focus-pointer/poll-page.json": "573473d4e61dda6381afd54a3b8de7a640c8cdad3a1c95dc9ae479169c725985",
+    "focus-pointer/poll-paired.json": "cd475891520d50f5a1dc3ede843d42c40ae4dd9c6883e6350ff6e8649a0341d9",
+    "focus-pointer/poll-pointer-drop.json": "10199ea219f6864ca6190d8b8ecfc4a97c889cd00d795e0d52fd2ed3ec0d70a7",
+    "focus-pointer/poll-ready.json": "563731a772880822389438f38aed6bd363ed443135fc22dfc9660c1d7d8d4a58",
+    "focus-pointer/poll-route-added-backend.json": "8e5f53e275dcf2edc8e50879cad1e4c6671bce69aa09e5f378a66f8041ef94f2",
+    "focus-pointer/poll-route-added-localhost.json": "86e65b2e62261455d2ccee1364d5bac688b3f857502b7afe6d20dd13fff7cc20",
+    "focus-pointer/poll-route-connect-ready-backend.json": "da65cf528eca170965b1bbfc49db0dc21e9fde59458027acc451ce1146b744c1",
+    "focus-pointer/poll-route-connect-ready-localhost.json": "826d111112e1734ca42abac23eb40cf9f215d902bc89beb343bbf2c4b437506f",
+    "focus-pointer/poll-route-dialog-backend.json": "ffdcb81fcdb1bc180ac5b1db2f615cdef69553f779c8d3dc6d9b007c1fd624ca",
+    "focus-pointer/poll-route-dialog-localhost.json": "742a14e117027766cad9386d0ec2f916fca27430541b6762bb9a9b29076c50d6",
+    "focus-pointer/poll-routes-open.json": "4c432782a1d0b9a45ae733788f4df6d69ed6577db6e6ccd835514329f429ca90",
+    "focus-pointer/poll-settings.json": "80a5dac4121f7b0b6de7e53b89df9dcc25a623dd5758575c9ac7427ed8e6aba8",
+    "focus-pointer/poll-three-routes.json": "11c108a35d2d200607f4a810922ca2323e2b722ebd2e62e9041bb3fd6c970b87",
+    "focus-pointer/poll-welcome-agents-continue.json": "c227876b5dca2aa68ebf43000f29396bc55848a1a1b5d079dd07524e1e8b1f79",
+    "focus-pointer/poll-welcome-closed.json": "ae12973dfce40a655dafd8cdff682b4615f5f4e8e1ac1cdbd0818425350ec77e",
+    "focus-pointer/poll-welcome-continue.json": "0b44864d95aa9afedd459f1f27d835b00c0ef6061ada578bab7404654bf3baa9",
+    "focus-pointer/poll-welcome-skip-import.json": "d5d124865d25d6759d080dfb03cbbb9accf00d17586c40bb92c706a0cf12b2f8",
+    "focus-pointer/ready.json": "998e23b2785a8c135a198d32d4bf41e1f307215e23727e69cf8e9bef1504b9c6",
+    "focus-pointer/routes-after.json": "d70c6d1d63b80b16561a3d986d17d609f878b74e34f910428e3d545744527b81",
+    "focus-pointer/routes-ax.json": "a1fefa7ac2c716f5873f4a6d97c49aabf2dc076f3cce92492bc7576746dcd05c",
+    "focus-pointer/routes-initial.json": "11c108a35d2d200607f4a810922ca2323e2b722ebd2e62e9041bb3fd6c970b87",
+    "focus-pointer/welcome-check.json": "957154a773871d2034c0e6115cc12ca7df32b581546cf699d336cbab93ee55af"
+  },
+  "independentVerification": {
+    "cleanup-final-focus-independent.json": "9a2d8655f2242cb94ebe9c20136c35636b460d701c969cf3935ee58046d06dc3",
+    "physical-focus-title-independent.json": "956ae969605beace7776cce36d83dcf561bd9a304de42432f682faeccd3b3b56"
+  }
+}

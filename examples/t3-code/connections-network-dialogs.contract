@@ -160,16 +160,13 @@ component TailscaleDisableDialog
         DialogOpenFocus(target="tailscale-disable-cancel")
         column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
           text "Disable Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "T3 Code will restart the local backend without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+          text "T3 Code will restart. The local backend will start without Tailscale Serve." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
         row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
           NdAction(buttonId="tailscale-disable-cancel", label="Cancel", tone="outline", disabled=busy, busyLabel="", still=still, keys="Escape", first=true, press=close, key=tabCancel)
           NdAction(buttonId="tailscale-disable-confirm", label="Restart and disable", tone="destructive", disabled=busy, busyLabel=(busy ? "Restarting…" : ""), still=still, keys="", first=false, press=confirm, key=tabConfirm)
 
 // "Set up Tailscale HTTPS?" (Dialog): the HTTPS port (1-65535) and the endpoint it will have.
 // `/^\d+$/u` on the trimmed text (ConnectionsSettings isTailscaleServePortValid): digits only, so "0443" is 443.
-// A number field's ArrowUp/ArrowDown (stepUp/stepDown with min 1, max 65535, step 1): Chrome steps the
-// field the reference renders; the macOS host's number field does not (issue X60), so the dialog does.
-fn tsStep(t: string, up: bool): string = match parseNumber(t.trim()) { case some(n) => `${max(1, min(65535, up ? floor(n) + 1 : ceil(n) - 1))}`, case none => "1" }
 fn tsDigitsOnly(t: string): bool = t != "" and t.replaceAll("0", "").replaceAll("1", "").replaceAll("2", "").replaceAll("3", "").replaceAll("4", "").replaceAll("5", "").replaceAll("6", "").replaceAll("7", "").replaceAll("8", "").replaceAll("9", "") == ""
 
 component TailscaleSetupDialog
@@ -205,10 +202,6 @@ component TailscaleSetupDialog
       preventDefault()
       focus("tailscale-port")
   action submitKey(k: string, e: KeyboardEvent)
-    if k == "ArrowUp" or k == "ArrowDown"
-      preventDefault()
-      typed = tsStep(portText, k == "ArrowUp")
-      edited = true
     if k == "Enter"
       confirm()
     first(k, e)
@@ -224,7 +217,7 @@ component TailscaleSetupDialog
         DialogOpenFocus(target="tailscale-port")
         column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
           text "Set up Tailscale HTTPS?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "T3 Code will restart the local backend with Tailscale Serve enabled and ask Tailscale to proxy HTTPS traffic to this backend." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
+          text "T3 Code will restart with Tailscale Serve enabled and ask Tailscale to proxy HTTPS traffic to the local backend." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)"
         column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
           column gap="0.5rem"
             text "HTTPS port" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
