@@ -1587,6 +1587,13 @@ the lead, 2026-10-13; Charlie told).
     footers, bar titles, sheet and dialog grounds, placeholders.
   - Those colours resolve per trait: dark, Increase Contrast and the elevated level on iOS,
     contrast on the Mac. Wide colours keep their components.
+  - The Mac's grouped cards and separators read overrides of
+    `-exact-secondary-grouped-background` and `-exact-separator`; without an override they
+    keep their measured form colours. A native multiline editor's text view and scroll
+    view read `Field`, keeping their separate AppKit defaults without it. Author-drawn
+    and Markdown editors keep transparent native views. Light/dark app captures and
+    editing across a scheme change qualify these surfaces; a changed table still takes
+    effect through boot/reload, not a new live-table notification.
   - The web gets the overrides as `:root` custom properties that the host's own sheet
     reads.
 - **What this costs stage 4's live table.** With a `Ref`, changing an entry's value would
@@ -1651,6 +1658,12 @@ the lead, 2026-10-13; Charlie told).
   plan's different set on the same thread (a second embedded session, a reload) writes one
   journal line. Per-session tables are owed by stage 5 (D12).
 - **Vibrancy:** a themed role under a material isn't drawn vibrant.
+- **Mac single-line field backgrounds:** on macOS 27.0.1 (26A434), offscreen captures of
+  bezeled `NSTextField`s keep their native background after `backgroundColor` is set;
+  the same borderless control paints the assigned colour. This includes the current
+  default square bezel. Apple's [rounded-bezel restriction](https://developer.apple.com/documentation/appkit/nstextfield/drawsbackground)
+  explains the rounded case only. Focused and onscreen native probes remain unmeasured;
+  no replacement control is introduced. Evidence: `~/audits/exact2-no-tells-2026-10-11/theme-reach/current-main-mac-gaps-2026-10-14/field-native-probe-independent-runtime-review.txt`.
 - **Bound authored colours:** on the web, an ancestor's *bound* authored colour that
   `unset`s writes nothing, as `text_unsets` does.
 - **Still the platform's, by the reach ruling:**
