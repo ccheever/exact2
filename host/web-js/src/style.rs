@@ -802,6 +802,14 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             "corner-shape",
             &CORNER_MAP,
         )],
+        // A bound colour unsets the theme's scheme text for its subtree, as
+        // a literal one does (roles.rs `scheme_color`).
+        StyleId::TextColor if exact_kernel::style::roles::overridden_canvas_text() => {
+            let (name, unit) = style_row(id)?;
+            let mut writes = one(name, unit);
+            writes.push(with("--exact-scheme-color", "v=>v==null?v:'initial'"));
+            writes
+        }
         _ => {
             let (name, unit) = style_row(id)?;
             one(name, unit)
@@ -886,7 +894,11 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
         let mut p = exact_kernel::StyleProps::default();
         p.set_dynamic(row, &v).ok()?;
         let (text, _) = exact_web::css::css_text(&p, &[]);
-        let (name, value) = text.trim_end_matches(';').split_once(':')?;
+        // Not the theme's reset an authored colour writes beside itself.
+        let declaration = text
+            .split(';')
+            .find(|d| !d.starts_with("--exact-scheme-color:"))?;
+        let (name, value) = declaration.split_once(':')?;
         Some((name.to_string(), value.to_string()))
     };
     if let Some((name, value)) = sample(exact_kernel::StyleValue::Number(7.0)) {

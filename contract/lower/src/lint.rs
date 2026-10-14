@@ -181,6 +181,12 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
 /// rows. The driver runs this when an earlier pass refused, so a misspelled
 /// tag or a bad colour is reported in the same run as a type error.
 pub fn lint(file: &File) -> Vec<LowerError> {
+    // A theme's names are colours (LLP 1095 D4); the lint asks only whether a
+    // row's value is one, so each stands for any.
+    let entries = file.theme.iter().flat_map(|t| &t.entries);
+    let _theme = exact_kernel::style::theme::declarations(
+        entries.map(|e| (e.name.as_str(), "transparent", false)),
+    );
     fn walk(nodes: &[Node], errors: &mut Vec<LowerError>) {
         for n in nodes {
             match n {

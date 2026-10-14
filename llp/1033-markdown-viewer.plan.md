@@ -517,6 +517,10 @@ a compile error. Twenty-one tokens; forty-odd literal hex values gone from the
 two views. It is also how the two readers share a palette when they cannot
 share a `.contract` file — colours are data, and data crosses.
 
+*Superseded (2026-10-14, LLP 1095 D4):* the record, its `provide`/`inject`
+and `markdown-parse::theme` are gone. Each reader says the palette as a root
+`theme` block and its rows name the entries (`color="ink"`).
+
 **Following the system needed a fact no host reported.** `env()` carries
 lengths only — insets and the keyboard — and nothing told the app what the OS
 was set to, which is why "system" could only ever have been light. The host

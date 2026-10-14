@@ -3,8 +3,9 @@
 // and a separator; unsaid text, a rule, an accent-coloured control and an
 // authored accent-color below (which wins for its subtree) read them on
 // both web targets alike; a `color-scheme="dark"` card,
-// fixed or bound, reads the dark side, and an authored colour above a card
-// stays its own.
+// fixed or bound, reads the dark side; an authored colour above a card,
+// fixed or bound, stays its own; a button with
+// a scheme reads it too, and a field with one keeps the look's colours.
 theme
   CanvasText = "light-dark(#5a1f2b, #f6e7d8)"
   Canvas = "light-dark(#fbf3e9, #1e1410)"
@@ -14,6 +15,7 @@ theme
 component ThemeReach
   state on = true
   state scheme = "dark"
+  state tone = "#1083fe"
   action flip(checked: bool)
     on = checked
   view
@@ -32,3 +34,12 @@ component ThemeReach
             text "Authored" testId="authored"
       column color-scheme=scheme padding=8
         text "Bound" testId="bound"
+      column color=tone
+        column color-scheme="dark" background-color="Canvas" padding=8
+          text "Bound authored" testId="bound-authored"
+      button press=flip(true) color-scheme="dark" background-color="Canvas" padding=8 testId="dark-button"
+        text "Dark button"
+      button press=flip(true) color-scheme=scheme background-color="Canvas" padding=8 testId="bound-button"
+        text "Bound button"
+      input type="text" value="Fixed" color-scheme="dark" aria-label="Fixed field" testId="fixed-field"
+      input type="text" value="Bound" color-scheme=scheme aria-label="Bound field" testId="bound-field"

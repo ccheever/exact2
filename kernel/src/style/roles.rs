@@ -347,8 +347,8 @@ pub fn theme_css() -> String {
         match role.name {
             // A `color` computed here is the root scheme's side, and a
             // `color-scheme` card would inherit it; the card re-reads the
-            // entry through `--exact-scheme-color` (host/web css.rs
-            // `scheme_color`), which an authored colour unsets.
+            // entry through `--exact-scheme-color` ([`SCHEME_COLOR`]), which
+            // an authored colour unsets ([`scheme_color`]).
             "CanvasText" => out.push_str(
                 "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
             ),
@@ -359,12 +359,45 @@ pub fn theme_css() -> String {
     if out.is_empty() {
         return out;
     }
-    // A bound `color-scheme` is written on the element, not in a class.
+    // A scheme the element's own style writes (the wasm host's, and a bound
+    // one on the JS target's; its classes are listed by the emitter).
     let scheme = match overridden_canvas_text() {
-        true => ":where([style*=color-scheme]){color:var(--exact-scheme-color,currentcolor)}",
-        false => "",
+        true => format!("#exact-root [style*=color-scheme]{{{SCHEME_COLOR}}}"),
+        false => String::new(),
     };
     format!(":root{{{out}}}{scheme}")
+}
+
+/// @ref LLP 1095 D4 — a theme's `CanvasText` is a `color` on the web's root,
+/// which the browser computes on the root's scheme; a `color-scheme` card
+/// reads the entry again on its own, as Apple's does. Written at an id and
+/// a class's specificity: over the page's control reset (`all: unset`, so a
+/// button with a scheme reads it too), under the look's own control colours
+/// and an authored colour on the card.
+pub const SCHEME_COLOR: &str = "color:var(--exact-scheme-color,currentcolor)";
+
+/// The JS target's rule for its classes `.c1`… (`classes[0]`…) that set a
+/// scheme: [`SCHEME_COLOR`] on them. None without a theme.
+pub fn scheme_classes(classes: &[String]) -> String {
+    let schemed: Vec<String> = classes
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| c.contains("color-scheme:light") || c.contains("color-scheme:dark"))
+        .map(|(i, _)| format!(".c{}", i + 1))
+        .collect();
+    match overridden_canvas_text() && !schemed.is_empty() {
+        true => format!("#exact-root :is({}){{{SCHEME_COLOR}}}", schemed.join(",")),
+        false => String::new(),
+    }
+}
+
+/// What an authored colour writes beside itself under a theme that replaces
+/// `CanvasText`: [`SCHEME_COLOR`] unset, so its subtree inherits it.
+pub fn scheme_color(style: &super::StyleProps) -> &'static str {
+    match style.mask.has(super::StyleId::TextColor) && overridden_canvas_text() {
+        true => "--exact-scheme-color:initial;",
+        false => "",
+    }
 }
 
 /// Whether the theme replaces `CanvasText`, the page's unsaid text.
