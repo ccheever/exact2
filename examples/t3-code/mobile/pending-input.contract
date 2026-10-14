@@ -49,30 +49,30 @@ component PendingInputCard
                 t3-symbol symbol-name="chevron.down" point-size=13 symbol-tint=colors.iconSubtle width=13 height=13
           scroll flex=1 min-height=0 testId="pending-input-questions"
             column gap=8.75 padding-bottom=3.5
-              when data.reason != ""
+              if data.reason != ""
                 text data.reason font-size=14 line-height="20px" color=colors.muted
-              each question in data.questions key=question.id
+              for question in data.questions key=question.id
                 column gap=7 padding-top=3.5 testId=`pending-input-question-${question.id}`
                   text question.header text-transform="uppercase" font-size=13 line-height="17px" letter-spacing=1 font-weight=700 color=colors.muted
                   text question.question font-size=16 line-height="22px" color=colors.foreground
-                  each option in question.options key=option.id
+                  for option in question.options key=option.id
                     button appearance="none" press=act(data.owner, "option", question.id, option.id) disabled=(not data.editable) role=(question.multiSelect ? "checkbox" : "radio") aria-checked=option.selected
                       min-height=42 width="100%" padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-radius=14 border-width=1 border-style="solid" border-color=(option.selected ? colors.primary : colors.border)
                       background-color=(option.selected ? colors.selected : colors.input) text-align="left" retainFocus=true testId=`pending-input-option-${question.id}-${option.id}`
                       column gap=1.75
                         text option.label font-size=14 line-height="19px" font-weight=700 color=(option.selected ? colors.foreground : colors.secondary)
-                        when option.description != ""
+                        if option.description != ""
                           text option.description font-size=14 line-height="20px" color=colors.muted
-                  when question.customAllowed
+                  if question.customAllowed
                     input value=question.answer input=edit(question.id) readonly=(not data.editable) placeholder="Or type a custom answer"
                       min-height=54 padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5 border-radius=14 border-width=1 border-style="solid" border-color=colors.inputBorder
                       background-color=colors.input font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground testId=`pending-input-custom-${question.id}`
-          when data.error != ""
+          if data.error != ""
             text data.error font-size=13 line-height="19.5px" color=colors.dangerForeground
           button appearance="none" press=act(data.owner, "submit", "", "") disabled=(not data.canSubmit) padding-left=14 padding-right=14 padding-top=12.25 padding-bottom=12.25 border-radius=14 background-color=(data.complete ? colors.primary : colors.subtleStrong) opacity=(not data.canSubmit ? 0.5 : 1) testId="pending-input-submit"
             text "Submit answers" font-size=14 line-height="19px" font-weight=(data.complete ? 800 : 700) color=(data.complete ? colors.primaryForeground : colors.foreground)
-          when data.dismissible
+          if data.dismissible
             button appearance="none" press=act(data.owner, "dismiss", "", "") disabled=(not data.canDismiss) padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 testId="pending-input-dismiss"
               text "Dismiss without answering" font-size=14 line-height="19px" font-weight=700 color=colors.muted
-          when not data.canOperate
+          if not data.canOperate
             text "This connection cannot submit answers." font-size=13 line-height="17px" color=colors.tertiary

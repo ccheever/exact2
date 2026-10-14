@@ -16,10 +16,10 @@ shape HomeArrangementData
   version: string
   blocked: bool
   workingEnabled: bool
-  pinned: list<HomeArrangeRow>
-  active: list<HomeArrangeRow>
-  snoozed: list<HomeArrangeRow>
-  settled: list<HomeArrangeRow>
+  pinned: HomeArrangeRow[]
+  active: HomeArrangeRow[]
+  snoozed: HomeArrangeRow[]
+  settled: HomeArrangeRow[]
 shape HomeArrangementColors
   screen: string
   foreground: string
@@ -41,7 +41,7 @@ component HomeArrangement
     close: action
   state snoozedExpanded = false
   state settledExpanded = false
-  derive allRows = concat(concat(data.pinned, data.active), concat(data.snoozed, data.settled))
+  derive allRows = data.pinned.concat(data.active).concat(data.snoozed.concat(data.settled))
   action toggle(section: string)
     if section == "snoozed"
       snoozedExpanded = not snoozedExpanded
@@ -49,9 +49,9 @@ component HomeArrangement
       settledExpanded = not settledExpanded
   action dropped(version: string, section: string, key: string, before: option<string>, event: ReorderEvent)
     if version == data.version and not data.blocked and section != "snoozed" and not (section == "active" and data.workingEnabled) and event.to == `home-arrange-${section}`
-      match first(filter(allRows, row => row.key == key))
+      match first(allRows.filter(row => row.key == key))
         case some(row)
-          let source = length(filter(data.pinned, item => item.key == key)) > 0 ? "pinned" : length(filter(data.active, item => item.key == key)) > 0 ? "active" : length(filter(data.snoozed, item => item.key == key)) > 0 ? "snoozed" : "settled"
+          let source = data.pinned.filter(item => item.key == key).length > 0 ? "pinned" : data.active.filter(item => item.key == key).length > 0 ? "active" : data.snoozed.filter(item => item.key == key).length > 0 ? "snoozed" : "settled"
           let allowed = section == "settled" ? source != "settled" and row.canSettle : section == "pinned" or section == "active"
           if not row.disabled and allowed and event.from == `home-arrange-${source}`
             let targets = section == "pinned" ? data.pinned : section == "active" ? data.active : data.settled
@@ -62,7 +62,7 @@ component HomeArrangement
                 case some(target)
                   if target == "header"
                     drop(requestRoute, version, row.environmentId, row.threadId, section, "", "before")
-                  else if target != key and length(filter(targets, item => item.key == target)) > 0
+                  else if target != key and targets.filter(item => item.key == target).length > 0
                     drop(requestRoute, version, row.environmentId, row.threadId, section, target, "before")
                 case none
                   drop(requestRoute, version, row.environmentId, row.threadId, section, "", "after")
@@ -91,13 +91,13 @@ component HomeArrangement
         font-size=14 line-height="19px" color=colors.muted flex-shrink=0
       // Retire actual handle/list identities when an external order changes.
       // Local expansion remains with this component; closing unmounts it.
-      each version in [data.version] key=version
+      for version in [data.version] key=version
         scroll flex=1 min-height=0 width="100%" overflow-y="scroll" overflow-x="hidden"
           testId="home-arrangement-scroll"
           column width="100%"
             HomeArrangementSection(section="pinned", title="Pinned", rows=data.pinned, expanded=true, collapsible=false, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
             HomeArrangementSection(section="active", title="Active", rows=data.active, expanded=true, collapsible=false, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
-            when length(data.snoozed) > 0
+            if data.snoozed.length > 0
               HomeArrangementSection(section="snoozed", title="Snoozed", rows=data.snoozed, expanded=snoozedExpanded, collapsible=true, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
             HomeArrangementSection(section="settled", title="Settled", rows=data.settled, expanded=settledExpanded, collapsible=true, version=version, blocked=data.blocked, colors=colors, toggle=toggle, drop=dropped)
 
@@ -105,7 +105,7 @@ component HomeArrangementSection
   props
     section: string
     title: string
-    rows: list<HomeArrangeRow>
+    rows: HomeArrangeRow[]
     expanded: bool
     collapsible: bool
     version: string
@@ -113,17 +113,17 @@ component HomeArrangementSection
     colors: HomeArrangementColors
     toggle: action
     drop: action
-  derive entries = concat([HomeArrangeEntry(key="header", item=none)], map((expanded ? rows : []), row => HomeArrangeEntry(key=row.key, item=some(row))))
+  derive entries = [HomeArrangeEntry(key="header", item=none)].concat((expanded ? rows : []).map(row => HomeArrangeEntry(key=row.key, item=some(row))))
   view
     // Forbidden destinations still receive their drop; the parent refuses them.
     // Excluding them from the group would leave the last valid target sticky.
     list id=`home-arrange-${section}` reorderGroup="home-arrangement"
       reorderdrop=drop(version, section)
       virtualized=true estimated-item-height=56
-      width="100%" height=(48 + (expanded ? length(rows) * 56 : 0))
+      width="100%" height=(48 + (expanded ? rows.length * 56 : 0))
       flex-shrink=0 overflow-x="hidden"
       testId=`home-arrangement-${section}`
-      each entry in entries key=entry.key
+      for entry in entries key=entry.key
         row width="100%" height=(entry.key == "header" ? 48 : 56)
           box-sizing="border-box"
           align-items="center"
@@ -148,7 +148,7 @@ component HomeArrangementSection
               button press=toggle(section) disabled=(not collapsible)
                 flex=1 align-self="stretch" padding=0
                 display="flex" align-items="center" justify-content="center" text-align="left"
-                aria-label=`${title} (${length(rows)})`
+                aria-label=`${title} (${rows.length})`
                 aria-expanded=expanded
                 testId=`home-arrangement-header-${section}`
-                text `${title} (${length(rows)})` width="100%" text-align="left" font-size=14 line-height="19px" color=colors.muted
+                text `${title} (${rows.length})` width="100%" text-align="left" font-size=14 line-height="19px" color=colors.muted

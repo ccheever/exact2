@@ -85,7 +85,7 @@ component App
     projectFaviconImages = projectImages.items
     projectFaviconEvent = projectImageEvent
   state incomingShareState = ""
-  derive incomingShareSheetMounted = length(filter(stack(nav), entry => startsWith(entry.name, "newTask") or startsWith(entry.name, "addProject"))) > 0
+  derive incomingShareSheetMounted = stack(nav).filter(entry => entry.name.startsWith("newTask") or entry.name.startsWith("addProject")).length > 0
   resource incomingShareInbox = incomingShareInbox() as shape IncomingShareInbox
   resource incomingShare = incomingSharePresentation(incomingShareState, incomingShareSheetMounted, `${top(nav).id}`, incomingShareInbox.revision) as shape IncomingSharePresentation
   task presentIncomingShare when incomingShare.state != incomingShareState key=`${incomingShare.requestRoute}:${incomingShare.previousState}:${incomingShare.state}:${incomingShare.inboxRevision}`
@@ -126,7 +126,7 @@ component App
       if accountEntry.kind == "back"
         nav = back(nav)
       else if accountEntry.route == "settings"
-        settingsVisits = filter(settingsVisits, visit => visit.visitToken != `root:${top(nav).id}`)
+        settingsVisits = settingsVisits.filter(visit => visit.visitToken != `root:${top(nav).id}`)
         nav = replace(nav, path("settings"))
       else
         nav = open(nav, path("home"))
@@ -195,7 +195,7 @@ component App
     else
       fileInspectorPreferredVisible = not fileInspectorPreferredVisible
       inspectorResizing = false
-  derive workspaceEntries = map(stack(nav), entry => WorkspaceEntry(id=`${entry.id}`, name=entry.name, url=entry.url, params=WorkspaceParams(threadEnvironment=entry.params.threadEnvironment, threadId=entry.params.threadId, filePath=entry.params.filePath)))
+  derive workspaceEntries = stack(nav).map(entry => WorkspaceEntry(id=`${entry.id}`, name=entry.name, url=entry.url, params=WorkspaceParams(threadEnvironment=entry.params.threadEnvironment, threadId=entry.params.threadId, filePath=entry.params.filePath)))
   resource workspace = workspace(workspaceEntries, WorkspaceOptions(width=viewport.width, height=viewport.height, primarySidebarPreferredVisible=sidebarPreferredVisible, supplementaryPanePreferredVisible=true, fileInspectorPreferredVisible=fileInspectorPreferredVisible, reducedMotion=viewport.prefersReducedMotion, appearance=appearance.scheme, background=look.screen, fileInspectorPreferredWidth=fileInspectorPreferredWidth, inspectorRegistration=inspectorState.registrationJSON, inspectorRole=inspectorState.roleJSON, inspectorExitToken=inspectorState.exitToken, inspectorResizing=inspectorResizing, dividerColor=reviewLook.border, dividerActiveColor=reviewLook.primary), data.revision) as shape MobileWorkspace
   action toggleSidebar
     if workspace.workspacePath != "/"
@@ -210,7 +210,7 @@ component App
   action didWorkspaceNavigation
     match workspaceNavigation
       case some(result)
-        if result.requestRoute == `${top(nav).id}` and length(filter(stack(nav), entry => `${entry.id}` == result.anchorRouteId and entry.url == result.anchorLocation)) == 1
+        if result.requestRoute == `${top(nav).id}` and stack(nav).filter(entry => `${entry.id}` == result.anchorRouteId and entry.url == result.anchorLocation).length == 1
           if result.message != ""
             send notice = alert("info", "Workspace", result.message)
           else
@@ -281,7 +281,7 @@ component App
       if target == "settingsOpenSourceLicenses"
         informationQuery = ""
       nav = push(nav, location)
-  state settingsVisits = slice([SettingsVisit(visitToken="", selection=SettingsSelection(allEnvironments=true, environmentIds=slice([""], 0, 0), projectKey=""))], 0, 0)
+  state settingsVisits = [SettingsVisit(visitToken="", selection=SettingsSelection(allEnvironments=true, environmentIds=[""].slice(0, 0), projectKey=""))].slice(0, 0)
   derive settingsVisit = settingsVisitOwner(workspaceEntries, `${top(nav).id}`)
   resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsVisit.routeKey, settingsVisitSelection(settingsVisits, settingsVisit.visitToken), data.revision, `${top(nav).id}`, not workspace.usesSplitView, settingsVisit.visitToken) as shape SettingsView
   resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
@@ -433,7 +433,7 @@ component App
   state homeQuery = ""
   state homeEnvironment = ""
   state homeProject = ""
-  derive homeRouteKey = match first(filter(stack(nav), route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
+  derive homeRouteKey = match first(stack(nav).filter(route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
   resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact") as shape HomeChromeView
   state sidebarQuery = ""
   state sidebarEnvironment = ""
@@ -482,10 +482,10 @@ component App
   state composerReturn = ComposerFocusReturn(editorId="", owner="", sheetId="", phase="", attempts=0)
   derive composerOwner = newTaskActive ? newTaskData.composer.contentOwner : threadData.composer.contentOwner
   derive composerEditor = (top(nav).name == "thread" or (top(nav).name == "newTaskDraft" and newTaskFlow.ready and newTaskData.draft) or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? `thread-composer-${top(nav).id}` : ""
-  derive composerSettings = startsWith(top(nav).name, "threadModel") or startsWith(top(nav).name, "newTaskModel") or top(nav).name == "threadRuntime" or top(nav).name == "newTaskRuntime"
+  derive composerSettings = top(nav).name.startsWith("threadModel") or top(nav).name.startsWith("newTaskModel") or top(nav).name == "threadRuntime" or top(nav).name == "newTaskRuntime"
   derive composerFocused = composerOwner != "" and composerEditor != "" and composerFocusIdentity == `${composerEditor}:${composerOwner}`
   derive composerExpanded = composerFocused or (composerReturn.phase != "" and composerReturn.owner == composerOwner)
-  derive composerNextPhase = composerReturnPhase(composerReturn, composerEditor, composerOwner, map(stack(nav), entry => `thread-composer-${entry.id}`), composerSettings, composerFocused)
+  derive composerNextPhase = composerReturnPhase(composerReturn, composerEditor, composerOwner, stack(nav).map(entry => `thread-composer-${entry.id}`), composerSettings, composerFocused)
   task clearComposerReturn when composerReturn.phase != composerNextPhase and composerNextPhase != "restoring" key=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}:${composerNextPhase}`
     after(1, restoreComposerFocus)
   task beginComposerReturn when composerReturn.phase == "pending" and composerNextPhase == "restoring" key=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`
@@ -498,29 +498,29 @@ component App
     else if composerReturn.phase == "restoring" and not composerFocused
       blur(composerReturn.editorId)
     composerReturn = ComposerFocusReturn(composerReturn, phase=(composerNextPhase == "restoring" and composerReturn.attempts >= 20 ? "" : composerNextPhase), attempts=(composerNextPhase == "restoring" and composerReturn.attempts < 20 ? composerReturn.attempts + 1 : 0))
-  derive hapticEntry = at(filter(stack(nav), entry => entry.name == "thread"), -1)
+  derive hapticEntry = stack(nav).filter(entry => entry.name == "thread").at(-1)
   derive hapticRoute = match hapticEntry { case some(entry) => `${entry.id}`, case none => "" }
   derive hapticEnvironment = match hapticEntry { case some(entry) => entry.params.threadEnvironment, case none => "" }
   derive hapticThread = match hapticEntry { case some(entry) => entry.params.threadId, case none => "" }
   resource hapticFeed = streamingAssistant(data.revision, hapticRoute, hapticEnvironment, hapticThread) as shape StreamingAssistant
-  state streamHaptics = slice([StreamingHapticState(routeId="", owner="", id="", textLength=0, lastAt=0)], 0, 0)
+  state streamHaptics = [StreamingHapticState(routeId="", owner="", id="", textLength=0, lastAt=0)].slice(0, 0)
   task streamFeedback when hapticFeed.owner != "" key=hapticFeed.key
     after(1, updateStreamFeedback)
-  task pruneStreamFeedback when true key=join(map(stack(nav), entry => `${entry.id}`), "|")
+  task pruneStreamFeedback when true key=stack(nav).map(entry => `${entry.id}`).join("|")
     after(1, pruneStreamOwners)
   action pruneStreamOwners
-    streamHaptics = filter(streamHaptics, item => includes(map(stack(nav), entry => `${entry.id}`), item.routeId))
+    streamHaptics = streamHaptics.filter(item => stack(nav).map(entry => `${entry.id}`).includes(item.routeId))
   action updateStreamFeedback
     if hapticFeed.routeId == hapticRoute and hapticFeed.environmentId == hapticEnvironment and hapticFeed.threadId == hapticThread and hapticEnvironment == data.environmentId and hapticThread == data.threadId
       let time = wallTime.epochAtZero + performanceNow()
-      match first(filter(streamHaptics, item => item.routeId == hapticFeed.routeId))
+      match first(streamHaptics.filter(item => item.routeId == hapticFeed.routeId))
         case some(previous)
           let pulse = previous.owner == hapticFeed.owner and hapticFeed.id != "" and (previous.id != hapticFeed.id or (hapticFeed.textLength > previous.textLength and time - previous.lastAt >= 320))
-          streamHaptics = concat(filter(streamHaptics, item => item.routeId != hapticFeed.routeId), [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=(pulse ? time : previous.lastAt))])
+          streamHaptics = streamHaptics.filter(item => item.routeId != hapticFeed.routeId).concat([StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=(pulse ? time : previous.lastAt))])
           if pulse
             haptic("selection")
         case none
-          streamHaptics = concat(streamHaptics, [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
+          streamHaptics = streamHaptics.concat([StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
   state richComposerLatch = ""
   derive richComposerInput = ComposerRootInput(active=top(nav).name == "thread", visit=`${top(nav).id}`, url=top(nav).url, environmentId=top(nav).params.threadEnvironment, threadId=top(nav).params.threadId, editorId=composerEditor, preferencesReady=preferences.ready, preferencesJSON=preferences.serialized, scheme=appearance.scheme, themeId=appearance.themeId, enterBehavior=appearance.enterBehavior, focusSerial=`${composerReturn.editorId}:${composerReturn.owner}:${composerReturn.sheetId}`, focusAttempt=composerReturn.attempts, focusOperation=(composerReturn.phase == "restoring" and composerReturn.editorId == composerEditor ? "focus" : "none"), now=wallTime.epochAtZero + elapsed)
   resource richComposer = composerRoot(richComposerInput, richComposerLatch, data.revision) as shape ComposerRootView
@@ -599,10 +599,10 @@ component App
     let result = htmlRenderReply(htmlRenderChanged)
     if result.received and result.requestRoute == `${top(nav).id}` and result.context == htmlRenderContext.context
       showMobileNotice("Page", result.message)
-      if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and length(filter(threadData.rows, row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey)) > 0
+      if result.openKey != "" and result.attachmentId != "" and not htmlRenderContext.full and threadData.rows.filter(row => row.htmlRender.identifier == result.identifier and row.htmlRender.key == result.openKey).length > 0
         mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
         nav = push(nav, path("threadMedia", data.environmentId, data.threadId, result.attachmentId) + "?htmlRender=" + encodeURIComponent(result.openKey))
-  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, top(nav).name.startsWith("thread"), `${top(nav).id}`, top(nav).name, htmlRenderContext.context, workspace.contentSettledWidth - workspace.chatHorizontalPadding * 2, appearance.themeId, top(nav).url) as shape ThreadSnapshot
   resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
   mutation queuePrepared as shape Change refreshes queueData
   task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
@@ -621,7 +621,7 @@ component App
         composerFocusIdentity = composerFocusIdentity
   mutation selected as shape ThreadSelection refreshes data then didSelectThread
   mutation draftChanged as shape Change refreshes data
-  task selectRouteThread when not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation) and (startsWith(top(nav).name, "thread") or startsWith(top(nav).name, "git")) and (data.ready or threadData.queuedCanSelect) and (not threadData.queued or threadData.queuedCanSelect) and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+  task selectRouteThread when not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation) and (top(nav).name.startsWith("thread") or top(nav).name.startsWith("git")) and (data.ready or threadData.queuedCanSelect) and (not threadData.queued or threadData.queuedCanSelect) and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
     after(1, loadRouteThread)
   action loadRouteThread
     if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
@@ -664,7 +664,7 @@ component App
           send threadSubmissionChanged = threadSubmissionAction(threadSubmissionInput, op, "", value, id, `${top(nav).id}`, wallTime.epochAtZero + performanceNow())
       else
         lastOperation = "thread-action"
-        send changed = command(op, id, value, startsWith(op, "pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
+        send changed = command(op, id, value, op.startsWith("pending-input:") ? `${top(nav).id}\n${top(nav).url}` : `${wallTime.epochAtZero + performanceNow()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
   derive threadHeaderOptions = ThreadHeaderOptions(routeKey=`${top(nav).id}`, routeIdentity=`${top(nav).url}:${terminalId}`, focused=(workspaceRouteReady and (top(nav).name == "thread" or top(nav).name == "threadReview" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))), split=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, canGoBack=depth(nav) > 1, returnToChat=top(nav).name == "threadFiles", foreground=threadLook.foreground, review=top(nav).name == "threadReview", reviewRevision=reviewData.revision, dark=appearance.scheme == "dark", inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible)
   resource threadHeader = threadHeader(threadHeaderOptions, data.revision) as shape ThreadHeaderSnapshot
@@ -716,7 +716,7 @@ component App
     after(1, loadAnswerFiles)
   action loadAnswerFiles
     send answerFilesPrepared = answerFilesPrepare(threadData.answerFilesOwner, threadData.answerFilesRequest, wallTime.epochAtZero + performanceNow())
-  resource previewOwner = previewOwner(workspaceRouteReady and startsWith(top(nav).name, "thread"), data.revision) as shape PreviewOwner
+  resource previewOwner = previewOwner(workspaceRouteReady and top(nav).name.startsWith("thread"), data.revision) as shape PreviewOwner
   resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
   resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
   resource browserData = browserStatus("browser", previewOwner.owner, top(nav).name == "threadBrowser", previewPrepared, data.revision) as shape MobileBrowserSnapshot
@@ -846,7 +846,7 @@ component App
   mutation gitBranchesPrepared as shape MobileGitBranchesSnapshot refreshes gitBranchesData, data
   mutation gitChanged as shape MobileGitResult refreshes gitData, data then didGitChange
   mutation gitBranchChanged as shape MobileGitBranchResult refreshes gitBranchesData, gitData, data then didGitBranchChange
-  task prepareGit when workspaceRouteReady and (startsWith(top(nav).name, "git") or (inspectorState.active and inspectorState.mountedGit)) key=`${gitData.owner}:${inspectorState.mountedGit}:${startsWith(top(nav).name, "git")}`
+  task prepareGit when workspaceRouteReady and (top(nav).name.startsWith("git") or (inspectorState.active and inspectorState.mountedGit)) key=`${gitData.owner}:${inspectorState.mountedGit}:${top(nav).name.startsWith("git")}`
     after(1, prepareGit)
   task retryGitStatus when workspaceRouteReady and gitData.needsRefresh and not pending(gitPrepared) key=`${gitData.owner}:${gitData.needsRefresh}`
     after(1, prepareGit)
@@ -890,7 +890,7 @@ component App
             nav = push(nav, path("gitCommit", data.environmentId, data.threadId))
           else if result.destination == "confirm"
             nav = push(nav, path("gitConfirm", data.environmentId, data.threadId))
-          else if result.dismiss and startsWith(top(nav).name, "git")
+          else if result.dismiss and top(nav).name.startsWith("git")
             nav = back(nav)
       case none
         gitForm = gitForm
@@ -942,7 +942,7 @@ component App
   action refreshReview
     reviewAction("refresh", "", 0)
   action loadReviewFiles
-    match first(filter(reviewData.files, file => file.pending))
+    match first(reviewData.files.filter(file => file.pending))
       case some(file)
         reviewAction("visible", file.path, 0)
       case none
@@ -1078,7 +1078,7 @@ component App
     if owner == composerAttachments.contentOwner
       mediaContentOwner = owner
       mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
-      nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
+      nav = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
     mediaUi = mediaUiOpen(mediaUi, wallTime.epochAtZero + performanceNow())
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
@@ -1100,7 +1100,7 @@ component App
     modelFilter = ""
     if not newTaskActive
       send modelChanged = composerAction("open", "", "", taskGuardOwner, taskGuardRoute, `${top(nav).id}`)
-    let destination = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
+    let destination = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
     composerReturn = ComposerFocusReturn(editorId=composerEditor, owner=composerOwner, sheetId=`thread-composer-${top(destination).id}`, phase=(composerFocused or layout.keyboardDocked or composerReturn.phase == "restoring" ? "pending" : "expanded"), attempts=0)
     blur()
     composerFocusIdentity = ""
@@ -1114,9 +1114,9 @@ component App
   state newTaskContextRevision = 0
   resource composerLook = composerColors(appearance.scheme, appearance.themeId) as shape ComposerColors
   resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerSettingsSnapshot
-  derive newTaskActive = startsWith(top(nav).name, "newTask")
-  derive newTaskSession = match first(filter(stack(nav), route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
-  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or startsWith(top(nav).name, "addProject"), data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
+  derive newTaskActive = top(nav).name.startsWith("newTask")
+  derive newTaskSession = match first(stack(nav).filter(route => route.name == "newTask")) { case some(route) => `${route.id}`, case none => "" }
+  resource newTaskFlow = newTaskFlow(newTaskSession, `${top(nav).id}`, top(nav).url, newTaskActive or top(nav).name.startsWith("addProject"), data.revision, wallTime.epochAtZero + max(elapsed, performanceNow()), incomingShareInbox.revision, preferences.ready ? appearance.groupingMode : "") as shape NewTaskFlowSnapshot
   resource addProjectData = addProjectObserve(newTaskSession, workspaceEntries, `${top(nav).id}`, data.revision) as shape AddProjectSnapshot
   resource addProjectLook = addProjectColors(appearance.scheme, appearance.themeId) as shape AddProjectColors
   derive addProjectAlert = addProjectNextAlert(addProjectData)
@@ -1161,7 +1161,7 @@ component App
     nav = push(nav, path("addProject"))
   derive taskGuardOwner = newTaskActive ? newTaskFlow.owner : ""
   derive taskGuardRoute = newTaskActive ? `${top(nav).id}` : ""
-  derive modelFilterOwner = join([encodeURIComponent(data.environmentId), toString(data.generation), encodeURIComponent(data.projectId), encodeURIComponent(data.threadId), encodeURIComponent(taskGuardOwner)], ":")
+  derive modelFilterOwner = [encodeURIComponent(data.environmentId), data.generation.toString(), encodeURIComponent(data.projectId), encodeURIComponent(data.threadId), encodeURIComponent(taskGuardOwner)].join(":")
   task prepareNewTask when newTaskFlow.needsPrepare and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${top(nav).url}:${newTaskFlow.shareAttempt}`
     after(1, prepareNewTask)
   task redirectNewTask when newTaskFlow.nextLocation != "" and not pending(taskChanged) and not pending(taskPrepared) key=`${newTaskFlow.owner}:${top(nav).id}:${newTaskFlow.nextLocation}`
@@ -1203,19 +1203,19 @@ component App
     if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and modelData.hasLegacy
       modelLegacy = value
   action chooseModelFilter(expected: string, value: string)
-    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and length(filter(modelData.filters, choice => choice.id == value)) > 0
+    if (top(nav).name == "threadModel" or top(nav).name == "newTaskModel") and expected == `${top(nav).id}:${modelFilterOwner}` and not pending(modelData) and not failed(modelData) and modelData.environmentId == data.environmentId and modelData.threadId == data.threadId and modelData.filters.filter(choice => choice.id == value).length > 0
       modelFilter = value
   action openModelOption(id: string)
-    match first(filter(modelData.options, option => option.id == id))
+    match first(modelData.options.filter(option => option.id == id))
       case some(option)
         if option.boolean
           modelAction("option", id, option.on ? "false" : "true")
         else
-          nav = push(nav, join([startsWith(top(nav).name, "newTask") ? path("newTaskModelOption", id) : path("threadModelOption", data.environmentId, data.threadId, id), "?title=", encodeURIComponent(option.label)], ""))
+          nav = push(nav, [top(nav).name.startsWith("newTask") ? path("newTaskModelOption", id) : path("threadModelOption", data.environmentId, data.threadId, id), "?title=", encodeURIComponent(option.label)].join(""))
       case none
         modelQuery = modelQuery
   action openRuntime
-    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskRuntime") : path("threadRuntime", data.environmentId, data.threadId))
+    nav = push(nav, top(nav).name.startsWith("newTask") ? path("newTaskRuntime") : path("threadRuntime", data.environmentId, data.threadId))
   action taskAction(kind: string, id: string, value: string)
     if not pending(taskChanged) and not pending(taskPrepared)
       newTaskOperation = kind
@@ -1258,8 +1258,8 @@ component App
   resource archiveChrome = archiveChrome(top(nav).name == "archive" ? `${top(nav).id}` : "", viewport.width, layout.safeBottom, layout.liquidGlass, archiveFilters.query, archiveFilters.environment, archiveFilters.sort, archiveData.environments) as shape ArchiveChromeSnapshot
   resource archiveScope = archiveScope(data.revision, data.environmentId, data.generation, data.ready, data.status, data.environments) as shape ArchiveScope
   resource archiveRead = archiveRead(top(nav).name == "archive" ? `${top(nav).id}` : "", archiveScope.key, archiveRefresh) as shape ArchiveRead
-  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, performanceNow()), archiveFilters.query, archiveFilters.environment, archiveFilters.sort, top(nav).name == "archive", archiveRead, archiveScope, length(filter(stack(nav), entry => entry.name == "archive")) > 0) as shape ArchiveData
-  task expireArchive when length(filter(stack(nav), entry => entry.name == "archive")) == 0
+  resource archiveData = archiveView(wallTime.epochAtZero + max(elapsed, performanceNow()), archiveFilters.query, archiveFilters.environment, archiveFilters.sort, top(nav).name == "archive", archiveRead, archiveScope, stack(nav).filter(entry => entry.name == "archive").length > 0) as shape ArchiveData
+  task expireArchive when stack(nav).filter(entry => entry.name == "archive").length == 0
     after(300000, tick)
   resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
   state agentsElapsed = 0
@@ -1284,7 +1284,7 @@ component App
   action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
     if kind == "delete"
       archiveDelete = ArchiveDeleteTarget(environment=environmentId, project=projectId, thread=threadId)
-      let title = match first(filter(archiveData.items, item => item.environmentId == environmentId and item.threadId == threadId)) { case some(item) => item.title, case none => "This thread" }
+      let title = match first(archiveData.items.filter(item => item.environmentId == environmentId and item.threadId == threadId)) { case some(item) => item.title, case none => "This thread" }
       send archiveConfirmation = alert("delete", "Delete thread?", `“${title}” will be permanently deleted, including its terminal history.`)
     else
       send archived = archiveAction(kind, environmentId, projectId, threadId)
@@ -1391,7 +1391,7 @@ component App
   action permissionChanged(value: string)
     pairingUi = PairingUi(pairingUi, cameraStatus=value)
   action receiveScan(value: string)
-    if trim(value) == ""
+    if value.trim() == ""
       send notice = alert("info", "Invalid QR code", "Scanned QR code did not contain a pairing URL.")
     else
       send scanned = pairingFields(value)
@@ -1438,7 +1438,7 @@ component App
       confirmKey = key
       confirmValue = value
       if kind == "route-remove"
-        match first(filter(detail.routes, route => route.id == value))
+        match first(detail.routes.filter(route => route.id == value))
           case some(route)
             send detailConfirmation = alert("remove", `Remove ${route.label}?`, route.address)
           case none
@@ -1463,7 +1463,7 @@ component App
   action remove(id: string)
     if not pending(removal)
       pendingRemove = id
-      let label = match first(filter(data.environments, item => item.id == id)) { case some(item) => item.label, case none => "this environment" }
+      let label = match first(data.environments.filter(item => item.id == id)) { case some(item) => item.label, case none => "this environment" }
       send removal = alert("remove", "Remove from this device?", `Forget ${label} and its cached threads on this device. Switch it off instead to keep it saved.`)
   action save(id: string, label: string, url: string)
     lastOperation = "save"
@@ -1472,14 +1472,14 @@ component App
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow width="100%" height="100%" background-color=look.screen color=look.foreground display="flex" flex-direction="row" font-family="DM Sans" font-size=16 interactive-widget="resizes-content" testId="mobile-root"
       MobileSidebarPanel(routeId=`${top(nav).id}`, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, reducedMotion=viewport.prefersReducedMotion, workspace=workspace, look=look, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, chooseThread=chooseThread, homeMenuAction=homeMenuAction, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
       column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
-        each entry in stack(nav) key = entry.id
-          column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 width=(entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" or startsWith(entry.name, "threadModel") or startsWith(entry.name, "newTaskModel") or entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? viewport.width : workspace.contentSettledWidth) background-color=look.sheet display="flex" flex-direction="column"
+        for entry in stack(nav) key = entry.id
+          column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto" position="absolute" inset=0 width=(entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" or entry.name.startsWith("threadModel") or entry.name.startsWith("newTaskModel") or entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? viewport.width : workspace.contentSettledWidth) background-color=look.sheet display="flex" flex-direction="column"
             data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit") data-mobile-form-sheet=(entry.name == "threadModel" or entry.name == "newTaskModel" ? "composer" : entry.name == "newTask" and not workspace.usesSplitView ? "new-task" : entry.name == "settings" and not workspace.usesSplitView ? "settings" : entry.name == "connections" or entry.name == "connect" ? "true" : "") data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "") data-mobile-scanner-open=pairingUi.scannerOpen
-            navigationScroll=(entry.name == "newTask" ? "new-task-projects-scroll" : entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
-            navigationPresentation=(entry.name == "homeArrange" or entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" ? "fullscreen" : entry.name == "threadModel" or entry.name == "newTaskModel" or ((entry.name == "newTask" or entry.name == "settings") and not workspace.usesSplitView) or entry.name == "threadQueue" or startsWith(entry.name, "git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" ? "modal" : "") closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=(entry.name == "threadQueue" ? "medium large" : entry.name == "threadModel" or entry.name == "newTaskModel" or (entry.name == "newTask" and not workspace.usesSplitView) ? "large" : "")
+            navigationScroll=(entry.name == "newTask" ? "new-task-projects-scroll" : entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (home.items.length > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (threadData.rows.length > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : entry.name.startsWith("settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (archiveData.items.length > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+            navigationPresentation=(entry.name == "homeArrange" or entry.name == "threadBrowser" or entry.name == "threadDevices" or entry.name == "settingsLegal" ? "fullscreen" : entry.name == "threadModel" or entry.name == "newTaskModel" or ((entry.name == "newTask" or entry.name == "settings") and not workspace.usesSplitView) or entry.name == "threadQueue" or entry.name.startsWith("git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" ? "modal" : "") closedby=(entry.name == "threadBrowser" or entry.name == "threadDevices" ? "none" : "closerequest") navigationDetent=(entry.name == "threadQueue" ? "medium large" : entry.name == "threadModel" or entry.name == "newTaskModel" or (entry.name == "newTask" and not workspace.usesSplitView) ? "large" : "")
             MobileRouteContent(
               threadHeaderConfiguration=(threadHeader.ready ? threadHeader.configuration : ""), workingControl=workingControl, threadHeaderAction=threadHeaderAction, terminalMountReady=(threadHeader.pendingLaunch == "" and not pending(threadHeaderChanged)), queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitForm.message, gitNewBranch=gitForm.branch, gitWorktreeBase=gitForm.worktreeBase, gitWorktreeBranch=gitForm.worktreeBranch, gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector, homeEpochAtZero=wallTime.epochAtZero, refreshHomeClock=tick, routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, modelOptionTitle=searchParam(entry, "title"), focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport, workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,
-              data=data, detail=detail, informationRoute=informationRoute, informationListCovered=(entry.name == "settingsOpenSourceLicenses" and top(nav).name == "settingsOpenSourceLicense" and (match at(stack(nav), -2) { case some(previous) => previous.id == entry.id, case none => false })), informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
+              data=data, detail=detail, informationRoute=informationRoute, informationListCovered=(entry.name == "settingsOpenSourceLicenses" and top(nav).name == "settingsOpenSourceLicense" and (match stack(nav).at(-2) { case some(previous) => previous.id == entry.id, case none => false })), informationData=informationData, informationLegal=informationLegal, settingsData=settingsData, settingsAppearance=settingsAppearance, settingsChoice=settingsChoice, threadPreferences=threadPreferences, projectOverview=projectOverview, serverSettings=serverSettings, providerAccounts=providerAccounts, automationData=automationData, scheduledHeader=scheduledHeader, layout=layout, chrome=chrome, threadLook=threadLook, threadData=threadData, previewLook=previewLook, browserData=browserData, devicesData=devicesData, browserMenus=browserMenus, devicesMenus=devicesMenus, terminalData=terminalData,
               terminalCapture=terminalCapture, reviewLook=reviewLook, reviewData=reviewData, filesData=filesData, fileData=fileData, filePreview=(fileUi.preview == fileData.path), fileMenu=fileMenu.configuration, audioData=audioData, mediaViewerData=mediaViewerData, documentData=documentData, documentMenu=documentMenu, htmlRenderContext=htmlRenderContext, mediaData=mediaData, composerAttachments=composerAttachments, composerLook=composerLook, addProjectData=addProjectData, addProjectLook=addProjectLook, editAddProject=editAddProject, browseAddProject=browseAddProject, actAddProject=actAddProject, openAddProject=openAddProject, newTaskClone=newTaskClone, newTaskCloneLook=newTaskCloneLook, modelData=modelData, newTaskFlow=newTaskFlow, newTaskData=newTaskData, archiveLook=archiveLook, archiveData=archiveData, agentLook=agentLook, agents=agents, homeLook=homeLook, home=home, informationQuery=informationQuery, projectSavedRevision=projectSavedRevision, composerFocused=composerFocused,
               reviewComment=reviewComment, filesQuery=fileUi.query, mediaNativeOpen=mediaUi.nativeOpen, mediaNativeError=mediaUi.nativeError, modelQuery=modelQuery, modelLegacy=modelLegacy, modelFilterOwner=modelFilterOwner, newTaskQuery=newTaskQuery, branchQuery=branchQuery, archiveChrome=archiveChrome, host=pairingUi.host, code=pairingUi.code, formError=pairingUi.formError, expanded=pairingUi.expanded, scannerOpen=pairingUi.scannerOpen, cameraStatus=pairingUi.cameraStatus, composerExpanded=(composerExpanded and (composerEditor == `thread-composer-${entry.id}` or composerReturn.editorId == `thread-composer-${entry.id}`)), archiveDataPending=(pending(archiveRead)), archivedPending=(pending(archived)), automationChangedPending=(pending(automationChanged)),
               changedPending=(pending(changed) or pending(threadSubmissionChanged)), detailChangedPending=(pending(detailChanged)), modelChangedPending=(pending(modelChanged)), projectRenamedPending=(pending(projectRenamed)), taskChangedPending=(pending(taskChanged)), threadPreferencesChangedPending=(pending(threadPreferencesChanged)), toggleSidebar=toggleSidebar, openNewTask=openNewTask, voiceAction=voiceAction, informationCommand=informationCommand, informationSearch=informationSearch, openInformation=openInformation, threadPreferenceChange=threadPreferenceChange, renameProject=renameProject, automationAction=automationAction, serverSettingChange=serverSettingChange, providerAction=providerAction, providerField=providerField, providerSignOut=providerSignOut, settingsEnvironment=settingsEnvironment, changePreference=changePreference, settingsHeaderEvent=settingsHeaderEvent, openSetting=openSetting, homeEvent=homeEvent, richComposer=richComposer, richComposerAction=richComposerAction, richComposerEvent=richComposerEvent, richComposerMessage=richComposerMessage, threadSubmission=threadSubmission, threadLocalLook=threadLocalLook, threadLocalCommand=threadLocalCommand, editDraft=editDraft, composerFocus=composerFocus, threadAction=threadAction, browserAction=browserAction, devicesAction=devicesAction, browserMenu=browserMenu, devicesMenu=devicesMenu, openBrowser=openBrowser, openDevices=openDevices, terminalAction=terminalAction, terminalMenuConfiguration=terminalData.sourceJSON, terminalMenuEvent=terminalEvent, terminalEvent=terminalEvent, selectTerminalLine=selectTerminalLine, attachTerminalOutput=attachTerminalOutput, openReview=openReview, reviewAction=reviewAction, refreshReview=refreshReview, loadReviewFiles=loadReviewFiles, editReviewComment=editReviewComment, submitReviewComment=submitReviewComment,
@@ -1495,6 +1495,6 @@ component App
       MobileGitFeedback(feedback=gitFeedback, press=pressGitFeedback, left=workspace.sidebarContentWidth + 10.5, right=workspace.inspectorContentWidth + 10.5, top=layout.safeTop + 56, reduced=viewport.prefersReducedMotion, colors=gitLook)
       t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
-      when voiceData.globalVisible
+      if voiceData.globalVisible
         column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)
           VoiceGlobalPill(data=voiceData, colors=voiceLook, expanded=voicePillExpanded, width=min(320, viewport.width - 24), action=voiceAction, expand=expandVoicePill)

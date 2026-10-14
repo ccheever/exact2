@@ -52,7 +52,7 @@ shape ReviewRow
   viewed: bool
   additions: number
   deletions: number
-  tokens: list<ReviewToken>
+  tokens: ReviewToken[]
 
 shape ReviewFile
   id: string
@@ -81,9 +81,9 @@ shape ReviewSnapshot
   patchRequest: string
   title: string
   subtitle: string
-  sections: list<ReviewSection>
-  files: list<ReviewFile>
-  rows: list<ReviewRow>
+  sections: ReviewSection[]
+  files: ReviewFile[]
+  rows: ReviewRow[]
   loading: bool
   error: string
   notice: string

@@ -30,10 +30,10 @@ shape AgentActivityRow
   driver: string
   iconUrl: string
   metadata: string
-  workspace: list<AgentWorkspace>
+  workspace: AgentWorkspace[]
 
 shape AgentActivityData
-  rows: list<AgentActivityRow>
+  rows: AgentActivityRow[]
   runId: string
   turnActive: bool
   liveCount: number
@@ -52,14 +52,14 @@ component AgentActivity
         padding-right=17.5
         padding-bottom=(max(bottomInset, 16) + 8)
         font-family="DM Sans"
-        when length(data.rows) == 0
+        if data.rows.length == 0
           text "No agents in this turn." padding-top=21
             text-align="center"
             font-size=14
             line-height="19px"
             color=colors.muted
-        each row in data.rows key = row.id
-          when row.canOpen
+        for row in data.rows key = row.id
+          if row.canOpen
             button press=open(row.environmentId, row.childThreadId)
               aria-label=row.title
               testId=`agent-${row.id}`
@@ -99,13 +99,13 @@ component AgentActivityItem
               color=colors.muted
               aria-hidden=true
             text row.status flex-shrink=0 font-size=13 line-height="17px" font-weight=500 color=tone
-          when length(row.elapsed) > 0
+          if row.elapsed.length > 0
             text row.elapsed flex-shrink=0
               font-size=13
               line-height="17px"
               font-variant-numeric="tabular-nums"
               color=colors.muted
-          when row.canOpen
+          if row.canOpen
             t3-symbol symbol-name="chevron.right"
               point-size=12
               symbol-weight="regular"
@@ -119,7 +119,7 @@ component AgentActivityItem
             line-height="17px"
             color=colors.muted
             line-clamp=1
-          each item in row.workspace key = item.label
+          for item in row.workspace key = item.label
             row min-width=0 align-items="center" gap=5.25 aria-label=`${item.label}: ${item.value}`
               text "·" font-size=13 line-height="17px" color=colors.muted
               t3-symbol symbol-name=item.symbol
@@ -133,7 +133,7 @@ component AgentActivityItem
                 line-height="17px"
                 color=colors.muted
                 line-clamp=1
-        when length(row.detail) > 0
+        if row.detail.length > 0
           text row.detail font-size=13
             line-height="17px"
             color=(row.tone == "failed" ? colors.failed : colors.muted)

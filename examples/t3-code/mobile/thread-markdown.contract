@@ -3,14 +3,14 @@
 use ThreadBlock, ThreadColors from "./thread-shapes.contract"
 component ThreadMarkdown
   props
-    blocks: list<ThreadBlock>
+    blocks: ThreadBlock[]
     user: bool
     action: action
     colors: ThreadColors
   view
     column min-width=0
-      each block in blocks key=block.id
-        when block.kind == "code"
+      for block in blocks key=block.id
+        if block.kind == "code"
           column margin-top=10.5 margin-bottom=10.5
             min-width=0 max-width="100%" align-self="stretch"
             overflow="hidden" border-radius=7 border-width=1 border-style="solid"
@@ -27,7 +27,7 @@ component ThreadMarkdown
             view overflow-x="auto" overflow-y="hidden" max-width="100%"
               padding-left=12.25 padding-right=12.25 padding-top=10.5 padding-bottom=10.5
               text font-family="Menlo" font-size=13 line-height="19px" white-space="pre"
-                each token in block.tokens key=token.id
+                for token in block.tokens key=token.id
                   text token.text color=token.color font-weight=token.weight font-style=token.slant
         else
           text block.text markup="markdown" font-size=16 line-height="23px"

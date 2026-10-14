@@ -1,5 +1,6 @@
 // Regression cases from the captured draft/branch ownership review.
-import { expect, test } from 'bun:test';
+import { expect, spyOn, test } from 'bun:test';
+import * as branchProjection from './shared/r4-git-branch';
 import { noteNow } from './shared/composer-controls';
 import { MobileDraftClient } from './mobile-draft-recovery';
 import { mobileNewTaskPrepare, mobileNewTaskAction, mobileNewTaskCachedPrepare, mobileNewTask } from './new-task';
@@ -100,7 +101,7 @@ test('worktree to local chooses actual current checkout rather than old feature 
  expect(branch(f)).toBe('main');
 });
 
-async function cachedBranches() {
+async function cachedBranches(refs: Obj[] = [{name:'main',current:true,isDefault:true,worktreePath:'/a'}]) {
  const f=await selected(),base=f.native.later,rows=new Map<string,Obj>(),calls:Obj[]=[];let epoch=0;
  f.fleet.saved=[{environmentId:f.client.environmentId,origin:f.client.origin}];
  const prior=productionFleet.saved;productionFleet.saved=f.fleet.saved;
@@ -115,11 +116,85 @@ async function cachedBranches() {
    if(request.action==='remove'){const removed=rows.get(key)?.payload===request.expectedPayload?1:0;if(removed)rows.delete(key);value={removed};}
    return {ok:true,generation:0,value};
   }
-  if(request.method==='vcs.listRefs')return {ok:true,generation:f.client.generation,value:{refs:[{name:'main',current:true,isDefault:true,worktreePath:'/a'}],totalCount:1,nextCursor:null,isRepo:true,hasPrimaryRemote:true}};
+  if(request.method==='vcs.listRefs')return {ok:true,generation:f.client.generation,value:{refs,totalCount:refs.length,nextCursor:null,isRepo:true,hasPrimaryRemote:true}};
   return base(input);
  };
  return {...f,rows,cacheCalls:calls,restore:()=>{productionFleet.saved=prior;}};
 }
+test('loaded branch keys keep same-name metadata in original filtered order', async () => {
+ const f=await selected(),base=f.native.later;
+ const refs=[
+  {name:'feature',remoteName:'one',isRemote:true,current:false,isDefault:false,worktreePath:'/one'},
+  {name:'feature',remoteName:'two',isRemote:true,current:false,isDefault:false,worktreePath:'/two'},
+  {name:'main',current:true,isDefault:true,worktreePath:'/a'},
+ ];
+ f.native.later=async input=>obj(input).method==='vcs.listRefs'
+  ? {ok:true,generation:f.client.generation,value:{refs,totalCount:3,nextCursor:null,isRepo:true,hasPrimaryRemote:true}} : base(input);
+ await mobileNewTaskPrepare('',f.native,f.client);
+ expect(mobileNewTask('',f.client,f.fleet).branches.map(row=>[row.id,row.key,row.last])).toEqual([
+  ['feature','branch:one:feature:/one',false],['feature','branch:two:feature:/two',false],['main','branch:local:main:/a',true],
+ ]);
+ await mobileNewTaskPrepare('feature',f.native,f.client);
+ expect(mobileNewTask('',f.client,f.fleet).branches.map(row=>[row.id,row.key,row.last])).toEqual([
+  ['feature','branch:one:feature:/one',false],['feature','branch:two:feature:/two',true],
+ ]);
+});
+test('a changed raw descriptor sequence refuses publication after the actual shared projection', async () => {
+ for(const change of ['length','name']) {
+  const f=await selected();await mobileNewTaskPrepare('',f.native,f.client);
+  const before=mobileNewTask('',f.client,f.fleet).branches.map(row=>({...row}));
+  const original=branchProjection.cardBranchView;
+  const pause=spyOn(branchProjection,'cardBranchView').mockImplementation(async (...args)=>{
+   const view=await original(...args),refs=branchProjection.branchState(f.client).refs;
+   if(refs)refs.refs=change==='length'?[]:refs.refs.map(ref=>({...ref,name:'changed'}));
+   return view;
+  });
+  try {
+   await mobileNewTaskPrepare('',f.native,f.client);
+   const after=mobileNewTask('',f.client,f.fleet);
+   expect(after.error).toBe('The branch list changed before it could be displayed.');
+   expect(after.branches).toEqual(before);
+  } finally { pause.mockRestore(); }
+ }
+});
+test('offline branch keys preserve the same decoded metadata without granting selection', async () => {
+ const refs=[
+  {name:'main',current:true,isDefault:true,worktreePath:'/a'},
+  {name:'origin/topic',remoteName:'origin',isRemote:true,current:false,isDefault:false,worktreePath:null},
+ ];
+ const f=await cachedBranches(refs);
+ try {
+  await mobileNewTaskPrepare('',f.native,f.client);
+  const keys=mobileNewTask('',f.client,f.fleet).branches.map(row=>row.key);
+  expect(keys).toEqual(['branch:local:main:/a','branch:origin:origin/topic:']);
+  f.client.connection='disconnected';f.client.shellLive=false;f.cacheCalls.length=0;
+  await mobileNewTaskCachedPrepare('',f.native,f.client,()=>true,f.fleet);
+  const rows=mobileNewTask('',f.client,f.fleet).branches;
+  expect(rows.map(row=>row.key)).toEqual(keys);expect(rows.every(row=>row.disabled)).toBe(true);
+  expect(f.cacheCalls.map(row=>[row.op,row.action])).toEqual([['mobileClientCache','read']]);
+ } finally { f.restore(); }
+});
+test('existing branch-more pager appends a page without changing earlier keys or selection ids', async () => {
+ const f=await selected(),base=f.native.later,cursors:unknown[]=[];
+ f.native.later=async input=>{
+  const request=obj(input);
+  if(request.method!=='vcs.listRefs')return base(input);
+  const cursor=obj(request.payload).cursor;cursors.push(cursor);
+  const refs=cursor===100
+   ? [{name:'origin/topic',remoteName:'origin',isRemote:true,current:false,isDefault:false,worktreePath:null}]
+   : [{name:'main',current:true,isDefault:true,worktreePath:'/a'}];
+  return {ok:true,generation:f.client.generation,value:{refs,totalCount:2,nextCursor:cursor===100?null:100,isRepo:true,hasPrimaryRemote:true}};
+ };
+ await mobileNewTaskPrepare('',f.native,f.client);
+ expect(mobileNewTask('',f.client,f.fleet).branchHasMore).toBe(true);
+ expect((await mobileNewTaskAction('branch-more','','',f.native,f.files,f.client,f.fleet)).message).toBe('');
+ await mobileNewTaskPrepare('',f.native,f.client);
+ const after=mobileNewTask('',f.client,f.fleet);
+ expect(after.branches.map(row=>[row.id,row.key,row.last])).toEqual([
+  ['main','branch:local:main:/a',false],['origin/topic','branch:origin:origin/topic:',true],
+ ]);
+ expect(cursors.filter(cursor=>cursor===100)).toHaveLength(1);expect(after.branchHasMore).toBe(false);
+});
 test('actual new-task lexical list persists once then offline cache phase renders read-only rows',async()=>{
  const f=await cachedBranches();try{
   await mobileNewTaskPrepare('',f.native,f.client);
