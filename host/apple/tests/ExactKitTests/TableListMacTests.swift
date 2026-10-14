@@ -415,7 +415,18 @@ extension TableListMacTests {
                                  file: StaticString = #filePath, line: UInt = #line) throws {
         let y = try separatorBoundary(f, row: f.node(row), list: list)
         let ink = try boundaryInk(rep, y: y)
-        if present { XCTAssertGreaterThan(ink, 0, "\(note), \(row), y=\(y): the unowned boundary has a separator", file: file, line: line) }
+        if present {
+            XCTAssertGreaterThan(ink, 0, "\(note), \(row), y=\(y): the unowned boundary has a separator", file: file, line: line)
+            // The same-OS reference is alpha25/255. Two default lines painted
+            // over each other are about49/255, including after a chrome change.
+            let center = Int(y.rounded()), x = rep.pixelsWide / 2
+            if center >= 2, center + 1 < rep.pixelsHigh {
+                for yy in center - 2...center + 1 {
+                    XCTAssertLessThan(try XCTUnwrap(rep.colorAt(x: x, y: yy)).alphaComponent, 0.15,
+                                      "\(note): one default separator, not two composited lines", file: file, line: line)
+                }
+            }
+        }
         else { XCTAssertEqual(ink, 0, "\(note), \(row), y=\(y): no platform separator at an owned boundary", file: file, line: line) }
     }
 
@@ -486,28 +497,87 @@ extension TableListMacTests {
                 try assertSeparator(f, picture, row: "edge-6", present: true, note: "\(mode) \(button): the following row's bottom is unowned")
             }
             // A host batch may change provenance alone. Keep every effective
-            // value, the same NodeView and the same frame for all three states.
+            // value, the same NodeView and the same frame for every state.
             let original = bits.style
             var plain = original
             plain["border_style_bottom"] = .string("none")
             plain["border_width_bottom"] = .number(0)
-            let written = (plain["written"]?.array ?? []).filter { !["border_style_bottom", "border_width_bottom"].contains($0.string ?? "") }
+            let written = (plain["written"]?.array ?? []).filter { !["border_style_bottom", "border_width_bottom", "box_shadow"].contains($0.string ?? "") }
             plain["written"] = .array(written)
             let frame = bits.convert(bits.bounds, to: f.document)
-            for (step, owned) in [false, true, false].enumerated() {
+            let owners: [String?] = [nil, "border_style_bottom", nil, "border_width_bottom", nil, "box_shadow", nil]
+            for (step, owner) in owners.enumerated() {
                 var style = plain
-                if owned { style["written"] = .array(written + [.string("border_style_bottom")]) }
+                if let owner { style["written"] = .array(written + [.string(owner)]) }
                 f.presenter.apply(wireBatch([["op": "style", "id": bits.id, "style": style.mapValues(\.any)]]))
                 f.settle()
                 XCTAssertTrue(try f.node("edge-8") === bits)
                 XCTAssertEqual(bits.convert(bits.bounds, to: f.document), frame)
                 XCTAssertEqual(bits.style.filter { $0.key != "written" }, plain.filter { $0.key != "written" })
-                XCTAssertEqual(bits.wrote("border_style_bottom"), owned)
+                for name in ["border_style_bottom", "border_width_bottom", "box_shadow"] { XCTAssertEqual(bits.wrote(name), owner == name) }
                 let picture = try separatorPicture(f, name: "\(mode)-bits-\(step)")
-                try assertSeparator(f, picture, row: "edge-8", present: !owned, note: "\(mode): only ownership changed, step \(step)")
+                try assertSeparator(f, picture, row: "edge-8", present: owner == nil, note: "\(mode): only ownership changed, step \(step)")
             }
             f.presenter.apply(wireBatch([["op": "style", "id": bits.id, "style": original.mapValues(\.any)]]))
+            let hidden = bits.props["accessibilityElementsHidden"]
+            for (step, hidden) in [true, false].enumerated() {
+                f.presenter.apply(wireBatch([["op": "props", "id": bits.id, "set": ["accessibilityElementsHidden": hidden ? "true" : "false"]]]))
+                f.settle()
+                XCTAssertTrue(try f.node("edge-8") === bits)
+                XCTAssertFalse(bits.isHidden, "decorative row intent does not hide its authored pixels")
+                let picture = try separatorPicture(f, name: "\(mode)-decorative-\(step)")
+                try assertSeparator(f, picture, row: "edge-8", present: !hidden, note: "\(mode): decorative rows have no line")
+            }
+            f.presenter.apply(wireBatch([["op": "props", "id": bits.id, "set": hidden.map { ["accessibilityElementsHidden": $0] } ?? [:],
+                                          "clear": hidden == nil ? ["accessibilityElementsHidden"] : []]]))
+            // AppKit omits a hidden child from its table rows. It still owns
+            // the logical predecessor's edge under the shared row policy.
+            let nextStyle = next.style
+            for (step, hide) in [true, false].enumerated() {
+                var style = nextStyle
+                if hide {
+                    style["display"] = .string("none")
+                    style["border_width_top"] = .number(0)
+                    style["written"] = .array((nextStyle["written"]?.array ?? []) + [.string("border_width_top")])
+                }
+                f.presenter.apply(wireBatch([["op": "style", "id": next.id, "style": style.mapValues(\.any)]]))
+                f.settle()
+                XCTAssertTrue(try f.node("edge-6") === next)
+                XCTAssertEqual(next.isHidden, hide)
+                if !painted { XCTAssertEqual(f.presenter.tables.feeds[f.list.id]?.rows.contains { $0.node === next }, !hide) }
+                let picture = try separatorPicture(f, name: "\(mode)-hidden-next-\(step)")
+                try assertSeparator(f, picture, row: "edge-5", present: !hide, note: "\(mode): logical next child owns the boundary")
+            }
         }
+    }
+
+    func testWindowedShadowIntentBelongsToTheWrapperAndPaintedLinesTearDown() throws {
+        let f = try TableFixture(count: 0, source: Self.separatorSource(windowed: true))
+        fixture = f
+        let child = try f.node("edge-0"), wrapper = try XCTUnwrap(f.feed.rows.first { $0.root == child.id }?.node)
+        let childStyle = child.style, wrapperStyle = wrapper.style
+        func shadow(_ node: NodeView, _ original: NodeStyle, owned: Bool) {
+            var style = original
+            let written = (original["written"]?.array ?? []).filter { $0.string != "box_shadow" }
+            style["written"] = .array(written + (owned ? [.string("box_shadow")] : []))
+            f.presenter.apply(wireBatch([["op": "style", "id": node.id, "style": style.mapValues(\.any)]]))
+        }
+        for painted in [false, true] {
+            let mode = painted ? "painted" : "native"
+            f.presenter.tables.painted = painted
+            for (step, own) in [(false, false), (true, false), (true, true), (false, false)].enumerated() {
+                shadow(child, childStyle, owned: own.0)
+                shadow(wrapper, wrapperStyle, owned: own.1)
+                f.settle()
+                XCTAssertTrue(try f.node("edge-0") === child)
+                XCTAssertTrue(f.presenter.views[wrapper.id] === wrapper)
+                let picture = try separatorPicture(f, name: "\(mode)-wrapper-shadow-\(step)")
+                try assertSeparator(f, picture, row: "edge-0", present: !own.1, note: "\(mode): the wrapper owns its shadow")
+            }
+        }
+        f.presenter.tables.reset()
+        let picture = try separatorPicture(f, name: "painted-after-reset")
+        try assertSeparator(f, picture, row: "edge-0", present: false, note: "reset removes the painted separator")
     }
 
     func testWindowedSeparatorOwnershipSurvivesRemountingAndChromeChanges() throws {
