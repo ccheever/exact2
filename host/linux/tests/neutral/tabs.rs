@@ -427,3 +427,509 @@ fn route_header_tab_bar_defaults_compose() {
         assert!(!node.style.mask.has(row) && !node.style.written.has(row));
     }
 }
+
+// Measured in Chrome 155 with matching ambient/authored light and dark schemes.
+const TAB_GEOMETRY: &str = r##"style OwnGeometry
+  width=80
+  height=30
+  min-height=0
+  padding=2
+  font-size=18
+style Plain
+  opacity=1
+component App
+  state own = false
+  state gate = 0
+  state taps = 0
+  state rootSize = "medium"
+  action pressTab
+    taps = taps + 1
+  action toggle
+    own = !own
+  action cycle
+    gate = (gate + 1) % 4
+  action larger
+    setRootFontSize("125%")
+    rootSize = "125%"
+  action reset
+    setRootFontSize("medium")
+    rootSize = "medium"
+  view
+    column width="100%" gap=8 color-scheme="SCHEME" background-color="-exact-background" testId="page"
+      row role="tablist" testId="basic"
+        button role="tab" aria-controls="missing" press=pressTab flex=1 testId="leading"
+          image "symbol:book" testId="leading-image"
+          text "Library" testId="leading-title"
+        button role="tab" aria-controls="" buttonStyle="gray" flex=1 testId="title-only"
+          text "Reading" testId="title-only-title"
+        button role="tab" aria-controls="missing" aria-label="Library" flex=1 testId="image-only"
+          image "symbol:book" testId="image-only-image"
+      row role="tablist" align-items="flex-start" testId="natural"
+        button role="tab" aria-controls="missing" testId="natural-leading"
+          image "symbol:book" testId="natural-leading-image"
+          text "Library" testId="natural-leading-title"
+        button role="tab" aria-controls="missing" testId="trailing"
+          text "Library" testId="trailing-title"
+          image "symbol:book" testId="trailing-image"
+        button role="tab" aria-controls="missing" testId="tiny"
+          text "I" testId="tiny-title"
+      row role="tablist" align-items="flex-start" testId="sizing"
+        button role="tab" aria-controls="missing" width=80 height=24 testId="size-only"
+          text "Size" testId="size-only-title"
+        button role="tab" aria-controls="missing" width=80 height=24 min-height=0 testId="size-min"
+          text "Size" testId="size-min-title"
+        button role="tab" aria-controls="missing" width=80 height=24 min-height=0 padding=0 testId="size-padding"
+          text "Size" testId="size-padding-title"
+      row role="tablist" align-items="flex-start" testId="font-local"
+        button role="tab" aria-controls="missing" font-size=20 testId="local20"
+          image "symbol:book" testId="local20-image"
+          text "Library" testId="local20-title"
+        button role="tab" aria-controls="missing" testId="child20"
+          image "symbol:book" testId="child20-image"
+          text "Library" font-size=20 testId="child20-title"
+      row role="tablist" align-items="flex-start" testId="overrides"
+        button role="tab" aria-controls="missing" class=(own ? OwnGeometry : Plain) testId="class-tab"
+          image "symbol:book" testId="class-image"
+          text "Library" testId="class-title"
+        button role="tab" aria-controls="missing" flex-direction="row" gap=5 testId="own-row"
+          image "symbol:book" testId="own-row-image"
+          text "Library" testId="own-row-title"
+        button role="tab" aria-controls="missing" flex-direction="column" gap=5 testId="own-column"
+          image "symbol:book" testId="own-column-image"
+          text "Library" testId="own-column-title"
+      row role="tablist" align-items="flex-start" testId="customs"
+        button role="tab" aria-controls="missing" appearance="none" testId="custom"
+          text "Custom"
+        button role="tab" aria-controls="missing" buttonStyle="filled" testId="filled"
+          image "symbol:book" testId="filled-image"
+          text "Filled" testId="filled-title"
+        column
+          button role="tab" aria-controls="missing" testId="wrapped"
+            image "symbol:book" testId="wrapped-image"
+            text "Wrapped" testId="wrapped-title"
+      row role=(gate == 1 ? "group" : "tablist") align-items="flex-start" testId="membership"
+        if gate == 3
+          button role="tab" testId="member-absent"
+            image "symbol:book" testId="member-absent-image"
+            text "Member" testId="member-absent-title"
+        else
+          button role=(gate == 2 ? "button" : "tab") aria-controls="" testId="member"
+            image "symbol:book" testId="member-image"
+            text "Member" testId="member-title"
+      row align-items="flex-start" testId="outside-row"
+        button testId="outside"
+          image "symbol:book" testId="outside-image"
+          text "Outside" testId="outside-title"
+      text `Taps ${taps}` testId="taps"
+      text (own ? "Own" : "Plain") testId="mode"
+      text `Gate ${gate}` testId="gate"
+      text rootSize testId="root-size"
+      row flex-wrap="wrap" gap=4
+        button press=toggle testId="toggle"
+          text "Own / Plain"
+        button press=cycle testId="cycle"
+          text "Cycle membership"
+        button press=larger testId="larger"
+          text "Root 125%"
+        button press=reset testId="reset"
+          text "Root medium"
+"##;
+
+fn close_tab_length(actual: f32, expected: f32, name: &str) {
+    // Chrome allocates flex lengths in 1/64px units; this is not a pixel tolerance.
+    assert!(
+        (actual - expected).abs() < 0.02,
+        "{name}: {actual} != {expected}"
+    );
+}
+
+fn tab_action(p: &mut Presenter<()>, name: &str) {
+    p.tap(id(p, name)).unwrap();
+    p.blur();
+    p.set_pointer(None);
+}
+
+// Glyphs may differ between font engines. Require positive ink in each measured
+// image/title box and none outside their union, allowing only pixel/box intersection.
+fn tab_ink_boxes(
+    p: &mut Presenter<()>,
+    name: &str,
+    ground: [u8; 3],
+    regions: &[(f32, f32, f32, f32)],
+) {
+    let (left, top, width, height) = p.rect_of(id(p, name)).unwrap();
+    let shot = p.frame();
+    let mut counts = vec![0; regions.len()];
+    for y in top.ceil() as u32..(top + height).floor() as u32 {
+        for x in left.ceil() as u32..(left + width).floor() as u32 {
+            let c = shot.pixel(x, y).unwrap();
+            if [c.red(), c.green(), c.blue()] == ground {
+                continue;
+            }
+            let mut inside = false;
+            for (i, &(rx, ry, rw, rh)) in regions.iter().enumerate() {
+                if (x as f32) < left + rx + rw
+                    && x as f32 + 1.0 > left + rx
+                    && (y as f32) < top + ry + rh
+                    && y as f32 + 1.0 > top + ry
+                {
+                    counts[i] += 1;
+                    inside = true;
+                }
+            }
+            assert!(inside, "{name}: ink outside measured face boxes at {x},{y}");
+        }
+    }
+    assert!(
+        counts.iter().all(|n| *n > 0),
+        "{name}: missing face ink {counts:?}"
+    );
+}
+
+fn tab_geometry_at_root(p: &mut Presenter<()>, width: f32, root: f32, ground: [u8; 3]) {
+    let (height, symbol, line, padding) = if root == 16.0 {
+        (56.0, 22.0, 15.0, 8.0)
+    } else {
+        (70.0, 27.5, 18.75, 10.0)
+    };
+    assert_eq!(p.host().kernel().root_font_size(), root);
+    assert_eq!(size(p, "basic"), (width, height + 1.0));
+    let mut shared = 0.0;
+    for name in ["leading", "title-only", "image-only"] {
+        let (w, h) = size(p, name);
+        close_tab_length(w, width / 3.0, name);
+        assert_eq!(h, height, "{name}");
+        shared += w;
+    }
+    close_tab_length(shared, width, "authored flex shares available width");
+    for name in [
+        "natural-leading",
+        "trailing",
+        "own-row",
+        "own-column",
+        "class-tab",
+        "member",
+    ] {
+        assert_eq!(size(p, name).1, height, "{name}");
+    }
+    close_tab_length(
+        size(p, "tiny").0,
+        if root == 16.0 { 27.0 } else { 33.75 },
+        "tiny minimum",
+    );
+    assert_eq!(size(p, "size-only"), (80.0, height));
+    assert_eq!(size(p, "size-min"), (80.0, 24.0));
+    assert_eq!(size(p, "size-padding"), (80.0, 24.0));
+    for name in ["size-min", "size-padding"] {
+        tab_ink_boxes(p, name, ground, &[(0.0, (24.0 - line) / 2.0, 80.0, line)]);
+    }
+    for name in ["local20", "child20"] {
+        assert_eq!(
+            size(p, name).1,
+            if root == 16.0 { 61.0 } else { 70.0 },
+            "{name}"
+        );
+        let rows = p.host().kernel().button_face_style(id(p, name)).unwrap();
+        assert_eq!(rows.title.font_size, 20.0);
+        assert!(rows.title.mask.has(exact_kernel::StyleId::FontSize));
+    }
+    // These differences cancel the common title's host-specific measured width.
+    let leading = size(p, "natural-leading").0;
+    let trailing = size(p, "trailing").0;
+    close_tab_length(
+        trailing - leading,
+        symbol,
+        "trailing image stays beside the title",
+    );
+    close_tab_length(size(p, "own-row").0 - trailing, 5.0, "authored row gap");
+    close_tab_length(size(p, "own-column").0, leading, "authored column width");
+    for name in ["filled", "wrapped", "outside"] {
+        assert_eq!(
+            size(p, name).1,
+            if root == 16.0 { 36.0 } else { 45.0 },
+            "{name}"
+        );
+    }
+    for (name, gap, title_line) in [
+        ("leading", 2.0, line),
+        ("natural-leading", 2.0, line),
+        ("own-column", 5.0, line),
+        ("local20", 2.0, 25.0),
+        ("child20", 2.0, 25.0),
+    ] {
+        let (w, h) = size(p, name);
+        let y = (h - symbol - gap - title_line) / 2.0;
+        tab_ink_boxes(
+            p,
+            name,
+            ground,
+            &[
+                ((w - symbol) / 2.0, y, symbol, symbol),
+                (padding, y + symbol + gap, w - 2.0 * padding, title_line),
+            ],
+        );
+    }
+    let (w, h) = size(p, "image-only");
+    tab_ink_boxes(
+        p,
+        "image-only",
+        ground,
+        &[((w - symbol) / 2.0, (h - symbol) / 2.0, symbol, symbol)],
+    );
+    let (w, h) = size(p, "title-only");
+    tab_ink_boxes(
+        p,
+        "title-only",
+        ground,
+        &[(padding, (h - line) / 2.0, w - padding * 2.0, line)],
+    );
+    let (w, h) = size(p, "trailing");
+    tab_ink_boxes(
+        p,
+        "trailing",
+        ground,
+        &[
+            (padding, (h - line) / 2.0, w - padding * 2.0 - symbol, line),
+            (w - padding - symbol, (h - symbol) / 2.0, symbol, symbol),
+        ],
+    );
+    let (w, h) = size(p, "own-row");
+    tab_ink_boxes(
+        p,
+        "own-row",
+        ground,
+        &[
+            (padding, (h - symbol) / 2.0, symbol, symbol),
+            (
+                padding + symbol + 5.0,
+                (h - line) / 2.0,
+                w - padding * 2.0 - symbol - 5.0,
+                line,
+            ),
+        ],
+    );
+}
+
+pub(super) fn narrow_tab_geometry_follows_root_metrics_and_authored_rows() {
+    use exact_kernel::StyleId;
+    for (scheme, ground) in [("light", [255; 3]), ("dark", [18; 3])] {
+        let plan = contract::compile(&TAB_GEOMETRY.replace("SCHEME", scheme)).unwrap();
+        for width in [320.0, 640.0] {
+            let (mut p, error) = Presenter::boot_with(
+                &plan.encode(),
+                (),
+                (width, 1000.0),
+                1.0,
+                std::path::PathBuf::new(),
+                PainterChoice::Cpu,
+            )
+            .unwrap();
+            assert!(error.is_none(), "{error:?}");
+            assert!(p
+                .set_preferences(exact_runner::Preferences {
+                    dark: scheme == "dark",
+                    ..Default::default()
+                })
+                .is_none());
+            p.set_system_scheme(scheme == "dark");
+            tab_geometry_at_root(&mut p, width, 16.0, ground);
+            let raw: Vec<_> = [
+                "leading",
+                "title-only",
+                "image-only",
+                "local20",
+                "child20",
+                "own-row",
+                "own-column",
+            ]
+            .into_iter()
+            .map(|name| {
+                let node = p.host().kernel().node(id(&p, name)).unwrap();
+                assert_eq!(
+                    exact_kernel::ControlKind::of(node.node_type, node.props),
+                    Some(exact_kernel::ControlKind::Button)
+                );
+                for row in [
+                    StyleId::MinHeight,
+                    StyleId::PaddingTop,
+                    StyleId::PaddingRight,
+                    StyleId::PaddingBottom,
+                    StyleId::PaddingLeft,
+                ] {
+                    assert!(
+                        !node.style.mask.has(row) && !node.style.written.has(row),
+                        "{name}: {row:?}"
+                    );
+                }
+                (name, node.style.mask, node.style.written)
+            })
+            .collect();
+            let local_width = size(&mut p, "local20").0;
+            tab_action(&mut p, "larger");
+            assert_eq!(
+                p.host().kernel().bar_text(id(&p, "root-size")).as_deref(),
+                Some("125%")
+            );
+            tab_geometry_at_root(&mut p, width, 20.0, ground);
+            close_tab_length(
+                size(&mut p, "local20").0 - local_width,
+                4.0,
+                "root padding with fixed local font",
+            );
+            for (name, mask, written) in raw {
+                let node = p.host().kernel().node(id(&p, name)).unwrap();
+                assert_eq!(
+                    (node.style.mask, node.style.written),
+                    (mask, written),
+                    "{name}"
+                );
+            }
+            tab_action(&mut p, "reset");
+            tab_geometry_at_root(&mut p, width, 16.0, ground);
+            tab_action(&mut p, "leading");
+            assert_eq!(
+                p.host().kernel().bar_text(id(&p, "taps")).as_deref(),
+                Some("Taps 1")
+            );
+
+            let original = size(&mut p, "class-tab");
+            for own in [true, false] {
+                tab_action(&mut p, "toggle");
+                assert_eq!(
+                    size(&mut p, "class-tab"),
+                    if own { (80.0, 30.0) } else { original }
+                );
+                let node = p.host().kernel().node(id(&p, "class-tab")).unwrap();
+                for row in [
+                    StyleId::Width,
+                    StyleId::Height,
+                    StyleId::MinHeight,
+                    StyleId::PaddingTop,
+                    StyleId::PaddingRight,
+                    StyleId::PaddingBottom,
+                    StyleId::PaddingLeft,
+                    StyleId::FontSize,
+                ] {
+                    assert_eq!(node.style.mask.has(row), own, "{row:?}");
+                    assert_eq!(node.style.written.has(row), own, "{row:?}");
+                }
+                let rows = p.host().kernel().button_face_style(node.id).unwrap();
+                if own {
+                    assert_eq!(rows.title.font_size, 18.0);
+                    assert_eq!(
+                        [
+                            rows.button.padding_top,
+                            rows.button.padding_right,
+                            rows.button.padding_bottom,
+                            rows.button.padding_left
+                        ],
+                        [exact_kernel::Dimension::Points(2.0); 4]
+                    );
+                }
+            }
+            let member = id(&p, "member");
+            for gate in [1, 2, 3, 0] {
+                tab_action(&mut p, "cycle");
+                assert_eq!(
+                    p.host().kernel().bar_text(id(&p, "gate")).as_deref(),
+                    Some(format!("Gate {gate}").as_str())
+                );
+                if gate == 3 {
+                    // This is child replacement. Segmented geometry remains a separate slice.
+                    assert!(p.host().kernel().find_by_test_id("member").is_empty());
+                    assert!(!p
+                        .host()
+                        .kernel()
+                        .node(id(&p, "member-absent"))
+                        .unwrap()
+                        .is_neutral_tab());
+                } else {
+                    if gate != 0 {
+                        assert_eq!(id(&p, "member"), member);
+                    }
+                    assert_eq!(
+                        size(&mut p, "member").1,
+                        if gate == 0 { 56.0 } else { 36.0 }
+                    );
+                }
+            }
+            tab_retained_membership_changes(&mut p, width);
+        }
+    }
+}
+
+fn tab_retained_membership_changes(p: &mut Presenter<()>, width: f32) {
+    use exact_kernel::{Op, PropId, PropValue};
+    let member = id(p, "member");
+    let parent = id(p, "membership");
+    let outside = id(p, "outside-row");
+    let (raw, key, siblings) = {
+        let k = p.host().kernel();
+        let node = k.node(member).unwrap();
+        (
+            (node.style.mask, node.style.written),
+            node.key,
+            k.node(outside).unwrap().children().to_vec(),
+        )
+    };
+    for present in [false, true] {
+        let op = if present {
+            Op::SetProp {
+                id: member,
+                prop: PropId::AccessibilityControls,
+                value: PropValue::Str("".into()),
+            }
+        } else {
+            Op::ClearProp {
+                id: member,
+                prop: PropId::AccessibilityControls,
+            }
+        };
+        let receipt = p
+            .host_mut()
+            .runner_mut()
+            .kernel_mut()
+            .apply(0, 1, &[op])
+            .unwrap();
+        assert!(receipt.layout_invalidated && receipt.touched.contains(&key));
+        // Same-size host layout consumes the low-level mutation without changing the viewport.
+        assert!(p.resize(width, 1000.0).is_none());
+        let node = p.host().kernel().node(member).unwrap();
+        assert_eq!(node.is_neutral_tab(), present);
+        assert_eq!((node.style.mask, node.style.written), raw);
+        if present {
+            assert_eq!(size(p, "member").1, 56.0);
+        }
+    }
+    for in_bar in [false, true] {
+        let children = if in_bar {
+            vec![member]
+        } else {
+            siblings.iter().copied().chain([member]).collect()
+        };
+        let receipt = p
+            .host_mut()
+            .runner_mut()
+            .kernel_mut()
+            .apply(
+                0,
+                1,
+                &[Op::SetChildren {
+                    id: if in_bar { parent } else { outside },
+                    children,
+                }],
+            )
+            .unwrap();
+        assert!(receipt.layout_invalidated && receipt.touched.contains(&key));
+        assert!(p.resize(width, 1000.0).is_none());
+        assert_eq!(id(p, "member"), member);
+        assert_eq!(size(p, "member").1, if in_bar { 56.0 } else { 36.0 });
+        let node = p.host().kernel().node(member).unwrap();
+        assert_eq!(node.is_neutral_tab(), in_bar);
+        assert_eq!((node.style.mask, node.style.written), raw);
+    }
+    assert_eq!(
+        p.host().kernel().node(outside).unwrap().children(),
+        siblings.as_slice()
+    );
+}
