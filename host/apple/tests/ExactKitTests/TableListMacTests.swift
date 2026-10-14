@@ -346,12 +346,16 @@ extension TableListMacTests {
                   text "Own next top"
                 button press=change(0) testId="clear"
                   text "Clear"
+                button press=change(3) testId="hide-next"
+                  text "Hide next"
                 text `Bumps ${bumps}` testId="status"
               list \(windowed ? "virtualized=true estimated-item-height=48" : "") flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" testId="rows"
                 for r in rows key=`k${r}`
                   row testId=`edge-${r}` height=40 width="100%" box-sizing="border-box" align-items="center"
                     border-bottom=(r % 10 == 1 ? "3px solid #ff0000" : (r % 10 == 2 or (r == 5 and edge == 1) ? "none" : none))
                     border-top=(r % 10 == 4 or (r == 6 and edge == 2) ? "none" : none)
+                    border-top-width=(r == 6 and edge == 3 ? 0 : none)
+                    \(windowed ? "" : "display=(r == 6 and edge == 3 ? \"none\" : \"flex\")")
                     margin-bottom=\(windowed ? "8" : "(r % 10 == 1 ? 8 : 0)")
                     text `Row ${r}` flex=1
                     if r % 10 == 7
@@ -530,20 +534,44 @@ extension TableListMacTests {
             }
             f.presenter.apply(wireBatch([["op": "props", "id": bits.id, "set": hidden.map { ["accessibilityElementsHidden": $0] } ?? [:],
                                           "clear": hidden == nil ? ["accessibilityElementsHidden"] : []]]))
-            // AppKit omits a hidden child from its table rows. It still owns
-            // the logical predecessor's edge under the shared row policy.
-            let nextStyle = next.style
+            // Drive display through Contract so the runner publishes the
+            // hidden and restored frames as well as the authored top edge.
+            let nextBefore = next.convert(next.bounds, to: f.document)
+            let observedLock = NSLock()
+            var observed: [(Data, Batch)] = []
+            f.session.runtime.observeBatch = { data, batch in
+                observedLock.lock(); defer { observedLock.unlock() }
+                observed.append((data, batch))
+            }
+            defer { f.session.runtime.observeBatch = nil }
             for (step, hide) in [true, false].enumerated() {
-                var style = nextStyle
-                if hide {
-                    style["display"] = .string("none")
-                    style["border_width_top"] = .number(0)
-                    style["written"] = .array((nextStyle["written"]?.array ?? []) + [.string("border_width_top")])
-                }
-                f.presenter.apply(wireBatch([["op": "style", "id": next.id, "style": style.mapValues(\.any)]]))
+                observedLock.lock(); observed.removeAll(); observedLock.unlock()
+                f.presenter.press(try f.node(hide ? "hide-next" : "clear").id)
                 f.settle()
+                observedLock.lock(); let captured = observed; observedLock.unlock()
+                let frames = captured.flatMap { $0.1.ops.filter { $0.op == .frame && $0.id == next.id } }
+                if let directory = ProcessInfo.processInfo.environment["EXACT_PROOF_SHOTS"] {
+                    func rect(_ r: NSRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map(Double.init) }
+                    let receipt: [String: Any] = ["hidden": hide, "row": own.id, "next": next.id,
+                        "before": rect(nextBefore), "actualViewFrame": rect(next.frame),
+                        "actualDocumentFrame": next.superview == nil ? NSNull() : rect(next.convert(next.bounds, to: f.document)),
+                        "boundary": try separatorBoundary(f, row: own),
+                        "batches": try captured.map { try JSONSerialization.jsonObject(with: $0.0) }]
+                    let url = URL(fileURLWithPath: directory).appendingPathComponent("separator-\(mode)-hidden-next-\(step).json")
+                    XCTAssertFalse(FileManager.default.fileExists(atPath: url.path), "proof receipts must not overwrite an earlier run")
+                    if !FileManager.default.fileExists(atPath: url.path) {
+                        try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys]).write(to: url)
+                    }
+                }
                 XCTAssertTrue(try f.node("edge-6") === next)
                 XCTAssertEqual(next.isHidden, hide)
+                XCTAssertEqual(next.wrote("border_width_top"), hide)
+                XCTAssertTrue(captured.allSatisfy { $0.1.error == nil })
+                let published = try XCTUnwrap(frames.last, "the actual runner publishes the changed hidden/restored frame")
+                XCTAssertEqual(published.w, hide ? 0 : Double(nextBefore.width))
+                XCTAssertEqual(published.h, hide ? 0 : Double(nextBefore.height))
+                if !hide { XCTAssertEqual(next.convert(next.bounds, to: f.document), nextBefore, "restoration returns to the runner's original frame") }
+                XCTAssertEqual(own.convert(own.bounds, to: f.document), before, "hiding the next row leaves the predecessor's box")
                 if !painted { XCTAssertEqual(f.presenter.tables.feeds[f.list.id]?.rows.contains { $0.node === next }, !hide) }
                 let picture = try separatorPicture(f, name: "\(mode)-hidden-next-\(step)")
                 try assertSeparator(f, picture, row: "edge-5", present: !hide, note: "\(mode): logical next child owns the boundary")
