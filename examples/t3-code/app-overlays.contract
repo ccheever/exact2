@@ -214,12 +214,12 @@ component WindowOverlays
       R4DeviceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
     // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     when data.serverUpdate.confirmTitle != ""
-      AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+      AppConfirm(confirmLabel="Confirm", title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
     // usage-reset-and-feedback: the /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
     when data.composer.resetConfirm != ""
       ResetCreditDialog(prefix="cclocal:usage", target=data.composer.resetConfirm, busy=commandPending, command=command)
     when confirmOp != ""
-      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", cancel=confirmUi(false), confirm=confirmUi(true))
+      AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", confirmLabel=(confirmOp == "cc:branch-restore-confirmed" ? "Switch branch" : "Confirm"), cancel=confirmUi(false), confirm=confirmUi(true))
     when scheme == "dark"
       ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
     else
