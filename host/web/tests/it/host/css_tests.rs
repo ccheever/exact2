@@ -509,14 +509,14 @@ fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
 #[test]
 fn explicit_clears_emit_css_unset_instead_of_removing_the_declaration() {
     let plan = contract::compile(
-        r##"component App
+        r##"style Colored
+  color="#abcdef"
+style Empty
+  opacity=1
+component App
   state clear = true
   action toggle
     clear = not clear
-  class Colored
-    color "#abcdef"
-  class Empty
-    opacity 1
   view
     main navigationKey="/" color="#123456"
       button "Toggle" testId="toggle" press=toggle
@@ -564,8 +564,50 @@ fn explicit_clears_emit_css_unset_instead_of_removing_the_declaration() {
     assert!(css(&first, id("bound")).contains("color:unset;"));
     assert!(!css(&first, id("class")).contains("color:"));
     let set = host.dispatch(id("toggle"), Event::Press);
-    assert!(css(&set, id("bound")).contains("color:rgb(171,205,239);"));
+    assert!(css(&set, id("bound")).contains("color:#abcdefff;"));
     let cleared = host.dispatch(id("toggle"), Event::Press);
     assert!(css(&cleared, id("bound")).contains("color:unset;"));
     assert!(!css(&cleared, id("class")).contains("color:"));
+}
+
+#[test]
+fn explicit_clears_preserve_special_host_row_contracts() {
+    use exact_kernel::{StyleId::*, StyleMask, StyleProps, StyleValue};
+    for (id, expected, skipped) in [
+        (TextColor, "color:unset;", false),
+        (TextBoxEdge, "text-box-edge:unset;", false),
+        (
+            TintColor,
+            "--exact-tint:var(--exact-accent, AccentColor);",
+            false,
+        ),
+        (
+            AccentColor,
+            "accent-color:unset;--exact-accent:unset;",
+            false,
+        ),
+        (ControlSize, "--exact-control-font-size:medium;", false),
+        (ExitAnimation, "", false),
+        (RotateAxis, "", false),
+        (SymbolRendering, "", true),
+    ] {
+        let mut style = StyleProps::default();
+        style.written = StyleMask::of(id);
+        let (css, warnings) = css_text(&style, &[]);
+        assert_eq!(css, expected, "{id:?}");
+        assert_eq!(warnings.iter().any(|w| w.row == id), skipped, "{id:?}");
+    }
+    let mut style = StyleProps::default();
+    style.set_dynamic(Scale, &StyleValue::Number(2.0)).unwrap();
+    style.written.set(PressScale);
+    assert_eq!(css_text(&style, &[]).0, "scale:2;");
+    style.clear(StyleMask::of(Scale));
+    style
+        .set_dynamic(PressScale, &StyleValue::Number(0.95))
+        .unwrap();
+    style.written.set(Scale);
+    let css = css_text(&style, &[]).0;
+    assert!(css.contains("--exact-scale:1;"), "{css}");
+    assert!(css.contains("scale:calc("), "{css}");
+    assert!(!css.contains("--exact-press:unset"), "{css}");
 }

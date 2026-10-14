@@ -4,6 +4,7 @@
 //! new schema rows need no mapping unless their name or unit differs.
 //! Unsupported rows are reported in [`Skipped`].
 
+mod clears;
 mod fonts;
 pub use fonts::{font_alias, font_family_names, runtime_font_family};
 
@@ -75,9 +76,7 @@ fn css_text_in(
     // @ref LLP 1061: row scale and host feedback multiply independently.
     let press = press_composes(style);
     for id in style.mask.union(style.written).iter() {
-        if !style.mask.has(id) {
-            property(&mut out, id);
-            out.push_str(":unset;");
+        if !style.mask.has(id) && clears::push(&mut out, id, press) {
             continue;
         }
         let value = style.get(id);

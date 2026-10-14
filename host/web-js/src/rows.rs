@@ -252,11 +252,11 @@ impl Em<'_> {
                 let press = self.uses.rt("pressFeedback");
                 let _ = write!(self.out, "{press}();");
                 vec![
-                    ("--exact-press".into(), String::new(), Some("v=>v==null||v===1?null:v".into())),
+                    ("--exact-press".into(), String::new(), Some("v=>v==null||v===1||/^\\s*unset\\s*$/i.test(v)?null:v".into())),
                     (
                         "scale".into(),
                         String::new(),
-                        Some("v=>v==null||v===1?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
+                        Some("v=>v==null||v===1||/^\\s*unset\\s*$/i.test(v)?null:\"calc(var(--exact-scale,1) * var(--exact-press-factor,1))\"".into()),
                     ),
                 ]
             }
@@ -325,7 +325,7 @@ impl Em<'_> {
                             .join("|");
                         let inner = map.unwrap_or_else(|| "v=>v".into());
                         Some(format!(
-                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return null}}return({inner})(v)}}",
+                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return \"unset\"}}return({inner})(v)}}",
                             id.name().replace('_', "-")
                         ))
                     } else {
@@ -898,15 +898,20 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("exact-column-count-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let page = dir.join("col.html");
+        let cursor_writes = style::style_writes(StyleId::Cursor as u16, false).unwrap();
+        let cursor_map = cursor_writes[0].map.unwrap();
         let html = format!(
-            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}</style><div id="flow">column</div><pre id="out"></pre><script>
-const journal=[];
+            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}button{{cursor:default}}</style><div id="flow">column</div><div style="cursor:grab"><button id="cursor">Cursor</button></div><pre id="out"></pre><script>
+const journal=[];globalThis.exact={{journal,now:()=>0}};
 function css(e,prop,unit,v){{const t=v==null?null:typeof v==="number"?v+unit:String(v);if(t==null){{e.style.removeProperty(prop);return}}e.style.removeProperty(prop);e.style.setProperty(prop,t);if(!e.style.getPropertyValue(prop))journal.push(`unset ${{prop}}: ${{JSON.stringify(v)}} is not a value it takes`)}}
 const map={map_src};const unit={unit:?};const flow=document.getElementById("flow");
 const apply=v=>css(flow,"column-count",unit,map(v));
 apply(2);const after2=getComputedStyle(flow).columnCount;const journal2=journal.slice();journal.length=0;
 apply(0);const after0=getComputedStyle(flow).columnCount;
-document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0:journal.slice(),inline:flow.style.getPropertyValue("column-count")}});
+const journal0=journal.slice();journal.length=0;
+const cursorMap={cursor_map},cursor=document.getElementById("cursor");
+const cursors=["pointer","inherit","unset","not-a-cursor",null].map(v=>{{css(cursor,"cursor","",cursorMap(v));return getComputedStyle(cursor).cursor}});
+document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0,inline:flow.style.getPropertyValue("column-count"),cursors,cursorJournal:journal}});
 </script>"#
         );
         std::fs::write(&page, html).unwrap();
@@ -965,6 +970,16 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
         assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");
         assert_eq!(computed["journal0"], serde_json::json!([]), "{computed}");
         assert_eq!(computed["inline"], "auto", "{computed}");
+        assert_eq!(
+            computed["cursors"],
+            serde_json::json!(["pointer", "grab", "grab", "grab", "default"]),
+            "{computed}"
+        );
+        assert_eq!(
+            computed["cursorJournal"].as_array().unwrap().len(),
+            1,
+            "{computed}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

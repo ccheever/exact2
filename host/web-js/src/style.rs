@@ -399,7 +399,7 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// `set_plan_style` is (LLP 1095 D3): a value with a `-exact-platform-color()` is
 /// admitted only as one of the plan's own string literals, and writes what
 /// the literal path writes for each of its functions; any other is refused
-/// (`null`: the row unset).
+/// (an invalid computed declaration: CSS unset, with a diagnostic).
 pub fn color_map(plan: &Plan) -> String {
     let admitted: Vec<String> = plan
         .strings
@@ -417,9 +417,10 @@ pub fn color_map(plan: &Plan) -> String {
         return SYSTEM_COLOR_MAP.clone();
     }
     format!(
-        "(P=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?({m})(P[v]):null:({m})(v))({{{}}})",
+        "(P=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?({m})(P[v]):{refused}:({m})(v))({{{}}})",
         admitted.join(","),
-        m = SYSTEM_COLOR_MAP.as_str()
+        m = SYSTEM_COLOR_MAP.as_str(),
+        refused = invalid_unset("color")
     )
 }
 
@@ -532,11 +533,34 @@ pub static TEXT_STYLE_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::ne
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+// A rejected computed declaration uses CSS unset, while null removes it.
+fn invalid_unset(row: &str) -> String {
+    format!("(()=>{{const e=globalThis.exact;e?.journal?.push(`t=${{e.now?.()??0}} invalid {row} value ${{JSON.stringify(v)}}; unset`);return \"unset\"}})()")
+}
+
 // The bounded cursor vocabulary is the schema's, including dynamic bindings.
 static CURSOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     format!(
-        "v=>{{if(typeof v!==\"string\")return null;v=v.trim().toLowerCase();return {:?}.includes(v)?v:null}}",
-        StyleId::Cursor.enum_names()
+        "v=>{{if(v==null)return null;if(typeof v===\"string\"){{v=v.trim().toLowerCase();if({:?}.includes(v)||v===\"inherit\"||v===\"unset\")return v}}return {}}}",
+        StyleId::Cursor.enum_names(), invalid_unset("cursor")
+    )
+});
+static CLIP_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null||/^\s*(unset\s*$|none\s*$|path\(|url\()/i.test(v)?v:{}"#,
+        invalid_unset("clip-path")
+    )
+});
+static SCHEME_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null?v:v==="light"||v==="dark"?v:/^\s*(normal|inherit|unset)\s*$/i.test(v)?"unset":{}"#,
+        invalid_unset("color-scheme")
+    )
+});
+static CORNER_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        r#"v=>v==null?v:typeof v!=="string"||/-apple-continuous/i.test(v)?{}:v.replace(/-exact-continuous/gi,"superellipse(1.6)")"#,
+        invalid_unset("corner-shape")
     )
 });
 
@@ -567,7 +591,8 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             unit: "px".into(),
             map: Some(TEXT_STYLE_MAP.as_str()),
         }],
-        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large'})[v]??null")],
+        StyleId::ControlSize => vec![with("--exact-control-font-size", "v=>v==null?v:({mini:'x-small',small:'small',medium:'medium',large:'large',unset:'medium'})[v]??'medium'")],
+        StyleId::TintColor => vec![with("--exact-tint", "v=>v==null?v:/^\\s*unset\\s*$/i.test(v)?\"var(--exact-accent, AccentColor)\":v")],
         StyleId::ControlCornerStyle => vec![with("--exact-control-radius", "v=>v==null?v:v==='capsule'?'calc(infinity * 1px)':'revert'")],
         StyleId::ColumnGap | StyleId::RowGap => {
             let column = row == StyleId::ColumnGap;
@@ -682,17 +707,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         // any other shape, which the browser would take, is refused: unset.
         StyleId::ClipPath => vec![with(
             "clip-path",
-            "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
+            &CLIP_MAP,
         )],
         // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
         // radius is not rescaled here, as css.rs scales a static one: a
         // dynamic `-exact-continuous` reaches less far on the web.
         // @ref LLP 1034 §8 — `light` and `dark`; a bound `normal` follows
-        // the surrounding scheme (the property removed), as the kernel unsets
+        // the surrounding scheme (an explicit clear), as the kernel unsets
         // it; anything else is no value it takes.
         StyleId::ColorScheme => vec![with(
             "color-scheme",
-            "v=>v===\"light\"||v===\"dark\"?v:null",
+            &SCHEME_MAP,
         )],
         StyleId::TextWrapStyle => one("text-wrap-style", ""),
         // A row's word to CSS's two (host/web/src/css.rs `text_box_edge`).
@@ -702,7 +727,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         )],
         StyleId::CornerShape => vec![with(
             "corner-shape",
-            "v=>v==null?v:/-apple-continuous/i.test(v)?null:v.replace(/-exact-continuous/gi,\"superellipse(1.6)\")",
+            &CORNER_MAP,
         )],
         _ => {
             let (name, unit) = style_row(id)?;
@@ -896,6 +921,41 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn mapped_clears_and_invalid_values_keep_declarations_but_none_removes_them() {
+        for (id, invalid) in [
+            (StyleId::Cursor, "not-a-cursor"),
+            (StyleId::ClipPath, "circle(20%)"),
+            (StyleId::ColorScheme, "orange"),
+            (StyleId::CornerShape, "-apple-continuous"),
+        ] {
+            let writes = style_writes(id as u16, false).unwrap();
+            let map = writes[0].map.unwrap();
+            let script = format!("globalThis.exact={{journal:[],now:()=>0}};const m={map};console.log(JSON.stringify({{values:[null,'unset',{invalid:?}].map(m),journal:exact.journal}}))");
+            let out =
+                std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+                    .args(["-e", &script])
+                    .output()
+                    .unwrap();
+            assert!(
+                out.status.success(),
+                "{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            let observed: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+            assert_eq!(
+                observed["values"],
+                serde_json::json!([null, "unset", "unset"]),
+                "{id:?}"
+            );
+            assert_eq!(
+                observed["journal"].as_array().unwrap().len(),
+                1,
+                "{id:?}: {observed}"
+            );
+        }
+    }
+
+    #[test]
     fn balanced_wrap_writes_the_same_property_for_bound_values() {
         let writes = style_writes(StyleId::TextWrapStyle as u16, false).unwrap();
         assert_eq!(writes.len(), 1);
@@ -994,10 +1054,9 @@ pub(crate) mod tests {
     }
 
     /// LLP 1034 §8: a bound `color-scheme` writes `light` or `dark`, and a
-    /// bound `normal` (or anything else) removes the property, so the node
-    /// follows its parent's scheme as the kernel's unset row does.
+    /// bound `normal` (or an invalid value) retains an unset declaration.
     #[test]
-    fn a_bound_color_scheme_is_light_dark_or_removed() {
+    fn a_bound_color_scheme_is_light_dark_or_unset() {
         let writes = style_writes(StyleId::ColorScheme as u16, false).unwrap();
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0].name, "color-scheme");
@@ -1006,7 +1065,7 @@ pub(crate) mod tests {
                 writes[0].map.unwrap(),
                 &["light", "dark", "normal", "light dark"]
             ),
-            serde_json::json!(["light", "dark", null, null])
+            serde_json::json!(["light", "dark", "unset", "unset"])
         );
     }
 
@@ -1084,9 +1143,9 @@ pub(crate) mod tests {
             serde_json::json!([
                 css,
                 format!("linear-gradient({css}, {})", role("system-orange")),
-                null,
-                null,
-                null,
+                "unset",
+                "unset",
+                "unset",
                 role("secondary-label"),
             ])
         );

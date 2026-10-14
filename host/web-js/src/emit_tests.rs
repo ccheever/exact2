@@ -346,7 +346,7 @@ fn static_authored_clears_keep_inline_css_over_platform_rules() {
   view
     main navigationKey="/" color="#123456"
       header color="inherit" testId="bar"
-        h1 "Title"
+        text "Title" role="heading" aria-level=1
         button "Action" color="unset" testId="action"
 "##,
     )

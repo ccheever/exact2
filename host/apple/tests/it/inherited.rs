@@ -901,6 +901,27 @@ fn an_href_that_turns_out_empty_is_no_href_to_swift() {
 #[test]
 fn explicit_clears_export_computed_values_and_own_declaration_intent() {
     use exact_kernel::StyleId;
+    let check_color = |batch: &str, id, color: exact_kernel::ColorValue| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        let style = &batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == id && op.get("style").is_some())
+            .unwrap()["style"];
+        let rgba = |dark| {
+            let c = color.resolve(dark);
+            serde_json::json!([c.r(), c.g(), c.b(), c.a()])
+        };
+        let light = rgba(false);
+        let expected = if matches!(color.fallback(), exact_kernel::ColorValue::Fixed(_)) {
+            light
+        } else {
+            serde_json::json!([light, rgba(true)])
+        };
+        let actual = &style["text_color"];
+        assert_eq!(actual.get("c").unwrap_or(actual), &expected, "{style}");
+    };
     for ground in ["", " color=\"#123456\""] {
         let plan = contract::compile(&format!(
             r##"component App
@@ -928,13 +949,19 @@ fn explicit_clears_export_computed_values_and_own_declaration_intent() {
             let node = host.runner().kernel().node(id).unwrap();
             assert!(!node.style.mask.has(StyleId::TextColor));
             assert!(node.style.written.has(StyleId::TextColor));
+            check_color(&first, id, node.text_color());
             let batch = op(&first, id);
-            assert!(batch.contains("\"text_color\":"), "{batch}");
             assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
         }
         host.dispatch(view(&host, "change"), Event::Press);
         let restored = host.dispatch(view(&host, "change"), Event::Press);
-        let batch = op(&restored, view(&host, "words"));
+        let id = view(&host, "words");
+        check_color(
+            &restored,
+            id,
+            host.runner().kernel().node(id).unwrap().text_color(),
+        );
+        let batch = op(&restored, id);
         assert!(batch.contains("\"written\":[\"text_color\"]"), "{batch}");
     }
 }
