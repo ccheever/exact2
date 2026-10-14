@@ -21,6 +21,12 @@ final class T3MobileInformationLegal {
 
 private struct T3LegalConfiguration: Decodable {
     let routeKey: String; let closeActionID: String; let url: String; let allowed: [String]; let colors: [String: String]
+    let typography: T3LegalTypography
+}
+private struct T3LegalTypography: Decodable {
+    struct Role: Decodable { let size: CGFloat; let line: CGFloat }
+    let title: Role; let detail: Role; let button: Role
+    var valid: Bool { [title, detail, button].allSatisfy { $0.size.isFinite && $0.line.isFinite && $0.size > 0 && $0.line >= $0.size } }
 }
 private final class T3LegalNavigation: NSObject, WKNavigationDelegate {
     weak var owner: T3MobileLegalView?
@@ -58,12 +64,12 @@ private final class T3MobileLegalView: ExactNativeInstance {
         progress.translatesAutoresizingMaskIntoConstraints = false; root.addSubview(progress)
         errorPanel.axis = .vertical; errorPanel.spacing = 14; errorPanel.alignment = .fill; errorPanel.translatesAutoresizingMaskIntoConstraints = false
         warning.contentMode = .scaleAspectFit; warning.heightAnchor.constraint(equalToConstant: 32).isActive = true
-        errorTitle.text = "Couldn't load the legal"; errorTitle.font = UIFont(name: "DMSans-Bold", size: 17.5) ?? .boldSystemFont(ofSize: 17.5); errorTitle.textAlignment = .center
+        errorTitle.text = "Couldn't load the legal"; errorTitle.numberOfLines = 0; errorTitle.textAlignment = .center
         errorDetail.isEditable = false; errorDetail.isSelectable = true; errorDetail.isScrollEnabled = false; errorDetail.backgroundColor = .clear
-        errorDetail.font = UIFont(name: "DMSans-Regular", size: 12.25) ?? .systemFont(ofSize: 12.25); errorDetail.textAlignment = .center
-        retry.setTitle("Try Again", for: .normal); retry.titleLabel?.font = UIFont(name: "DMSans-Bold", size: 14) ?? .boldSystemFont(ofSize: 14); retry.layer.cornerRadius = 12
+        errorDetail.textAlignment = .center
+        retry.setTitle("Try Again", for: .normal); retry.layer.cornerRadius = 12
         retry.heightAnchor.constraint(greaterThanOrEqualToConstant: 42).isActive = true
-        browser.setTitle("Open in Browser", for: .normal); browser.titleLabel?.font = UIFont(name: "DMSans-Medium", size: 14) ?? .systemFont(ofSize: 14, weight: .medium)
+        browser.setTitle("Open in Browser", for: .normal)
         browser.heightAnchor.constraint(greaterThanOrEqualToConstant: 42).isActive = true
         retry.addAction(UIAction { [weak self] _ in self?.load() }, for: .touchUpInside)
         browser.addAction(UIAction { [weak self] _ in guard let self, let url = config.flatMap({ URL(string: $0.url) }) else { return }; open(url) }, for: .touchUpInside)
@@ -93,14 +99,27 @@ private final class T3MobileLegalView: ExactNativeInstance {
         guard let data = props["configuration"]?.data(using: .utf8) else { throw ExactNativeRefusal("Missing legal configuration.") }
         let next = try JSONDecoder().decode(T3LegalConfiguration.self, from: data)
         guard Self.identity(next.url) == "https://t3.codes/legal", Set(next.allowed.compactMap(Self.identity)) == Self.allowed else { throw ExactNativeRefusal("Invalid legal document URLs.") }
+        guard next.typography.valid else { throw ExactNativeRefusal("Invalid legal text dimensions.") }
         let changed = config?.url != next.url, oldKey = config?.routeKey
         if oldKey != next.routeKey { if let oldKey { owner?.unbind(self, key: oldKey) }; detach() }
         config = next
         let foreground = Self.color(next.colors["foreground"]), muted = Self.color(next.colors["muted"]), sheet = Self.color(next.colors["sheet"])
         root.backgroundColor = sheet; web.underPageBackgroundColor = sheet; warning.tintColor = foreground; errorTitle.textColor = foreground; errorDetail.textColor = muted
         retry.backgroundColor = foreground; retry.setTitleColor(sheet, for: .normal); browser.setTitleColor(muted, for: .normal); spinner.color = foreground; progress.progressTintColor = foreground
+        applyTypography(next)
         if oldKey != next.routeKey { owner?.bind(self, key: next.routeKey) }
         if changed { externalURL = URL(string: next.url); load() }
+    }
+    private func applyTypography(_ config: T3LegalConfiguration) {
+        let type = config.typography
+        errorTitle.attributedText = Self.text(errorTitle.text ?? "", role: type.title, family: "DMSans-Bold", weight: .bold, color: Self.color(config.colors["foreground"]))
+        errorDetail.attributedText = Self.text(errorDetail.text ?? "", role: type.detail, family: "DMSans-Regular", weight: .regular, color: Self.color(config.colors["muted"]))
+        retry.setAttributedTitle(Self.text(retry.title(for: .normal) ?? "", role: type.button, family: "DMSans-Bold", weight: .bold, color: Self.color(config.colors["sheet"])), for: .normal)
+        browser.setAttributedTitle(Self.text(browser.title(for: .normal) ?? "", role: type.button, family: "DMSans-Medium", weight: .medium, color: Self.color(config.colors["muted"])), for: .normal)
+    }
+    private static func text(_ text: String, role: T3LegalTypography.Role, family: String, weight: UIFont.Weight, color: UIColor) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle(); paragraph.minimumLineHeight = role.line; paragraph.maximumLineHeight = role.line; paragraph.alignment = .center
+        return NSAttributedString(string: text, attributes: [.font: UIFont(name: family, size: role.size) ?? .systemFont(ofSize: role.size, weight: weight), .foregroundColor: color, .paragraphStyle: paragraph])
     }
     fileprivate func attach(_ route: ExactRoute) {
         self.route = route; route.controller.navigationItem.hidesBackButton = true
@@ -122,7 +141,7 @@ private final class T3MobileLegalView: ExactNativeInstance {
     fileprivate func loading() { guard alive else { return }; hasError = false; web.isHidden = false; errorPanel.isHidden = true; spinner.startAnimating(); progress.progress = 0.05; progress.isHidden = false }
     fileprivate func finished(_ url: URL?) { guard alive, !hasError else { return }; spinner.stopAnimating(); progress.isHidden = true; if let url, Self.permitted(url) { externalURL = url } }
     fileprivate func failed(_ error: Error) { if (error as NSError).code != NSURLErrorCancelled { showError(error.localizedDescription) } }
-    fileprivate func showError(_ message: String) { guard alive else { return }; hasError = true; spinner.stopAnimating(); progress.isHidden = true; web.isHidden = true; errorPanel.isHidden = false; errorDetail.text = message }
+    fileprivate func showError(_ message: String) { guard alive else { return }; hasError = true; spinner.stopAnimating(); progress.isHidden = true; web.isHidden = true; errorPanel.isHidden = false; errorDetail.text = message; if let config { applyTypography(config) } }
     fileprivate func policy(_ action: WKNavigationAction, _ reply: @escaping (WKNavigationActionPolicy) -> Void) {
         guard alive, let url = action.request.url else { reply(.cancel); return }
         if Self.permitted(url) {
