@@ -150,6 +150,12 @@ impl Em<'_> {
         if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
             self.clocks();
         }
+        // A bound pin: modes.js gives the boundary its tuple (LLP 1121 D7).
+        if id == StyleId::Mode {
+            let p = self.uses.rt("P");
+            let _ = write!(self.out, "{p}({e},\"data-x-pin\",{f});");
+            return Ok(());
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
@@ -346,16 +352,23 @@ impl Em<'_> {
         } else {
             "S"
         });
+        // @ref LLP 1121 D7 — an inherited colour row says whether it read
+        // a token (modes.js `Sx`), which a boundary below writes again.
         for (name, unit, map) in writes {
-            match map {
-                Some(m) => {
-                    let _ = write!(
-                        self.out,
-                        "{s}({e},\"{name}\",\"{unit}\",()=>({m})(({f})()));"
-                    );
+            let channel = crate::modes::CHANNELS
+                .iter()
+                .position(|(_, p)| *p == name || name == "--exact-accent" && *p == "accent-color")
+                .filter(|_| crate::modes::active(plan));
+            let value = match map {
+                Some(m) => format!("()=>({m})(({f})())"),
+                None => f.to_string(),
+            };
+            match channel {
+                Some(j) => {
+                    let _ = write!(self.out, "Sx({s},{e},\"{name}\",\"{unit}\",{value},{j});");
                 }
                 None => {
-                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{f});");
+                    let _ = write!(self.out, "{s}({e},\"{name}\",\"{unit}\",{value});");
                 }
             }
         }
