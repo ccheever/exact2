@@ -49,3 +49,8 @@ component App
             text "The token's accent, Light" color="accent.text" testId="accent-token-light"
           column accent-color="accent.text" -exact-mode="ink=plain" testId="token-accent-pinned"
             text "The accent under a plain pin" color="AccentColor" testId="accent-role-pinned"
+          column accent-color=(own ? "accent.text" : "unset") -exact-mode="ink=plain" testId="bound-accent-pinned"
+            text "A bound accent under a plain pin" color="AccentColor" testId="accent-bound-pinned"
+      column accent-color="accent.text" padding=8 testId="token-accent-around"
+        column -exact-mode="ink=plain" testId="inherited-accent-pinned"
+          text "An inherited accent under a plain pin" color="AccentColor" testId="accent-inherited-pinned"

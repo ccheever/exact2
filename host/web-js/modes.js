@@ -60,7 +60,9 @@ function apply() {
     for (const c in Vars) for (const e of document.getElementsByClassName(c)) {
       if (e.$xc) continue;
       e.$xc = true;
-      for (const p of Vars[c]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
+      // A boundary whose accent names the accent declares the companion by
+      // its tuple (`data-x-accent`), as its class does not.
+      for (const p of e.getAttribute("data-x-accent") == null ? Vars[c] : [...Vars[c], "--exact-accent"]) { const v = e.style.getPropertyValue(p); if (v && !v.includes("var(--x-")) e.style.removeProperty(p); }
     }
   }
   if (Axes.length) set(document.documentElement, key(Win));
@@ -90,11 +92,20 @@ const set = (e, k) => { if (e.getAttribute("data-x-modes") !== k) e.setAttribute
  * (it would name itself here, as css.rs leaves it out). */
 function write(b, j, was, text) {
   const decl = t => { const at = t.indexOf(":"); return [t.slice(0, at), t.slice(at + 1)]; };
-  if (was != null) { const [p] = decl(was); b.style.removeProperty(p); if (j === 4) b.style.removeProperty("--exact-accent"); }
+  if (was != null) { const [p] = decl(was); b.style.removeProperty(p); if (j === 4) { b.style.removeProperty("--exact-accent"); b.removeAttribute("data-x-accent"); } }
   if (text == null) return;
   const [p, v] = decl(text);
   b.style.setProperty(p, v);
-  if (j === 4 && !v.includes("--exact-accent") && !Accent.some(a => v.includes(`var(${a})`))) b.style.setProperty("--exact-accent", v);
+  if (j === 4) accent(b, v);
+}
+
+/** An accent `v` on boundary `b`: its companion, or, when it names a token
+ * that names the accent, that token's colour by tuple (`data-x-accent`, the
+ * page's rules) and the accent around where the token is the accent. */
+function accent(b, v) {
+  const named = Accent.find(a => v.includes(`var(${a})`));
+  if (named) b.setAttribute("data-x-accent", named);
+  else if (!v.includes("--exact-accent")) b.style.setProperty("--exact-accent", v);
 }
 
 // A page rendered ahead resolves its boundaries after each commit's writes
@@ -125,9 +136,13 @@ export function Sx(s, e, prop, unit, f, j) {
     if (said === null && x.$th && !text.includes("url(")) said = `${after}:${after === prop ? text : colourOf(text)}`;
     const xi = e.$xi ??= {};
     // A refused value is written (and journaled, rt.js `css`) as `unset`,
-    // over a row written again: it is written again after.
-    if (xi[j] !== said || refused) { xi[j] = said; if (refused && e.$xs) e.$xs[j] = undefined; schedule(); }
-    return clear ? null : v;
+    // and a cleared accent drops its marker (rows.rs), over a row written
+    // again: it is written again after.
+    const over = said === undefined && e.$xs?.[j] != null;
+    if (xi[j] !== said || over) { xi[j] = said; if (over) e.$xs[j] = undefined; schedule(); }
+    // Off a boundary a clear is written as itself (a control's own colour
+    // gives way to it); on one the row written again stands.
+    return clear && e.getAttribute("data-x-b") != null ? null : v;
   });
 }
 /** A stroke shorthand's colour: what is not its width. */

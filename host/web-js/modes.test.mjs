@@ -54,6 +54,10 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
   mine = 'inherit'; write(); flush();
   expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
+  // Off a boundary a clear is written as itself.
+  const plainBox = el(page, '');
+  Sx(S, plainBox, 'color', '', () => 'inherit', 0);
+  expect(plainBox.style.map.get('color')).toBe('inherit');
   // A stroke's shorthand is written again by its colour alone.
   Sx(S, page, '-webkit-text-stroke', '', () => ((globalThis.exact.$th = 1), '2px var(--x-ink)'), 6);
   flush();

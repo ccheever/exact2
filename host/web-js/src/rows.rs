@@ -356,7 +356,8 @@ impl Em<'_> {
         // a token (modes.js `Sx`), which a boundary below writes again (a
         // stroke's shorthand by its colour). A boundary declares the tokens,
         // so its `--exact-accent` naming one that names the accent would name
-        // itself: the one around stands, as css.rs leaves a self-reference out.
+        // itself: that token's colour stands by tuple (`data-x-accent`), as
+        // css.rs leaves a self-reference out; a clear there writes nothing.
         for (name, unit, map) in writes {
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
@@ -367,7 +368,7 @@ impl Em<'_> {
                 .filter(|_| modes);
             let map = match map {
                 Some(m) if modes && name == "--exact-accent" => Some(format!(
-                    "v=>(v=({m})(v))!=null&&{}.some(p=>v.includes(`var(${{p}})`))&&{e}.hasAttribute(\"data-x-b\")?null:v",
+                    "v=>{{v=({m})(v);if(!{e}.hasAttribute(\"data-x-b\"))return v;{e}.removeAttribute(\"data-x-accent\");if(v==null||/^\\s*(unset|inherit)\\s*$/i.test(v))return null;const n={}.find(p=>v.includes(`var(${{p}})`));if(n){{{e}.setAttribute(\"data-x-accent\",n);return null}}return v}}",
                     serde_json::to_string(&crate::modes::accent_properties(plan)).unwrap()
                 )),
                 map => map,
