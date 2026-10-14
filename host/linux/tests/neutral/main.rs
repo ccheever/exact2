@@ -81,6 +81,7 @@ const HEADERS: &str = r##"component App
         header testId="not-direct" height=20
       text "MMMM" role="heading" font-size=20 font-weight=700 line-height=1 width=72 height=24 margin=0 color="-exact-label" background-color="-exact-background" testId="ink-reference"
       text "MMMM" font-size=20 font-weight=700 line-height=1 width=72 height=24 margin=0 color="#aa00cc" background-color="#abcdef" testId="own-ink-reference"
+      row height=0 background-color="-exact-background" border-bottom="1px solid -exact-separator" testId="edge-reference"
       text `Taps ${taps}` testId="taps"
 "##;
 
@@ -116,7 +117,7 @@ fn text_pixels(p: &mut Presenter<()>, name: &str) -> Vec<[u8; 3]> {
 }
 
 fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
-    for (scheme, ground, separator) in [("light", [255; 3], [224; 3]), ("dark", [18; 3], [56; 3])] {
+    for (scheme, ground) in [("light", [255; 3]), ("dark", [18; 3])] {
         let plan = contract::compile(&HEADERS.replace("SCHEME", scheme)).unwrap();
         for width in [320.0, 640.0] {
             let (mut p, error) = Presenter::boot_with(
@@ -134,7 +135,11 @@ fn route_headers_keep_the_page_tree_and_take_the_neutral_defaults() {
             assert_eq!(p.rect_of(id(&p, "after")).unwrap().1, 41.0);
             assert_eq!(pixel(&mut p, "twin", width - 2.0, 2.0), ground);
             assert_eq!(pixel(&mut p, "twin", width - 2.0, 39.0), ground);
-            assert_eq!(pixel(&mut p, "twin", width - 2.0, 40.0), separator);
+            // The same translucent role goes through the ordinary border painter.
+            assert_eq!(
+                pixel(&mut p, "twin", width - 2.0, 40.0),
+                pixel(&mut p, "edge-reference", width - 2.0, 0.0)
+            );
             assert_eq!(
                 text_pixels(&mut p, "ink"),
                 text_pixels(&mut p, "ink-reference"),
@@ -683,15 +688,18 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
     let node = k.node(2).unwrap();
     assert!(!node.style.mask.has(StyleId::BackgroundColor));
     assert!(!node.style.written.has(StyleId::BorderWidthBottom));
-    for (dark, ground, edge) in [(false, 255, 224), (true, 18, 56)] {
+    for (dark, ground, edge) in [
+        (false, [255, 255, 255, 255], [0, 0, 0, 31]),
+        (true, [18, 18, 18, 255], [255, 255, 255, 41]),
+    ] {
         let targets = exact_kernel::motion::color_targets(&node, dark);
-        for (property, gray) in [
+        for (property, [r, g, b, a]) in [
             (Property::BackgroundColor, ground),
             (Property::BorderBottomColor, edge),
         ] {
             assert_eq!(
                 targets.iter().find(|(p, _)| *p == property).unwrap().1,
-                Some(Value::rgba8(gray, gray, gray, 255))
+                Some(Value::rgba8(r, g, b, a))
             );
         }
     }
