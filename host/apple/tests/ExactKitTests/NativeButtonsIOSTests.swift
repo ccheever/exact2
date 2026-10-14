@@ -353,6 +353,17 @@ final class NativeButtonsIOSTests: XCTestCase {
         opener.sendActions(for: .primaryActionTriggered)
         watcher.reset(); watcher.touchesBegan([LocatedTouch(try button(p, 3))], with: UIEvent())
         XCTAssertFalse(p.menus.isOpen(pop), "outside touch reaches production dismissal without agentTap")
+        // An empty commandfor names nothing, so popovertarget acts by its own
+        // action and the leftover command is ignored (HTML): `show` twice stays open.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["commandfor": "", "command": "toggle-popover", "popovertargetaction": "show"]]]))
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop), "an empty commandfor leaves popovertarget to open it")
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop), "and its show keeps it open")
+        // The button that opened it, once it names nothing, is outside it like any other.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["popovertarget": ""]]]))
+        watcher.reset(); watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
+        XCTAssertFalse(p.menus.isOpen(pop), "a former opener's touch dismisses it")
     }
     func testAPanCancelsItsTouchAsACustomButtons() {
         let scroll = ScrollView()
