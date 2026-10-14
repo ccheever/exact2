@@ -1,6 +1,6 @@
 # First-wave continuation, 2026-10-14
 
-The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. This report is partial: branch navigation and appearance tools are still finishing, main adoption is pending, and none of these draft PRs has merged into the feature branch in this continuation.
+The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e` in isolated task branches. The original detached checkout is unchanged. This report is partial: appearance tools and the Markdown size repair are still finishing, main adoption is pending, and none of these draft PRs has merged into the feature branch in this continuation.
 
 ## Published revisions
 
@@ -15,15 +15,18 @@ The stopped work resumed from feature `609f392d52a5c3f65cda2f50e5e5824a01a4184e`
 | [native-helpers-and-text-menu](../tasks/20261014-native-helpers-and-text-menu.md) | [#544](https://github.com/ccheever/exact2/pull/544) | `4f81dc73ffb3984524ada9f8542ab3a67254e6ea` | Native Services and tracking timer proof passed; original real-grant/Finder observations remain unresolved. |
 | [sidebar-hover-archive-and-glyph](../tasks/20261014-sidebar-hover-archive-and-glyph.md) | [#545](https://github.com/ccheever/exact2/pull/545) | `a6fa91916dad1a27b34fc9ad42f5a91c383e81a8` | Connected native hover/glyph drive passed; Archive dialog and real input remain open. |
 | [pr-list-place-and-thread-picker](../tasks/20261014-pr-list-place-and-thread-picker.md) | [#546](https://github.com/ccheever/exact2/pull/546) | `6ff18f2251305c8f3f30a6ace8e425eab001367f` | Cancellation recovery and disabled-row Enter reviewed; connected scroll/picker real input remains open. |
+| [branch-notice-and-navigation](../tasks/20261014-branch-notice-and-navigation.md) | [#547](https://github.com/ccheever/exact2/pull/547) | `4105091dbcdff5146dd431e9f0789658605d8cf6` | Actual Git, dirty Cancel/Confirm, Settings toast and draft relaunch passed; transparent screenshots provide no visual proof. |
 
 ## Review and integration
 
 All listed repair implementations received source review. The composer repair additionally has independent review bound to its seven-file fingerprint `c157e0b26c513dcb9c371c667184cdc6573a2bfa0ebd15409ec1ece920403159`; the PR-list repair to 42 runtime/test files, `74f8c9eb6b8f883dbfec26d475cba358b56e5318092802dfbae4cf8fa691358b`. Their task records distinguish AppKit/agent checks from real input.
 
-The local integration branch combines these nine branches. Markdown/Cite's conflicting import keeps the new morph and current Cite helpers. The PR-list merge keeps the sidebar's press forwarding in a single appearance subtree and keeps Markdown's media-focus installation while removing the retired R10 selection hook.
+The local integration branch combines these ten branches. Markdown/Cite's conflicting import keeps the new morph and current Cite helpers. The PR-list merge keeps the sidebar's press forwarding in a single appearance subtree and keeps Markdown's media-focus installation while removing the retired R10 selection hook.
+
+The branch-navigation merge `123d31131` preserves that same single-subtree behavior for ToastStack and adds the new confirmation label. Root comments were shortened to keep the source within the 1,500-line cap; caps and staged diff checks pass.
 
 At integration `6ecc1e0cf`, the full app suite had 4,959 passes, one skip and two fixture failures: the sidebar action fixture omitted the Cite state now read by shared outside-press handling. `fb681d6e3` initializes that state; all 70 related sidebar/Cite/Usage tests pass afterward. Strict TypeScript passed on the integration. Caps and staged diff checks passed. These checks are not the final combined verification.
 
 ## Next action
 
-Finish and review the last two branches, compile/build and drive the combined app, then adopt current main with its ancestry preserved. Main's `migrate-1116-015.mjs` must run against the app before that merge; update Contract fixtures and source assertions as well. Run the repository gates on the final tree. Keep final real-input rows open while the desktop is locked. PR #541 remains draft pending the user's compiled-plan-size choice (33.3 MB to 37.2 MB, +11.7%).
+Finish Appearance and measure the bounded Markdown size repair, compile/build and drive the combined app, then adopt current main with its ancestry preserved. Main's `migrate-1116-015.mjs` must run against the app before that merge; update Contract fixtures and source assertions as well. Run the repository gates on the final tree. Keep final real-input rows open while the desktop is locked. PR #541 remains draft pending the compiled-plan-size choice (33.3 MB to 37.2 MB, +11.7%). A behavior-preserving move of the shared hover action is being measured; no reduction is claimed yet.

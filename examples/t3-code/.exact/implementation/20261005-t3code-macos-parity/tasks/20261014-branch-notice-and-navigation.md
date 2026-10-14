@@ -3,11 +3,11 @@ name: 20261014-branch-notice-and-navigation
 plan: 20261005-t3code-macos-parity
 implementation: in-progress
 verification: unverified
-delivery: none
+delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-branch-notice-and-navigation
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/547
 verified_commit: null
 ---
 
@@ -23,8 +23,8 @@ Cross-environment Home project ordering remains an existing parity gap.
 
 ## Scope and exclusions
 
-Application changes only. No framework changes, provider messages, publication, merge,
-or global OS input. The isolated verification server uses port 16842 and this worktree's
+Application changes only. No framework changes, provider messages or global OS input.
+The coordinator published the verified implementation as a draft PR; feature integration remains pending. The isolated verification server uses port 16842 and this worktree's
 `target/branch-navigation/server`; it does not use port 3773 or the user's `.t3`.
 The implementation does not claim full pixel or real-input parity.
 
@@ -174,3 +174,12 @@ Raw tree/state JSON, transparent captures, and validation logs remain locally un
 Complete visual and physical-input verification against the implementation commit. Preserve the
 existing cross-environment Home ordering gap: draft startup passing here does not establish that
 parity. Do not close this ticket or claim the parent plan complete from these implementation checks.
+
+## Coordinator publication, 2026-10-14
+
+Draft [#547](https://github.com/ccheever/exact2/pull/547) has published head
+`4105091dbcdff5146dd431e9f0789658605d8cf6`, based on `feat(example)/t3-code`.
+Readback confirmed the base, head and draft state. Implementation `6017cff6d` received
+independent review; the final commit adds evidence only. The local integration preserves
+the single ToastStack subtree from PR-list work and the new Switch branch confirm label.
+Visual, physical-input and final integration checks remain open; this task is not closed.
