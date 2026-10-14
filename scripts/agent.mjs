@@ -118,8 +118,9 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
   const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
   // `--port`/EXACT_PORT, else a named store's own port, else any free one; said once a run, on stderr (stdout is the reply).
-  await listenOn(server, drivePagePort(fixed, pageURL ? null : kept, env?.EXACT_AGENT_EPHEMERAL_PORT === '1', env), '127.0.0.1', undefined, !!fixed, env).catch((e) => {
-    throw e.code !== 'EADDRINUSE' || fixed ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
+  const pagePort = drivePagePort(fixed, pageURL ? null : kept, env?.EXACT_AGENT_EPHEMERAL_PORT === '1', env);
+  await listenOn(server, pagePort, '127.0.0.1', undefined, !!fixed, env).catch((e) => {
+    throw e.code !== 'EADDRINUSE' || fixed || pagePort !== kept?.port ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
   });
     const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);
   const chrome = chromium().executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it

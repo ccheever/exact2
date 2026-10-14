@@ -197,6 +197,15 @@ test "one online write"
     run(binary, ['check']);
     const output = run(process.execPath, ['exact.mjs', 'test', 'web'], app);
     assert.match(output, /0 failed/);
+    if (online && mode === 'dev') {
+      // With the backend holding the sole assigned port, an un-stored drive
+      // must preserve range exhaustion rather than dereference kept.port.
+      const refused = spawnSync(process.execPath, ['exact.mjs', 'agent', 'web', 'tree'],
+        {cwd: app, env: {...env, PORT_LO: String(port), PORT_HI: String(port)}, encoding: 'utf8', timeout: 30_000});
+      assert.notEqual(refused.status, 0);
+      assert.match(refused.stderr, /PORT_LO\/PORT_HI.*all in use/);
+      assert.doesNotMatch(refused.stderr, /TypeError|kept.port/);
+    }
     // Check server authority too: a refused queued write must not satisfy reconnect.
     const headers = mode === 'dev' ? {'x-snapback-persona': 'alice'} : {};
     if (mode === 'serve') {

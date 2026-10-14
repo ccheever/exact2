@@ -745,3 +745,17 @@ fn a_test_writes_through_the_apps_server_as_another_person() {
         assert_eq!(e.span.line, line, "{src}: {e}");
     }
 }
+
+#[test]
+fn the_forms_guide_key_syntax_parses_as_a_key_step() {
+    let file = contract_syntax::parse(
+        r#"test "enter in a field"
+  type "draft" key "Enter"
+"#,
+    )
+    .unwrap();
+    assert_eq!(file.tests.len(), 1);
+    assert!(
+        matches!(&file.tests[0].steps[0], contract_syntax::Step::Key { target, key, .. } if target == "draft" && key == "Enter")
+    );
+}
