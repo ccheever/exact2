@@ -236,9 +236,10 @@ struct BadgeFace: Equatable {
 }
 
 /// The delegate Exact gives each navigation controller it builds: Exact's
-/// own handling first (pop reconciliation, LLP 1035.001 D1, D2), then the
-/// app's delegate, which receives straight anything Exact does not
-/// implement — a custom transition's animator (LLP 1075.003 §3.5).
+/// own handling first, then the app's delegate, which receives straight
+/// anything Exact does not implement — a custom transition's animator
+/// (LLP 1075.003 §3.5). An animated push or pop is reconciled (LLP 1035.001
+/// D1, D2) in its coordinator's completion, after both have heard `didShow`.
 final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var host: NavigationHost?
     weak var app: UINavigationControllerDelegate?
