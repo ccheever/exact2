@@ -464,17 +464,6 @@ mod tests {
         );
     }
 
-    struct Empty;
-    impl exact_runner::DataSource for Empty {
-        fn query(
-            &mut self,
-            name: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(name.into()))
-        }
-    }
-
     /// LLP 1069.001, amended 2026-10-07: a progress is painted as one still
     /// frame of UIKit's spokes in its `color`, centred in its box, and a
     /// press on it is its ancestor's, as on a box.
@@ -483,7 +472,7 @@ mod tests {
         let app = "component App\n  view\n    column width=100 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"spin\" width=40 height=40 color=\"#ff0000\"\n";
         let (mut p, error) = super::Presenter::boot_with(
             &contract::compile(app).unwrap().encode(),
-            Empty,
+            (),
             (100., 100.),
             1.,
             std::path::PathBuf::new(),
@@ -528,7 +517,7 @@ mod tests {
         let app = "component App\n  view\n    column width=200 height=100 background-color=\"#ffffff\" align-items=\"flex-start\"\n      progress testId=\"bar\" value=3 max=4 accent-color=\"#ff0000\"\n";
         let (mut p, error) = super::Presenter::boot_with(
             &contract::compile(app).unwrap().encode(),
-            Empty,
+            (),
             (200., 100.),
             1.,
             std::path::PathBuf::new(),

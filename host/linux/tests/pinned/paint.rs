@@ -6,7 +6,7 @@
 use crate::pin_font;
 use exact_linux::presenter::PainterChoice;
 use exact_linux::Presenter;
-use exact_runner::{DataError, DataSource, Value};
+use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::Duration;
 use tiny_skia::Pixmap;
@@ -52,15 +52,7 @@ fn boot(choice: PainterChoice) -> Presenter<caltrain_data::Caltrain> {
     p
 }
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(s.into()))
-    }
-}
-
-fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
+fn fixture(name: &str, scale: f32, choice: PainterChoice) -> Presenter<()> {
     let src = std::fs::read_to_string(format!(
         "{}/../../contract/corpus/{name}.contract",
         env!("CARGO_MANIFEST_DIR")
@@ -78,19 +70,12 @@ const CARD: &str = "component Card
       view width=300 height=120 border-radius=16 background-color=\"#f7f7f7\" testId=\"card\"
 ";
 
-fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<NoData> {
+fn compiled(src: &str, scale: f32, choice: PainterChoice) -> Presenter<()> {
     pin_font();
     let plan = contract::compile(src).unwrap();
-    Presenter::boot_with(
-        &plan.encode(),
-        NoData,
-        (390.0, 844.0),
-        scale,
-        assets(),
-        choice,
-    )
-    .unwrap()
-    .0
+    Presenter::boot_with(&plan.encode(), (), (390.0, 844.0), scale, assets(), choice)
+        .unwrap()
+        .0
 }
 
 fn view<D: DataSource>(p: &Presenter<D>, test_id: &str) -> u32 {
@@ -1042,7 +1027,7 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
 fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     let source = include_str!("../../../../contract/corpus/accessibility.contract");
     let mut p = compiled(source, 1.0, PainterChoice::Cpu);
-    let id = |p: &Presenter<NoData>, name: &str| view(p, name);
+    let id = |p: &Presenter<()>, name: &str| view(p, name);
     let first = id(&p, "first");
     assert_eq!(p.focus(), Some(first));
     let reply = exact_linux::agent::handle(
@@ -1077,7 +1062,7 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
     let state: serde_json::Value =
         serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["focus"]["logical"], other);
-    p.reload(&contract::compile(source).unwrap().encode(), NoData)
+    p.reload(&contract::compile(source).unwrap().encode(), ())
         .unwrap();
     // A carried reload is the same document: focus stays at Other's place,
     // and First's autofocus does not take it back (LLP 1035.000 D9).

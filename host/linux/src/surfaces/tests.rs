@@ -258,21 +258,11 @@ fn module_identity_refuses_stale_foreign_and_missing_bakes_before_loading() {
 }
 #[test]
 fn cpu_canvas_pick_is_forwarded_without_a_device() {
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(
-            &mut self,
-            name: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(name.into()))
-        }
-    }
     let (path, compat) = fixture();
     let plan = contract::compile("component App\n  view\n    text \"test\"\n").unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 100.),
         1.,
         path.parent().unwrap().into(),
@@ -309,17 +299,6 @@ fn cpu_canvas_pick_is_forwarded_without_a_device() {
 }
 #[test]
 fn controls_own_release_and_focus_and_placed_siblings_cover() {
-    #[derive(Default)]
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(
-            &mut self,
-            n: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(n.into()))
-        }
-    }
     let (path, compat) = fixture();
     let source = r#"component Controls
   state renamed = false
@@ -334,13 +313,13 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 200.),
         1.,
         path.parent().unwrap().into(),
     )
     .unwrap();
-    let find = |p: &Presenter<NoData>, name: &str| {
+    let find = |p: &Presenter<()>, name: &str| {
         p.host
             .preorder()
             .into_iter()
@@ -431,7 +410,7 @@ fn controls_own_release_and_focus_and_placed_siblings_cover() {
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (100., 100.),
         1.,
         path.parent().unwrap().into(),
@@ -531,20 +510,10 @@ fn oversized_module_output_is_a_structured_refusal() {
 /// refusal with the record's size and the limit, and the last record stands.
 #[test]
 fn an_oversized_record_is_reported_in_state_not_as_the_operations_error() {
-    struct Empty;
-    impl exact_runner::DataSource for Empty {
-        fn query(
-            &mut self,
-            name: &str,
-            _: &[exact_runner::Value],
-        ) -> Result<exact_runner::Value, exact_runner::DataError> {
-            Err(exact_runner::DataError::UnknownSource(name.into()))
-        }
-    }
     let source = "shape Hud\n  score: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.score}` testId=\"hud\"\n";
     let (mut h, error) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         Box::new(exact_kernel::MonospaceMeasurer::default()),
         400.,
         500.,

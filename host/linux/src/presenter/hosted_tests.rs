@@ -8,16 +8,7 @@
 //! Linux) is as it was.
 use super::*;
 use crate::fields::{FieldFace, FieldMetrics};
-use exact_runner::{DataError, Value};
 use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// The reader's field, stood in for, and how often layout asked it.
 #[derive(Default)]
@@ -89,10 +80,10 @@ const LONG: &str = r#"component Long
         input testId=`f${n}` height=20
 "#;
 
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
-        Nothing,
+        (),
         (320., 480.),
         1.,
         PathBuf::new(),
@@ -104,7 +95,7 @@ fn boot(source: &str) -> Presenter<Nothing> {
     p
 }
 
-fn settle(p: &mut Presenter<Nothing>) {
+fn settle(p: &mut Presenter<()>) {
     for _ in 0..8 {
         assert!(p.pump(p.host.now()).is_none());
         if p.dirty() {
@@ -113,18 +104,18 @@ fn settle(p: &mut Presenter<Nothing>) {
     }
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
-fn log(p: &Presenter<Nothing>) -> String {
+fn log(p: &Presenter<()>) -> String {
     let k = p.host().kernel();
     let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
     node.props.str(PropId::Text).unwrap().to_string()
 }
 
-fn tap(p: &mut Presenter<Nothing>, name: &str) {
+fn tap(p: &mut Presenter<()>, name: &str) {
     let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
     p.press_at(x + w / 2.0, y + h / 2.0, p.host.now());
     settle(p);
@@ -181,13 +172,13 @@ fn read(words: &[i32]) -> Vec<Told> {
 }
 
 /// The statement as it now stands, whether or not it was told before.
-fn told(p: &mut Presenter<Nothing>) -> Vec<Told> {
+fn told(p: &mut Presenter<()>) -> Vec<Told> {
     p.hosted.last.clear();
     read(&p.reader_fields(1.0).expect("a statement"))
 }
 
 /// The keyboard the shell was last asked for: its state and its field.
-fn keyboard(p: &mut Presenter<Nothing>) -> Option<(i32, i32)> {
+fn keyboard(p: &mut Presenter<()>) -> Option<(i32, i32)> {
     p.tell_shell();
     let words = p.take_requests()?;
     let (mut at, mut last) = (0, None);
@@ -201,7 +192,7 @@ fn keyboard(p: &mut Presenter<Nothing>) -> Option<(i32, i32)> {
 }
 
 /// Whether anything but the field's fill shows inside `name`'s content box.
-fn inked(p: &mut Presenter<Nothing>, name: &str) -> bool {
+fn inked(p: &mut Presenter<()>, name: &str) -> bool {
     let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
     let pixmap = p.frame();
     let mut inked = false;
@@ -343,7 +334,7 @@ fn an_edit_is_the_fields_text_and_the_app_answers_it_by_its_number() {
     // A command's selection is told by its revision, once.
     assert_eq!(&after[0].look[15..], &[0, 0, 0]);
     tap(&mut p, "jump");
-    p.run_commands(Nothing::default);
+    p.run_commands(<()>::default);
     assert_eq!(&told(&mut p)[0].look[15..], &[1, 1, 2]);
     // What a reader says of a generation the presenter moved on from is
     // dropped, and the field starts over.
