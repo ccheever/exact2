@@ -394,6 +394,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var rows: [UInt32: GroupedListModel.Row] = [:]
     /// Each row's symbol tint as last configured.
     private var looks: [UInt32: BatchValue?] = [:]
+    /// The theme's roles this list last drew with (LLP 1095 D4): a new table
+    /// (an update, a dev reload) configures every row and the layout again.
+    private var theme = ThemeRoles.generation
     #if !os(tvOS)
     private var switches: [UInt32: UISwitch] = [:]
     #endif
@@ -529,7 +532,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     func update(_ next: GroupedListModel) {
         let previous = model, old = rows
-        let restyled = next.style != previous.style
+        let rethemed = theme != ThemeRoles.generation
+        theme = ThemeRoles.generation
+        let restyled = next.style != previous.style || rethemed
         model = next
         rows = Dictionary(next.sections.flatMap { $0.rows }.map { ($0.view, $0) }, uniquingKeysWith: { a, _ in a })
         #if !os(tvOS)
@@ -549,7 +554,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // row moved between sections) is configured again.
         let wasCarded = Dictionary(previous.sections.flatMap { s in s.rows.map { ($0.view, s.card) } }, uniquingKeysWith: { a, _ in a })
         let recarded = Set(next.sections.flatMap { s in s.rows.compactMap { r in wasCarded[r.view].flatMap { $0 != s.card ? r.view : nil } } })
-        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || tints[id] != looks[id] || recarded.contains(id) } ?? false }
+        let changed = snapshot.itemIdentifiers.filter { id in rethemed || old[id].map { $0 != rows[id] || tints[id] != looks[id] || recarded.contains(id) } ?? false }
         looks = tints
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of

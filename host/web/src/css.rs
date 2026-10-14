@@ -385,7 +385,27 @@ fn css_text_in(
             }),
         }
     }
+    scheme_color(style, &mut out);
     (out, skipped)
+}
+
+/// @ref LLP 1095 D4 — a theme's `CanvasText` is a `color` on the root, which
+/// the browser computes on the root's scheme; unsaid text on a
+/// `color-scheme` card reads the entry again on the card's, as Apple's
+/// does. An authored colour unsets it, so its subtree inherits that.
+fn scheme_color(style: &StyleProps, out: &mut String) {
+    if !exact_kernel::style::roles::overridden_canvas_text() {
+        return;
+    }
+    if style.mask.has(StyleId::TextColor) {
+        out.push_str("--exact-scheme-color:initial;");
+    } else if matches!(
+        style.get(StyleId::ColorScheme),
+        RowValue::Enum("light" | "dark")
+    ) && style.mask.has(StyleId::ColorScheme)
+    {
+        out.push_str("color:var(--exact-scheme-color,currentcolor);");
+    }
 }
 
 /// Whether a node's press feedback composes through `--exact-scale`

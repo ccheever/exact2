@@ -2,15 +2,18 @@
 // replaces the page's colour and ground (CanvasText, Canvas), the accent,
 // and a separator; unsaid text, a rule, an accent-coloured control and an
 // authored accent-color below (which wins for its subtree) read them on
-// both web targets alike.
+// both web targets alike; a `color-scheme="dark"` card,
+// fixed or bound, reads the dark side, and an authored colour above a card
+// stays its own.
 theme
-  CanvasText = "#5a1f2b"
-  Canvas = "#fbf3e9"
+  CanvasText = "light-dark(#5a1f2b, #f6e7d8)"
+  Canvas = "light-dark(#fbf3e9, #1e1410)"
   AccentColor = "#c8102e"
   separator = "#d4a373"
 
 component ThemeReach
   state on = true
+  state scheme = "dark"
   action flip(checked: bool)
     on = checked
   view
@@ -21,3 +24,11 @@ component ThemeReach
       column accent-color="#1083fe"
         input type="checkbox" checked=on change=flip aria-label="Own" testId="own"
         text "Link" testId="link" color="AccentColor"
+      column color-scheme="dark" background-color="Canvas" padding=8
+        text "Dark" testId="dark"
+        hr
+        column color="#c8102e"
+          column color-scheme="light"
+            text "Authored" testId="authored"
+      column color-scheme=scheme padding=8
+        text "Bound" testId="bound"

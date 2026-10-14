@@ -30,6 +30,11 @@ final class ThemeRolesIOSTests: GroupedListFixture {
         let ground = try XCTUnwrap(ThemeRoles.color("grouped-background"))
         XCTAssertEqual(ground.resolvedColor(with: dark), UIColor(red: 4 / 255, green: 5 / 255, blue: 6 / 255, alpha: 1))
         XCTAssertNil(ThemeRoles.color("separator"), "a role the theme leaves stays the platform's")
+        // A new table (a dev reload's) recolours the list's next update without a relaunch.
+        ThemeRoles.apply(wireBatch([["op": "roles", "roles": ["secondary-grouped-background": [1, 2, 3, 255]]]]))
+        try list(themed).update(model())
+        let again = try cell(themed, 10)
+        XCTAssertEqual(again.backgroundConfiguration?.backgroundColor?.resolvedColor(with: light), UIColor(red: 1 / 255, green: 2 / 255, blue: 3 / 255, alpha: 1))
     }
 }
 #endif

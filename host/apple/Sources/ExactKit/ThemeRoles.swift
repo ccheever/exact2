@@ -34,7 +34,12 @@ package enum ThemeRoles {
             TextEngine.color(value.textChannels(dark: dark, contrast: contrast, elevated: elevated) ?? [0, 0, 0, 0])
         }
         #if os(macOS)
-        return NSColor(name: nil) { appearance in side(appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua, nil, false) }
+        return NSColor(name: nil) { appearance in
+            // Increase Contrast is the appearance's on the Mac.
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])
+            let dark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+            return side(dark, match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua, false)
+        }
         #elseif os(tvOS)
         return UIColor { traits in side(traits.userInterfaceStyle == .dark, traits.accessibilityContrast == .high, false) }
         #else

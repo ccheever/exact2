@@ -345,7 +345,13 @@ pub fn theme_css() -> String {
         crate::gradient::color_css(&mut out, o);
         out.push(';');
         match role.name {
-            "CanvasText" => out.push_str("color:var(--exact-canvas-text);"),
+            // A `color` computed here is the root scheme's side, and a
+            // `color-scheme` card would inherit it; the card re-reads the
+            // entry through `--exact-scheme-color` (host/web css.rs
+            // `scheme_color`), which an authored colour unsets.
+            "CanvasText" => out.push_str(
+                "color:var(--exact-canvas-text);--exact-scheme-color:var(--exact-canvas-text);",
+            ),
             "Canvas" => out.push_str("background-color:var(--exact-canvas);"),
             _ => {}
         }
@@ -353,7 +359,18 @@ pub fn theme_css() -> String {
     if out.is_empty() {
         return out;
     }
-    format!(":root{{{out}}}")
+    // A bound `color-scheme` is written on the element, not in a class.
+    let scheme = match overridden_canvas_text() {
+        true => ":where([style*=color-scheme]){color:var(--exact-scheme-color,currentcolor)}",
+        false => "",
+    };
+    format!(":root{{{out}}}{scheme}")
+}
+
+/// Whether the theme replaces `CanvasText`, the page's unsaid text.
+pub fn overridden_canvas_text() -> bool {
+    static ID: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    overridden(*ID.get_or_init(|| role("CanvasText").unwrap_or(u8::MAX))).is_some()
 }
 
 /// A role an Apple platform draws in the view's tint (`AccentColor`,
