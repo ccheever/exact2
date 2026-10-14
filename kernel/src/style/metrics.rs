@@ -257,7 +257,7 @@ mod tests {
             };
             assert_eq!(m.neutral, neutral, "{}", m.name);
             if m.name.starts_with("header-") {
-                assert_eq!([m.web, m.ios, m.mac], [Text("unset"); 3], "{}", m.name);
+                assert_eq!([m.web, m.ios, m.macos], [Text("unset"); 3], "{}", m.name);
             }
         }
     }

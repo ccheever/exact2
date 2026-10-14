@@ -815,6 +815,52 @@ fn route_header_effective_rows_reach_layout_admission_and_motion() {
     .unwrap();
     k.compute_layout(1, Offer::definite(200.0, 40.0)).unwrap();
     assert_eq!(k.fragment_refusal(header), None);
+
+    // An implied sticky establishes the same containing block and stacking
+    // context as an authored sticky, even with no z-index.
+    let mut k = Kernel::with_monospace();
+    let mut ops: Vec<_> = (1..=6).map(create).collect();
+    ops.extend([
+        prop(1, PropId::NavigationKey, ""),
+        prop(2, PropId::SemanticTag, "header"),
+        prop(4, PropId::SemanticTag, "header"),
+        style(1, &[(StyleId::Width, "200px"), (StyleId::Height, "200px")]),
+        style(4, &[(StyleId::PositionType, "sticky")]),
+        style(6, &[(StyleId::Height, "30px")]),
+        children(1, &[6, 2, 4]),
+        children(2, &[3]),
+        children(4, &[5]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    for child in [3, 5] {
+        ops.push(style(
+            child,
+            &[
+                (StyleId::PositionType, "absolute"),
+                (StyleId::Left, "5px"),
+                (StyleId::Top, "3px"),
+                (StyleId::Width, "10px"),
+                (StyleId::Height, "10px"),
+            ],
+        ));
+    }
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(200.0, 200.0)).unwrap();
+    for (parent, child, y) in [(2, 3, 30.0), (4, 5, 75.0)] {
+        let parent = k.node(parent).unwrap();
+        let child = k.node(child).unwrap();
+        assert_eq!(parent.frame.y, y);
+        assert_eq!(
+            (
+                child.frame.x - parent.frame.x,
+                child.frame.y - parent.frame.y
+            ),
+            (5.0, 3.0)
+        );
+        let order = exact_kernel::paint_order::own(k.arena(), parent.key.index);
+        assert!(order.positioned && order.stacks);
+        assert_eq!(order.z, None);
+    }
 }
 
 // Chrome 155.0.8059.80, 2026-10-14: ordinary emitted app, two widths and both schemes.
