@@ -500,7 +500,7 @@ describe('light dismiss of a pinned segment popover (popover-escape-parity)', ()
     expect(window).toContain('action outsidePressUp\n    outsidePresses = outsideDown ? outsidePresses + 1 : outsidePresses\n    outsideDown = false');
     expect(window).toContain('PagesCover(pageCover=pageCover, outside=outsidePresses,');
     const cover = await component('app-main.contract', 'PagesCover');
-    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.endsWith('outside=outside)'))).toEqual([true, true]);
+    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.endsWith('outside=outside)'))).toEqual([true]);
     // The nodes that take the pointer themselves hand their presses on (the theme editor's colour controls).
     expect(window).toContain('outsideDown=outsidePressDown, outsideUp=outsidePressUp, outsideFocus=outsideFocus)');
     const picker = await source('theme-color-picker.contract');
@@ -569,7 +569,7 @@ describe('the reset confirm gives the segment the focus back (#298 item 12)', ()
     // The confirm's buttons (Cancel, its Escape, Use credit) go through usageConfirm; the page's ask through usageCommand.
     expect(cover).toContain('    when pageCover and utilityPage == "usage" and usageConfirmOpen\n'
       + '      ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)');
-    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.includes('command=usageCommand, confirmOpen=usageConfirmOpen,'))).toEqual([true, true]);
+    expect(cover.split('\n').filter(line => line.includes('UsagePage(')).map(line => line.includes('command=usageCommand, confirmOpen=usageConfirmOpen,'))).toEqual([true]);
     const page = await component('pages-usage.contract', 'UsagePage');
     expect(page).toContain('inert=(page.detail.open or page.prices.open or confirmOpen)');
     expect(page).toContain('dialog=(page.detail.open or page.prices.open or confirmOpen)');

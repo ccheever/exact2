@@ -1,7 +1,7 @@
 // Pull requests and threads in the detail panel (pr-links-previews-and-routing), drawn from pages-pr-links.ts:
 // the page's linked-thread count (it opens the palette on the pull request's URL with its linked threads),
-// the More menu's Link / Unlink item (its thread picker is the palette's "Choose a thread" page), the back
-// arrow beside a thread with several pull requests, and a pull request link's hover card. Sources: T3 Code
+// the More menu's Link / Unlink item (its thread picker is its own dialog: palette.contract PaletteThreadPicker),
+// the back arrow beside a thread with several pull requests, and a pull request link's hover card. Sources: T3 Code
 // (MIT, see LICENSE-T3) components/pullRequest/{PullRequestThreadLinks,PullRequestLinkPreview,
 // PullRequestDetailPanel,pullRequestPresentation}.tsx, ui/{button,menu,preview-card,tooltip}.tsx.
 use PgIcon from "./pages-icons.contract"

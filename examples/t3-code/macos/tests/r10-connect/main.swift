@@ -2,24 +2,11 @@ import AppKit
 import XCTest
 
 // Lane r10-connect (R10Connect.swift): ⌘/⌃ chords under a non-Latin source match by physical key,
-// and the pull request dialog's field selects its text on open. (A still pointer's hover after the
+// and the wake answers only its topics; the pull request dialog's select on open is Contract's now
+// (dialog-trap.contract FieldOpenSelect). (A still pointer's hover after the
 // list re-renders is the host's own since exact2 #139.) Real AppKit views in a real window; compiled
 // with every file in modules/apple.
 
-private let r10Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
-private let r10Act: ExactHatches.ActFn = { _, _, _ in 0 }
-private let r10Log: ExactHatches.LogFn = { _, _, _ in }
-private let r10Delegate: ExactHatches.DelegateFn = { _, _, _ in }
-private func makeHooks() -> ExactHatches {
-    let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
-    table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
-    table.storeBytes(of: UInt32(40), as: UInt32.self)
-    table.storeBytes(of: unsafeBitCast(r10Resolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r10Act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r10Log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
-    table.storeBytes(of: unsafeBitCast(r10Delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-    return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
-}
 private func tick(_ seconds: TimeInterval = 0.02) { let end = Date(timeIntervalSinceNow: seconds); while Date() < end { RunLoop.current.run(mode: .default, before: end) } }
 class Flipped: NSView { override var isFlipped: Bool { true } }
 
@@ -69,33 +56,6 @@ final class R10ConnectTests: XCTestCase {
         field.unmarkText()
         XCTAssertEqual(r10.route(key("ㅠ", 11)).charactersIgnoringModifiers, "b", "outside the composer and with nothing composing")
         r10.destroy()
-    }
-
-    func testTheCheckoutFieldSelectsItsTextOnOpen() {
-        let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 240, height: 24)); field.stringValue = "101"
-        window.contentView?.addSubview(field)
-        window.makeKeyAndOrderFront(nil)
-        // Autofocus put the caret at the end, as Exact's focus does.
-        window.makeFirstResponder(field); tick()
-        (field.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 3, length: 0)); tick()
-        let element = ExactElement(hatch: .t3SelectOnOpen, id: "pr-checkout-input", node: 7, hatches: makeHooks())
-        element.view = field; element.platform = field
-        let r10 = R10Connect(agent: true)
-        r10.install(element); tick(0.15)
-        XCTAssertEqual((field.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 3), "focus(); select()")
-        // A later call for the same node (its data changed) does not select again.
-        (field.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 1, length: 0))
-        element.isNew = false; r10.install(element); tick(0.15)
-        XCTAssertEqual((field.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 1, length: 0))
-        // Without the focus (it went elsewhere first), opening still focuses and selects.
-        let other = NSTextField(frame: NSRect(x: 20, y: 60, width: 240, height: 24)); other.stringValue = "#42"
-        window.contentView?.addSubview(other)
-        let second = ExactElement(hatch: .t3SelectOnOpen, id: "pr-checkout-input", node: 8, hatches: makeHooks())
-        second.view = other; second.platform = other
-        r10.install(second); tick(0.15)
-        XCTAssertTrue(other.currentEditor() != nil)
-        XCTAssertEqual((other.currentEditor() as? NSTextView)?.selectedRange(), NSRange(location: 0, length: 3))
-        r10.destroy(); window.orderOut(nil)
     }
 
     func testWakeEmitsOnlyKnownTopics() {

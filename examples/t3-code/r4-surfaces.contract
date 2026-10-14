@@ -51,6 +51,7 @@ use BrowserProfileChoice from "./browser-shapes.contract"
 use BrowserAudioButton from "./browser-automation.contract" // browser-surface part 5: the tab's audio button
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
+use FieldOpenSelect from "./dialog-trap.contract"
 
 // The panel's top bar (52pt): the surface tabs and "Add panel surface", then the
 // layout controls (details toggle in a sheet, else maximize; the terminal drawer;
@@ -74,12 +75,9 @@ component R4PanelHeader
     scheme: string
     searchFocused: bool // right-panel-escape: the Files search has the focus (SurfacePanel filesSearchAt)
   view
-    when scheme == "dark"
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
-    else
-      R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
+    R4HeaderBar(panel=panel, surfaces=surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=keyThreadPanel, keyRightPanel=keyRightPanel, terminalAvailable=terminalAvailable, terminalOpen=terminalOpen, keyTerminal=keyTerminal, still=still, ui=ui, details=details, local=local, searchFocused=searchFocused)
 
-// The bar itself, rebuilt per scheme by R4PanelHeader so its SVG glyphs resolve light-dark().
+// The bar itself, drawn by R4PanelHeader.
 component R4HeaderBar
   props
     panel: R4Panel
@@ -225,7 +223,7 @@ component R4TabChip
 
 
 // The device tab's inline name editor (RightPanelTabs.tsx rename input, aria-label "Device tab
-// name"): mounted when renaming starts, focused with its text selected (t3-select-on-open). The
+// name"): mounted when renaming starts, focused with its text selected (FieldOpenSelect). The
 // name is the field's own state, and Enter and blur commit it as their argument, as
 // SidebarRenameField does: a commit never depends on an earlier per-keystroke command having
 // landed (a drive that typed then pressed Enter kept the old name). Escape is the native
@@ -238,7 +236,8 @@ component R4TabNameField
   action edit(value: string)
     name = value
   view
-    input hatch="t3-select-on-open" id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
+    FieldOpenSelect(target=`tab-name-${tab.id}`, length=length(tab.renameValue))
+    input hatch="t3-anchor" data-anchor=`tab-editor:${tab.id}` id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off"
 
 // "Add panel surface": a 24pt ghost-muted "+" and the menu of every surface,
 // unavailable ones at 64% with their reason.
@@ -330,7 +329,7 @@ component R4SurfaceBody
     when panel.kind == "browser"
       BrowserSurface(view=panel.browser, scheme=scheme, local=local, urlFocus=urlFocus, urlFocused=urlFocused)
 
-// ThreadPullRequestsPanel, rebuilt per scheme for its SVG glyphs.
+// ThreadPullRequestsPanel; one subtree serves both schemes: an svg's light-dark() paint follows an appearance change (main 9223aad88).
 component R4PrsBody
   props
     prs: R4Prs
@@ -339,10 +338,7 @@ component R4PrsBody
     command: action
     link: action
   view
-    when scheme == "dark"
-      R4PrsList(prs=prs, local=local, command=command, link=link)
-    else
-      R4PrsList(prs=prs, local=local, command=command, link=link)
+    R4PrsList(prs=prs, local=local, command=command, link=link)
 
 component R4PrsList
   props
@@ -577,10 +573,7 @@ component R4DeviceSetup
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="device-setup-overlay"
       button press=local("surface-setup-close", "", "") aria-label="Close device setup" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="device-setup-backdrop" title=""
-      when scheme == "dark"
-        R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
-      else
-        R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
+      R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
 
 component R4DeviceDialog
   inject

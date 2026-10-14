@@ -151,8 +151,7 @@ component ComposerCommandMenu
   view
     column width=(layered ? "100%" : `calc(100% - ${2.75 * rem}px)`) margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-bottom="1.0625rem" box-sizing="border-box" position="relative" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" backdrop-filter=(layered ? "none" : (dark ? "blur(16px)" : "blur(12px)")) box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-command-menu"
       // Dark surfaces shade the 10pt above the seam (bg-composer-seam-above).
-      when dark
-        box position="absolute" left=0 right=0 bottom="1.0625rem" height="0.625rem" pointer-events="none" background-image="linear-gradient(to top, #0000002e, #00000000)" aria-hidden=true
+      box position="absolute" left=0 right=0 bottom="1.0625rem" height="0.625rem" pointer-events="none" background-image=(dark ? "linear-gradient(to top, #0000002e, #00000000)" : "none") aria-hidden=true
       when menu.count > 0
         column max-height=listMax overflow-y="scroll" padding="0.5rem" box-sizing="border-box" width="100%" role="listbox" aria-label=menu.listLabel testId="composer-command-list"
           button hatch="t3-composer-key" data-anchor="ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-menu-down"
@@ -164,10 +163,8 @@ component ComposerCommandMenu
               button hatch="t3-composer-key" data-anchor="Enter" press=op("pick", row.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true tabindex=-1 testId="composer-menu-enter"
                 text "composer-menu-enter" font-size=1
             button press=op("pick", row.id, "") hover=hovered(row.index) role="option" aria-selected=(row.index == active) aria-label=`${row.prefix}${row.label} ${row.description}` testId=`composer-suggestion-${row.index}` width="100%" height="1.75rem" flex-shrink=0 padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(row.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-              when row.icon != "" and dark
-                EditorMenuIcon(name=row.icon, color=row.iconDark, size=16)
-              when row.icon != "" and not dark
-                EditorMenuIcon(name=row.icon, color=row.iconLight, size=16)
+              when row.icon != ""
+                EditorMenuIcon(name=row.icon, color=`light-dark(${row.iconLight}, ${row.iconDark})`, size=16)
               row flex=1 min-width=0 gap="0.5rem" align-items="center"
                 row max-width="45%" min-width=0 flex-shrink=0
                   when row.prefix != ""
