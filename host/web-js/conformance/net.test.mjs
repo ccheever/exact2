@@ -88,17 +88,20 @@ test("an app request to an unanswered host fails; the browser's own requests are
   }
 });
 
-test('a client that refuses the certificate is recorded as unanswered', async () => {
-  const net = await startNet();
-  try {
-    const [host, port] = net.proxy.split(':');
-    const tunnel = await new Promise((ok, fail) => request({ host, port, method: 'CONNECT', path: 'api.realworld.show:443' })
-      .on('connect', (res, socket) => ok(socket)).on('error', fail).end());
-    const { connect } = await import('node:tls');
-    await new Promise(done => connect({ socket: tunnel, servername: 'api.realworld.show' }).on('error', done).on('secureConnect', done));
-    await new Promise(ok => setTimeout(ok, 100));
-    expect(net.unanswered).toEqual(["CONNECT api.realworld.show:443: TLS handshake failed (is the run's certificate trusted?)"]);
-  } finally {
-    await net.close();
+test("a client that refuses the certificate fails the run; a browser's abandoned handshake does not", async () => {
+  for (const [userAgent, ledger] of [['Bun/1.4', 'unanswered'], ['Mozilla/5.0 (Macintosh) Chrome/140.0', 'aborted']]) {
+    const net = await startNet();
+    try {
+      const [host, port] = net.proxy.split(':');
+      const tunnel = await new Promise((ok, fail) => request({ host, port, method: 'CONNECT', path: 'api.realworld.show:443', headers: { 'user-agent': userAgent } })
+        .on('connect', (res, socket) => ok(socket)).on('error', fail).end());
+      const { connect } = await import('node:tls');
+      await new Promise(done => connect({ socket: tunnel, servername: 'api.realworld.show' }).on('error', done).on('secureConnect', done));
+      await new Promise(ok => setTimeout(ok, 100));
+      expect(net[ledger]).toEqual(["CONNECT api.realworld.show:443: TLS handshake failed (is the run's certificate trusted?)"]);
+      expect(net[ledger === 'unanswered' ? 'aborted' : 'unanswered']).toEqual([]);
+    } finally {
+      await net.close();
+    }
   }
 });
