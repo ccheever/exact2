@@ -13,13 +13,13 @@ import { Cdp, open, assertWebDistApp, browserDiagnosticNoise } from '../../../sc
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { hermesBundle, hermesTarget, resolveApp } from '../../../scripts/app.mjs';
 import { jsTargetBuild, serveStatic, serveBuildTree } from '../serve.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 import { need, notApplicable } from '../../../scripts/coverage.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 // The shell as a default build ships it (look.mjs): what the stylesheet's own tests below draw on.
-const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'), DEFAULT_LOOK);
+const SHIPPED = withLook(readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8'));
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
 const app = resolveApp('caltrain');
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
@@ -300,7 +300,7 @@ check(`a press before the glue runs is captured, replays once, and a later one i
     await live.until("document.getElementById('exact-root')?.dataset.moduleReady === 'true'", 'the runtime');
     await live.until("document.documentElement.style.colorScheme === 'dark'", 'the replayed press');
     await live(settled);
-    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(setScheme\)/.test(l)).length;
+    const presses = async () => (await live("exact.agent({op:'logs'})")).lines.filter((l) => /press view \d+ \(chooseScheme\)/.test(l)).length;
     expect(await presses()).toBe(1);
     expect((await live("exact.agent({op:'state'})")).adopted).toBe(true);
     // After adoption a press is the runtime's own: once.
@@ -820,8 +820,8 @@ browserCheck('a determinate progress is the accent over the system fill in light
 });
 
 browserCheck('modal routes use the platform canvas, keep author paint, and reveal the sheet beneath on Back', async () => {
-  const css = readFileSync(resolve(ROOT, 'host/web/index.html'), 'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
-  const html = `<!doctype html><style>${css}</style><style>.authored {background-color:rgb(20,40,60)}</style>
+  const css = SHIPPED.match(/<style>([\s\S]*?)<\/style>/)[1];
+  const html = `<!doctype html><style>${css}</style><style>#exact-root#exact-root .authored {background-color:rgb(20,40,60)}</style>
     <div id="exact-root"><main id="nav" navigationKey="2" navigationBack="back">
       <section id="home" navigationKey="0"><button>Home</button></section>
       <section id="first" navigationKey="1" navigationPresentation="modal"><button>First sheet</button></section>

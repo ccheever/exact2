@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, chromium, launchFacts, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { backLayer, chromium, launchFacts, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -50,7 +50,7 @@ export async function probePlaywrightBrowser(name) {
   let server;
   try {
     const playwright = await import('playwright-core');
-    server = await playwright[name].launchServer({ headless: true, ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
+    server = await playwright[name].launchServer({ headless: true, ...netOptions().launch, ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
   } catch (error) { throw unavailable(name, error); }
   await server.close();
 }
@@ -212,11 +212,12 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   };
   try {
     const playwright = await import('playwright-core');
-    browserServer = await playwright[name].launchServer({ headless: true,
+    const net = netOptions();
+    browserServer = await playwright[name].launchServer({ headless: true, ...net.launch,
       ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
     onProcess?.(browserServer.process());
     browser = await playwright[name].connect(browserServer.wsEndpoint());
-    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
+    context = await browser.newContext({ ...net.context, viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
     page = await context.newPage();
   } catch (error) {
     await browser?.close().catch(() => {});

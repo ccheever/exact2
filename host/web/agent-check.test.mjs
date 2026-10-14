@@ -226,7 +226,7 @@ test('judging: WCAG ratios, the floors, a clamp asked for, a reachable cover, th
   expect(found([{ ...text, fg: [255, 56, 60, 1] }])).toEqual([]); // the grouped sheet's red (a destructive row's title), UIKit's at 3:1
   // LLP 1115.000 D4: a role known only by its drawn value is read in the column its host draws. A page in the neutral look
   // says so (`look`): there the table's neutral red (#c90f1a, 3.5:1 on this grey) is the platform's, at 3:1, and Apple's
-  // red is some author's colour, at 4.5:1. A host that names no look (iOS, a page built in LLP 1116 D1's) draws Apple's.
+  // red is some author's colour, at 4.5:1. An Apple host that names no look (iOS) draws Apple's.
   const onGrey = { ...text, fg: [201, 15, 26, 1], bg: [200, 200, 200], on: 'own' };
   expect(found([onGrey], { look: 'neutral' })).toEqual([]);
   expect(found([onGrey])).toEqual(['contrast:1']);

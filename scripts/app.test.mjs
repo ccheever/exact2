@@ -102,7 +102,7 @@ test('the driver grammar names an unquoted mediasession action beside pinch', ()
   assert.ok(usage.stderr.includes(form), usage.stderr);
 }, 60_000);
 
-// Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
+// Real Cargo units include named game logic for the lint and absent-art receipt.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact native cache-')));
   const write = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), bytes); };
@@ -124,10 +124,10 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and ret
       std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
       std::fs::write(out.join("app.plan"), b"fixture").unwrap();
     }`);
-    const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:dir, encoding:'utf8'});
-    assert.equal(lock.status, 0, lock.stderr);
+    write('.shells/Cargo.toml', '[workspace]\n[package]\nname="cache-logic"\nversion="0.1.0"\nedition="2021"\n'); write('.shells/src/lib.rs', 'pub fn fixture() -> bool { true }\n');
+    for (const cwd of [dir, resolve(dir,'.shells')]) { const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd, encoding:'utf8'}); assert.equal(lock.status, 0, lock.stderr); }
     const app = {dir, workspace:dir, target:resolve(dir,'target'), id, hasGpu:true,
-      manifest:{app:{id, name:'Cache fixture'}, game:{}, rust:false}, crate:kind=>`cache-${kind}`};
+      manifest:{app:{id, name:'Cache fixture'}, game:{crate:'cache-logic'}, rust:false}, crate:kind=>`cache-${kind}`};
     const bake = (value, executable = value) => buildBake(app, 'linux', target, {profile:'dev', output:resolve(dir,'bakes'),
       env:{EXACT_UPDATE_TRUST:'development', CACHE_FIXTURE_VALUE:value, CACHE_EXEC_VALUE:executable, EXACT_RUST_BUNDLE:'', EXACT_UPDATE_RECEIPT:''}});
     const modified = receipt => receipt.products.filter(p=>/libcache_module\.|\/cache-runner$/.test(p.path))

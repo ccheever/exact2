@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
 import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
-import { DEFAULT_LOOK, LOOK } from '../host/web/look.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -145,6 +144,27 @@ export function webStore({ id, dir }, storage, env = process.env, home = homedir
   const cache = platform === 'darwin' ? resolve(home, 'Library/Caches') : env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache');
   const digest = appDigest(dir), base = resolve(cache, 'exact', id, `agent-web-${digest}`);
   return { base, profile: resolve(base, storage), port: 20000 + createHash('sha256').update(`${id}/${digest}/${storage}`).digest().readUInt32BE(0) % 28000 };
+}
+
+/** Chrome's flags for conformance's network (host/web-js/conformance/net.mjs), when
+ *  `EXACT_NET_PROXY` names its proxy: every outside request goes through it, loopback
+ *  (the page's own server) excepted, and its run's certificate is trusted by its SPKI
+ *  digest (`EXACT_NET_SPKI`). */
+export function netFlags(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return [];
+  return [`--proxy-server=http://${environment.EXACT_NET_PROXY}`, `--ignore-certificate-errors-spki-list=${environment.EXACT_NET_SPKI}`,
+    // Chrome's implicit bypass covers link-local addresses too: `<-loopback>` drops it, and loopback is named instead
+    '--proxy-bypass-list=<-loopback>;127.0.0.1;localhost;[::1]',
+    // Chrome's own services (sign-in, updates, safe browsing), which would otherwise ask the proxy for Google's hosts
+    '--disable-background-networking', '--disable-sync', '--no-pings', '--disable-domain-reliability', '--disable-client-side-phishing-detection',
+    '--disable-features=AutofillServerCommunication,OptimizationHints,MediaRouter,CertificateTransparencyComponentUpdater,NetworkTimeServiceQuerying'];
+}
+
+/** Playwright's launch and context options for the same network: Firefox and WebKit through the
+ *  proxy, loopback direct, and the run's certificate accepted (Playwright has no SPKI pin). */
+export function netOptions(environment = process.env) {
+  if (!environment.EXACT_NET_PROXY) return { launch: {}, context: {} };
+  return { launch: { proxy: { server: `http://${environment.EXACT_NET_PROXY}`, bypass: '127.0.0.1,localhost' } }, context: { ignoreHTTPSErrors: true } };
 }
 
 /** One browser lookup for the agent and its tests: an explicit override,
@@ -574,13 +594,11 @@ export function webInputs(app, js, since = -Infinity) {
   return { app: appFiles, shared };
 }
 const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
-/** Content digests of every input of a web build, recorded in its marker; and the look it was built in, where that is
- * not the default one (LLP 1115.000 D4 part B; host/web/look.mjs): a setting, so no file's digest says it. */
+/** Content digests of every input of a web build, recorded in its marker. */
 export function webInputDigests(app, js) {
   const { app: own, shared } = webInputs(app, js);
-  return { ...Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)])), ...(LOOK === DEFAULT_LOOK ? {} : { [LOOK_INPUT]: LOOK }) };
+  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
 }
-const LOOK_INPUT = 'EXACT_WEB_LOOK';
 /** Inputs whose content changed since the build in `dist`. Modification times only
  * nominate candidates; a checkout that rewrote a file with its own bytes is not a
  * change. A marker without digests (an older build) trusts the times. */
@@ -590,9 +608,7 @@ export function webChanges(dist, app) {
   const built = JSON.parse(readFileSync(marker, 'utf8'));
   const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
   const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
-  // A build in another look than this drive's is stale, whatever its files say.
-  const look = built.inputs && (built.inputs[LOOK_INPUT] ?? DEFAULT_LOOK) !== LOOK ? [`${LOOK_INPUT}=${LOOK}`] : [];
-  const appChanges = own.filter(changed), shared = [...roots.filter(changed), ...look];
+  const appChanges = own.filter(changed), shared = roots.filter(changed);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
