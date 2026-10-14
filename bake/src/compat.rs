@@ -502,17 +502,30 @@ fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
         Some(r) => serde_json::Value::String(r?),
         None => serde_json::Value::Null,
     };
+    let toolchain = toolchain().map_or(serde_json::Value::Null, serde_json::Value::String);
+    Ok(
+        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
+    )
+}
+
+/// The toolchain's version line (`$RUSTC --version`), asked once per process and per
+/// `RUSTC`: a process computes many ids, and a compiler does not change under it.
+fn toolchain() -> Option<String> {
+    static ASKED: std::sync::Mutex<Vec<(String, Option<String>)>> =
+        std::sync::Mutex::new(Vec::new());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
-    let toolchain = std::process::Command::new(rustc)
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, version)) = asked.iter().find(|(name, _)| *name == rustc) {
+        return version.clone();
+    }
+    let version = std::process::Command::new(&rustc)
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .map_or(serde_json::Value::Null, serde_json::Value::String);
-    Ok(
-        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
-    )
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    asked.push((rustc, version.clone()));
+    version
 }
 
 /// Every file under `root`, as paths relative to it, skipping a `target`
