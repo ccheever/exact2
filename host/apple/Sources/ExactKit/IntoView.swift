@@ -25,10 +25,10 @@ enum IntoView {
             return t1 - size
         }
     }
-    static func smooth(_ args: [Any], style: [String: BatchValue]) -> Bool {
+    static func animates(_ args: [Any]) -> Bool {
         let behavior = args.count > 3 ? args[3] as? String : nil
         return !ExactEnv.agentFreezes && !DisplayPreferences.reducedMotion
-            && (behavior == "smooth" || ((behavior == nil || behavior == "auto") && style["scroll_behavior"]?.string == "smooth"))
+            && behavior != "instant"
     }
     static func inset(_ rect: CGRect, style: [String: BatchValue], family: String, outward: Bool = false) -> CGRect {
         let top = style["\(family)_top"]?.length(basis: rect.height) ?? 0
@@ -80,7 +80,7 @@ extension Presenter {
             guard to != clip.bounds.origin else { continue }
             let end = owner?.scrollEnd ?? ScrollEnd()
             owner?.scrollEnd = end
-            if IntoView.smooth(args, style: owner?.style ?? [:]) {
+            if IntoView.animates(args) {
                 let token = UUID()
                 end.elementAnimation = token; end.hold()
                 NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(to) }, completionHandler: { [weak owner] in

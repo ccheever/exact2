@@ -123,33 +123,79 @@ final class ElementScrollTests: XCTestCase {
                 XCTAssertTrue(exact.intermediate, "an ordinary element reveal has AppKit's intermediate frames")
             }
             XCTAssertEqual(exact.last, target.y, accuracy: 0.5)
+            XCTAssertEqual(exact.ends, 1, "the reveal completes once")
         }
     }
 
-    private func exactAnimation(_ arguments: [Any]) throws -> (first: CGFloat, intermediate: Bool, last: CGFloat) {
+    func testRevealPolicySurvivesStyleChangesAndScrollTopAutoStaysImmediate() throws {
+        let (p, scroll, window) = try exactFixture()
+        defer { withExtendedLifetime(window) {} }
+
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": "smooth"]]]))
+        let smoothStyle = observeExact(p, scroll: scroll, arguments: ["target", "start", "nearest"])
+        if !ExactEnv.agentFreezes {
+            XCTAssertLessThan(smoothStyle.first, 368)
+            XCTAssertTrue(smoothStyle.intermediate)
+        }
+        XCTAssertEqual(smoothStyle.last, 368, accuracy: 0.5)
+        XCTAssertEqual(smoothStyle.ends, 1)
+
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "scroll_behavior": "auto"]]]))
+        let restoredAuto = observeExact(p, scroll: scroll, arguments: ["home", "start", "nearest", "auto"])
+        if !ExactEnv.agentFreezes {
+            XCTAssertGreaterThan(restoredAuto.first, 0)
+            XCTAssertTrue(restoredAuto.intermediate)
+        }
+        XCTAssertEqual(restoredAuto.last, 0, accuracy: 0.5)
+        XCTAssertEqual(restoredAuto.ends, 1)
+
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["scrollTop": "368"]]]))
+        XCTAssertEqual(scroll.contentView.bounds.minY, 368, accuracy: 0.5, "an auto scrollTop write lands immediately")
+        XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation)
+        p.scrollElementIntoView(["home", "start", "nearest", "instant"])
+        XCTAssertEqual(scroll.contentView.bounds.minY, 0, accuracy: 0.5, "explicit instant still lands immediately")
+        XCTAssertNil(p.views[1]?.scrollEnd?.elementAnimation)
+    }
+
+    private func exactFixture() throws -> (Presenter, NSScrollView, NSWindow) {
         let p = Presenter()
         p.viewport.frame = CGRect(x: 0, y: 0, width: 200, height: 200)
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["scrollend"], "style": ["overflow_y": "scroll"]],
             ["op": "create", "id": 2, "kind": "view", "props": ["id": "target"]],
-            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "create", "id": 3, "kind": "view", "props": ["id": "home"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 368.0, "w": 100.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 100.0, "h": 50.0],
         ]))
         let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = p.viewport
         window.orderFront(nil)
-        defer { withExtendedLifetime(window) {} }
         let scroll = try XCTUnwrap(p.views[1]?.scroll)
         scroll.documentView?.setFrameSize(CGSize(width: 200, height: 1000))
+        return (p, scroll, window)
+    }
+
+    private func exactAnimation(_ arguments: [Any]) throws -> (first: CGFloat, intermediate: Bool, last: CGFloat, ends: Int) {
+        let (p, scroll, window) = try exactFixture()
+        defer { withExtendedLifetime(window) {} }
+        return observeExact(p, scroll: scroll, arguments: arguments)
+    }
+
+    private func observeExact(_ p: Presenter, scroll: NSScrollView,
+                              arguments: [Any]) -> (first: CGFloat, intermediate: Bool, last: CGFloat, ends: Int) {
         let prior = DisplayPreferences.agent
         DisplayPreferences.agent = (false, false)
         defer { DisplayPreferences.agent = prior }
-        return observeAnimation(offset: { scroll.contentView.bounds.minY }, target: 368) { completed in
-            p.onScrollend = { _ in completed() }
+        var ends = 0
+        let target: CGFloat = (arguments.first as? String) == "home" ? 0 : 368
+        let observed = observeAnimation(offset: { scroll.contentView.bounds.minY }, target: target) { completed in
+            p.onScrollend = { _ in ends += 1; completed() }
             p.scrollElementIntoView(arguments)
         }
+        return (observed.first, observed.intermediate, observed.last, ends)
     }
 
     private func observeAnimation(offset: () -> CGFloat, target: CGFloat,
@@ -161,7 +207,8 @@ final class ElementScrollTests: XCTestCase {
         let limit = Date().addingTimeInterval(10)
         while !completed && Date() < limit {
             let position = offset()
-            if position > 1 && position < target - 1 { intermediate = true }
+            let low = min(first, target), high = max(first, target)
+            if position > low + 1 && position < high - 1 { intermediate = true }
             _ = RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.01))
         }
         XCTAssertTrue(completed, "the scroll completes")
