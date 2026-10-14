@@ -64,7 +64,8 @@ extension Presenter {
     /// The buttons that declare a chord and can be pressed now.
     private var shortcutButtons: [NodeView] {
         chrome.ids("accessibilityKeyShortcuts").sorted().compactMap { views[$0] }
-            .filter { $0.isButton && $0.handlers.contains("press") && !$0.disabled && $0.accessibilityVisible }
+            .filter { $0.isButton && ($0.handlers.contains("press") || $0.isNativeButton && invocation(of: $0) != nil)
+                && !$0.disabled && $0.accessibilityVisible }
     }
     /// Whether the focus is a text field or area, whose typing a plain key is.
     private var editingText: Bool { focusedNode.map { $0.field != nil || $0.textArea != nil } ?? false }

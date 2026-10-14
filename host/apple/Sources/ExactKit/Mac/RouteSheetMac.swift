@@ -83,7 +83,8 @@ struct SheetHeader {
         let children = { (node: NodeView) in node.container.subviews.compactMap { $0 as? NodeView } }
         // A push button says words and presses: one that opens a menu, shows no word or is not shown is not one.
         let button = { (node: NodeView) in
-            node.pressable && node.props["popovertarget"] == nil && node.style["display"]?.string != "none" && !words(of: node).isEmpty
+            node.pressable && node.presenter?.invocation(of: node).map({ $0.opens && $0.target.props["popover"] != nil }) != true
+                && node.style["display"]?.string != "none" && !words(of: node).isEmpty
         }
         let cancel = back.flatMap { name in rule.items.first { $0.props["id"] == name && button($0) } }
         let accented = rule.items.filter { $0 !== cancel && prominent.contains($0.face?.style ?? "") && $0.props["destructive"] != "true" }

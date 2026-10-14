@@ -229,7 +229,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
-    var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
     var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
     /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
