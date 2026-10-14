@@ -116,8 +116,8 @@ steps with `clock +50`. README pitfall #99 and EXACT2-GAPS' row say it is retire
 | Row | Result | Proof |
 | --- | --- | --- |
 | G1-1 | built; the input-method half not verifiable in agent mode. AppKit: while 한 composes ⌥Return is offered to the input context once and never encoded by the terminal (the ABC layout's context makes it a newline); without a composition it is Ghostty's `ESC CR` again; the routing table holds for 14 chords. Bun: the composing state goes out as one start and one end per composition. The Hanja list and the cadence states: real-input steps 1-2 | [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
-| G1-2 | pass (AppKit, before/after): before, ⌃C with ㅎ composing sent nothing and ㅎ stayed composing, and ⌃L sent `0C` ahead of 하; after, ⌃C commits ㅎ once and sends no ^C, the next ⌃C is the shell's `03`, ⌃L commits 하 then clears. Under the real input method: real-input step 3 | [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
-| G1-3 | pass (agent drive, before/after/reference): with the composer focused, a middle press on Terminal 1 left the focus in the composer and Terminal 2 active before; after, Terminal 1 has the focus (its filled cursor) and is the active pane, nothing pasted. Close order: Bun (the active terminal first, as `closeRightPanelSurface`). Under a real middle button: real-input step 4 | [image](https://raw.githubusercontent.com/ccheever/exact2/826efc3a18db4867c6a3592fa925c788c8679c5c/terminal-input-and-ime/g1-3-middle-press.png), [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
+| G1-2 | Native routing verified with controlled input-context handlers: a consumed Control key preserves composition and sends no PTY bytes; only a declined key takes the commit fallback. In that fallback, ⌃C commits ㅎ once and sends no ^C, the next ⌃C is the shell's `03`, and ⌃L commits 하 then clears. The linked earlier before/after evidence covers the commit fallback; the continuation repair below verifies both routes. Real Korean/Japanese IME behavior remains unverified: real-input step 3 | [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
+| G1-3 | partial (agent drive, before/after/reference): with the composer focused, a middle press on Terminal 1 left the focus in the composer and Terminal 2 active before; after, Terminal 1 has the focus (its filled cursor) and is the active pane, nothing pasted. The clone focuses the input; the recorded reference focused the viewport container. Typing/paste parity and a real middle-button check remain open. Close order: Bun (the active terminal first, as `closeRightPanelSurface`); visible before/after capture remains open. Real-input step 4 | [image](https://raw.githubusercontent.com/ccheever/exact2/826efc3a18db4867c6a3592fa925c788c8679c5c/terminal-input-and-ime/g1-3-middle-press.png), [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
 | KW-8 | pass (agent drive, before/after films): the same height at every frame, opening and closing | [film](https://raw.githubusercontent.com/ccheever/exact2/025ec6182df1c43bf1d016508b847baab9ecd75f/terminal-input-and-ime/kw8-drawer-film.png), [g1-record.txt](https://raw.githubusercontent.com/ccheever/exact2/9aaed593d481a6d5fa2dc32e21e97086a4a830ec/terminal-input-and-ime/g1-record.txt) |
 
 Drives (agent mode, 1280×840, `target/t3-audit/clone-drive.sh`, lane `terminal-input-and-ime`, base port 16420, a fresh
@@ -170,10 +170,10 @@ The clone keeps sending only commits and does not imitate the leak. If real-inpu
 separate jamo (ㅎ, ㅏ) at that cadence, should the clone imitate Chromium's states (which would also put ㅎ and 하 in the
 shell), or is "한글 once at a normal pace" the bar?
 
-## Checks
+## Earlier checks (head `c1725bc6a`)
 
-On `c1725bc6a` (the final code; the record commits after it change no code). `origin/feat(example)/t3-code` was
-still `609f392d5`, this branch's base, so there was nothing to merge.
+These checks preceded the continuation repair below. At that time `origin/feat(example)/t3-code` was still
+`609f392d5`, this branch's base, so there was nothing to merge.
 
 | Check | Exit | Note |
 | --- | --- | --- |
