@@ -9,6 +9,7 @@ use SettingsNotice from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
 use SkPopup from "./settings-kit.contract"
 use SkMenuItem from "./settings-kit.contract"
+use KeyRecorder from "./key-recorder.contract"
 use LucideSearch from "./settings-icons.contract"
 use LucidePlus from "./settings-icons.contract"
 use LucideMinus from "./settings-icons.contract"
@@ -224,10 +225,10 @@ component KeybindingRow
         if dirty or recording or row.key == ""
           CaptureField(label=row.label, value=draftKey, original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, draftKey, draftWhen), capture=capture)
 
-// The capture field: the reference Input starts recording on focus; a native
-// text field reports focus only once editing begins, so here the field is a
-// button that starts recording when pressed. The native recorder fills it;
-// Escape restores the previous binding; leaving it stops recording.
+// The capture field: the reference Input starts recording on focus; here the
+// field is a button that starts recording when pressed. The recorder
+// (key-recorder.contract) fills it; Escape restores the previous binding;
+// leaving it stops recording.
 component CaptureField
   props
     label: string
@@ -244,7 +245,7 @@ component CaptureField
       // no shortcut button outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). Leaving it
       // (blur) stops recording and keeps the draft, as the reference's input does.
       row class=KbCapture align-items="center" aria-modal=true testId="keybinding-recording"
-        t3-key-recorder prompt="Press shortcut" change=capture(original) blur=capture(original, "blur") aria-label=`Keybinding for ${label}` testId="keybinding-recorder" flex=1 min-width=0 height="1.5rem"
+        KeyRecorder(prompt="Press shortcut", label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=capture(original), cancel=capture(original, "blur"))
     else
       button press=record aria-label=`Keybinding for ${label}` class=KbCapture display="flex" flex-direction="row" align-items="center" testId=`keybinding-capture-${label}`
         text (value == "" ? "Unassigned" : value) font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")

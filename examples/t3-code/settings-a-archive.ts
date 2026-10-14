@@ -17,7 +17,6 @@ type Archive = { manageArchivedThread(native: Native, storage: Files, op: string
 const archive = (client: T3Client) => client as unknown as Archive;
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
 
-export const ARCHIVE_MENU = [{ id: 'unarchive', label: 'Unarchive' }, { id: 'delete', label: 'Delete', destructive: true }];
 
 /** resolveThreadTarget(target)?.thread.title: the focused environment's live (not archived) thread named by the scope. */
 function liveTitle(client: T3Client, scope: string): string {
@@ -33,9 +32,9 @@ export function archiveConfirmation(client: T3Client): { id: string; title: stri
   return entry ? { id: entry.scope, title: entry.title } : { id: '', title: '' };
 }
 
-/** rest:archive-menu (right-click), rest:archive-delete (the dialog's Confirm) and rest:archive-cancel. The row's title the
- * menu op carries is not the confirm's (liveTitle). */
-export async function archiveCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, _title: string): Promise<string> {
+/** rest:archive-pick (the row menu's choice, `value` "unarchive" or "delete": settings-archive.contract ArchiveMenu),
+ * rest:archive-delete (the dialog's Confirm) and rest:archive-cancel. The confirm's title is the live store's (liveTitle). */
+export async function archiveCommand(client: T3Client, native: Native, storage: Files, op: string, scope: string, value: string): Promise<string> {
   if (op === 'archive-cancel') { pending.delete(client); return ''; }
   if (op === 'archive-delete') {
     const entry = pending.get(client);
@@ -43,10 +42,9 @@ export async function archiveCommand(client: T3Client, native: Native, storage: 
     if (!entry || entry.scope !== scope) throw new ClientError('That archived thread is no longer available.');
     return remove(client, native, storage, scope);
   }
-  if (op !== 'archive-menu') throw new ClientError(`Unknown settings action: ${op}`);
+  if (op !== 'archive-pick') throw new ClientError(`Unknown settings action: ${op}`);
   if (!scope) throw new ClientError('That archived thread is no longer available.');
-  const reply = await client.restAccess(native).call({ op: 'contextMenu', items: ARCHIVE_MENU });
-  const clicked = typeof reply.clicked === 'string' ? reply.clicked : null;
+  const clicked = value;
   if (clicked === 'unarchive') {
     try { await archive(client).manageArchivedThread(native, storage, 'unarchive-thread', scope); }
     catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Failed to unarchive thread', description: failure(error) }); }

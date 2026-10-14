@@ -1,7 +1,8 @@
 // Settings → Archive (reference SettingsPanels.tsx ArchivedThreadsPanel): one
 // section per project, newest archive first; Unarchive on each row, and the
-// native context menu at the pointer (settings-a-archive.ts, T3ContextMenu.swift).
+// row's context menu (ArchiveMenu; settings-a-archive.ts runs its choice).
 use SettingsSection from "./settings-kit.contract"
+use SidebarMenuCard, SidebarMenuItem from "./sidebar-row.contract"
 use SettingsRow from "./settings-kit.contract"
 use SettingsNotice from "./settings-kit.contract"
 use LucideArchive from "./settings-icons.contract"
@@ -36,8 +37,13 @@ component ArchivedPanel
     open: action
     showMenu: action
     close: action
+  // The right-clicked row's scope: its `contextmenu` runs before the host shows the panel's one `archive-menu` popover.
+  state menuOf = ""
+  action menuFor(scope: string)
+    menuOf = scope
   view
     column width="100%" gap="2rem" testId="archived-settings"
+      ArchiveMenu(owner=menuOf, raw=raw)
       if error != ""
         text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="archive-error" padding-left="1rem"
       if data.groups.length == 0
@@ -56,7 +62,7 @@ component ArchivedPanel
             text group.title font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
           column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
             for thread in group.threads key=thread.id
-              ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close)
+              ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close, menuFor=menuFor)
 
 // The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label; G4-14b).
 component ArchivedRow
@@ -68,9 +74,29 @@ component ArchivedRow
     open: action
     showMenu: action
     close: action
+    menuFor: action
   view
-    column width="100%" position="relative" contextmenu=raw("rest:archive-menu", thread.scope, thread.title) testId=`archived-row-${thread.id}`
+    column width="100%" position="relative" contextmenu=menuFor(thread.scope) contextPopover="archive-menu" testId=`archived-row-${thread.id}`
       SettingsRow(title=thread.title, description=thread.description, first=thread.first, rowId=`archived-${thread.id}`)
         button press=raw("unarchive-thread", thread.scope, "") disabled=busy testId=`unarchive-${thread.id}` display="flex" flex-direction="row" align-items="center" gap="0.125rem" box-sizing="border-box" height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 opacity=(busy ? 0.64 : 1)
           LucideArchiveX(size=14, color="light-dark(#71717b, #818181)")
           text "Unarchive" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+
+// ArchivedThreadsPanel's row menu (api.contextMenu.show, ElectronMenu.ts showContextMenu: Unarchive, then Delete after a
+// separator with the trash glyph), as the panel's one context popover (contract-keys-and-menu-bar X292; it was
+// T3ContextMenu's NSMenu). The host presents it as a native menu at the pointer, or at the focused row's centre from the
+// ContextMenu key, and schedules it; the agent paints it. A choice runs settings-a-archive.ts `archive-pick`: Unarchive
+// toasts a failure, Delete asks first while Delete confirmation is on.
+component ArchiveMenu
+  props
+    owner: string
+    raw: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id="archive-menu" popover="auto" position-try-fallbacks="none" role="menu" class=SidebarMenuCard testId="archive-menu"
+        button press=raw("rest:archive-pick", owner, "unarchive") popovertarget="archive-menu" popovertargetaction="hide" role="menuitem" disabled=(owner == "") testId="archive-menu-unarchive" class=SidebarMenuItem
+          text "Unarchive" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        hr height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" border-width=0 background-color="light-dark(#e4e4e7, #ffffff0f)"
+        button press=raw("rest:archive-pick", owner, "delete") popovertarget="archive-menu" popovertargetaction="hide" role="menuitem" disabled=(owner == "") testId="archive-menu-delete" class=SidebarMenuItem
+          image "symbol:sf/trash" width=12 height=12 object-fit="contain"
+          text "Delete" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#c10007, #ff6467)"

@@ -9,7 +9,7 @@ import XCTest
 // the session's match misses and AppKit's menu matches). An agent's key goes straight to the window, so only this
 // path can lose a chord. Every ⌘ chord of the reference's defaults that holds in an open thread is sent here as the
 // window server sends it (a CGEvent-backed NSEvent through NSApp.sendEvent), from the composer and with nothing
-// focused, past the clone's own monitors (T3Menus, T3Composer and its launcher, R9Input, R10Connect, T3Sidebar,
+// focused, past the clone's own monitors (T3Menus, T3Composer with its launcher-letter guard, R9Input, R10Connect, T3Sidebar,
 // T3TextContextMenu, T3ComposerIntent, T3Timeline, RightPanelTabsInput, T3ActivityReporter) and its menu bar
 // (T3Menus.augment, R8KeysMenus.arrange) over the host's, and must reach the host's monitor and the host's item for
 // that chord, leaving the composer's text and the focus alone. The host's parts are stand-ins, as in r8-keys: its bar
@@ -163,7 +163,7 @@ final class Fixture {
     let host = ShortcutHost(), dev = DevTarget()
     let window = NSWindow(contentRect: NSRect(x: 240, y: 240, width: 640, height: 420), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     let composerText = NSTextView(frame: NSRect(x: 20, y: 300, width: 600, height: 80))
-    let composer = T3Composer(), launcher = R8KeysLauncher(), menus = T3Menus()
+    let composer = T3Composer(), menus = T3Menus()
     let r9 = R9Input(), r10 = R10Connect(agent: false), sidebar = T3Sidebar(agent: false, changed: { _ in })
     let textMenu = T3TextContextMenu(agent: false), intent = T3ComposerIntent(), timeline = T3Timeline(changed: { _ in })
     let panelTabs = RightPanelTabsInput(), activity = T3ActivityReporter(persistent: false, dataDirectory: nil, pageFacts: true)
@@ -198,13 +198,12 @@ final class Fixture {
         let transcriptElement = element(.t3Transcript, "transcript", 5, transcript, ["timeline-owner": "t1", "timeline-rest": "yes"])
         let tabElement = element(.t3Anchor, "", 6, tab, ["anchor": "r12-tab:files"])
         activate()
-        composer.launcher = launcher
         menus.updatesDisabledReason = { "no feed" }
         sidebar.install(); textMenu.install()
         activity.connect(UUID(), environment: "env") { _, done in done() }
         // T3Module.element's order.
         for element in [composerElement, sendElement, transcriptElement, tabElement] {
-            panelTabs.install(element); composer.install(element); timeline.install(element); menus.install(element); r9.install(element); r10.install(element)
+            panelTabs.install(element); composer.install(element); timeline.install(element); menus.install(element); r9.install(element)
         }
         tick(0.2)
         // The next plan batch files the window's commands over the clone's bar.

@@ -54,6 +54,7 @@ shape PrRow
   projectId: string
   host: string
   linkMenu: string
+  linkOpenLabel: string // the number's menu's Open on <host> (context-menus.ts openOnHostLabel)
   // pr-handoffs-and-quick-actions: the Shift quick actions, the stack trigger and the checks popover's headline.
   speed: PrSpeedAction[]
   speedPending: bool
@@ -197,12 +198,20 @@ component PrList
     act: action
     // usage-and-pr-pages PG-7: the page Escape leaves (useEscapeToGoBack), back to the page before it.
     back: action
+  // The right-clicked number's link ("<provider> <url>") and its Open on <host> label: its `contextmenu` runs before
+  // the host shows the page's one `pr-link-menu` popover (PrLinkMenu).
+  state linkMenuOf = ""
+  state linkMenuLabel = ""
+  action linkMenuFor(link: string, label: string)
+    linkMenuOf = link
+    linkMenuLabel = label
   // The controls row: wide, the search flexes and the buttons end at the
   // content edge; narrow, the buttons wrap greedily under the search. Each
   // menu names its reference alignment as a `position-area` and flips near
   // the window's edge.
   view
     column flex=1 min-width=0 height="100%" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-requests-page"
+      PrLinkMenu(menuId="pr-link-menu", link=linkMenuOf, openLabel=linkMenuLabel, pick=control("link-pick"))
       // With the panel open, the panel holds the page's Back (PrPanel), as only it knows which of its editors has the focus.
       if not panelOpen
         PrPageBack(held=false, back=back)
@@ -232,7 +241,7 @@ component PrList
                     text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
                     box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                   for row in group.rows key=row.key
-                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
+                    PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor, diff=page.diffScheme, act=act, speedMode=page.speedMode, checks=page.checksPopover, stack=page.stackPopover)
               if page.errors.length > 0
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
                   for note in page.errors key=note.key
@@ -718,6 +727,7 @@ component PrRowButton
     compact: bool
     select: action
     control: action
+    linkMenuFor: action
     act: action
     speedMode: bool
     checks: PrChecksPopover
@@ -740,7 +750,7 @@ component PrRowButton
         column flex=1 min-width=0
           row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
             // PullRequestRow: the number carries the link; its right-click is pullRequestLinkContextMenu (Copy link, Open on <host>).
-            box press=select(row.ref) contextmenu=control("link-menu", row.linkMenu) pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
+            box press=select(row.ref) contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu" pointer-events="auto" flex-shrink=0 testId=`pr-number-${row.number}`
               text `#${row.number}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
             text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
             if row.checks != "" or row.review != ""
@@ -798,3 +808,30 @@ component PrGhostRow
         box width="28%" height="0.625rem" border-radius="0.25rem" background-color="light-dark(#e4e4e766, #ffffff07)"
 
 // PullRequestListEmptyState and PullRequestsUnavailableState: r5-shell-prs.contract.
+
+// pullRequestLinkContextMenu (PullRequestRow, PullRequestDetailPanel openNumberContextMenu; context-menus.ts): Copy link, then
+// Open on <host>, as a context popover (contract-keys-and-menu-bar X292; it was T3ContextMenu's NSMenu). The host presents it
+// as a native menu at the pointer, or at the focused node's centre from the ContextMenu key; the agent paints it. A row runs
+// context-menu-actions.ts pullRequestLinkPick through `pick` (`<choice>\n<provider> <url>`): the copy or the host's page,
+// each with its failure toast.
+// The sidebar's menu card and rows (sidebar-row.contract SidebarMenuCard, SidebarMenuItem), which this file cannot `use`
+// (sidebar-row reaches pages-pr-detail, which uses this file).
+style PrLinkMenuCard
+  min-width="12rem" max-width="24rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1
+  border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040"
+style PrLinkMenuItem
+  width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box"
+  gap="0.5rem" border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+component PrLinkMenu
+  props
+    menuId: string
+    link: string
+    openLabel: string
+    pick: action
+  view
+    box position="absolute" left=0 top=0 width=0 height=0
+      column id=menuId popover="auto" position-try-fallbacks="none" role="menu" class=PrLinkMenuCard testId=menuId
+        button press=pick(`copy-link\n${link}`) popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=(link == "") testId=`${menuId}-copy-link` class=PrLinkMenuItem
+          text "Copy link" flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        button press=pick(`open-external\n${link}`) popovertarget=menuId popovertargetaction="hide" role="menuitem" disabled=(link == "") testId=`${menuId}-open-external` class=PrLinkMenuItem
+          text openLabel flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"

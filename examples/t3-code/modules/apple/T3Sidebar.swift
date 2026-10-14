@@ -6,25 +6,22 @@
 // a thread row's right click and ContextMenu are the rows' context popover,
 // sidebar-row.contract ThreadMenu, which the host presents as an NSMenu with its
 // submenus since exact2 #223 and opens at the focused row for ContextMenu since
-// exact2 #314), the legacy sidebar's menus, the modifier state a row press reads
-// (⌘-click toggles, ⇧-click extends the multi-selection; read from the click
-// event, r8-pointer D8), thread-jump
-// hints while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and
-// the Pull Requests page's speed mode while ⇧ alone is held and no text is being
-// edited (pr-handoffs-and-quick-actions: the route's
-// useShortcutModifierState(true) — its window listeners are this monitor here).
+// exact2 #314), the legacy sidebar's menus, thread-jump hints while ⌘ alone is
+// held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS), and the Pull Requests page's
+// speed mode while ⇧ alone is held and no text is being edited
+// (pr-handoffs-and-quick-actions: the route's useShortcutModifierState(true) —
+// its window listeners are this monitor here). A row press's ⌘/⇧ is its own
+// MouseEvent's (sidebar-row.contract `openPress`; contract-keys-and-menu-bar).
+// The held-key state stays native: Exact hears a key only at a focused node
+// (KeyEvents.swift keyTarget: none for the window itself or a module's web
+// view), and a Contract key event names no editable focus; the reference's
+// window listeners hear every key (contract-keys-and-menu-bar KW-11a).
 import AppKit
 
 final class T3Sidebar: NSObject {
     private let changed: (String) -> Void
     private let agent: Bool
     private var monitor: Any?
-    private var clickMonitor: Any?
-    /// r8-pointer (D8): the newest primary click's modifiers, read from the
-    /// click event itself. A row's press reaches the client after the click
-    /// ends, by when ⌘ or ⇧ may be up; `NSEvent.modifierFlags` then reads the
-    /// keyboard as it is now, not as it was when the row was clicked.
-    private(set) var click: (flags: NSEvent.ModifierFlags, at: TimeInterval)?
     private var pending: DispatchWorkItem?
     private(set) var jumpHints = false
     /// ⇧ alone, not while a field or the composer edits text (shortcut-modifier-state.ts speedMode).
@@ -62,25 +59,7 @@ final class T3Sidebar: NSObject {
             self?.speed(event.modifierFlags, editing: Self.editing(event.window?.firstResponder ?? NSApp.keyWindow?.firstResponder))
             return event
         }
-        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
-            self?.record(event); return event
-        }
         NotificationCenter.default.addObserver(self, selector: #selector(resign), name: NSApplication.didResignActiveNotification, object: nil)
-    }
-    /// Internal so tests can drive it with constructed events. The click event
-    /// (mouse up) wins over its press, as the web's click event carries them.
-    func record(_ event: NSEvent, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        guard event.type == .leftMouseDown || event.type == .leftMouseUp else { return }
-        click = (event.modifierFlags.intersection([.command, .shift, .option, .control]), time)
-    }
-    /// The modifiers a row press reads: the click's own when one ended within
-    /// the last two seconds (the press it caused), else the keyboard's now
-    /// (an agent's plain `tap` is no mouse event and never passes the monitor; its `tap … mouse
-    /// modifiers <M>` click does, through NSApp.sendEvent, since exact2 #186). Read once.
-    func pressModifiers(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> NSEvent.ModifierFlags {
-        defer { click = nil }
-        if let click, time - click.at >= 0, time - click.at <= 2 { return click.flags }
-        return NSEvent.modifierFlags
     }
     @objc private func resign() { flags([]); speed([], editing: false) }
     /// The page's quick actions show and hide with this; its resource (`t3.pr`) reads it again.
@@ -113,9 +92,6 @@ final class T3Sidebar: NSObject {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any]) { reply(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
-        case "sidebarModifiers":
-            let flags = pressModifiers()
-            answer(["command": flags.contains(.command), "shift": flags.contains(.shift), "option": flags.contains(.option), "control": flags.contains(.control)])
         case "sidebarSpeedMode":
             answer(["speedMode": speedMode])
         case "sidebarNotify":
@@ -189,8 +165,7 @@ final class T3Sidebar: NSObject {
 
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
-        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
-        monitor = nil; clickMonitor = nil
+        monitor = nil
         pending?.cancel(); pending = nil
         NotificationCenter.default.removeObserver(self)
     }

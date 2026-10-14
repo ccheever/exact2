@@ -9,6 +9,7 @@ use CnGlyph from "./settings-b-kit.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 use DialogFinalFocus from "./dialog-trap.contract"
+use KeyRecorder from "./key-recorder.contract"
 
 style AeLabel
   font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
@@ -72,13 +73,16 @@ component ProjectActionEditor
     previewUrl = value
   action chooseIcon(value: string)
     icon = value
+  // The recorder's `autofocus` does not take the focus from the Name field the dialog opened in (contract-keys-and-menu-bar
+  // drive), so the press that starts recording moves it there, as the native view took first responder.
   action record
     recording = true
-  action capture(value: string)
+    focus("action-keybinding-recorder")
+  action capture(value: string) // the recorder's binding; "escape" (Escape, or the focus leaving it) keeps the old one
     recording = false
     if value == "backspace" or value == "delete"
       keybinding = ""
-    if value != "backspace" and value != "delete" and value != "esc" and value != "tab"
+    if value != "backspace" and value != "delete" and value != "esc" and value != "escape" and value != "tab"
       keybinding = value
   action flipSetup
     setup = not setup
@@ -122,9 +126,10 @@ component ProjectActionEditor
                   color="light-dark(#71717b, #818181)"
           column gap="0.5rem"
             text "Keybinding" class=AeLabel
+            // While it records the row is the window's modal scope, as Settings' recorder is (no shortcut button outside it hears the chord).
             if recording
-              row class=AeField align-items="center" testId="action-keybinding-recording"
-                t3-key-recorder prompt="Press shortcut" change=capture aria-label="Keybinding" testId="action-keybinding-recorder" flex=1 min-width=0 height="1.5rem"
+              row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"
+                KeyRecorder(prompt="Press shortcut", label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
             else
               button press=record aria-label="Keybinding" disabled=busy class=AeField display="flex" flex-direction="row" align-items="center" testId="action-keybinding"
                 text (keybinding == "" ? "Press shortcut" : keybinding) font-size="0.875rem" line-height="1.25rem" line-clamp=1 color=(keybinding == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")

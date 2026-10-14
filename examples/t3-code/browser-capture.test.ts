@@ -423,7 +423,7 @@ describe('an annotation\'s ⌘↩ at the window (ChatView onSendAnnotation, onSe
     expect(app).not.toContain('capture.sendSerial');
     expect(line(app, 'task annotationSend when')).toBe('  task annotationSend when shell.panel.annotationSend > annotationSendHandled key=shell.panel.annotationSend');
     expect(block(app, 'action annotationSendNow', 6)).toBe(['  action annotationSendNow', '    annotationSendHandled = shell.panel.annotationSend',
-      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send()'].join('\n'));
+      '    if commandPending or not data.canSend or data.requestMode == "question"', '      chatLocal("surface-browser-annotation-held", "", "")', '    else', '      send("")'].join('\n')); // no press: no pointer modifiers (contract-keys-and-menu-bar)
     expect(line(source('r4-surfaces-shapes.contract'), '  annotationSend: number')).not.toBe('');
     expect(block(source('browser-shapes.contract'), 'shape BrowserCapture', 12)).not.toContain('sendSerial');
   });

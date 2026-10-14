@@ -14,6 +14,7 @@ use PrChip from "./pages-prs.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrMenuBox from "./pages-prs.contract"
 use PrPageBack from "./pages-prs.contract"
+use PrLinkMenu from "./pages-prs.contract"
 use PrSummaryView from "./pages-pr-summary.contract"
 use PrdSummary from "./pages-pr-summary.contract"
 use PrTimelineView from "./pages-pr-timeline.contract"
@@ -82,6 +83,7 @@ shape PrDetailView
   repository: string
   url: string
   linkMenu: string
+  linkOpenLabel: string // the number's menu's Open on <host> (context-menus.ts openOnHostLabel)
   state: string
   stateLabel: string
   conflict: string
@@ -438,8 +440,9 @@ component PrdHeader
           if detail.links.backShown
             PrdBackArrow(local=local)
           text detail.repository font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host>.
-          link cursor="pointer" href=detail.url contextmenu=local("pr-link-menu", "", detail.linkMenu) aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
+          // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host> (pages-prs.contract PrLinkMenu).
+          PrLinkMenu(menuId="pr-detail-link-menu", link=detail.linkMenu, openLabel=detail.linkOpenLabel, pick=local("pr-link-pick", ""))
+          link cursor="pointer" href=detail.url contextPopover="pr-detail-link-menu" aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
             text detail.numberLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
         PrdHeaderActions(actions=detail.actions, handoffs=detail.handoffs, links=detail.links, actOn=detail.actOn.items, surface=surface, narrow=narrow, ref=detail.ref, url=detail.url, hostName=detail.hostName, numberLabel=detail.numberLabel, scheme=scheme, still=still, compact=compact, reload=reload, act=act, copy=copy, local=local, select=select)

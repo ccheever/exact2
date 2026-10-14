@@ -1,13 +1,19 @@
 #if os(macOS)
 import AppKit
 
-/// The gesture that pressed Send, and the ⌘/Ctrl state the send button follows
-/// (T3's useShortcutModifierState). Exact's press action carries no event, so
-/// the client asks for the newest Return key-down or pointer press when it
-/// sends, and resolves a Return through the server's keybindings
-/// (composer-editor-intent.ts): ⌘↩ or ⌘-click is the follow-up alternate
-/// (queue ↔ steer), ⌘↩ or ⌥⌘↩ in a draft starts it in the background, ⌥⌘↩ on
-/// an existing thread sends and opens a new thread. Recording never consumes an event.
+/// The Return gesture that pressed Send, and the ⌘/Ctrl state the send button follows
+/// (T3's useShortcutModifierState). A pointer press carries its own modifiers in its
+/// MouseEvent (app.contract `send`, press-modifiers.contract; contract-keys-and-menu-bar),
+/// so the client asks here only for the newest Return key-down when a press came with
+/// none, and resolves it through the server's keybindings (composer-editor-intent.ts):
+/// ⌘↩ while a turn runs is the follow-up alternate (queue ↔ steer), ⌘↩ or ⌥⌘↩ in a draft
+/// starts it in the background, ⌥⌘↩ on an existing thread sends and opens a new thread.
+/// It stays native: a Send chord is an `aria-keyshortcuts` press, which precedes every key
+/// handler and carries no modifiers, and the composer's plain Return is T3Composer's own
+/// monitor's; the held ⌘ is the window's, which Exact hears only at a focused node
+/// (KeyEvents.swift keyTarget). A primary click retires the Return gesture before it (a
+/// plain click and a key press are alike to a MouseEvent), so a stale one never reaches a
+/// later click. Recording never consumes an event.
 final class T3ComposerIntent {
     private let changed: (String) -> Void
     private var monitors: [Any] = []
@@ -49,13 +55,13 @@ final class T3ComposerIntent {
     }
 
     func record(_ event: NSEvent, at time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
-        if event.type == .keyDown, event.keyCode != 36, event.keyCode != 76 { return }
-        if event.type == .keyDown, event.isARepeat { return }
-        last = (Self.names(event.modifierFlags.intersection([.command, .control, .option, .shift])), event.type == .keyDown ? "key" : "pointer", time)
+        if event.type == .leftMouseDown { last = nil; track(event.modifierFlags); return } // its modifiers ride with its press
+        guard event.type == .keyDown, event.keyCode == 36 || event.keyCode == 76, !event.isARepeat else { return }
+        last = (Self.names(event.modifierFlags.intersection([.command, .control, .option, .shift])), "key", time)
         track(event.modifierFlags)
     }
 
-    /// The newest gesture, once: a send never reuses an earlier press.
+    /// The newest Return gesture, once: a send never reuses an earlier press.
     func take(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> [String: Any] {
         guard let gesture = last else { return [:] }
         last = nil

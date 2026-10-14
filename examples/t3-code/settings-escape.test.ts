@@ -109,15 +109,15 @@ describe('the keybinding recorder owns every key while it records (S1-3, S1-4)',
   test('the recording field is the window\'s modal scope, and leaving it stops recording', async () => {
     const capture = await component('settings-keybindings.contract', 'CaptureField');
     expect(line(capture, 'testId="keybinding-recording"')).toContain('aria-modal=true');
-    const recorder = line(capture, 't3-key-recorder');
-    expect(recorder).toContain('change=capture(original) blur=capture(original, "blur")');
+    const recorder = line(capture, 'KeyRecorder(');
+    expect(recorder).toContain('capture=capture(original), cancel=capture(original, "blur")');
     const app = await source('app.contract');
     expect(app).toContain('    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)\n    keybindingRecording = false');
   });
 
   test('the app\'s shortcut buttons and their menu items stay while it records (the reference\'s menu does not change)', async () => {
     // The recording row's aria-modal keeps every shortcut button outside it from hearing a key (Shortcuts.swift
-    // shortcutAdmits), and the recorder view's performKeyEquivalent takes a ⌘ chord before the main menu does.
+    // shortcutAdmits), and the recorder's capture handler prevents a ⌘ chord's default, so the main menu never sees it.
     const window = await source('app-window.contract');
     expect(line(window, 'ShortcutDispatch(')).toContain('ShortcutDispatch(items=shortcuts, ');
   });

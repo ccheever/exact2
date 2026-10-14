@@ -14,6 +14,7 @@ import { recordTerminalFocus } from './terminal-focus';
 import { sidebarCommand, sidebarLocal, sidebarSelecting, undoLatest, visitOpenThread } from './sidebar-commands';
 import { localDate, localTime, resolveCustomSnooze, sidebarPrefs, sidebarSession, setRuntimeClock } from './sidebar-state';
 import { titleMenu } from './shell';
+import { contractComponent } from './contract-action-fixture';
 
 // The data runtime has no clock (sidebar-state.ts `clock`); these tests stand in for a host clock that reads Date.now.
 beforeEach(() => setRuntimeClock(() => Date.now()));
@@ -28,7 +29,7 @@ const shell = (id: string, extra: Obj = {}): Obj => ({ id, projectId: 'p1', titl
   settledOverride: null, settledAt: null, modelSelection: { instanceId: 'codex', model: 'm' }, lineage: { relationshipToParent: null }, ...extra });
 
 interface Fake { client: T3Client; dispatched: Obj[]; opened: string[]; drafts: string[]; calls: Obj[]; picks: string[] }
-function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: string; picks?: string[]; modifiers?: Obj } = {}): Fake {
+function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: string; picks?: string[] } = {}): Fake {
   const dispatched: Obj[] = [], opened: string[] = [], drafts: string[] = [], calls: Obj[] = [], picks = [...(options.picks ?? [])];
   let ids = 0;
   const client = {
@@ -43,7 +44,6 @@ function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: 
       call: async (request: Obj) => {
         calls.push(request);
         if (request.op === 'sidebarMenu') return { id: picks.shift() ?? null };
-        if (request.op === 'sidebarModifiers') return options.modifiers ?? {};
         return {};
       },
     }),
@@ -358,13 +358,15 @@ describe('sidebar commands (sidebar-commands.ts)', () => {
 
   test('⌘-click toggles and ⇧-click extends the selection in sidebar order; a plain click clears it', async () => {
     const threads = [shell('a', { createdAt: iso(-1) }), shell('b', { createdAt: iso(-2) }), shell('c', { createdAt: iso(-3) })];
-    const command = fake(threads, { modifiers: { command: true } });
-    expect(await sidebarSelecting(command.client, native, 'a', 'click')).toBe(true);
-    expect(await sidebarSelecting(command.client, native, 'c', 'click')).toBe(true);
+    // The press's own MouseEvent (sidebar-row.contract openPress): "click:meta", "click:shift"; no native read.
+    const command = fake(threads);
+    expect(await sidebarSelecting(command.client, native, 'a', 'click:meta')).toBe(true);
+    expect(await sidebarSelecting(command.client, native, 'c', 'click:meta')).toBe(true);
     expect(sidebarSession(command.client).selection).toEqual(['a', 'c']);
-    const shift = fake(threads, { modifiers: { shift: true }, threadId: 'a' });
+    expect(command.calls.filter(call => call.op === 'sidebarModifiers')).toEqual([]);
+    const shift = fake(threads, { threadId: 'a' });
     sidebarSession(shift.client).anchor = 'a';
-    expect(await sidebarSelecting(shift.client, native, 'c', 'click')).toBe(true);
+    expect(await sidebarSelecting(shift.client, native, 'c', 'click:shift')).toBe(true);
     expect(sidebarSession(shift.client).selection).toEqual(['a', 'b', 'c']);
     const plain = fake(threads);
     sidebarSession(plain.client).selection = ['a'];
@@ -397,8 +399,8 @@ describe('sidebar navigation, drafts and the hover card', () => {
   test('New thread: one project creates at once; several open the picker unless ⇧ is held', async () => {
     const several = fake([shell('a')]);
     expect(await sidebarCommand(several.client, native, files, 'new-thread-click', '', '')).toBe('sidebar:palette-new-thread');
-    const shifted = fake([shell('a')], { modifiers: { shift: true } });
-    expect(await sidebarCommand(shifted.client, native, files, 'new-thread-click', '', '')).toBe('sidebar:new-thread');
+    const shifted = fake([shell('a')]);
+    expect(await sidebarCommand(shifted.client, native, files, 'new-thread-click', '', 'shift')).toBe('sidebar:new-thread'); // app.contract sidebarNewThread's e.shiftKey
     expect(shifted.drafts).toEqual(['p1']);
     const single = fake([shell('a')]);
     (single.client as unknown as { projectGroups: () => unknown[] }).projectGroups = () => [{ key: 'g1', name: 'Parity fixture', members: [{ id: 'p1' }] }];
@@ -586,5 +588,46 @@ describe('terminal activity in thread lists (B10)', () => {
     recordTerminalFocus(client, { environmentId: 'env', threadId: 'a', terminalId: 'term-1', focused: false });
     expect(sidebarSnapshot(client, NOW, helpers).sidebar.jumpHints).toBe(true);
     expect(legacySidebarSnapshot(client, NOW, helpers).jumpHints).toBe(true);
+  });
+});
+
+// r8-pointer D8, contract-keys-and-menu-bar KW-11a: a row press's ⌘/⇧ come from its own MouseEvent (a keyboard or
+// assistive press has none), so the native click monitor (T3Sidebar `sidebarModifiers`) is gone. Ported from the AppKit
+// sidebar suite's testRowPressReadsTheClickEventsModifiers: the flags are the click's, whatever the keyboard holds later.
+describe('a row press carries its own click modifiers', () => {
+  const mouse = (mods = '') => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
+  const pressed = (file: string, name: string, actionName: string, scope: Record<string, unknown>, mods: string) => {
+    const calls: unknown[][] = [];
+    const record = (label: string) => (...args: unknown[]) => calls.push([label, ...args]);
+    contractComponent(file, name).call(actionName, {}, { open: record('open'), run: record('run'), ...scope }, [mouse(mods)]);
+    return calls;
+  };
+  test('⌘-click toggles and ⇧-click extends, in the default and the legacy sidebar; ⌘ wins over ⇧', () => {
+    for (const [file, name] of [['sidebar-row.contract', 'ThreadRow'], ['legacy-sidebar.contract', 'LegacyThread']] as const) {
+      const scope = { t: { id: 'a' }, page: '' };
+      expect(pressed(file, name, 'openPress', scope, '')).toEqual([['open', 'a', 'click']]);
+      expect(pressed(file, name, 'openPress', scope, 'meta')).toEqual([['open', 'a', 'click:meta']]);
+      expect(pressed(file, name, 'openPress', scope, 'shift')).toEqual([['open', 'a', 'click:shift']]);
+      expect(pressed(file, name, 'openPress', scope, 'meta shift')).toEqual([['open', 'a', 'click:meta']]);
+      expect(pressed(file, name, 'openPress', scope, 'ctrl alt')).toEqual([['open', 'a', 'click']]);
+    }
+  });
+  test('the legacy row\'s pull request glyph: ⌘ or Ctrl leaves it to the system browser (handlePrClick)', () => {
+    const scope = { t: { id: 'a' }, page: 'pull-requests' };
+    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, '')).toEqual([['run', 'legacy-pr', 'a', 'pull-requests']]);
+    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'meta')).toEqual([['run', 'legacy-pr', 'a', 'mod:pull-requests']]);
+    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', { ...scope, page: '' }, 'ctrl')).toEqual([['run', 'legacy-pr', 'a', 'mod:']]);
+    expect(pressed('legacy-sidebar.contract', 'LegacyThread', 'prPress', scope, 'shift alt')).toEqual([['run', 'legacy-pr', 'a', 'pull-requests']]);
+  });
+  test('both row buttons press openPress; the sidebar\'s New thread sends its ⇧', async () => {
+    const rows = await Bun.file(new URL('./sidebar-row.contract', import.meta.url)).text();
+    expect(rows.split('press=openPress').length - 1).toBe(2);
+    expect(rows).not.toContain('press=open(t.id, "click")');
+    const legacy = await Bun.file(new URL('./legacy-sidebar.contract', import.meta.url)).text();
+    expect(legacy).toContain('button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "")');
+    expect(legacy).toContain('button cursor="pointer" press=prPress dblclick=nested');
+    const app = await Bun.file(new URL('./app.contract', import.meta.url)).text();
+    expect(app).toContain('  action sidebarNewThread(e: MouseEvent)');
+    expect(app).toContain('send changed = command("sidebar:new-thread-click", "", e.shiftKey ? "shift" : "", 0)');
   });
 });

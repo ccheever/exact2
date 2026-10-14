@@ -57,11 +57,8 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             view.addItem(trace)
         }
         if let go = bar.items.first(where: { $0.submenu?.title == "Go" }) { bar.removeItem(go) }
-        // One window, no window tabs: AppKit's Show Tab Bar / Show All Tabs are not in the reference View menu.
-        NSWindow.allowsAutomaticWindowTabbing = false
-        if let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu {
-            for item in view.items where item.action == #selector(NSWindow.toggleTabBar(_:)) || item.action == #selector(NSWindow.toggleTabOverview(_:)) { view.removeItem(item) }
-        }
+        // One window, no window tabs: the host allows no automatic tabbing for a one-window app (ExactDocuments.furnish),
+        // and the window's root removes Show Tab Bar / Show All Tabs (`-exact-menu-remove`, app-window.contract).
         if reloadAction != nil, let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu, view.item(withTitle: "Reload") == nil {
             let reload = NSMenuItem(title: "Reload", action: #selector(reloadWindow(_:)), keyEquivalent: "r")
             let force = NSMenuItem(title: "Force Reload", action: #selector(reloadWindow(_:)), keyEquivalent: "r")

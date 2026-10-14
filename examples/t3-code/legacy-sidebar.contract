@@ -407,6 +407,12 @@ component LegacyThread
       pointerLeft = -1
     else if not over
       pointerLeft = performanceNow()
+  // contract-keys-and-menu-bar: the click's modifiers are the press's MouseEvent's (⌘/⇧ select, r8-pointer D8; ⌘ or
+  // Ctrl leaves the pull request to the system browser, handlePrClick), not a native click monitor's.
+  action openPress(e: MouseEvent)
+    open(t.id, e.metaKey ? "click:meta" : (e.shiftKey ? "click:shift" : "click"))
+  action prPress(e: MouseEvent)
+    run("legacy-pr", t.id, (e.metaKey or e.ctrlKey) ? `mod:${page}` : page)
   action within(name: string, value: bool)
     if value
       if focusLeft >= 0 and performanceNow() - focusLeft > 16
@@ -456,12 +462,12 @@ component LegacyThread
         row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.375rem" background-color=surface
           LegacyRenameField(t=t, local=local, run=run, within=within)
       else
-        button cursor="pointer" press=open(t.id, "click") dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
+        button cursor="pointer" press=openPress dblclick=local("legacy-rename-start", t.id, "") contextmenu=openMenu key=rowKey focus=within("row", true) blur=within("row", false) hatch="t3-row-drop" data-thread-key=t.dropKey data-thread-open=(isOpen ? "1" : "0") aria-label=t.label aria-current=(isOpen ? "page" : "false") testId=`thread-${t.id}` width="100%" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=surface display="flex" flex-direction="row" align-items="center" id=`thread-${t.id}`
           row flex=1 min-width=0 gap="0.375rem" align-items="center"
             // handlePrClick: the pull request beside the thread, on the Pull Requests page, or as a link (legacy-sidebar-links.ts).
             LegacyRowTip(label=(t.prPending ? "" : t.prTooltip), side="top", align="start", tipId=`legacy-tip-pr-${t.id}`, shown=(t.prIcon != ""), relay=innerHover)
               if t.prIcon != ""
-                button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested focus=within("pr", true) blur=within("pr", false) aria-label=t.prTooltip testId=`thread-pr-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
+                button cursor="pointer" press=prPress dblclick=nested focus=within("pr", true) blur=within("pr", false) aria-label=t.prTooltip testId=`thread-pr-${t.id}` padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 title=""
                   if t.prPending
                     LegacyIcon(name="git-pull-request", size=12, color="light-dark(#71717b, #818181)")
                   else

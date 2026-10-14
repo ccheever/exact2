@@ -33,7 +33,7 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
   token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with
   `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
-  too), r8-keys 6, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
+  too), r8-keys 5, r8-pointer 2 (the title row keeps the frame the host restored), r9-device 13 (the iPhone Duo viewer over loopback panel
   feeds and the served model, the foldable), r9-input 6, r10-connect 4 (select-on-open,
   Korean 2-Set chords re-issued by key code and reaching menu equivalents), r10-device 4 (a Duo panel feed reopens its stream after a stalled main thread,
   including a 10-run Closed loop; the physical hand-off's single elected feed), r11-device 3

@@ -16,6 +16,7 @@ import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick'; // pr-handoffs-and-quick-actions
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // pr-links-previews-and-routing: several servers' rows
 import { environmentQueries, filterKeyOf, foldAnswers, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
+import { openOnHostLabel } from './context-menus'; // contract-keys-and-menu-bar: the number's menu label
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -235,7 +236,7 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
     // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
-    linkMenu: `${str(entry.provider)} ${str(entry.url)}`,
+    linkMenu: `${str(entry.provider)} ${str(entry.url)}`, linkOpenLabel: openOnHostLabel(str(entry.provider)), // its menu's Open on <host> (PrLinkMenu)
     // pr-handoffs-and-quick-actions: the Shift quick actions and the stack trigger (pages-pr-quick.ts quickRow).
     ...quickRow({}, entry),
   };

@@ -62,11 +62,6 @@ export async function goTo(client: T3Client, native: Native, id: string, ref: Sc
   } else await (client as unknown as Navigator).openSelected?.(native, ref.threadId);
   return composerTakesFocus(client, ref) ? 'sidebar:opened:focus' : 'sidebar:opened';
 }
-async function modifierHeld(client: T3Client, native: Native): Promise<boolean> {
-  let flags: Obj = {};
-  try { flags = obj(await client.restAccess(native).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-  return flags.command === true || flags.control === true;
-}
 
 /**
  * handlePrClick (openPullRequestsInRightPanel = a thread's route): ⌘ or Ctrl leaves the link to the system
@@ -74,7 +69,9 @@ async function modifierHeld(client: T3Client, native: Native): Promise<boolean> 
  * panel and the thread opens; on another page, one an environment reads opens on the Pull Requests page; otherwise it
  * is an ordinary link, which follows "Open links in" ("Unable to open pull request link" if that fails).
  */
-export async function openRowPullRequest(client: T3Client, native: Native, id: string, page: string): Promise<string> {
+export async function openRowPullRequest(client: T3Client, native: Native, id: string, pressed: string): Promise<string> {
+  // `mod:<page>`: the click held ⌘ or Ctrl (legacy-sidebar.contract `prPress`, the press's own MouseEvent).
+  const held = pressed.startsWith('mod:'), page = held ? pressed.slice('mod:'.length) : pressed;
   const row = rowThread(client, id);
   // `prStatus?.url ?? currentLinkedPr?.url`: the link's, else the branch's pull request (sidebar-hover-archive-and-glyph B12).
   const url = row ? str(currentPullRequestLink(row.thread.pullRequests)?.url) || str(branchPullRequest(client, { ...row.thread, id })?.url) : '';
@@ -83,7 +80,7 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
     if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Unable to open pull request link', description: failure(error, 'An error occurred.'), stacked: true });
   };
-  if (await modifierHeld(client, native)) { try { await openInSystemBrowser(native, url); } catch (error) { linkFailed(error); } return ''; }
+  if (held) { try { await openInSystemBrowser(native, url); } catch (error) { linkFailed(error); } return ''; }
   // routeThreadRef (resolveActiveThreadRouteRef): a server thread's route, or a draft once it was sent; an unsent draft is none.
   const besideThread = page === '' && client.threadId !== '';
   if (besideThread) {

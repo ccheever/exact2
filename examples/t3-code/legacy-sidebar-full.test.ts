@@ -53,7 +53,7 @@ const mount = (name: string, props: Obj, host: Obj): Mounted => {
 
 interface Rig { client: T3Client; native: Native; ops: Obj[]; rpcs: { method: string; payload: Obj }[]; opened: string[]; drafts: string[] }
 /** A real client on `local` (thread-1 open unless said), its server answering preview and dispatch calls, its module recording ops. */
-function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; modifiers?: Obj; picks?: string[]; settings?: Obj; failOpen?: boolean; caps?: Obj; presentation?: Obj; editorApplies?: boolean } = {}): Rig {
+function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; picks?: string[]; settings?: Obj; failOpen?: boolean; caps?: Obj; presentation?: Obj; editorApplies?: boolean } = {}): Rig {
   const client = new T3Client(), ops: Obj[] = [], rpcs: { method: string; payload: Obj }[] = [], opened: string[] = [], drafts: string[] = [], picks = [...(options.picks ?? [])];
   let ids = 0;
   Object.assign(client, { loaded: true, connection: 'connected', origin: 'http://127.0.0.1:16562', configLive: true, shellLive: true, threadLive: true, scopes: ['orchestration:operate'], presentation: options.presentation ?? {} });
@@ -77,7 +77,6 @@ function rig(options: { threads?: Obj[]; projects?: Obj[]; threadId?: string; mo
   });
   const native: Native = { available: true, watch() {}, async later(request) {
     const op = obj(request); ops.push(op);
-    if (op.op === 'sidebarModifiers') return { ok: true, generation: Number(op.generation ?? 0), value: options.modifiers ?? {} };
     if (op.op === 'sidebarMenu') return { ok: true, generation: Number(op.generation ?? 0), value: { id: picks.shift() ?? null } };
     if (op.op === 'ids') return { ok: true, generation: 0, value: Array.from({ length: Number(op.count) }, () => `00000000-0000-4000-8000-${String(ids++).padStart(12, '0')}`) };
     if (op.op === 'editorInsert') return { ok: true, generation: 0, value: { applied: options.editorApplies === true } };
@@ -129,8 +128,10 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
     expect(surfaceStore(client).panels.get('local:thread-2')).toBeUndefined();
   });
   test('⌘ or Ctrl leaves it to the system browser; a link no project reads follows "Open links in"', async () => {
-    const held = rig({ modifiers: { command: true } });
-    expect(await sidebarCommand(held.client, held.native, files, 'legacy-pr', 'thread-2', '')).toBe('');
+    // `mod:`: the click's own MouseEvent held ⌘ or Ctrl (legacy-sidebar.contract prPress).
+    const held = rig();
+    expect(await sidebarCommand(held.client, held.native, files, 'legacy-pr', 'thread-2', 'mod:')).toBe('');
+    expect(opsOf(held.ops, 'sidebarModifiers')).toEqual([]);
     expect(opsOf(held.ops, 'remoteEditorsOpen').map(op => op.url)).toEqual([PR]);
     expect(surfaceStore(held.client).panels.get('local:thread-2')).toBeUndefined();
     const elsewhere = 'https://github.com/other/repo/pull/3';
@@ -150,7 +151,8 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
     expect(rows.find(row => row.id === 'thread-2')).toMatchObject({ prTooltip: 'PR #7 - Open: Ship it', prPending: false });
     expect(rows.find(row => row.id === 'thread-3')).toMatchObject({ prTooltip: 'PR #7, status pending', prPending: true });
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
-    expect(view).toContain('button cursor="pointer" press=run("legacy-pr", t.id, page) dblclick=nested focus=within("pr", true)');
+    expect(view).toContain('button cursor="pointer" press=prPress dblclick=nested focus=within("pr", true)');
+    expect(view).toContain('  action prPress(e: MouseEvent)\n    run("legacy-pr", t.id, (e.metaKey or e.ctrlKey) ? `mod:${page}` : page)');
   });
 });
 
@@ -382,7 +384,7 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
     expect(thread).toContain('        box position="absolute" right="0.125rem" top="0.25rem" opacity=(revealed ? 1 : 0) pointer-events=(revealed ? "auto" : "none")');
     expect(thread).toContain('shown=(not confirmShown and not t.running), relay=innerHover)\n            if not confirmShown and not t.running\n              button cursor="pointer" press=archive');
     expect(thread).not.toContain('if over and not t.running');
-    for (const target of ['press=open(t.id, "click")', 'press=run("legacy-pr"', 'press=run("legacy-port"', 'press=archive']) {
+    for (const target of ['press=openPress', 'press=prPress', 'press=run("legacy-port"', 'press=archive']) {
       const at = thread.indexOf(target);
       expect(at).toBeGreaterThan(0);
       expect(thread.slice(at, thread.indexOf('\n', at))).toMatch(/focus=within\("(\w+)", true\) blur=within\("\1", false\)/);
@@ -496,17 +498,17 @@ describe('LS-6: a background environment\'s rows act on that environment', () =>
 // went away under the pointer left its row hovered, Confirm ended when the focus or the pointer moved within the row,
 // the toast's destructive tone, and the drop and port edge cases.
 describe('review: a thread change focuses the composer (ChatView\'s effect on activeThread.id)', () => {
-  const select = async (client: T3Client, native: Native, id: string) => {
+  const select = async (client: T3Client, native: Native, id: string, how = 'click') => {
     const out = { message: '', id: '', value: '' } as OpOut;
-    await threadOps.call(client, 'select-thread', id, 'click', 0, native, files, out);
+    await threadOps.call(client, 'select-thread', id, how, 0, native, files, out);
     return out.message;
   };
   test('a row press that opens another thread focuses the composer; the open thread\'s own row and a ⌘-click do not', async () => {
     const { client, native } = rig();
     expect(await select(client, native, 'thread-2')).toBe('focus:composer');
     expect(await select(client, native, 'thread-2')).toBe(''); // no thread change: the focus stays on the row
-    const held = rig({ modifiers: { command: true } });
-    expect(await select(held.client, held.native, 'thread-2')).toBe(''); // a selection toggle opens nothing
+    const held = rig();
+    expect(await select(held.client, held.native, 'thread-2', 'click:meta')).toBe(''); // a selection toggle opens nothing
     expect(await select(client, native, 'gone')).toBe(''); // a thread the shell does not hold: the empty state, no composer
   });
   test('not while the opened thread\'s terminal drawer is open, which owns the keys', async () => {
@@ -755,48 +757,44 @@ describe('review: drops and port opens whose thread did not open (handleThreadFi
 // realinput-1011c IDs below differ from the older LS numbering above.
 describe('LS-8: additive ranges and stable anchors', () => {
   for (const legacy of [true, false]) test(`Command A, Command C, Shift B retains A/B/C (${legacy ? 'legacy' : 'default'})`, async () => {
-    const modifiers: Obj = { command: true };
-    const { client, native } = rig({ threads: [thread('a'), thread('b'), thread('c')], modifiers, settings: { legacySidebarEnabled: legacy } });
+    // The press's own modifiers (sidebar-row.contract and legacy-sidebar.contract `openPress`): "click:meta", "click:shift".
+    const { client, native } = rig({ threads: [thread('a'), thread('b'), thread('c')], settings: { legacySidebarEnabled: legacy } });
     const session = sidebarSession(client);
-    await sidebarSelecting(client, native, 'a', 'click');
-    await sidebarSelecting(client, native, 'c', 'click');
-    modifiers.command = false; modifiers.shift = true;
-    await sidebarSelecting(client, native, 'b', 'click');
+    await sidebarSelecting(client, native, 'a', 'click:meta');
+    await sidebarSelecting(client, native, 'c', 'click:meta');
+    await sidebarSelecting(client, native, 'b', 'click:shift');
     expect(new Set(session.selection)).toEqual(new Set(['a', 'b', 'c']));
     expect(session.anchor).toBe('c');
-    await sidebarSelecting(client, native, 'b', 'click');
+    await sidebarSelecting(client, native, 'b', 'click:shift');
     expect(session.selection).toHaveLength(3);
-    modifiers.shift = false; modifiers.command = true;
-    await sidebarSelecting(client, native, 'a', 'click');
+    await sidebarSelecting(client, native, 'a', 'click:meta');
     expect(session.selection).not.toContain('a');
     expect(session.anchor).toBe('c');
-    modifiers.command = false; modifiers.shift = true;
-    await sidebarSelecting(client, native, 'a', 'click');
+    await sidebarSelecting(client, native, 'a', 'click:shift');
     expect(new Set(session.selection)).toEqual(new Set(['a', 'b', 'c']));
-    modifiers.shift = false;
     expect(await sidebarSelecting(client, native, 'b', 'click')).toBe(false);
     expect(session.selection).toEqual([]);
   });
   test('a missing anchor or a target in another project adds only the target and resets the anchor', async () => {
-    const { client, native } = rig({ threadId: 'a', threads: [thread('a'), thread('b'), thread('c'), thread('other', { projectId: 'p2' })], modifiers: { shift: true } });
+    const { client, native } = rig({ threadId: 'a', threads: [thread('a'), thread('b'), thread('c'), thread('other', { projectId: 'p2' })] });
     const session = sidebarSession(client);
     session.selection = ['other'];
-    await sidebarSelecting(client, native, 'b', 'click');
+    await sidebarSelecting(client, native, 'b', 'click:shift');
     expect(session.selection).toEqual(['other', 'b']); // the open thread is not an implicit anchor
     expect(session.anchor).toBe('b');
     session.anchor = 'gone';
-    await sidebarSelecting(client, native, 'a', 'click');
+    await sidebarSelecting(client, native, 'a', 'click:shift');
     expect(session.selection).toEqual(['other', 'b', 'a']);
     expect(session.anchor).toBe('a');
-    await sidebarSelecting(client, native, 'other', 'click');
+    await sidebarSelecting(client, native, 'other', 'click:shift');
     expect(session.selection).toHaveLength(3);
     expect(session.anchor).toBe('other');
   });
   test('a background modifier click selects without switching environments or requesting composer focus', async () => {
-    const { client, native, ops } = rig({ modifiers: { command: true } });
+    const { client, native, ops } = rig();
     background([thread('t9', { projectId: 'r1' })]);
     const out = { message: '', id: '', value: '' } as OpOut;
-    await threadOps.call(client, 'select-thread', 'fleet:env-remote:t9', 'click', 0, native, files, out);
+    await threadOps.call(client, 'select-thread', 'fleet:env-remote:t9', 'click:meta', 0, native, files, out);
     expect(sidebarSession(client).selection).toEqual(['fleet:env-remote:t9']);
     expect(client.environmentId).toBe('local');
     expect(client.threadId).toBe('thread-1');

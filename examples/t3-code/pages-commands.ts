@@ -13,7 +13,7 @@ import { prCommand, noteCopy } from './pages-pr-detail';
 import { pushToast } from './toast';
 import { welcomeLocal } from './pages-welcome';
 import { CHATGPT_USAGE_URL } from './chatgpt-plan';
-import { pullRequestLinkMenu } from './context-menu-actions';
+import { pullRequestLinkPick } from './context-menu-actions';
 
 export async function pagesLocal(client: T3Client, native: Native | null | undefined, _storage: Files, op: string, id: string, value: string): Promise<string> {
   if (op === 'usage-prices-save') {
@@ -34,9 +34,9 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     if (!native?.available) throw new ClientError('Open on macOS to set up T3 Code.');
     return welcomeLocal(client, native, op.slice(8), id, value);
   }
-  // context-menu-gaps: a pull request row number's right-click (the detail header's goes through chatLocal).
-  if (op === 'pr-link-menu') {
-    if (native?.available) await pullRequestLinkMenu(client, native, value);
+  // context-menu-gaps: a pull request row number's menu choice (the detail header's goes through chatLocal).
+  if (op === 'pr-link-pick') {
+    if (native?.available) await pullRequestLinkPick(client, native, value);
     return '';
   }
   if (op.startsWith('pr-act-')) {

@@ -98,13 +98,16 @@ component SurfacePanel
             TipBubble(label=(shell.keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${shell.keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
         SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)
 
-// RightPanelEmptyState's launcher (RightPanelTabs.tsx): it takes the focus as it mounts (R8KeysLauncher.swift), and its
-// letters open their surfaces. One highlight runs over the available rows: a pointer over a row sets it, leaving that
+// RightPanelEmptyState's launcher (RightPanelTabs.tsx): it takes the focus as it mounts (`autofocus`, focusOnMount), and
+// its letters open their surfaces. One highlight runs over the available rows: a pointer over a row sets it, leaving that
 // row clears it, ↓ and → move it on and ↑ and ← back, wrapping (↑ with none goes to the last), and Enter on the
 // launcher itself opens the highlighted surface (`handleKeyDown`). A ⌘, ⌃ or ⌥ chord is not the launcher's. A letter of an
-// available row, either case, is the launcher's alone (the reference's capture listener prevents it and stops it): with
-// a real key the window's monitor hands it here (R8KeysLauncher.route), and nothing else hears it. It mounts afresh each
-// time the panel has no surface, so the highlight starts with none (-1).
+// available row, either case, is the launcher's alone wherever the focus is but a typing context (the reference's window
+// capture listener prevents it and stops it): each available row declares its letter as `aria-keyshortcuts`, which the host
+// hears before any key handler, never from a text field or a terminal (an input context), never behind a modal or while the
+// launcher is inert, once per press (a repeat is taken, not pressed), and by its physical key under a non-Latin layout
+// (contract-keys-and-menu-bar; the native R8KeysLauncher's repost is gone). The native type-to-focus leaves those letters to
+// it (T3Composer.launcherLetter). It mounts afresh each time the panel has no surface, so the highlight starts with none (-1).
 component SurfaceLauncher
   inject
     dialogMenuEntered: action
@@ -144,7 +147,7 @@ component SurfaceLauncher
     else
       ui("key", k)
   view
-    column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" key=keys hatch="t3-launcher" data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("") aria-label="Open a surface" testId="surface-chooser" data-dialog-return="menu" focusin=dialogMenuEntered("surface-chooser", "surface-chooser")
+    column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" autofocus key=keys hatch="t3-launcher" data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("") aria-label="Open a surface" testId="surface-chooser" data-dialog-return="menu" focusin=dialogMenuEntered("surface-chooser", "surface-chooser")
       column width="100%" max-width="20rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
         text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
         column width="100%" gap="0.125rem"
@@ -167,7 +170,7 @@ component SurfaceRow
   view
     box position="relative" width="100%" hover=hover(surface.id)
       if surface.available
-        button press=choose(surface.id) key=rowKey testId=`surface-${surface.id}` aria-label=`${surface.label} ${surface.shortcut}` width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(highlighted ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") id=`surface-${surface.id}`
+        button press=choose(surface.id) key=rowKey aria-keyshortcuts=`${surface.letter} Shift+${surface.shortcut}` testId=`surface-${surface.id}` aria-label=`${surface.label} ${surface.shortcut}` width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" gap="0.625rem" border-radius="0.5rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(highlighted ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") id=`surface-${surface.id}`
           ShellIcon(name=surface.icon, size=16, color="light-dark(#262626, #f5f5f5)")
           // A button centers its text (text-align: center, as on the web); the reference's row is start-aligned.
           text surface.label flex=1 min-width=0 line-clamp=1 text-align="left" font-size="0.875rem" line-height="1.25rem" padding-right=(surface.id == "browser" and profiles.length > 1 ? "1.75rem" : 0) color="light-dark(#262626, #f5f5f5)"
