@@ -113,6 +113,16 @@ function withoutTheme(text) {
   }).join('\n');
 }
 
+/** The root `theme` block's entry names, as `withoutTheme` finds the block. */
+function themeNames(text) {
+  const blank = withoutTheme(text).split('\n'), names = [];
+  text.split('\n').forEach((line, i) => {
+    const entry = line !== blank[i] && /^\s+([^\s=]+)\s*=/.exec(line);
+    if (entry) names.push(entry[1]);
+  });
+  return names;
+}
+
 /** Each `name=value` attribute: the value a quoted string, a template, a
  * balanced parenthesised expression or a bare word. */
 function* attributes(text) {
@@ -224,6 +234,8 @@ function nodeHeads(lines) {
  * `tokens`, the app design's token names. */
 export function tellsIn(source, tokens = new Set()) {
   const text = withoutTheme(uncomment(source)), lines = source.split('\n'), found = [];
+  // The root `theme` block's entries are tokens too (LLP 1095 D4, LLP 1121 D2).
+  tokens = new Set([...tokens, ...themeNames(uncomment(source))]);
   // The nodes that are numeric readouts: their literal `font-size` is design.
   const heads = nodeHeads(text.split('\n'));
   const readouts = new Set(text.split('\n').flatMap((line, i) => /(^|\s)font-variant-numeric=["`]?tabular-nums\b/.test(line) ? [heads[i]] : []));

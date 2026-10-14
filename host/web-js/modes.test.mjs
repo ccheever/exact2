@@ -20,7 +20,7 @@ test('a boundary takes its tuple and the inherited token text, in document order
   const own = el(page, 'c3', { 'data-x-b': '1', 'data-x-pin': 'ink=plain' });
   const bad = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'dark-style:dim' });
   const bound = el(page, 'c2', { 'data-x-b': '0', 'data-x-pin': 'unset' });
-  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, []);
+  modes([['dark-style', ['black', 'dim']], ['ink', ['tint', 'plain']]], { c1: { 0: 0 }, c3: { 0: -1 } }, ['color:var(--x-text-primary)'], {}, [], { '--x-text-primary': 'text.primary', '--x-text-secondary': 'text.secondary' });
   for (const f of After) f();
   expect(document.documentElement.getAttribute('data-x-modes')).toBe('dark-style=black,ink=tint');
   expect(dim.getAttribute('data-x-modes')).toBe('dark-style=dim,ink=tint');
@@ -54,6 +54,12 @@ test('a boundary takes its tuple and the inherited token text, in document order
   expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
   mine = 'inherit'; write(); flush();
   expect(pinned.style.map.get('color')).toBe('var(--x-text-secondary)');
+  // layout's token: a cleared binding's row, written again, is implied; one
+  // the binding sets is not, and a token folded inline is no token here.
+  const T = globalThis.exact.modes.token;
+  expect(T(pinned, 'color', 'var(--x-text-secondary)')).toEqual({ names: ['text.secondary'], text: 'var(--x-text-secondary)', modes: 'dark-style=dim,ink=tint', implied: true });
+  expect(T(page, 'color', 'var(--x-text-secondary)').implied).toBe(false);
+  expect(T(page, 'color', '#123456')).toBeUndefined();
   // Off a boundary a clear is written as itself.
   const plainBox = el(page, '');
   Sx(S, plainBox, 'color', '', () => 'inherit', 0);

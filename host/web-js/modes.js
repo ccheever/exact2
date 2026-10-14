@@ -179,7 +179,9 @@ export function modes(axes, classes, texts, vars, accent, names) {
       const names = [...new Set([...String(text).matchAll(/var\((--x-[\w-]+)\)/g)].map(m => Names[m[1]]).filter(Boolean))];
       if (!names.length) return undefined;
       const j = CH.indexOf(prop === "--exact-accent" ? "accent-color" : prop);
-      return { names, text: String(text), modes: e.closest("[data-x-modes]")?.getAttribute("data-x-modes") ?? "", implied: j >= 0 && e.$xs?.[j] != null && e.$css?.[prop] === undefined };
+      let at = e;
+      while (at && at.getAttribute?.("data-x-modes") == null) at = at.parentElement;
+      return { names, text: String(text), modes: at?.getAttribute("data-x-modes") ?? "", implied: j >= 0 && e.$xs?.[j] != null && e.$css?.[prop] == null };
     },
     // The agent's `prefer mode`: every pin checked first, then all set, now.
     set: pins => {

@@ -77,12 +77,30 @@ pub fn run(args: &[String]) -> ExitCode {
             for d in &all {
                 eprintln!("{}:{d}", path.display());
             }
+            // A profile's colour is the compiler's to resolve, with the
+            // declarations in the app's Contract (LLP 1100 D3).
+            let lines: Vec<&str> = src.lines().collect();
+            let profiled = |d: &exact_tamber::Diagnostic| {
+                lines
+                    .get(d.line as usize - 1)
+                    .is_some_and(|l| l.contains("color(--"))
+            };
+            if all.iter().all(profiled) {
+                eprintln!("contract tamber: a profile's colour (`color(--…)`) is resolved by the compiler with the app's declarations; `contract build` checks this design");
+                return ExitCode::from(2);
+            }
             return ExitCode::from(1);
         }
     };
     // What the compiler refuses of a design beyond the crate's check (a
     // CSS word as a name, a role that varies by an axis …), as a build would.
-    let refused = admission(&src, path.parent().unwrap_or(Path::new(".")));
+    let refused = match admission(&src) {
+        Ok(refused) => refused,
+        Err(why) => {
+            eprintln!("contract tamber: {why}");
+            return ExitCode::from(2);
+        }
+    };
     if !refused.is_empty() {
         for (line, col, id, message) in &refused {
             eprintln!("{}:{line}:{col}: {id}: {message}", path.display());
@@ -125,41 +143,45 @@ pub fn run(args: &[String]) -> ExitCode {
 }
 
 /// The compiler's refusals of design `src`, read as the design of an app
-/// with one empty view and the manifest beside it (its colour profiles):
-/// each `(line, col, id, message)` in the design.
-fn admission(src: &str, beside: &Path) -> Vec<(u32, u32, String, String)> {
+/// with one empty view and nothing else (no manifest: nothing in one but
+/// `"tamber"` reaches a design, and its other files would stop the build
+/// first): each `(line, col, id, message)` in the design. An `Err` when the
+/// build could not be made, or stopped before the design.
+#[allow(clippy::type_complexity)]
+fn admission(src: &str) -> Result<Vec<(u32, u32, String, String)>, String> {
     let dir = std::env::temp_dir().join(format!("contract-tamber-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let manifest = std::fs::read_to_string(beside.join("app.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .map(|mut app| {
-            if let Some(o) = app.as_object_mut() {
-                o.insert("tamber".into(), "app.tamber".into());
-            }
-            app.to_string()
+    let made = std::fs::create_dir_all(&dir)
+        .and_then(|()| std::fs::write(dir.join("app.tamber"), src))
+        .and_then(|()| {
+            std::fs::write(
+                dir.join("app.contract"),
+                "component App\n  view\n    column\n",
+            )
         });
-    if std::fs::create_dir_all(&dir).is_err()
-        || manifest.is_some_and(|m| std::fs::write(dir.join("app.json"), m).is_err())
-        || std::fs::write(dir.join("app.tamber"), src).is_err()
-        || std::fs::write(
-            dir.join("app.contract"),
-            "component App\n  view\n    column\n",
-        )
-        .is_err()
-    {
-        return Vec::new();
+    if let Err(e) = made {
+        return Err(format!("{}: {e}", dir.display()));
     }
-    let refused = match contract::compile_path_all(&dir.join("app.contract"), false) {
-        Ok(_) => Vec::new(),
-        Err(all) => all
-            .into_iter()
-            .filter(|e| e.file.as_ref().is_some_and(|f| f.ends_with("app.tamber")))
-            .map(|e| (e.span.line, e.span.col, e.id, e.message))
-            .collect(),
-    };
+    let result = contract::compile_path_all(&dir.join("app.contract"), false);
     let _ = std::fs::remove_dir_all(&dir);
-    refused
+    match result {
+        Ok(_) => Ok(Vec::new()),
+        Err(all) => {
+            let (design, other): (Vec<_>, Vec<_>) = all
+                .into_iter()
+                .partition(|e| e.file.as_ref().is_some_and(|f| f.ends_with("app.tamber")));
+            match (design.is_empty(), other.first()) {
+                (true, Some(e)) => Err(format!(
+                    "the design's build stopped first: [{}] {}",
+                    e.id, e.message
+                )),
+                _ => Ok(design
+                    .into_iter()
+                    .map(|e| (e.span.line, e.span.col, e.id, e.message))
+                    .collect()),
+            }
+        }
+    }
 }
 
 /// The design `input` names: a `.tamber` file, or an app's (its directory or

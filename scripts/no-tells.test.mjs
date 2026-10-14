@@ -55,3 +55,8 @@ test('a channel may read alpha, and an origin may be an expression over tokens',
   const source = 'component A\n  view\n    text "x" color="rgb(from brand calc(alpha * 255) g b)" background-color="rgb(from color-mix(in srgb, brand, surface.card) r g b / 0.5)"\n    text "y" color="rgb(from color-mix(in srgb, brand, white) r g b)" background-color="rgb(from rgb(0 0 0) r g b)"\n';
   assert.deepEqual(tellsIn(source, tokens).map(t => [t.line, t.property]), [[4, 'color'], [4, 'background-color']]);
 });
+
+test("an inline theme's entries are tokens as a design's are", () => {
+  const source = 'theme\n  brand="#c8102e"\n\ncomponent A\n  view\n    text "x" color="rgb(from brand r g b / 0.5)" background-color="rgb(from ink r g b)"\n';
+  assert.deepEqual(tellsIn(source).map(t => [t.line, t.property]), [[6, 'background-color']]);
+});
