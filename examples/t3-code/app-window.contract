@@ -52,10 +52,10 @@ use CiteAction, CiteOffer, citeLineFrame from "./diff-cite.contract" // cite-sel
 component T3Window
   props
     // cite-selection-anchor: the root's double-click wait for Cite (done to `citeWaitDone`; `citeWaitAsk(n)` asks wait n)
-    // and its count of the window's focus losses.
+    // and its count of dismissals on focus loss or a changed transcript context.
     citeWaitDone: number
     citeWaitAsk: action
-    citeBlurs: number
+    citeDismissals: number
     data: Snapshot
     viewport: Viewport
     scheme: string
@@ -444,16 +444,16 @@ component T3Window
   state citeFor = ""
   state citeThread = ""
   state citeViewport = ""
-  // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the focus losses at the offer.
+  // A double-click's wait (`citeWaits` asked, the root's `citeWaitDone` over) and the dismissal count at the offer.
   state citeWaits = 0
-  state citeBlurAt = 0
-  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeBlurAt == citeBlurs and not pageCover and not settingsOpen and not modal
+  state citeDismissedAt = 0
+  derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal
   action citeOfferSet(offer: CiteOffer)
     citeOffer = offer
     citeFor = offer.source
     citeThread = data.threadId
     citeViewport = `${viewport.width}x${viewport.height}`
-    citeBlurAt = citeBlurs
+    citeDismissedAt = citeDismissals
   // A double-click, or a click while its wait runs (a third): Cite waits 500 ms more.
   action citeHold
     let next = citeWaits + 1

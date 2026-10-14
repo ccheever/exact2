@@ -1,8 +1,8 @@
 ---
 name: 20261014-cite-selection-anchor
 plan: 20261005-t3code-macos-parity
-implementation: implemented
-verification: verified-with-unverified-rows
+implementation: in-progress
+verification: stale
 delivery: draft-pr
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -187,7 +187,56 @@ tree differs only in `app.contract`'s argument order in one call and two test fi
 
 Draft PR [#540](https://github.com/ccheever/exact2/pull/540) into `feat(example)/t3-code`.
 
+## Review repair, 2026-10-14
+
+The review of `965b638178ade5aae1fe5be3c682655e7d5425af` found two stale-offer paths. During the
+500 ms double-click delay, `citeOffered` is empty because the toolbar is hidden. Escape and a selection clear
+therefore failed to withdraw the pending offer. Resize, thread, page, Settings and dialog gates only hid an offer;
+restoring the original context could show it again.
+
+`AnswerMarkdown` now withdraws its offer on Escape or an empty selection without checking whether Cite is shown.
+Other keys during the delay cancel the pending offer too, matching `observeSelectionActions`. The window still
+rejects a withdrawal from another answer. Tab retains its visible, enabled toolbar gate.
+
+The root's dismissal counter now also advances when the viewport, thread or covering UI changes. Each offer captures
+that counter; returning to an earlier context cannot make the old counter current again. This uses the existing
+root keyed-task and 1 ms timer pattern, with no polling or framework change. Geometry and the pencil popover are
+unchanged.
+
+Guidance: shared Exact library `20261005-platforms-v3`, foundations, state/data, platforms, accessibility and
+testing/debugging. Applicability was checked against this checkout's existing keyed tasks and action snapshot
+semantics, the parent [specification](../spec.md), and the pinned reference's `selectionActions.ts` and
+`AssistantSelectionToolbar.tsx`. This repair does not change the target matrix or prior open real-input rows.
+
+Checks on the repaired source, Bun 1.4.2:
+
+| Check | Result |
+| --- | --- |
+| Regression tests against the old Contract files at `965b638178ade5aae1fe5be3c682655e7d5425af` | 19 passed, 5 failed as expected: Escape, clear, another key during the delay, and returning to context with/without a pending wait |
+| `bun test examples/t3-code/cite-selection-anchor.test.ts examples/t3-code/diff-cite-popover.test.ts examples/t3-code/usage-pooled.test.ts` | 66 passed; 24 belong to Cite, including viewport/thread/page/Settings/dialog return and pending outside press |
+| `bun test examples/t3-code --timeout 60000` | 4,880 passed, 1 skipped, 0 failed |
+| Strict `tsc`, README command | exit 0 |
+| `bun scripts/exact.mjs contract build examples/t3-code/app.contract` | exit 0; existing colour diagnostics remain |
+| `EXACT_APP_DIR="$PWD/examples/t3-code" bun host/apple/build.mjs t3-code-macos --bundle` | exit 0; the first capture refused files changing during capture, so compilation and edits were finished before rebuilding |
+| Native agent drive, isolated fixture and storage | pass: Escape during the pending delay, resize away/back, a fresh offer afterward, Tab focus, Escape from Cite |
+| `cargo build --all-targets --keep-going`, `cargo fmt --all -- --check`, caps, boot | exit 0 |
+| Remaining broad Cargo checks | coordinator owns integrated checks; the lane's corpus test was stopped at the coordinator's request, and clippy/workspace were not started |
+
+The agent drive used a copy of the existing `fixture-cite` database under `target/cite/repair-lane`, its own project
+copy, local server port 16642, telemetry disabled, and named agent storage `cite-review-repair`. It sent no provider
+messages and used no global input. State showed `citeWaitAsked=1`, `citeWaitDone=0` before Escape; after 600 ms,
+`citeFor` was empty and Cite absent. Resize away/back advanced `citeDismissals` from 2 to 3 to 4; Cite stayed absent.
+A new selection offered Cite again, Tab focused its live node, and Escape removed it. The first driver invocation
+refused an authored `id` as a named target; the completed drive resolved that node from the live tree and used its
+numeric id. No runtime source change was needed.
+
+Local-only logs and the drive's state/tree captures are under `target/cite/repair-*`; they have not been published.
+The coordinator reviewed the staged runtime diff and behavior tests without blocking findings. Binding that review
+to the final commit and the real-input batch remain coordinator work. The earlier `verified_commit` and image links
+above identify the prior implementation, not this repair.
+
 ## Next action
 
-The coordinator: review the draft PR, run the real-input batch steps, merge.
+Implementation is ready for verification. The coordinator binds independent review to the repair commit, publishes
+the amended draft PR within the authorized workflow, and handles integrated checks and the remaining real-input batch.
 
