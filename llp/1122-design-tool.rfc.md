@@ -1,7 +1,7 @@
 # LLP 1122: The design tool — shaping a running app through Tamber
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-13. r7 folds in round 4's review of r6 (§0); Charlie has since ruled Q6 (no hosted relay) and Q7 (the four commands and three reports, for now), so only Q1, the name, is open. r6 restructured v1 on Charlie's word: the canvas is the running app, not captures (§0). Rulings so far (§9): Q2 (the DEFERRED admissions, for development builds only, with LLP 1121 §9 Q3), Q3 (template and style rungs: yes), Q4 (the held state: yes), Q5 (no captures in v1; the running app with hot reload). r1–r4 went through three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh), every verdict RIGHT WITH CHANGES (`llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3}.{astra,grok}.md`); Round 4 reviewed r6: both RIGHT WITH CHANGES (`…-r4.{astra,grok}.md`). Nothing built. The tool's name is open (§9 Q1); this document says "the design tool". The amendment to `rules/DEFERRED.md` lands with this RFC.
+**Status:** **Accepted (Charlie, 2026-10-14); name pending; not yet scheduled; builds after Tamber stage 3.** "The design tool" is a placeholder until it is named (§9 Q1). Every other §9 question is ruled. The `rules/DEFERRED.md` amendments (§Tooling, §Runtime's live table and the source-map line, all for development builds only) landed with it. History: r1–r4 had three blind review rounds by GPT-6 Astra (max) and Grok 4.7 (xhigh); r6 restructured v1 on Charlie's word (the canvas is the running app); round 4 reviewed that; r7 took its findings (§0). Every verdict was RIGHT WITH CHANGES. Reviews: `llp/reviews/rfc-2026-10-13-1122-design-tool-r{1,2,3,4}.{astra,grok}.md`.
 **Systems:**
 - The design tool: an Exact app for the web's JS target, a `tamber/1` client (LLP 1121 D13, D14).
 - The Tamber server (LLP 1121 D13): build control over the dev loop's existing channel (D4), the selection join (D5), scrubs and the live-or-rebuild answer, `set-row` (D6), held proposals (D10), `commit` (D9).
@@ -12,7 +12,7 @@
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-13
-**Implementer:** none yet. No stage is accepted until it has an implementer and a date (`rules/RULES.md` §Scope); each follows the Tamber stage it needs (§4).
+**Implementer:** none yet. No stage starts until it has an implementer and a date (`rules/RULES.md` §Scope); each follows the Tamber stage it needs (§4).
 **Related:**
 - LLP 1121 (Tamber): D7 the token index, D8 state parts, D13 the protocol and the live table, D14 clients and importers, D15 component params, §5 staging.
 - LLP 1007 §6 and LLP 1008 (the dev loops' reload, which carries state), LLP 1020 (`iframe`), LLP 1012 (the agent API), LLP 1035.002 (`layout` explaining one node), LLP 1095 D7.
