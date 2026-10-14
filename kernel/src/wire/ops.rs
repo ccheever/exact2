@@ -255,6 +255,23 @@ mod tests {
     }
 
     #[test]
+    fn explicit_clear_intent_round_trips_with_and_without_values() {
+        for value in [false, true] {
+            let mut patch = StyleProps::default();
+            patch.written.set(StyleId::TextColor);
+            if value {
+                patch.width = Dimension::Points(24.0);
+                patch.mask.set(StyleId::Width);
+                patch.written.set(StyleId::Width);
+            }
+            round_trip(Op::SetStyle {
+                id: 1,
+                patch: Box::new(patch),
+            });
+        }
+    }
+
+    #[test]
     fn wrong_prop_kind_is_a_decode_rejection() {
         let mut w = Writer::new();
         w.u16(PropId::Disabled as u16);

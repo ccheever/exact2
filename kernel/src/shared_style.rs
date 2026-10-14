@@ -255,6 +255,28 @@ mod tests {
     }
 
     #[test]
+    fn explicit_clear_intent_is_part_of_the_shared_style_identity() {
+        let color = StyleMask::of(StyleId::TextColor);
+        let mut shared = SharedStyles::default();
+        let empty = shared.default_style();
+        let mut clear = StyleProps::default();
+        clear.written = color;
+        let first = shared.intern(clear.clone());
+        assert!(!Rc::ptr_eq(&empty, &first));
+        assert!(Rc::ptr_eq(&first, &shared.intern(clear.clone())));
+        assert!(Rc::ptr_eq(&first, &shared.patch(&empty, &clear)));
+        let mut value = StyleProps::default();
+        value
+            .set_dynamic(StyleId::TextColor, &StyleValue::Text("#123456".into()))
+            .unwrap();
+        value.written = color;
+        let authored = shared.patch(&first, &value);
+        assert!(authored.mask.has(StyleId::TextColor));
+        assert!(Rc::ptr_eq(&first, &shared.patch(&authored, &clear)));
+        assert!(Rc::ptr_eq(&empty, &shared.clear(&first, color)));
+    }
+
+    #[test]
     fn style_edits_share_exactly_the_materialized_result() {
         let values = [
             StyleValue::Number(0.0),
