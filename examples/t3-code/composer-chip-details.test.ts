@@ -64,13 +64,27 @@ describe('an action press is taken once and performed', () => {
     expect(await chipAct(client, native, 9)).toBe('');
     expect(calls.map(call => call.op)).toEqual(['editorChip', 'editorChipClose']);
     expect(calls[1]).toMatchObject({ seq: 9 });
-    expect(composerImagePreview(client)).toEqual([{ open: true, id: 'img-2', name: 'two.png', position: '(2/2)', many: true }]);
+    // A client that cannot read the images' sizes leaves them unknown: the preview keeps the whole media box.
+    expect(composerImagePreview(client)).toEqual([{ open: true, id: 'img-2', name: 'two.png', position: '(2/2)', many: true, width: 0, height: 0 }]);
     composerImageStep(client, 'chip-image-next');
     expect(composerImagePreview(client)[0]?.id).toBe('img-1');
     composerImageStep(client, 'chip-image-previous');
     expect(composerImagePreview(client)[0]?.id).toBe('img-2');
     composerImageStep(client, 'chip-image-close');
     expect(composerImagePreview(client)).toEqual([]);
+  });
+  test('opening reads each draft image\'s natural size once (ZoomableImage\'s onLoad), so the preview fits the image', async () => {
+    const sizes: Obj = { 'img-3': { width: 640, height: 480 } };
+    const asked: string[] = [];
+    const { native, client } = harness({ seq: 4, open: false, surface: 'composer', owner: 'draft:t1', act: 'image', context: 'image_img-3' }, {
+      snapshotDrafts: [{ id: 'img-3', name: 'three.png' }, { id: 'img-4', name: 'four.png' }],
+      call: async (_native: Native, request: Obj) => { asked.push(`${request.op} ${request.id}`); if (!sizes[String(request.id)]) throw new Error('unreadable'); return sizes[String(request.id)]; } });
+    expect(await chipAct(client, native, 4)).toBe('');
+    expect(asked).toEqual(['snapshotDraftSize img-3', 'snapshotDraftSize img-4']);
+    expect(composerImagePreview(client)[0]).toMatchObject({ id: 'img-3', width: 640, height: 480 });
+    composerImageStep(client, 'chip-image-next');
+    expect(composerImagePreview(client)[0]).toMatchObject({ id: 'img-4', width: 0, height: 0 });
+    composerImageStep(client, 'chip-image-close');
   });
   test('a stale press, another surface\'s or another draft\'s is dropped', async () => {
     for (const [press, seq] of [[{ seq: 9, open: false, surface: 'composer', act: 'image', context: 'image_img-1' }, 8], [{ seq: 9, open: false, surface: 'preview', act: 'image', context: 'image_img-1' }, 9],

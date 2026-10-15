@@ -303,6 +303,17 @@ final class T3SnapShot {
                 guard data.count <= 10 * 1024 * 1024, data.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { fail("The captured image is too large or invalid."); return }
                 complete(["id": id, "base64": data.base64EncodedString()])
             } catch { fail("Could not read the saved draft image.") }
+        case "snapshotDraftSize":
+            // The expanded preview's natural size: the pixels the tile shows (`installTile` decodes at most 2048 on the
+            // longer side), which it draws one to a point.
+            guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { fail("That draft image is unavailable."); return }
+            let path = directory.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("\(id).png")
+            guard let source = CGImageSourceCreateWithURL(path as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
+            let scale = min(1, 2048 / Double(max(width, height)))
+            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }
