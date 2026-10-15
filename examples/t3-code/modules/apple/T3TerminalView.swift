@@ -44,8 +44,12 @@ final class T3TerminalView: ExactNativeInstance {
             if became { focused?() }
             return became
         }
+        /// AppKit sends a ⌃, ⌘ or fn key here before `keyDown` (NSApplication's sendEvent: tries key
+        /// equivalents first), and WKWebView, as first responder, offers it to the input method and the
+        /// page from here, so it never reaches `keyDown`: the key is marked for the page here as well.
         override func performKeyEquivalent(with event: NSEvent) -> Bool {
             if routeKey?(event) == true { return true }
+            offeringKey?(event)
             return super.performKeyEquivalent(with: event)
         }
         var offeringKey: ((NSEvent) -> Void)?
@@ -277,7 +281,7 @@ final class T3TerminalView: ExactNativeInstance {
         markedKey = event
         let flags = event.modifierFlags
         send(["type": "compositionKey", "metaKey": flags.contains(.command), "ctrlKey": flags.contains(.control),
-              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift)])
+              "altKey": flags.contains(.option), "shiftKey": flags.contains(.shift), "code": R7DeviceKeys.codes[event.keyCode] ?? ""])
     }
 
     /// Commits the marked text as it stands, as WebKit does when a page ends a composition: confirm

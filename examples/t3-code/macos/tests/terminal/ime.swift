@@ -143,13 +143,17 @@ final class TerminalInputMethodTests: XCTestCase {
         }.joined()
     }
 
-    /// A key down and up as AppKit dispatches a person's: the terminal's local monitor, then the window.
+    /// A key down and up as AppKit dispatches a person's: the terminal's local monitor, then
+    /// `-[NSApplication sendEvent:]`, which offers a key down with ⌘, ⌃ or fn to the key window's
+    /// `performKeyEquivalent:` first and sends it to the window (the first responder's keyDown) only
+    /// if no view takes it. The test app is never active, so its own sendEvent: would skip that pass.
     private func press(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], plain: String? = nil) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
             let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                          windowNumber: window.windowNumber, context: nil, characters: characters,
                                          charactersIgnoringModifiers: plain ?? characters, isARepeat: false, keyCode: code)!
-            if !view.routeTerminalKey(event) { window.sendEvent(event) }
+            let equivalent = type == .keyDown && !flags.isDisjoint(with: [.command, .control, .function])
+            if !view.routeTerminalKey(event), !(equivalent && window.performKeyEquivalent(with: event)) { window.sendEvent(event) }
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
     }
