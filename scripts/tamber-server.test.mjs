@@ -432,9 +432,9 @@ test("an import is held as proposals: the tokens as one, each role override apar
   expect(said[0]).toBe('shadcn: 47 source values, 46 mapped, 1 reported');
   await stream.until(e => e.some(x => x.event === 'proposal' && x.client === 'import:shadcn'));
   const held = stream.events.find(x => x.event === 'proposal' && x.client === 'import:shadcn');
-  expect(held.ops.length).toBe(27);
+  expect(held.ops.length).toBe(28);
   expect(held.review.tokens).toBe(23);
-  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [23]], ['-exact-label', [24]], ['-exact-secondary-background', [25]], ['-exact-separator', [26]], ['accent-color', []]]);
+  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [23]], ['-exact-label', [24]], ['-exact-secondary-background', [25]], ['-exact-separator', [26]], ['AccentColor', [27]]]);
   expect(held.review.unmapped.map(u => u.name)).toContain('--radius');
   // The overrides left off: the tokens alone, recomputed, then accepted.
   const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(23).keys()] });

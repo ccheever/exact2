@@ -29,10 +29,10 @@ pub struct Import {
 }
 
 /// One offered choice: what it means and its operations (none where it is
-/// not the design's to make, such as the root's `accent-color`).
+/// not the design's to make).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
-    /// What it overrides: a role's row spelling, or `accent-color`.
+    /// What it overrides: a role's row spelling.
     pub role: String,
     /// The token it names.
     pub token: String,

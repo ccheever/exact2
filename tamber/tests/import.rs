@@ -90,22 +90,16 @@ fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
             "-exact-label",
             "-exact-secondary-background",
             "-exact-separator",
-            "accent-color"
+            "AccentColor"
         ]
     );
-    assert!(first.offers[4].ops.is_empty() && first.offers[4].note.is_some());
-    // Unchanged source, accepted design: nothing to propose, no offer left
-    // but the accent's (a Contract edit).
+    // The accent is the theme's tint, a role override like the others,
+    // accepted in the same transaction as the tokens it names.
+    assert_eq!(token_value(&text, "AccentColor"), "shadcn.primary");
+    // Unchanged source, accepted design: nothing to propose, no offer left.
     let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);
-    assert_eq!(
-        again
-            .offers
-            .iter()
-            .map(|o| o.role.as_str())
-            .collect::<Vec<_>>(),
-        ["accent-color"]
-    );
+    assert_eq!(again.offers, []);
 }
 
 #[test]

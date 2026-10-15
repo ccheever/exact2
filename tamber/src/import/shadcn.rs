@@ -17,7 +17,8 @@
 //! - Role overrides are offered apart: `--background` as
 //!   `-exact-background`, `--foreground` as `-exact-label`, `--card` as
 //!   `-exact-secondary-background`, `--border` as `-exact-separator`, and
-//!   `--primary` as the root's `accent-color` (D9, a Contract edit).
+//!   `--primary` as `AccentColor`, the tint every host takes from the theme
+//!   (an authored `accent-color` still wins its subtree).
 //! - Tailwind's own blocks (`@theme`, `@theme inline`), which map these
 //!   variables to utilities, are not the source and are not read.
 
@@ -597,9 +598,8 @@ fn looks_like_length(v: &str) -> bool {
     }) || v.starts_with("calc(")
 }
 
-/// The role overrides and the accent the mapped tokens mean, each offered
-/// alone; none where the design has it so already, under any spelling of
-/// the role.
+/// The role overrides the mapped tokens mean, each offered alone; none
+/// where the design has it so already, under any spelling of the role.
 fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Vec<Offer> {
     let has = |name: &str| tokens.iter().any(|t| t.name == name);
     let roles: Vec<(String, bool)> = vocab
@@ -613,6 +613,7 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
         ("foreground", "-exact-label"),
         ("card", "-exact-secondary-background"),
         ("border", "-exact-separator"),
+        ("primary", "AccentColor"),
     ] {
         let token = tamber_name(prefix, &[var]);
         if !has(&token) {
@@ -651,17 +652,6 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
             token,
             ops,
             note: None,
-        });
-    }
-    let primary = tamber_name(prefix, &["primary"]);
-    if has(&primary) {
-        out.push(Offer {
-            role: "accent-color".into(),
-            token: primary.clone(),
-            ops: Vec::new(),
-            note: Some(format!(
-                "the root's `accent-color` in app.contract names `{primary}` (LLP 1121 D9): a Contract edit, made by hand until the server writes Contract (LLP 1122's set-row)"
-            )),
         });
     }
     out
