@@ -137,7 +137,7 @@ describe('a chat Markdown image is a "Preview <alt>" button that opens the expan
   });
   test('Files and an attachment name their own documents', () => {
     expect(source('r4-surfaces-files.ts')).toContain("messageChips({ text }, folder, [], `files:${absolute}`, scope)");
-    expect(source('r5-panels-attach.ts')).toContain("messageChips({ text }, '', [], `attachment:${meta.id}`, { thread: false })");
+    expect(source('r5-panels-attach.ts')).toContain("messageChips({ text }, '', [], `attachment:${id}`, { thread: false })");
   });
   test('the settled image is the button; the video, the loading slot and a failure keep MediaActions', () => {
     const body = component('media-markdown.contract', 'MarkdownMediaBody');

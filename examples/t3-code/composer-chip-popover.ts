@@ -20,6 +20,7 @@ import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from './r4-surfaces-panel';
 import { citationCommentLocal, citationPopover, citedStart } from './citation-comment';
 import { chipAct, composerImageStep, contextDetails, draftContextRecords } from './composer-chip-details';
+import { composerFileLocal } from './composer-chip-file';
 
 export type ChipPopover = {
   /** The press's sequence (newest across the composer and the prompt sample); 0 before any. */
@@ -129,6 +130,7 @@ export async function chipPopoverLocal(client: T3Client, native: Native, op: str
   if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
   if (op === 'chip-act') return chipAct(client, native, Number(id) || 0); // a mention, thread, citation, pull request or attachment press (composer-chip-details.ts)
   if (op.startsWith('chip-image-')) return composerImageStep(client, op); // the expanded image preview's close and steps
+  if (op === 'chip-file') return composerFileLocal(client, native, id, value); // a file chip's preview (composer-chip-file.ts)
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
   await bridgeReply(native, { op: 'editorChipClose', seq: Number(id) || 0 }).catch(() => undefined);
   if (op === 'chip-instructions' && value) await openFileSurface(client, native, value, 0);

@@ -9,7 +9,7 @@ import AppKit
 /// which draws the popover in Contract at the chip's frame (composer-chip-popover.contract).
 ///
 /// A terminal excerpt, a review comment and a preview annotation open their details the same way. The other chips'
-/// presses are actions (a mention, thread, citation source link, pull request, image or video; `act`): the press is
+/// presses are actions (a mention, thread, citation source link, pull request, image, video or file; `act`): the press is
 /// reported once with what it names and the app performs it (composer-chip-details.ts).
 ///
 /// One press is open per editor; the app shows the newest of the composer's and the Settings

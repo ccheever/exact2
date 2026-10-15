@@ -30,6 +30,8 @@ use CommandPalette from "./palette.contract"
 use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
 use ComposerImageDialog from "./composer-chip-image.contract"
+use ComposerFileDialog from "./composer-chip-file.contract"
+use ChatDocument from "./markdown.contract"
 use ResetCreditDialog from "./usage-bars.contract"
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract"
@@ -178,6 +180,8 @@ component WindowOverlays
     toastAct: action
     prDetail: PrDetailView
     prAct: action
+    // app.contract's filesMarkdown: a composer file chip's rendered Markdown.
+    filesDocuments: ChatDocument[]
   view
     if modelsOpen
       ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings, anchor=modelTarget)
@@ -218,6 +222,11 @@ component WindowOverlays
     DialogFinalFocus(open=(data.composerImagePreview.length > 0), owner="chip-image-preview")
     for image in data.composerImagePreview key=image.id
       ComposerImageDialog(preview=image, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    // A composer file chip's preview (composer-chip-file.contract).
+    DialogFinalFocus(open=shell.composerFile.open, owner="chip-file-preview")
+    if shell.composerFile.open
+      for file in [shell.composerFile.file.id] key=file
+        ComposerFileDialog(preview=shell.composerFile, documents=filesDocuments, scheme=scheme, windowHeight=viewport.height, command=command, chatLocal=chatLocal)
     DialogFinalFocus(open=data.planSaveOpen, owner="plan-save-dialog")
     if data.planSaveOpen
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)

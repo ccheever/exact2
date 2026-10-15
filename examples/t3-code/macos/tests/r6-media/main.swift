@@ -217,6 +217,39 @@ final class MediaPreviewTests: XCTestCase {
         return (rect.minY, body.bounds.maxY - rect.maxY, rect.height)
     }
 
+    /// A composer file chip's preview of a draft: its staged copy, never a URL (`t3-staged:<id>`).
+    func testADraftsStagedPdfPageAndAudioAreReadFromTheirCopy() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("staged-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pdfID = UUID().uuidString.lowercased(), pageID = UUID().uuidString.lowercased(), audioID = UUID().uuidString.lowercased()
+        let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        try sheet.dataWithPDF(inside: sheet.bounds).write(to: root.appendingPathComponent(pdfID))
+        try Data("<!doctype html><title>draft</title><p id=p>draft page</p><script>document.title = 'origin:' + self.origin</script>".utf8).write(to: root.appendingPathComponent(pageID))
+        try Data(repeating: 0, count: 64).write(to: root.appendingPathComponent(audioID))
+        let media = R6MediaPreview(agent: true, stagedFile: { id in [pdfID, pageID, audioID].contains(id) ? root.appendingPathComponent(id) : nil })
+        defer { media.destroy() }
+        media.mount(host: host, kind: "pdf", raw: "t3-staged:\(pdfID)", name: "spec.pdf")
+        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        spin(until: { body.pdf.document != nil })
+        XCTAssertEqual(body.pdf.document?.pageCount, 1)
+        XCTAssertEqual(media.loaded["spec.pdf"], "pdf:1")
+        // The page runs under the server's sandbox policy: an opaque origin, as a Blob's sandboxed frame has.
+        media.mount(host: host, kind: "html", raw: "t3-staged:\(pageID)", name: "page.html")
+        let web = try XCTUnwrap(host.subviews.first as? WKWebView)
+        spin(until: { !web.isLoading && web.title?.hasPrefix("origin:") == true })
+        XCTAssertEqual(web.title, "origin:null")
+        // Audio: AVKit's inline controls, from a typed link beside the staged copy.
+        media.mount(host: host, kind: "audio", raw: "t3-staged:\(audioID)", name: "memo.mp3")
+        let audio = try XCTUnwrap(host.subviews.first as? R6AudioBody)
+        XCTAssertNotNil(audio.player.player)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(audioID).mp3").path))
+        // A copy that is gone says so.
+        media.mount(host: host, kind: "pdf", raw: "t3-staged:\(UUID().uuidString.lowercased())", name: "gone.pdf")
+        let gone = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        XCTAssertTrue(gone.subviews.contains { ($0 as? NSTextField)?.stringValue == "Could not load this file." })
+    }
+
     func testShortPdfStartsAtTheTop() throws {
         // One US-letter page in a panel taller than the page at its fitted width: as Chromium's viewer,
         // the page sits at the top and the viewer surface fills the rest below it (PDFView alone centers it).

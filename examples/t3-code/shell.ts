@@ -21,6 +21,7 @@ import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from './r3-protocol-reader'; // answered requests whose answer was let go end on the next shell read
 import { nightlyMobileBetaNotice } from './shell-nightly';
 import { pullRequestPanelTarget } from './shell-pr';
+import { composerFileView } from './composer-chip-file';
 import { availability, panelView, surfaceStore } from './r4-surfaces-panel'; // the tabbed Files / Linked pull requests / Device surfaces
 import { syncRightPanels } from './r10-device-panels'; // the right panels persist across launches
 import { revealWaiting } from './r10-device-crumbs'; // a Files reveal still missing a folder retries
@@ -294,6 +295,7 @@ export async function shellView(client: T3Client, native: Native | null | undefi
     surfaces: surfaces(client), titleMenu: menu.filter(entry => entry.submenu === ''), titleSubmenu: menu.filter(entry => entry.submenu !== ''),
     panel: await panelSaved(client, storage, await panelView(client, native, now, sheet)), // `sheet`: a window ≤ 980
     prCheckout: checkoutView(client),
+    composerFile: await composerFileView(client, native, now), // a composer file chip's preview (composer-chip-file.ts)
     notifications: `${state.status.authorization}${state.status.agent ? ' (agent)' : ''}${state.status.active ? '' : ' (window inactive)'}`,
     highlightPending: highlightPending(), // after the panel's code texts asked for their tokens
   };
