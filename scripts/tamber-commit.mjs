@@ -48,44 +48,60 @@ export function designSession(dir) {
    * still in flight keeps its facts (that write may be on disk already);
    * each prepare is ended by `wrote` or `release`. The paths it holds. */
   function prepare(paths) {
-    const fresh = [...new Set(paths)].filter(path => !files.has(path) && !pending.has(path));
-    const held = [...new Set(paths)].filter(path => !files.has(path));
+    // A name git cannot take (a NUL) is no file of the design; the server
+    // refuses it.
+    const named = [...new Set(paths)].filter(path => typeof path === 'string' && !path.includes('\0'));
+    const fresh = named.filter(path => !files.has(path) && !pending.has(path));
+    // Every git read first: one that throws leaves no hold taken.
+    const facts = fresh.length ? read(fresh) : [];
+    const held = named.filter(path => !files.has(path));
     for (const path of held) if (pending.has(path)) pending.get(path).holds++;
-    if (fresh.length) {
-      const root = top();
-      const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
-      const repoPaths = fresh.map(path => root ? relative(root, resolve(appDir, path)) : path);
-      // XY per path: X the index against HEAD, Y the working tree against the index.
-      const status = new Map();
-      if (head) {
-        const out = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...repoPaths], { cwd: root, encoding: 'utf8' }).stdout ?? '';
-        for (const record of out.split('\0').filter(Boolean)) status.set(record.slice(3), record.slice(0, 2));
-      }
-      // HEAD's text of each clean path, by one cat-file.
-      const atHead = new Map();
-      const clean = head ? repoPaths.filter(r => !status.has(r)) : [];
-      if (clean.length) {
-        const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: clean.map(r => `HEAD:${r}\n`).join('') }).stdout ?? Buffer.alloc(0);
-        let at = 0;
-        for (const r of clean) {
-          const nl = out.indexOf(10, at);
-          const header = out.subarray(at, nl).toString();
-          const size = Number(header.split(' ')[2]);
-          if (header.endsWith('missing') || !Number.isInteger(size)) { at = nl + 1; continue; }
-          atHead.set(r, sha(out.subarray(nl + 1, nl + 1 + size)));
-          at = nl + 1 + size + 1;
-        }
-      }
-      fresh.forEach((path, i) => {
-        const r = repoPaths[i], xy = status.get(r);
-        const dirty = !head ? 'the repository has no commit to start from'
-          : xy && xy[0] !== ' ' && xy[0] !== '?' ? 'it was staged when the session first wrote it'
-          : xy ? 'it differed from HEAD when the session first wrote it'
-          : null;
-        pending.set(path, { head, dirty, atHead: atHead.get(r) ?? null, holds: 1 });
-      });
-    }
+    fresh.forEach((path, i) => pending.set(path, { ...facts[i], holds: 1 }));
     return held;
+  }
+
+  /** The git facts of `paths` now: three git processes however many. A
+   * read that fails marks every path dirty, never clean. */
+  function read(paths) {
+    const root = top();
+    const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
+    if (!head) return paths.map(() => ({ head, dirty: 'the repository has no commit to start from', atHead: null }));
+    const repoPaths = paths.map(path => relative(root, resolve(appDir, path)));
+    const failed = paths.map(() => ({ head, dirty: 'git could not say whether it differed from HEAD', atHead: null }));
+    // XY per path: X the index against HEAD, Y the working tree against the
+    // index. No renames, so each record is one path.
+    const status = new Map();
+    const listed = spawnSync('git', ['status', '--porcelain=v1', '-z', '--no-renames', '--untracked-files=all', '--', ...repoPaths], { cwd: root, encoding: 'utf8', maxBuffer: 64 << 20 });
+    if (listed.error || listed.status !== 0) return failed;
+    for (const record of listed.stdout.split('\0').filter(Boolean)) status.set(record.slice(3), record.slice(0, 2));
+    // HEAD's text of each clean path, by one cat-file, NUL-separated (a path
+    // may hold a newline): `<oid> blob <size>\0<bytes>\0`, or
+    // `<name> missing\0`.
+    const atHead = new Map();
+    const clean = repoPaths.filter(r => !status.has(r));
+    if (clean.length) {
+      const shown = spawnSync('git', ['cat-file', '--batch', '-Z'], { cwd: root, input: clean.map(r => `HEAD:${r}\0`).join(''), maxBuffer: 1 << 30 });
+      if (shown.error || shown.status !== 0) return failed;
+      const out = shown.stdout;
+      let at = 0;
+      for (const r of clean) {
+        const end = out.indexOf(0, at);
+        if (end < 0) return failed;
+        const header = out.subarray(at, end).toString();
+        if (header.endsWith(' missing')) { at = end + 1; continue; }
+        const size = Number(header.split(' ')[2]);
+        if (!Number.isInteger(size)) return failed;
+        atHead.set(r, sha(out.subarray(end + 1, end + 1 + size)));
+        at = end + 1 + size + 1;
+      }
+    }
+    return repoPaths.map(r => {
+      const xy = status.get(r);
+      const dirty = xy && xy[0] !== ' ' && xy[0] !== '?' ? 'it was staged when the session first wrote it'
+        : xy ? 'it differed from HEAD when the session first wrote it'
+        : null;
+      return { head, dirty, atHead: atHead.get(r) ?? null };
+    });
   }
 
   /** A prepared write that wrote nothing to `paths`: its hold on their

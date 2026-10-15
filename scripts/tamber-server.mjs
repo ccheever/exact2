@@ -331,7 +331,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // The git facts of each file it may touch, before it does (commit's
     // baseline); this write's hold on them ends with its reply.
     const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
-    const holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).map(o => (typeof o?.file === 'string' ? o.file : designFile)));
+    let holds;
+    try {
+      holds = session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).map(o => (typeof o?.file === 'string' ? o.file : designFile)));
+    } catch (e) {
+      return { status: 500, error: { message: `reading git before the write: ${e.message}` } };
+    }
     // Taken in the server's reply order, so a later reply has not yet moved
     // what this one is read against.
     const announce = v => {
