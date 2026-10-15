@@ -86,12 +86,13 @@ extension Presenter {
         // tree order, and no stop to it. A paragraph a click selected, a
         // `tabindex=-1` box an action focused, and with Keyboard Navigation
         // off a button `focus()` or `autofocus` reached: AppKit goes on from
-        // a focused view that is no key view the same way.
+        // a focused view that is no key view the same way. So does a
+        // control that lost the focus by becoming disabled (`tabStart`).
         var starts: [(NSView, Int)] = []
         func walk(_ v: NodeView) {
             if v.inert || v.isHidden { return }
             if Self.tabbable(v) { listed.append((keyView(of: v), v.tabOrder)) }
-            else if keyView(of: v).acceptsFirstResponder { starts.append((keyView(of: v), listed.count)) }
+            else if keyView(of: v).acceptsFirstResponder || keyView(of: v) === tabStart { starts.append((keyView(of: v), listed.count)) }
             for run in v.syncInlineKeyViews() {
                 if run.canBecomeKeyView { listed.append((run, run.tabOrder)) }
                 else if run.acceptsFirstResponder { starts.append((run, listed.count)) }
@@ -137,6 +138,23 @@ extension Presenter {
             if let prior = before.previousKeyView, prior.nextValidKeyView === before { window.selectKeyView(following: prior) }
             else if before.canBecomeKeyView { window.makeFirstResponder(before) }
         } else if back { window.selectPreviousKeyView(view) } else { window.selectNextKeyView(view) }
+    }
+
+    /// Tab, or Shift-Tab, while the window holds the focus a disabled
+    /// control gave up: on from that control's place, as Chrome goes on
+    /// from its starting point, not from the top. True when taken.
+    func tabFromStart(_ event: NSEvent, in other: NSWindow?) -> Bool {
+        guard event.type == .keyDown, NodeView.keyName(event) == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let start = tabStart, let window = start.window, window === (other ?? event.window),
+              !start.isHiddenOrHasHiddenAncestor, keyTarget(start)?.inert != true else { return false }
+        let current = window.firstResponder
+        guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view else { return false }
+        // AppKit's `selectNextKeyView` goes on from the first responder, which here is the window.
+        flushKeyViewLoop()
+        if !event.modifierFlags.contains(.shift) { window.selectKeyView(following: start) }
+        else if start.previousValidKeyView != nil { window.selectKeyView(preceding: start) }
+        else { tab(from: start, back: true, in: window) }
+        return true
     }
 
     /// The view a new window's caret goes to (LLP 1115.000 D7.5): the first

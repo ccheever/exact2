@@ -23,7 +23,12 @@ extension Presenter {
         get { focusEvents.onEvent }
         set { focusEvents.onEvent = newValue }
     }
-    func focus(_ id: UInt32) { focusEvents.focus(id) }
+    func focus(_ id: UInt32) {
+        #if os(macOS)
+        tabStart = nil
+        #endif
+        focusEvents.focus(id)
+    }
     func blur(_ id: UInt32) { focusEvents.blur(id) }
 }
 

@@ -1,6 +1,7 @@
 # macOS: a focused button that becomes disabled keeps the focus and swallows Tab
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by refreshInputGates resigning the focus of a control that becomes disabled and keeping its place as Presenter.tabStart, which Tab and Shift-Tab go on from; FocusFixupMacTests
 **Systems:** host/apple macOS, focus, keyboard
 **Author:** Daehyeon Mun
 **Date:** 2026-10-14
