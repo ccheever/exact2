@@ -85,13 +85,28 @@ export function draftContextRecords(client: T3Client): Obj {
 
 /** The draft's images in prompt-independent order (buildExpandedImagePreview over `composerImages`). */
 const images = new WeakMap<T3Client, { key: string; id: string } | null>();
-export type ComposerImagePreview = { open: boolean; id: string; name: string; position: string; many: boolean };
+/** The draft images' natural sizes in points, by id (a saved draft image never changes; ZoomableImage's `onLoad`). */
+const imageSizes = new Map<string, { width: number; height: number }>();
+export type ComposerImagePreview = { open: boolean; id: string; name: string; position: string; many: boolean; width: number; height: number };
 export function composerImagePreview(client: T3Client): ComposerImagePreview[] {
   const open = images.get(client);
   if (!open || open.key !== client.draftKey) return [];
   const list = client.snapshotDrafts, index = list.findIndex(image => str(image.id) === open.id);
   if (index < 0) return [];
-  return [{ open: true, id: open.id, name: str(list[index]!.name, 'image'), position: list.length > 1 ? `(${index + 1}/${list.length})` : '', many: list.length > 1 }];
+  const size = imageSizes.get(open.id) ?? { width: 0, height: 0 };
+  return [{ open: true, id: open.id, name: str(list[index]!.name, 'image'), position: list.length > 1 ? `(${index + 1}/${list.length})` : '', many: list.length > 1, ...size }];
+}
+/** Reads the sizes of the draft's images the module has not measured yet; an image it cannot read stays unknown (0). */
+export async function measureDraftImages(client: T3Client, native: Native): Promise<void> {
+  for (const image of client.snapshotDrafts) {
+    const id = str(image.id);
+    if (!id || imageSizes.has(id)) continue;
+    try {
+      const size = await client.call(native, { op: 'snapshotDraftSize', id });
+      const width = Number(size.width), height = Number(size.height);
+      if (width > 0 && height > 0) imageSizes.set(id, { width, height });
+    } catch { /* unknown: the preview keeps the whole media box */ }
+  }
 }
 /** `editorlocal:chip-image-*`: ExpandedImageDialog's close and its wrap-around steps. */
 export function composerImageStep(client: T3Client, op: string): string {
@@ -127,6 +142,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
   if (act === 'image') {
     const id = context.startsWith('image_') ? context.slice('image_'.length) : '';
     if (!client.snapshotDrafts.some(image => str(image.id) === id)) throw new ClientError('That image is no longer attached.');
+    await measureDraftImages(client, native);
     images.set(client, { key: client.draftKey, id });
     return '';
   }

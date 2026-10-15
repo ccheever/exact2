@@ -23,25 +23,32 @@ final class T3SnapshotShortcut {
         let named: [UInt16: String] = [36:"enter",48:"tab",49:"space",51:"backspace",53:"esc",117:"delete",123:"left",124:"right",125:"down",126:"up",115:"home",119:"end",116:"pageup",121:"pagedown",122:"f1",120:"f2",99:"f3",118:"f4",96:"f5",97:"f6",98:"f7",100:"f8",101:"f9",109:"f10",103:"f11",111:"f12"]
         return named[event.keyCode] ?? event.charactersIgnoringModifiers?.lowercased() ?? ""
     }
+    /// The layouts a printable key is looked up in: the current one, then the ASCII-capable one, which macOS matches
+    /// key equivalents against while the current one types another script (2-Set Korean's A key types ㅁ, so "ctrl+alt+a"
+    /// would have no key). The snapshot test pins it to one layout, so it does not depend on the Mac's input source.
+    static var layouts: () -> [TISInputSource] = {
+        [TISCopyCurrentKeyboardLayoutInputSource().takeRetainedValue(), TISCopyCurrentASCIICapableKeyboardLayoutInputSource().takeRetainedValue()]
+    }
     static func chord(_ text: String) -> (UInt32, UInt32)? {
         guard let canonical = canonical(text), pairs[canonical] == nil else { return nil }
         let tokens = canonical.split(separator: "+").map(String.init), target = tokens.last! == "plus" ? "+" : tokens.last!
-        // Derive printable keys from the current keyboard layout, rather than US key codes.
+        // Derive printable keys from the keyboard layout, rather than US key codes.
         var code: UInt32?
         var required: UInt32 = 0
         for candidate in UInt16(0)...UInt16(126) {
             if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: candidate), key(event) == target { code = UInt32(candidate); break }
-            let source = TISCopyCurrentKeyboardLayoutInputSource().takeRetainedValue()
-            if let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
-                let data = unsafeBitCast(property, to: CFData.self)
-                let layout = UnsafePointer<UCKeyboardLayout>(OpaquePointer(CFDataGetBytePtr(data)))
+        }
+        layouts: for source in code == nil ? layouts() : [] {
+            guard let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { continue }
+            let data = unsafeBitCast(property, to: CFData.self)
+            let layout = UnsafePointer<UCKeyboardLayout>(OpaquePointer(CFDataGetBytePtr(data)))
+            for candidate in UInt16(0)...UInt16(126) {
                 var dead: UInt32 = 0, length = 0; var characters = [UniChar](repeating: 0, count: 8)
                 for modifier in [UInt32(0), UInt32(shiftKey >> 8)] {
                     dead = 0
                     if UCKeyTranslate(layout, candidate, UInt16(kUCKeyActionDown), modifier, UInt32(LMGetKbdType()), OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 8, &length, &characters) == noErr,
-                       String(utf16CodeUnits: characters, count: length).lowercased() == target { code = UInt32(candidate); required = modifier << 8; break }
+                       String(utf16CodeUnits: characters, count: length).lowercased() == target { code = UInt32(candidate); required = modifier << 8; break layouts }
                 }
-                if code != nil { break }
             }
         }
         guard let code else { return nil }

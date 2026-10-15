@@ -215,6 +215,10 @@ describe('the discovered-port button on a background environment: its own stream
     expect(portLabels(rowPorts(client, 'fleet:env-remote:t9'))).toEqual({ portLabel: 'Open localhost:3000', portTip: 'Open localhost:3000' });
     expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects.flatMap(project => project.threads).find(row => row.id === 'fleet:env-remote:t9'))
       .toMatchObject({ portLabel: 'Open localhost:3000', remoteLabel: 'Studio' });
+    // The row is a native button, a leaf for VoiceOver: the machine glyph's label is part of its name, as the
+    // reference's row (named from its content) reads it.
+    const row = legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects.flatMap(project => project.threads).find(row => row.id === 'fleet:env-remote:t9')!;
+    expect(row.label).toBe(`${row.title}, Studio`);
     client.local.sidebarOpen = false;
     await watchRowPorts(client, native);
     await fleetPortsPass(async request => { calls.push(request); return {}; }, entry);
