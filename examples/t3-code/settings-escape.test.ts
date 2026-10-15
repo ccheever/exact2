@@ -110,7 +110,7 @@ describe('the keybinding recorder owns every key while it records', () => {
     const capture = await component('settings-keybindings.contract', 'CaptureField');
     expect(line(capture, 'testId="keybinding-recording"')).toContain('aria-modal=true');
     const recorder = line(capture, 'KeyRecorder(');
-    expect(recorder).toContain('capture=capture(original), cancel=capture(original, "blur")');
+    expect(recorder).toContain('capture=took, cancel=took("blur")');
     const app = await source('app.contract');
     expect(app).toContain('    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)\n    keybindingRecording = false');
   });
