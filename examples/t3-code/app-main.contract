@@ -21,7 +21,7 @@ use UsageView from "./pages-usage.contract"
 use UsageKey from "./pages-usage.contract"
 use UsagePricesLayer from "./pages-usage-dialogs.contract"
 use UsageModelLayer from "./pages-usage-dialogs.contract"
-use ResetCreditDialog from "./usage-bars.contract" // usage-pooled-view
+use ResetCreditDialog from "./usage-bars.contract"
 use PrList from "./pages-prs.contract"
 use PgIcon from "./pages-icons.contract"
 use PrListView from "./pages-prs.contract"
@@ -55,7 +55,7 @@ use DialogFinalFocus from "./dialog-trap.contract"
 component ChatColumn
   inject
     rem: number
-    // cite-selection-anchor: the timeline's scroll hides the window's Cite (observeSelectionActions' scroll).
+    // The timeline's scroll hides the window's Cite (observeSelectionActions' scroll).
     citeScrolled: action
   props
     pageCover: bool
@@ -115,7 +115,7 @@ component ChatColumn
     branches: ComposerBranches
     timelineNow: number
     contextOver: bool
-    // r8-pointer D11: the chat column's right edge in the window is (sidebar) + conversationWidth; the Send tooltip
+    // The chat column's right edge in the window is (sidebar) + conversationWidth; the Send tooltip
     // shifts to stay inside it, since a right panel (a later section) paints over anything reaching past it.
     sidebarWidth: number
     // The chat canvas (chat-canvas-view.ts): the lane, the card's fold and the floating player's frame; `canvasGesture`
@@ -124,10 +124,10 @@ component ChatColumn
     canvasGesture: action
     // A primary press on the floating player: outside the thread details popover (app-window.contract detailsPlayerPointer).
     detailsOutside: action
-    // server-update-banner: the composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
+    // The composer notice sliding out and its delayed dismissal (app.contract noticeDismiss).
     noticeExit: string
     noticeDismiss: action
-  // r8-pointer D9/D10: the transcript's hovered row (message.hoverKey) and its hovered tooltip part.
+  // The transcript's hovered row (message.hoverKey) and its hovered tooltip part.
   state dismissedProviderBanner = "" // moved from app.contract: only the chat column reads or writes it
   action dismissProviderBanner
     dismissedProviderBanner = data.providerBannerKey
@@ -136,7 +136,7 @@ component ChatColumn
   action hoverPart(row: string, part: string, over: bool)
     rowHover = over ? row : (rowHover == row ? "" : rowHover)
     partHover = over ? part : (partHover == part ? "" : partHover)
-  // timeline-and-window-hooks KW-12a: the user turns reported intersecting the transcript (UserRow's `intersect=`), for
+  // The user turns reported intersecting the transcript (UserRow's `intersect=`), for
   // the owner they were reported under, and the list's first visible row from its last ScrollEvent (timeline-minimap.contract).
   state turnsSeen: string[] = []
   state turnsOwner = ""
@@ -152,7 +152,7 @@ component ChatColumn
     let kept = turnsOwner == composerOwner ? turnsSeen.filter((seen) => seen != id and turnIds.includes(seen)) : []
     turnsSeen = entry.isIntersecting ? kept.concat([id]) : kept
     turnsOwner = composerOwner
-  // KW-12b: the open thread's last position (`anchor`, kept only from the reader's own scrolling: not while a command
+  // The open thread's last position (`anchor`, kept only from the reader's own scrolling: not while a command
   // such as a thread switch runs, nor before the thread's restoration) and the other threads' (`anchors`, at most 100).
   state anchor = TimelineAnchor(owner="", key="", offset=0, top=0, end=true)
   state anchors: TimelineAnchor[] = []
@@ -162,7 +162,7 @@ component ChatColumn
   state fallbackJump = -1
   action transcriptScrolled(left: number, top: number, e: ScrollEvent)
     citeScrolled(left, top)
-    // A turn whose row the virtual window let go sends no leave: its box is gone (KW-12a).
+    // A turn whose row the virtual window let go sends no leave: its box is gone.
     turnsSeen = turnsSeen.filter((seen) => not frame(`turn-${seen}`).unavailable)
     let key = anchorKey(e.firstVisibleKey)
     let end = e.scrollHeight - e.scrollTop - e.clientHeight <= 2
@@ -200,7 +200,7 @@ component ChatColumn
   // the canvas first answers, chat is centred.
   derive laneInset = canvas.ready ? canvas.insetEnd : 0
   // ChatView isDraftHeroState: only a draft with an empty timeline centres the composer under the hero; a server thread
-  // with no messages docks it at the foot over the timeline's placeholder (audit-wave-followups FU-1).
+  // with no messages docks it at the foot over the timeline's placeholder.
   derive hero = data.messages.length == 0 and data.threadId == ""
   derive overlaid = not hero
   derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
@@ -223,7 +223,7 @@ component ChatColumn
       if data.messages.length > 0
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
-          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
           list appearance="none" virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scroll=transcriptScrolled scrollTop=(fallbackJump == jumpRequest ? fallbackTop : 1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             for message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=scheme, seen=turnSeen)
@@ -235,7 +235,7 @@ component ChatColumn
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
           if data.transcriptAway
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)
-      // r4-composer: the composer overlays the transcript (ChatView's data-chat-composer-overlay; r4-composer-overlay.ts
+      // The composer overlays the transcript (ChatView's data-chat-composer-overlay; r4-composer-overlay.ts
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
@@ -274,10 +274,10 @@ component ChatColumn
       // (a narrow window) it is the window's (app-overlays.contract WindowOverlays), above the sheet.
       if detailsOpen and not (narrowDiff and (rightPanel or data.diffOpen))
         ThreadDetailsPanel(details=details, density=canvas.density, right=13, below=(canvas.ready ? max(0, viewport.height - 52 - canvas.containerHeight) : 0), maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
-      // lane r6-media: a device floated over the chat (r6-device.contract), in the canvas's frame.
+      // A device floated over the chat (r6-device.contract), in the canvas's frame.
       if shell.panel.deviceMini.show and canvas.mini.show and canvas.mini.key == shell.panel.deviceMini.key
         R6DeviceMiniPlayer(mini=shell.panel.deviceMini, frame=canvas.mini, still=viewport.prefersReducedMotion, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
-      // browser-surface part 3: a Browser tab floated over the chat (browser-capture.contract).
+      // A Browser tab floated over the chat (browser-capture.contract).
       if shell.panel.browserMini.show and canvas.mini.show and canvas.mini.key == shell.panel.browserMini.key
         BrowserMiniPlayer(mini=shell.panel.browserMini, frame=canvas.mini, canvasWidth=canvas.containerWidth, local=chatLocal, gesture=canvasGesture, outside=detailsOutside)
       if hero and data.connected and data.projectId != ""
@@ -374,7 +374,7 @@ component PagesCover
     command: action
     openConnectionsPage: action
     pagesOp: action
-  // popover-escape-parity: the pooled reset confirm closes for the page as its Cancel, Escape or Use credit is
+  // The pooled reset confirm closes for the page as its Cancel, Escape or Use credit is
   // pressed, so the page is no longer inert when the command's answer gives the segment the focus back (the
   // usage answer that drops the confirm comes later; Base UI's AlertDialog returns the focus as it closes).
   // A new ask from the page opens it again.
@@ -404,7 +404,7 @@ component PagesCover
         if utilityPage == ""
           PagesLanding(controlsLeft=data.controlsLeft, home=home, scheme=scheme, sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, busy=commandPending, toggleSidebar=toggleSidebar, command=command, addProject=paletteShow("command", "add-project"), openConnections=openConnectionsPage)
     // Usage's model and Model prices dialogs cover the whole window, sidebar included (pages-usage-dialogs).
-    // usage-pooled-view: a pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
+    // A pooled segment's reset credit confirm, outside its popover (UsageLimitsPooled RedeemableSegmentPopup).
     if pageCover and utilityPage == "usage" and usageConfirmOpen
       ResetCreditDialog(prefix="pageslocal:usage-pool", target=usage.pooled.confirm, busy=commandPending, command=usageConfirm)
     // Model prices and a model's dialog (which opens Model prices from its Set price) give the focus back to what opened

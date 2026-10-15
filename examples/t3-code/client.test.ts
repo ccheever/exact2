@@ -286,7 +286,7 @@ describe('answer cancellation', () => {
     expect(look(client).fontSize).toBe(20);
     expect(native.calls.filter(call => call.op === 'devicePresentation').slice(-1)[0]).toMatchObject({ rootFontSize: 20 });
   });
-  test('a t3-code.json from before decision U7 is saved once without the keys desktop-settings.json took over', async () => {
+  test('an older t3-code.json is saved once without the keys desktop-settings.json took over', async () => {
     const client = new T3Client(), native = new Backend();
     const disk = storage({ version: 1, sidebarWidth: 310, localEnvironmentEnabled: false, serverExposureMode: 'network-accessible', tailscaleServeEnabled: true,
       tailscaleServePort: 8443, defaultAdvertisedEndpointKey: 'desktop-core:lan:http' });
@@ -468,7 +468,7 @@ describe('connection and bootstrap', () => {
     expect(parsePairing('https://app.t3.codes/pair?host=http%3A%2F%2F127.0.0.1%3A3773#token=secret', '')).toEqual({ origin: 'http://127.0.0.1:3773', credential: 'secret' });
     expect(parsePairing('http://old-host:3773', 'http://new-host:3773/pair?token=query#token=fragment')).toEqual({ origin: 'http://new-host:3773', credential: 'fragment' });
     expect(() => parsePairing('file:///etc/passwd', 'x')).toThrow('HTTP');
-    // A host with spaces is the reference's escaped origin, which no request reaches (S2-8); other refused hosts are invalid.
+    // A host with spaces is the reference's escaped origin, which no request reaches; other refused hosts are invalid.
     expect(parsePairing('not a url', 'ABC')).toEqual({ origin: 'https://not%20a%20url', credential: 'ABC', unreachable: true });
     expect(parsePairing('http://My Host:3773', 'ABC')).toEqual({ origin: 'http://my%20host:3773', credential: 'ABC', unreachable: true });
     expect(parsePairing('https://app.t3.codes/pair?host=not%20a%20url#token=secret', '')).toEqual({ origin: 'https://not%20a%20url', credential: 'secret', unreachable: true });
@@ -869,7 +869,7 @@ test('timeline presentation belongs to one connection/project/thread and follows
 });
 
 
-describe('r13-store: Remove forgets the focused environment', () => {
+describe('Remove forgets the focused environment', () => {
   test('forget clears the address, selection and cached threads of the focused environment', async () => {
     const context = await opened();
     expect(context.client.threadId).toBe('t1');

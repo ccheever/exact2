@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// Lane r8-keys: the menu bar as the reference desktop app builds it
+/// The menu bar as the reference desktop app builds it
 /// (apps/desktop/src/window/DesktopApplicationMenu.ts; MIT, see LICENSE-T3), laid
 /// over the host's.
 ///
@@ -23,8 +23,8 @@ import AppKit
 ///   before it closes the window. AppKit keeps one key equivalent per chord across
 ///   the bar (a later item with a different action loses it), so Edit › Undo and
 ///   File › Close Window route a keystroke to the window's command first. Editable
-///   text with the focus keeps Edit › Undo and Redo: since exact2 #327 (X63, adopted
-///   in round 11) Exact's textarea answers `undo:` and `redo:` with its own history,
+///   text with the focus keeps Edit › Undo and Redo: since exact2 #327
+///   (issues/closed/20261009-macos-textarea-native-undo.md) Exact's textarea answers `undo:` and `redo:` with its own history,
 ///   so they go up the responder chain as AppKit sends them.
 final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
@@ -157,7 +157,7 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
         return text
     }
     /// Where Edit's `undo:` goes from the focused text: the first responder up its chain that answers it, as AppKit
-    /// sends a menu's nil-targeted action (Exact's textarea answers it with its own history since exact2 #327, X63; a
+    /// sends a menu's nil-targeted action (Exact's textarea answers it with its own history since exact2 #327; a
     /// field's editor leaves it to its window).
     private static func undoTarget(from text: NSTextView) -> NSResponder? {
         var responder: NSResponder? = text

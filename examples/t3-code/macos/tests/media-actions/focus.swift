@@ -1,8 +1,8 @@
 import AppKit
 import XCTest
 
-// chat-markdown-media-and-code: T3MediaFocus (G4-09: a press elsewhere takes the focus off a media node) and T3MenuDismissal
-// (G4-05: the secondary click that closed the media menu opens no new one), with events through NSApplication.sendEvent,
+// T3MediaFocus (a press elsewhere takes the focus off a media node) and T3MenuDismissal
+// (the secondary click that closed the media menu opens no new one), with events through NSApplication.sendEvent,
 // the path a click from the window server takes (local monitors, then the window).
 final class MediaFocusTests: XCTestCase {
     final class Focusable: NSView {

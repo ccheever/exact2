@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): reading Safari's cookies (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// Reading Safari's cookies (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/BrowserImport/{SafariCookies,SafariPermission}.ts), over the clone's ImportIO.
 //
 // Safari does not encrypt its cookies; it keeps them in `Cookies.binarycookies` inside its container, a path only apps

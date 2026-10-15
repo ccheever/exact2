@@ -1,4 +1,4 @@
-// context-menu-gaps: the right-click hookup end to end, short of the host. The Contract nodes carry
+// The right-click hookup end to end, short of the host. The Contract nodes carry
 // the `contextmenu` handlers (read from the sources, as timeline.test.ts reads shapes), the root
 // actions turn them into the op strings, and those ops — sent through `T3Client.command` as the
 // host sends them — reach the native `contextMenu` op with the reference's items.
@@ -36,7 +36,7 @@ function fixture() {
 
 describe('right-click hookup', () => {
   test('the Contract nodes carry the handlers and the root actions name the ops', async () => {
-    // contract-keys-and-menu-bar X292: the number's menu is a context popover (pages-prs.contract PrLinkMenu); its rows pick.
+    // The number's menu is a context popover (pages-prs.contract PrLinkMenu); its rows pick.
     expect(await nodeLine('pages-prs.contract', 'testId=`pr-number-${row.number}`')).toContain('contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu"');
     expect(await source('pages-prs.contract')).toContain('PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor,');
     expect(await source('pages-prs.contract')).toContain('PrLinkMenu(menuId="pr-link-menu", link=linkMenuOf, openLabel=linkMenuLabel, pick=control("link-pick"))');

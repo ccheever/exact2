@@ -1,4 +1,4 @@
-// Lane r5-panels: the details card's pull request rows, the right panel's
+// The details card's pull request rows, the right panel's
 // "pull-request" surface reference and a sent attachment's preview, as
 // r5-panels-pr.ts and r5-panels-attach.ts answer them.
 use CodeHighlight from "./markdown.contract"
@@ -76,7 +76,7 @@ shape R5Attachment
   gutter: number
   url: string
   noPreview: string
-  // audit-wave-followups-3 FW-2: the rendered Markdown is ChatMarkdown, as Files' (R4Files): app.contract's filesMarkdown
+  // The rendered Markdown is ChatMarkdown, as Files' (R4Files): app.contract's filesMarkdown
   // answers markdownSource (kind "attachment"); md, code, diagrams, mdUrls and Copy code's check as the transcript's.
   markdownSource: MarkdownSource[]
   md: MarkdownEnv

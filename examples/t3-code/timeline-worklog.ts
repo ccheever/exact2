@@ -125,7 +125,7 @@ export function projectedWorkEntry(row: Obj): WorkEntry {
     case 'approval_request': return { ...common, label: title ?? 'Approval requested', detail: str(item.prompt, str(item.requestKind)), toolData: item };
     case 'user_input_request': return { ...common, label: title ?? (item.questionAnswer ? 'Answered questions' : 'Input requested'),
       ...(item.questionAnswer ? { questionAnswer: obj(item.questionAnswer) } : {}), toolData: item };
-    // The source is decoded here, once: its icon and the subagent card read the decoded kind (timeline-work-rows TH-2).
+    // The source is decoded here, once: its icon and the subagent card read the decoded kind.
     case 'notification': return { ...common, item: { ...item, source: notificationSource(item.source) }, label: str(item.summary), tone: 'info' };
     default: return { ...common, label: title ?? type.replace(/_/g, ' '), toolData: item };
   }

@@ -1,7 +1,7 @@
-// pr-list-place-and-thread-picker (T3 Code 1e2ecbd975): the Pull Requests list keeps its rows and its place when the app
-// becomes active again (PLS-1) and across a live Light/Dark switch (SCHEME-REMOUNT); Link to thread opens its own picker
-// dialog (PR-PICKER, PullRequestThreadLinks display="picker"); the checkout dialog's field selects its text on open in
-// Contract (R10-SELECT, PullRequestThreadDialog's `focus(); select()`). The behavior itself is checked by driving the
+// T3 Code 1e2ecbd975: the Pull Requests list keeps its rows and its place when the app
+// becomes active again and across a live Light/Dark switch; Link to thread opens its own picker
+// dialog (PullRequestThreadLinks display="picker"); the checkout dialog's field selects its text on open in
+// Contract (PullRequestThreadDialog's `focus(); select()`). The behavior itself is checked by driving the
 // app on macOS.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
@@ -26,7 +26,7 @@ async function component(file: string, name: string): Promise<string[]> {
   return lines.slice(start, end < 0 ? undefined : end);
 }
 
-// ── PLS-1: a return to the app keeps the list ───────────────────────────────
+// ── A return to the app keeps the list ──────────────────────────────────────
 
 const NOW = Date.parse('2026-10-14T03:00:00Z');
 const GH = 'env-gh', ORIGIN = 'http://127.0.0.1:16543';
@@ -105,7 +105,7 @@ const numbers = (view: Awaited<ReturnType<typeof pullRequestsPage>>) => view.gro
 
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
-describe('PLS-1: the Pull Requests list keeps its rows when the app becomes active again', () => {
+describe('The Pull Requests list keeps its rows when the app becomes active again', () => {
   test('a background environment\'s shell resubscribes from its cursor on `_retryDue`, staying synchronized with its projects', async () => {
     const source = new EnvironmentFleet(), lane = backgroundTransport();
     const focused = { origin: 'http://127.0.0.1:16542', environmentId: 'env', connection: 'connected' };
@@ -181,7 +181,7 @@ describe('PLS-1: the Pull Requests list keeps its rows when the app becomes acti
     expect(entry.subscriptions).toMatchObject({ config: lane.subscriptions.config, shell: lane.subscriptions.shell });
   });
 
-  test('the page reads the same servers after the return, and its rows never empty (B12)', async () => {
+  test('the page reads the same servers after the return, and its rows never empty', async () => {
     const lane = backgroundTransport();
     const { client, page, listed } = focusedClient();
     await fleet.sync(lane.native, client as unknown as { origin: string; environmentId: string; connection: string });
@@ -218,9 +218,9 @@ describe('PLS-1: the Pull Requests list keeps its rows when the app becomes acti
   });
 });
 
-// ── SCHEME-REMOUNT: one subtree for both schemes ────────────────────────────
+// ── One subtree for both schemes ────────────────────────────────────────────
 
-describe('SCHEME-REMOUNT: no surface is mounted once per scheme', () => {
+describe('No surface is mounted once per scheme', () => {
   test('no view `if` chooses a subtree by the scheme, and no component is handed a literal scheme', async () => {
     const splits: string[] = [];
     for (const file of contracts) {
@@ -248,9 +248,9 @@ describe('SCHEME-REMOUNT: no surface is mounted once per scheme', () => {
   });
 });
 
-// ── PR-PICKER: Link to thread's own dialog ──────────────────────────────────
+// ── Link to thread's own dialog ─────────────────────────────────────────────
 
-describe('PR-PICKER: "Link to thread" opens its own picker dialog (PullRequestThreadLinks display="picker")', () => {
+describe('"Link to thread" opens its own picker dialog (PullRequestThreadLinks display="picker")', () => {
   test('the palette page `pr-link-thread` is the picker panel, its rows and texts the reference ThreadPicker\'s', () => {
     const view = threadPickerView({ shell: { threads: [], projects: [] } } as unknown as T3Client, '', false);
     expect(view).toMatchObject({ page: 'pr-link-thread', panel: 'picker', label: 'Choose a thread', placeholder: 'Search threads or projects...', testId: 'pull-request-thread-picker', autoHighlight: true });
@@ -299,9 +299,9 @@ describe('PR-PICKER: "Link to thread" opens its own picker dialog (PullRequestTh
   });
 });
 
-// ── R10-SELECT: select on open in Contract ──────────────────────────────────
+// ── Select on open in Contract ──────────────────────────────────────────────
 
-describe('R10-SELECT: the checkout dialog\'s field focuses and selects its reference as it opens, in Contract', () => {
+describe('The checkout dialog\'s field focuses and selects its reference as it opens, in Contract', () => {
   test('FieldOpenSelect focuses then selects once per opening, preserving later caret changes', () => {
     const field = contractComponent('dialog-trap.contract', 'FieldOpenSelect');
     const state = field.state(), calls: unknown[][] = [];

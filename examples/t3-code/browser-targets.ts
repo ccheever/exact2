@@ -1,4 +1,4 @@
-// browser-surface part 2: where a Browser tab goes and what it can recommend (T3 Code 1e2ecbd975, MIT, see
+// Where a Browser tab goes and what it can recommend (T3 Code 1e2ecbd975, MIT, see
 // LICENSE-T3: apps/web/src/browser/browserTargetResolver.ts, apps/web/src/portDiscoveryState.ts
 // `boundConfiguredLocalServerUrls`/`useDiscoveredPortsState`, apps/web/src/components/preview/
 // useDiscoveredLocalServers.ts `mergeServers`, previewEmptyStateLogic.ts `getConfiguredPreviewUrls`;
@@ -13,7 +13,7 @@
 // Discovery: the server's port scanner (`lsof` on macOS, then an HTML probe) streams the live local servers;
 // the empty state lists them, configured project preview URLs first. The stream lasts while a Browser tab of
 // the focused thread shows its empty state (the reference's query lives with PreviewEmptyState), carried by the
-// Swift transport like the client's other streams (X21, exact2 #126).
+// Swift transport like the client's other streams (exact2 #126).
 import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';

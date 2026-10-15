@@ -6,10 +6,10 @@ import { describe, expect, test } from 'bun:test';
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 const line = (text: string, start: string) => text.split('\n').find(row => row.trimStart().startsWith(start)) ?? '';
 
-describe('RC-2: the model picker trigger after a Shift+click removes a model', () => {
-  test('its label is one text that the host repaints as it shrinks (X64, fixed on main by #327: no keyed node since round 11)', async () => {
+describe('the model picker trigger after a Shift+click removes a model', () => {
+  test('its label is one text that the host repaints as it shrinks (issues/closed/20261009-macos-small-text-stale-raster.md, fixed on main by #327: no keyed node)', async () => {
     const controls = await source('composer-controls.contract');
-    // adopt-main-fixes-r11: round 10 keyed the label by its words and size (a new node per label) because a wrapped
+    // The label was once keyed by its words and size (a new node per label) because a wrapped
     // paragraph that shrank below the raster size kept its old raster on macOS; #327 retires the old ink.
     expect(controls).not.toContain('key=`${xs}:${shown}`');
     expect(controls).toContain('          text (data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) ');
@@ -19,7 +19,7 @@ describe('RC-2: the model picker trigger after a Shift+click removes a model', (
   });
 });
 
-describe('RC-6: Add profile\'s keyboard walks every enabled row', () => {
+describe('Add profile\'s keyboard walks every enabled row', () => {
   test('Blank profile, then each browser it can import from, as Base UI\'s list navigation', async () => {
     const profiles = await source('browser-profiles.contract');
     expect(profiles).toContain('fn bpAddItems(view: BrowserProfilesView): KmItem[] = (view.hydrated and not view.atLimit ? [KmItem(id="browser-profiles-blank", label="Blank profile")] : []).concat((view.sourcesState == "ready" and view.canImport ? view.sources.map((source) => KmItem(id=`browser-import-source-${source.id}`, label=source.name)) : []))');

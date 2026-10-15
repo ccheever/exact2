@@ -3,14 +3,14 @@ use Viewport from "./shapes.contract"
 use PickerCatalog from "./composer-shapes.contract"
 use PickerRow from "./composer-shapes.contract"
 use PickerRail from "./composer-shapes.contract"
-use PickerTarget from "./composer-shapes.contract" // settings-model-picker
+use PickerTarget from "./composer-shapes.contract"
 use ProviderMark from "./icons.contract"
 use ProviderInstanceMark from "./icons.contract"
 use CmpIcon from "./composer.contract"
 use CcIcon from "./composer-controls.contract"
 use ProviderSetupLink from "./providers-setup.contract"
 use ChatGptUsageButton from "./codex-setup.contract"
-use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
+use hoverTipAtFrame from "./hover-layer.contract"
 
 // The popovers' glass (popover at 83.6% over a 12px backdrop blur) is drawn as
 // the colour it settles to over the canvas: a native backdrop blur sees only its
@@ -47,7 +47,7 @@ component ModelRow
       hoverTipAt(hoverTipAtFrame(`model-row-tip-${row.key}`, "tip", row.reason, [], "left", "center", frame(`model-row-${row.key}`), min(20 * rem, row.reason.length * 0.4 * rem + 1.125 * rem), `model-row-tip-${row.key}`), "trigger", value)
   action hoverStar(value: bool)
     starOver = value
-  // model-picker-parity CO-7: Shift+click adds the model to a draft's several (onValueChange's shiftKey).
+  // Shift+click adds the model to a draft's several (onValueChange's shiftKey).
   action pick(e: MouseEvent)
     select(row.id, row.providerId, e.shiftKey)
   view
@@ -72,7 +72,7 @@ component ModelRow
         // ModelListRow: a chosen model of a multi-model draft shows its check before the star.
         if row.checked
           CcIcon(name="check", size=14, color="light-dark(#27272a, #f5f5f5)", weight=2)
-        // model-picker-parity CO-1: ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
+        // ModelListRow's jumpLabel Kbd (h-5 min-w-5 px-1, bg-muted, text-xs medium) before the star.
         if row.jump != ""
           text row.jump height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0d)" font-size="0.75rem" line-height="1.25rem" font-weight=500 text-align="center" color="light-dark(#71717b, #818181)" flex-shrink=0 testId=`model-jump-${row.id}`
         button press=favorite("favorite-model", row.providerId, row.id, 0) disabled=(row.reason != "") testId=`favorite-${row.id}` aria-label=(row.favorite ? "Remove from favorites" : "Add to favorites") hover=hoverStar class=Control width="1.5rem" height="1.5rem" min-height="1.5rem" padding=0 border-radius="0.5rem" flex-shrink=0 background-color=(starOver ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
@@ -97,7 +97,7 @@ component ModelPicker
     chooseRail: action
     command: action
     openSetup: action
-    // settings-model-picker: a Settings row's trigger edges (bottom 0 for the composer's picker).
+    // A Settings row's trigger edges (bottom 0 for the composer's picker).
     anchor: PickerTarget
   // Child state outlives the popover (root slots): keyboard highlight, legacy
   // expansion and rail hover belong to the opening (session) that set them.
@@ -113,7 +113,7 @@ component ModelPicker
   derive railOver = (railSession == session ? railHoverIndex : -1)
   derive sidebar = not catalog.searching and catalog.providers.length > 0
   derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)
-  // Combobox autoHighlight (model-picker-parity CO-3): a search highlights its first row a person can choose
+  // Combobox autoHighlight: a search highlights its first row a person can choose
   // until the arrows move the highlight; an unsearched list highlights nothing until then.
   derive base = (navigated and navQuery == query ? min(cursor, count - 1) : (catalog.searching ? catalog.firstEnabled : -1))
   derive highlight = (count > 0 ? base : -1)
@@ -127,7 +127,7 @@ component ModelPicker
   // search row (43) over the list (rows × 45 + gaps + 20; "No models found" is 36).
   derive rails = catalog.providers.length
   derive restRows = (legacyOpen ? catalog.restCount : catalog.restCount - catalog.restLegacyCount)
-  // provider-sign-in-and-install: the setup footer (max-h-44, a 1pt border, 8pt inset, each entry two message lines and its button) replaces "No models found".
+  // The setup footer (max-h-44, a 1pt border, 8pt inset, each entry two message lines and its button) replaces "No models found".
   derive setupCount = catalog.setup.length
   derive footer = (setupCount > 0 ? min(176, 17 + 58 * setupCount) : 0)
   derive sharing = (catalog.chatgptSharing ? 41 : 0) // ChatGptSharingControl: 1pt border, 8pt inset, a 24pt button
@@ -172,7 +172,7 @@ component ModelPicker
     closePicker()
     openSetup(id)
   // ModelPickerSidebar's TooltipPopup (side left, align center, the picker's delay 0), drawn by the window's hover
-  // layer beside the popover (model-picker-parity CO-2): the name, or why the provider cannot be chosen.
+  // layer beside the popover: the name, or why the provider cannot be chosen.
   action railHover(index: number, label: string, over: bool)
     railHoverIndex = over ? index : (railOver == index ? -1 : railOver)
     railSession = session
@@ -185,7 +185,7 @@ component ModelPicker
     if name == "ArrowUp"
       focus(`picker-rail-${origin <= 0 ? catalog.providers.length : origin - 1}`)
   view
-    // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40; model-picker-parity S2-4).
+    // A Settings row's picker draws above that page's dialogs (the scheduled task editor is z-index 40).
     button position="absolute" left=0 right=0 top=0 bottom=0 z-index=(anchored ? 49 : 29) padding=0 border-width=0 border-radius=0 background-color="#00000000" press=closePicker aria-label="Dismiss model picker" aria-keyshortcuts="Escape" testId="dismiss-model-picker" title=""
     column position="absolute" left=x top=y width=width height=height border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=(anchored ? 50 : 30)
       column width="100%" height="100%" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" overflow="hidden" role="dialog" aria-label="Choose model" testId="model-dialog"
@@ -216,7 +216,7 @@ component ModelPicker
                   if row.kind != "legacy-model" or legacyOpen
                     ModelRow(row=row, highlighted=(row.index == highlight), busy=(busy or (not anchored and data.running)), select=select, favorite=command, toggleLegacy=toggleLegacy, legacyOpen=legacyOpen)
             // ComboboxEmpty, the list's sibling: inside the list's scroll, which has no height when nothing
-            // matches, it was clipped away (fix-misc-batch, #298 bug 8).
+            // matches, it was clipped away (#298 bug 8).
             if count == 0 and setupCount == 0
               text "No models found" flex-shrink=0 font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color="light-dark(#71717a, #818181)" testId="model-empty"
             if setupCount > 0
@@ -225,7 +225,7 @@ component ModelPicker
                   column width="100%" box-sizing="border-box" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="flex-start" gap="0.25rem"
                     text entry.message font-size="0.75rem" line-height="1.03125rem" line-clamp=3 color="light-dark(#71717a, #818181)"
                     ProviderSetupLink(label=entry.label, fontSize="0.75rem", lineHeight="1.03125rem", testId=`model-picker-setup-${entry.id}`, press=setup(entry.id))
-        // managed-codex-chatgpt: ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx:317-319).
+        // ChatGptSharingControl, under the picker for a single choice (ProviderModelPicker.tsx:317-319).
         if catalog.chatgptSharing
           row width="100%" flex-shrink=0 box-sizing="border-box" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem" align-items="center" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" testId="model-picker-chatgpt-sharing"
             row gap="0.5rem" align-items="center"
@@ -233,7 +233,7 @@ component ModelPicker
               text "Using ChatGPT plan" font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
             ChatGptUsageButton(small=true, testId="model-picker-manage-usage", press=command("pageslocal:chatgpt-usage", "", "", 0), first=false)
 
-// model-picker-parity S2-4: a Settings row's ProviderModelPicker trigger outside General (Scheduled Tasks' Model,
+// A Settings row's ProviderModelPicker trigger outside General (Scheduled Tasks' Model,
 // Source Control's writer model; SETTINGS_PICKER_TRIGGER_CLASSNAME over ComposerControl "sm": h-7 px-2.5 gap-1.5,
 // the instance mark, the model name and the chevron). It opens the window's picker under itself (`setting-<row>`).
 component SettingsPickerTrigger

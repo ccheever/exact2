@@ -1,4 +1,4 @@
-// The window's hover layer (fix-hover-cards): a hover tooltip or hover card drawn at the window level,
+// The window's hover layer: a hover tooltip or hover card drawn at the window level,
 // as T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) portals every TooltipPopup and PopoverPopup to the body
 // (apps/web/src/components/ui/tooltip.tsx, popover.tsx). A trigger inside a scroll area or a clipping
 // card hands its frame and words to the root's `hoverTipAt` (provided by T3Window); this layer draws
@@ -10,12 +10,14 @@
 // it, and for the reference's closeDelay after the pointer leaves it or its trigger, so the pointer can
 // cross into it (the root's hover grace). Drawn here, at the window level, it hears the pointer on macOS:
 // a hover card drawn beside its trigger lies outside the trigger's box, where the host gives it no
-// tracking and gives the trigger a leave as the pointer moves in (X62, #322), which closed #262's card. Main #327 fixed
-// that (adopted in round 11: hover is the hit's ancestor path, overflowing children included); the layer stays for the
+// tracking and gives the trigger a leave as the pointer moves in (#322, issues/closed/20261009-macos-subtree-hover.md),
+// which closed #262's card. Main #327 fixed
+// that (hover is the hit's ancestor path, overflowing children included); the layer stays for the
 // clipping (#251, #248) and as the reference's portal.
 //
 // Placement: Base UI's side, align and sideOffset 4 from the trigger's frame; a side that leaves no
-// room in the window flips (Base UI's collision flip; X17, #112: no position-try, so the layer works it
+// room in the window flips (Base UI's collision flip; #112, issues/20261009-popover-css-flip-fallbacks.md:
+// no position-try, so the layer works it
 // out from the content's estimated height).
 
 shape HoverTip
@@ -71,7 +73,7 @@ component HoverLayer
   derive leftRoom = tip.x - 9
   derive rightRoom = viewportWidth - tip.x - tip.width - 9
   derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate) : (tip.side == "right" ? hoverFlip("right", "left", rightRoom, leftRoom, tip.estimate) : (tip.side == "bottom" ? hoverFlip("bottom", "top", bottomRoom, topRoom, tip.estimate) : hoverFlip("top", "bottom", topRoom, bottomRoom, tip.estimate)))
-  // chat-markdown-media-and-code MSU-1: a "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
+  // A "code" tip (TooltipPopup variant code, a media's path) is up to 30rem wide.
   derive span = tip.kind == "code" ? 32.5 : 22.5
   derive left = tip.align == "start" ? tip.x : (tip.align == "end" ? tip.x + tip.width - span * rem : tip.x + tip.width / 2 - span / 2 * rem)
   derive top = tip.align == "start" ? tip.y : (tip.align == "end" ? tip.y + tip.height - 22.5 * rem : tip.y + tip.height / 2 - 11.25 * rem)
@@ -112,15 +114,16 @@ component HoverLayer
             children
 
 // Base UI's flip: the side asked for while the popup fits there, else the other side unless it has less room.
-// It stands in for CSS anchor positioning on hover-opened popups (X17): #112, picked on 2026-10-08 as the next core
+// It stands in for CSS anchor positioning on hover-opened popups
+// (issues/20261009-popover-css-flip-fallbacks.md): #112, picked on 2026-10-08 as the next core
 // investment, starts with `position-area` and flip fallbacks for invoker popovers, which a hover-opened popup is not.
 // Its fallback is Base UI's best fit (floating-ui's flip: the side with more room); CSS's `position-try-fallbacks`
 // keeps the original placement when no fallback fits.
 fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other
 
 // TooltipPopup (CnTooltip's look): the words, max-w-80 wrap-anywhere, taking no pointer. A word wider than the bubble (a
-// commit link's URL) breaks inside the bubble, as the reference's does, instead of running past it and the window
-// (unverified-real-input-rows UV-3). TooltipPopup's base `text-balance` (KW-1) balances the words.
+// commit link's URL) breaks inside the bubble, as the reference's does, instead of running past it and the window.
+// TooltipPopup's base `text-balance` balances the words.
 component HoverText
   props
     tip: HoverTip
@@ -128,8 +131,8 @@ component HoverText
     column max-width="20rem" text-wrap="balance" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" pointer-events="none" role="tooltip" testId=tip.testId
       text tip.text font-size="0.75rem" line-height="1rem" white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
-// chat-markdown-media-and-code MSU-1: MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
-// 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance` (KW-1).
+// MediaActions' TooltipPopup (variant code: monospace 11px with relaxed leading, up to
+// 30rem, breaking anywhere), the media's full path, URL or name. The code variant keeps the base `text-balance`.
 component HoverCode
   props
     tip: HoverTip
@@ -138,7 +141,7 @@ component HoverCode
       text tip.text font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" text-align="left" overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
 
 // AccessScopeSummary's PopoverPopup (side top, align start, tooltipStyle, w-max max-w-80): "Granted
-// scopes", then each scope in mono, after the trigger's 250 ms delay. tooltipStyle's `text-balance` (KW-1).
+// scopes", then each scope in mono, after the trigger's 250 ms delay. tooltipStyle's `text-balance`.
 component HoverScopes
   props
     tip: HoverTip
@@ -150,7 +153,7 @@ component HoverScopes
 
 
 // A `Tip` (shell-tip.contract) drawn by this layer, kind "tip", for a trigger inside a scroll area or a clipping card (the
-// pull request Code tab's diff list, its file header and off-diff list, and its thread cards; pr-links-previews-and-routing,
+// pull request Code tab's diff list, its file header and off-diff list, and its thread cards;
 // #308's row after #307): the wrapped content is the trigger, named by `tipId`; the estimate is the words' lines at 12/16
 // in the 20rem bubble, for the flip. The trigger's test id is `tipId` (agent mode hovers it: `tap <tipId> hover`); the
 // bubble's is `<tipId>-bubble`.

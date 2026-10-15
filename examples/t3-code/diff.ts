@@ -95,7 +95,7 @@ export function selectCheckpoint(client: T3Client, ordinal: number, filePath = '
   if (!turn) throw new ClientError('No completed checkpoint is available for this thread.');
   select(client, { kind: 'turn', runId: turn.runId, filePath, baseRef: null });
 }
-/** onOpenTurnDiff(runId, filePath): a file change's Open diff in the work-log inspector (timeline-work-rows TH-5). */
+/** onOpenTurnDiff(runId, filePath): a file change's Open diff in the work-log inspector. */
 export function selectTurn(client: T3Client, runId: string, filePath = ''): void {
   if (!runId) throw new ClientError('That turn is no longer available.');
   select(client, { kind: 'turn', runId, filePath, baseRef: null });
@@ -364,7 +364,7 @@ export function diffSnapshot(client: T3Client, now: number) {
         const anchored = note.range.endSide === 'deletions' ? oldLine > 0 && oldLine === note.range.end : newLine > 0 && newLine === note.range.end;
         if (!anchored) continue;
         placed.add(note.id);
-        // Painted as selected under a selected line (Pierre's renderSelection; diff-gutter-visuals).
+        // Painted as selected under a selected line (Pierre's renderSelection).
         items.push({ ...base, id: `${note.kind}:${file.path}:${note.id}`, kind: note.kind, path: file.path, expanded, entry: note.id, label: note.label, text: note.text,
           selected: isSelected(note.range.endSide, note.range.end) });
       }

@@ -1,4 +1,4 @@
-// Lane r4-surfaces: the right panel's tab model, the Files tree and preview, the
+// The right panel's tab model, the Files tree and preview, the
 // Linked pull requests rows and the device wizard, against the reference's rules
 // (rightPanelStore.ts, FileBrowserPanel/FilePreviewPanel, ThreadPullRequestsPanel,
 // DeviceSetup.tsx). Network paths run against a recording fake of the native bridge.
@@ -86,13 +86,13 @@ describe('rightPanelStore rules', () => {
     expect(rows.find(row => row.id === 'device')).toMatchObject({ available: true });
     expect(rows.find(row => row.id === 'terminal')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'pull-requests')).toMatchObject({ available: false, reason: 'No linked pull requests available.' });
-    // ChatView `deviceAvailable={activeThreadRef !== null}`: a project's draft has its thread ref too (PA-1).
+    // ChatView `deviceAvailable={activeThreadRef !== null}`: a project's draft has its thread ref too.
     const draft = fakeClient({ threadId: '' }).client;
     expect(surfaces(draft).find(row => row.id === 'device')).toMatchObject({ available: true, reason: '' });
     const none = fakeClient({ threadId: '', projectId: '' }).client;
     expect(surfaces(none).find(row => row.id === 'device')).toMatchObject({ available: false, reason: 'Available from a thread.' });
   });
-  test('a Terminal tab wears the terminal glyph the shell icon set draws (PA-10)', async () => {
+  test('a Terminal tab wears the terminal glyph the shell icon set draws', async () => {
     const icons = await Bun.file(new URL('./shell-icons.contract', import.meta.url)).text();
     const { client } = fakeClient();
     const state = panelState(client);
@@ -143,7 +143,7 @@ describe('Files surface', () => {
     expect(view.files.rows.find(row => row.path === 'src/index.ts')!.selected).toBe(true);
     expect(view.files.crumbs.map(crumb => crumb.label)).toEqual(['surface-fixture', 'src', 'index.ts']);
   });
-  // FilePreviewPanel showsRawText and canOpenInBrowser (PA-4, PA-5): word wrap only over source text; a page or a PDF opens in the Browser.
+  // FilePreviewPanel showsRawText and canOpenInBrowser: word wrap only over source text; a page or a PDF opens in the Browser.
   test('the subheader offers word wrap only for source text and "Open file in preview browser" for a page or a PDF', async () => {
     const rpcs: { method: string; payload: Record<string, unknown> }[] = [];
     const { client, replies } = fakeClient({ available: true, origin: 'http://127.0.0.1:9',
@@ -205,7 +205,7 @@ describe('Files surface', () => {
     expect(writes.every(call => call.write && call.payload.cwd === '/repo')).toBe(true);
     expect(pendingPaths(client).has('a.ts')).toBe(false);
   });
-  // markdown-links-and-files-preview PA-3: FileMarkdownPreview is ChatMarkdown over the file, its links and images resolved
+  // FileMarkdownPreview is ChatMarkdown over the file, its links and images resolved
   // against the file's folder, and a task checkbox writes the file (RenderedMarkdownSurface onTaskListChange).
   test('a rendered Markdown file is the chat renderer\'s source, and a task checkbox saves the file', async () => {
     const { client, calls, replies } = fakeClient({ local: { clientSettings: decodeClientPrefs({}) } });
@@ -345,7 +345,7 @@ describe('Device setup', () => {
     await panelView(client, native, 0);
     expect(calls.some(call => call.method === 'device.list')).toBe(false);
   });
-  test('M on a draft opens Device for the draft\'s own thread id, allocated as it opens (PA-1)', async () => {
+  test('M on a draft opens Device for the draft\'s own thread id, allocated as it opens', async () => {
     const { client } = fakeClient({ threadId: '', local: { clientSettings: { wordWrap: true }, composerControls: {} } });
     expect(availability(client).device).toBe(true);
     await surfaceLocal(client, native, 'open', 'm', '');
@@ -355,7 +355,7 @@ describe('Device setup', () => {
   });
 });
 
-// RightPanelTabs handleKeyDown (PA-2), read from the Contract source as menu-keys.test.ts reads its menus; driving the app
+// RightPanelTabs handleKeyDown, read from the Contract source as menu-keys.test.ts reads its menus; driving the app
 // on macOS checks the keys themselves.
 describe('the surface launcher keyboard', () => {
   const component = async (name: string) => {
@@ -364,7 +364,7 @@ describe('the surface launcher keyboard', () => {
     return lines.slice(start, end).join('\n');
   };
   test('one highlight over the available rows: the arrows move and wrap it, Enter opens it, a chord or a letter is the panel\'s', async () => {
-    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)'); // part 4: the Browser row's profile chevron
+    expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)'); // the Browser row's profile chevron
     const launcher = await component('SurfaceLauncher');
     expect(launcher).toContain('state highlight = -1');
     expect(launcher).toContain('derive ids = surfaces.filter((entry) => entry.available).map((entry) => entry.id)');
@@ -385,7 +385,7 @@ describe('the surface launcher keyboard', () => {
     // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
-  // contract-keys-and-menu-bar KW-11a: the native R8KeysLauncher is gone. The launcher focuses itself as it mounts
+  // The native R8KeysLauncher is gone. The launcher focuses itself as it mounts
   // (`autofocus`, focusOnMount), and each available row declares its letter, either case, as `aria-keyshortcuts`: the host
   // presses it before any key handler wherever the focus is but an input context (Shortcut.permits), behind no modal and
   // not while the launcher is inert, once per press, by the physical key under a non-Latin layout. An unavailable row has
@@ -402,6 +402,6 @@ describe('the surface launcher keyboard', () => {
     expect(row.indexOf('aria-keyshortcuts=')).toBeLessThan(row.indexOf('    else\n'));
     expect(await component('SurfaceLauncher')).toContain('data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("")');
   });
-  // browser-surface part 4: the Browser row's profile chevron by keys (its Enter, ↑ and its list's Enter stay out of the
+  // The Browser row's profile chevron by keys (its Enter, ↑ and its list's Enter stay out of the
   // launcher) is browser-launcher-chevron.test.contract, run against the app (`agent.mjs macos --test`).
 });

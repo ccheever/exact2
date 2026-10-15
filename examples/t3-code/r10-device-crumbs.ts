@@ -1,4 +1,4 @@
-// Lane r10-device: where the Files breadcrumbs settle when the file preview mounts with its file (MIT
+// Where the Files breadcrumbs settle when the file preview mounts with its file (MIT
 // reference, see LICENSE-T3: FilePreviewPanel.tsx scrolls the current crumb into view whenever the file
 // changes). r9-device-crumbs.ts settles a file opened for the first time in a session 36pt short of the
 // trail's end, as the reference does when a file is picked in an open preview (its word-wrap toggle

@@ -1,5 +1,5 @@
-// diff-gutter-selection-followups: the diff gutter's drag selects no text (GS-1), and the Files surface's selected lines
-// take the reference's blue (GS-2), as T3 Code (1e2ecbd975) draws them over @pierre/diffs (computed styles read over CDP,
+// The diff gutter's drag selects no text, and the Files surface's selected lines
+// take the reference's blue, as T3 Code (1e2ecbd975) draws them over @pierre/diffs (computed styles read over CDP,
 // light and dark). #413's drags and #416's colours run in diff-gutter-pointer.test.ts and diff-gutter-visuals.test.ts.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -22,7 +22,7 @@ const REFERENCE = {
   files: { cell: ['#d5e6ff', '#254566'], number: ['#20649e', '#72b6ff'] },
 };
 
-describe('GS-1: a drag that starts on the gutter selects no text', () => {
+describe('a drag that starts on the gutter selects no text', () => {
   test('the number is DiffNumber\'s: no pointer (the press is the gutter\'s), no text selection, as [data-column-number]', () => {
     expect(number).toContain('text number position="absolute" left=left top=0');
     expect(number).toContain(`pointer-events="none" user-select="${REFERENCE.diff.numberUserSelect}" aria-hidden=true`);
@@ -62,12 +62,12 @@ describe('GS-1: a drag that starts on the gutter selects no text', () => {
   });
 });
 
-describe('GS-2: the Files surface\'s selected lines in the reference\'s blue', () => {
+describe('the Files surface\'s selected lines in the reference\'s blue', () => {
   const files = source('r4-surfaces-files.contract');
   const code = component(files, 'R4CodeRow');
   test('the number\'s cell and the number take the CDP colours; the number\'s is the diff\'s', () => {
     expect(files).toContain('use diffSel from "./diff-rows.contract"');
-    // files-gutter-parity: the number cell is the gutter box, the number drawn over it (FG-1, FG-2).
+    // The number cell is the gutter box, the number drawn over it.
     expect(code).toContain(`testId=\`file-line-\${line.number}\` background-color=(line.selected ? "light-dark(${REFERENCE.files.cell.join(', ')})" : "#00000000")`);
     expect(code).toContain('color=(line.selected ? diffSel("number") : "light-dark(#565656, #9d9d9d)")');
     expect(rows).toContain(`role == "number" ? "light-dark(${REFERENCE.files.number.join(', ')})"`);

@@ -1,6 +1,6 @@
-// files-gutter-parity: the Files preview's gutter as T3 Code (1e2ecbd975) draws it over @pierre/diffs (FG-1: Pierre's "+"
-// at the number's right edge; FG-2: a drag over the numbers selects lines and the draft opens at the end of any selection),
-// split view's hatched empty side (FG-3), and a press on any gutter closing a skill chip's details (FG-4). The reference's
+// The Files preview's gutter as T3 Code (1e2ecbd975) draws it over @pierre/diffs (Pierre's "+"
+// at the number's right edge; a drag over the numbers selects lines and the draft opens at the end of any selection),
+// split view's hatched empty side, and a press on any gutter closing a skill chip's details. The reference's
 // values were read over CDP (FilePreviewPanel's File, DiffPanel's split Cargo.lock), light and dark.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -51,7 +51,7 @@ function harness(chip: { open: boolean; seq: number } = { open: false, seq: 0 })
   return { client, native, calls, op, view, marks, draft, closes, chip };
 }
 
-describe('FG-1: the Files preview\'s "+" is Pierre\'s utility button at the number\'s right edge', () => {
+describe('the Files preview\'s "+" is Pierre\'s utility button at the number\'s right edge', () => {
   test('a 20pt #009fff square, radius 4, its plus in the surface\'s colour, at the reference\'s x', () => {
     expect(code).toContain(`position="absolute" left=(gutter - 9.83) top=0 width=${REFERENCE.plus.size} height=${REFERENCE.plus.size} padding=0 border-radius=${REFERENCE.plus.radius} border-width=0`);
     expect(code).toContain(`background-color="${REFERENCE.plus.background}"`);
@@ -74,7 +74,7 @@ describe('FG-1: the Files preview\'s "+" is Pierre\'s utility button at the numb
   });
 });
 
-describe('FG-2: a drag over the numbers selects lines, and the draft opens at the end of any line selection', () => {
+describe('a drag over the numbers selects lines, and the draft opens at the end of any line selection', () => {
   test('the row is named by its id; the gutter cell and the "+" hold the pointer and report the line under it', () => {
     expect(code).toContain('row id=`fl:${line.line}:${path}` width="100%"');
     expect(code).toContain('let hit = match elementFromPoint(e.clientX, e.clientY) { case some(id) => id, case none => "" }');
@@ -86,7 +86,7 @@ describe('FG-2: a drag over the numbers selects lines, and the draft opens at th
     expect(parseFileLineId('fl:0:a.txt')).toBeNull();
   });
   test('the release and a press that opens the draft let go of the focus the press gave the gutter, so the draft takes it', () => {
-    // A pressable node takes the focus on macOS, and autofocus waits while a node holds it (the after drive's first run:
+    // A pressable node takes the focus on macOS, and autofocus waits while a node holds it (seen in a drive:
     // the draft opened without the focus); FilePreviewPanel's beginComment blurs and the draft's textarea autofocuses.
     expect(code).toContain('  action up(e: PointerEvent)\n    if dragging\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
     expect(code).toContain('    if dragging and e.buttons == 0\n      dragging = false\n      blur()\n      local("surface-files-comment-end", path, "")');
@@ -151,7 +151,7 @@ describe('FG-2: a drag over the numbers selects lines, and the draft opens at th
   });
 });
 
-describe('FG-3: split view\'s empty side is hatched', () => {
+describe('split view\'s empty side is hatched', () => {
   test('the gutter part is flat and the code part carries the stripes in the reference\'s colours, the row the code surface', () => {
     expect(cell).not.toContain('#e4e4e4');
     expect(cell).toContain(`tone == "empty" ? "light-dark(${REFERENCE.buffer.gutter.join(', ')})" : "#00000000")`);
@@ -179,7 +179,7 @@ describe('FG-3: split view\'s empty side is hatched', () => {
   });
 });
 
-describe('FG-4: a press on a gutter closes a skill chip\'s details', () => {
+describe('a press on a gutter closes a skill chip\'s details', () => {
   test('closeChipFromPress closes the newest open press, and nothing when none is open', async () => {
     const open = harness({ open: true, seq: 7 });
     await closeChipFromPress(open.native);

@@ -1,4 +1,4 @@
-// diff-panel-parity (desktop audit 2026-10-09, PA-6 PA-7 PA-8 PA-12): the Changes header's comparison
+// The Changes header's comparison
 // target and its picker, the scope menu's turn rows, file header counts, and ⌘↩ in a line comment
 // draft, driven through T3Client.command as the Contract drives them, against a scripted server.
 import { describe, test, expect } from 'bun:test';
@@ -51,7 +51,7 @@ function harness(large = false) {
   return { client, command, previews, listRefs, calls, serve };
 }
 
-describe('PA-6: the comparison target', () => {
+describe('the comparison target', () => {
   test('choices pair each local ref with its remote, leave the rest remote-only, and filter by any name', () => {
     const choices = buildBaseRefChoices([{ name: 'main', remoteName: null }], remote);
     expect(choices.map(choice => [choice.label, choice.local?.name ?? null, choice.remote?.name ?? null])).toEqual([
@@ -120,8 +120,8 @@ describe('PA-6: the comparison target', () => {
 
   // The picker's keys are Contract fns (diff.contract), read from the source and run as JavaScript, as
   // usage-pooled.test.ts runs usageHit. Expected values are the reference's (T3 Code 1e2ecbd975 over CDP,
-  // lane diff-panel-parity, base Automatic): its static Automatic row keeps keyboard index 0 under a query,
-  // while Base UI counts only the matching refs (the user's rule of 2026-10-09: match it).
+  // base Automatic): its static Automatic row keeps keyboard index 0 under a query,
+  // while Base UI counts only the matching refs; the clone matches it.
   const keyFns = async () => {
     const text = await Bun.file(new URL('./diff.contract', import.meta.url)).text();
     const names = ['dbStep', 'dbKeys', 'dbMove', 'dbReturn'];
@@ -208,7 +208,7 @@ describe('PA-6: the comparison target', () => {
 
 });
 
-describe('PA-7: the scope menu', () => {
+describe('the scope menu', () => {
   test('Latest turn with no turns only closes the menu', async () => {
     const { client, command, previews } = harness();
     await command('diff');
@@ -220,10 +220,10 @@ describe('PA-7: the scope menu', () => {
     expect(previews()).toHaveLength(asked);
   });
 
-  // menu-keys repair round 2 (AFTER drive 15-scope-up-closed, 16-scope-*): reopened from its focused trigger, the
+  // Reopened from its focused trigger, the
   // menu mounted but no row took the focus (macOS skipped the reopened popup's autofocus). The opening action now
   // shows the menu for the turn the data module takes and focuses the real entry itself, on every opening.
-  test('KW-5: ↓ and ↑ on the focused trigger open the menu at its first or last row every time, also after Escape', async () => {
+  test('↓ and ↑ on the focused trigger open the menu at its first or last row every time, also after Escape', async () => {
     const { contractComponent, value } = await import('./contract-action-fixture');
     const { contractFn } = await import('./contract-fn-fixture');
     const keys = 'menu-keys.contract';
@@ -296,7 +296,7 @@ describe('PA-7: the scope menu', () => {
   });
 });
 
-describe('PA-8: file header counts', () => {
+describe('file header counts', () => {
   test("Pierre's counts read deletions first and hide a zero beside a change; DiffStatLabel reads additions first, compact", () => {
     expect(headerStat({ additions: 5, deletions: 1 }, false)).toEqual({ statAligned: false, addText: '+5', delText: '-1' });
     expect(headerStat({ additions: 1, deletions: 0 }, false)).toEqual({ statAligned: false, addText: '+1', delText: '' });
@@ -317,7 +317,7 @@ describe('PA-8: file header counts', () => {
   });
 });
 
-describe('PA-12: ⌘↩ in a line comment draft', () => {
+describe('⌘↩ in a line comment draft', () => {
   test("while the draft's textarea holds the focus the composer's Send declares no chord", async () => {
     const { client, command, calls } = harness();
     await command('diff');

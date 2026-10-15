@@ -1,4 +1,4 @@
-// browser-surface part 5. Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
+// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
 // apps/web/src/browser/browserLinkTarget.test.ts (5 + its 2 `it.each` rows; the preference is read from the client's
 // loaded settings here, so "rejects failed reads" becomes "reads the saved preference"),
 // components/preview/openTerminalLinkInPreview.test.ts (7 + 1 `it.each` row; an interrupted open is a let-go
@@ -147,7 +147,7 @@ const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, asy
 function linkClient(options: { preference?: BrowserLinkTarget; failOpen?: boolean; modifiers?: string } = {}) {
   const client = new T3Client(), rpcs: Array<{ method: string; payload: Obj }> = [], ops: Obj[] = [];
   client.environmentId = 'local'; client.threadId = 'thread-1'; client.projectId = 'p';
-  Object.assign(client, { loaded: true }); // the saved settings were read: part 4's open defaults refuse unread ones
+  Object.assign(client, { loaded: true }); // the saved settings were read: the open defaults refuse unread ones
   client.local.clientSettings = { ...client.local.clientSettings, browserLinkTarget: options.preference ?? 'app' } as typeof client.local.clientSettings;
   client.request = async (_native, method, payload) => {
     rpcs.push({ method, payload });
@@ -174,7 +174,7 @@ describe('openLink (useOpenLink)', () => {
     expect(surfaceStore(client).panels.get('local:thread-1')).toMatchObject({ active: browserSurfaceId('tab-1'), visible: true });
     expect(external(ops)).toEqual([]);
   });
-  it('opens under the configured profile and viewport, and opens neither browser while the settings are unread (part 4)', async () => {
+  it('opens under the configured profile and viewport, and opens neither browser while the settings are unread', async () => {
     const { client, rpcs, ops, native } = linkClient();
     Object.assign(client.local, { browserProfiles: [{ id: 'work', name: 'Work', kind: 'persistent' }], browserDefaultProfileId: 'work', browserDefaultViewport: { _tag: 'preset', presetId: 'ipad-mini', width: 768, height: 1024 } });
     expect(await openLink(client, native, 'https://example.com/docs')).toBe('app');
@@ -202,7 +202,7 @@ describe('openLink (useOpenLink)', () => {
 
 describe('links from the UI (chatlocal:link-open)', () => {
   it('a chat link reads the click’s ⌘ or Ctrl from its own press; a check’s button has none', async () => {
-    // contract-keys-and-menu-bar: app-window.contract linkOpen sends `link|meta+shift`, the press's MouseEvent; the
+    // app-window.contract linkOpen sends `link|meta+shift`, the press's MouseEvent; the
     // module's gesture recorder is never asked.
     for (const held of ['meta', 'control', 'meta+shift', 'control+alt']) {
       const link = linkClient({ modifiers: '' });
@@ -227,7 +227,7 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await openLinkFromUi(page.client, page.native, 'button-page', 'https://ci.example.com/run/2');
     expect(external(page.ops)).toEqual(['https://ci.example.com/run/2']);
   });
-  it('a work-log web search result ("external") opens the system browser even when the setting says T3 Code, ⌘ or not (timeline-work-rows TH-5)', async () => {
+  it('a work-log web search result ("external") opens the system browser even when the setting says T3 Code, ⌘ or not', async () => {
     // V2ItemInspector's result is a target=_blank link; the desktop's setWindowOpenHandler hands it to the shell.
     for (const modifiers of ['', 'meta']) {
       const { client, rpcs, ops, native } = linkClient({ preference: 'app', modifiers });
@@ -241,11 +241,11 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await openLinkFromUi(client, refused, 'external', 'https://example.test/tables');
     expect(toasts(client).at(-1)).toMatchObject({ title: 'Unable to open link' });
   });
-  it('a mailto, irc or xmpp link in a reply opens nothing, the setting and ⌘ aside (reply-links RL-1)', async () => {
+  it('a mailto, irc or xmpp link in a reply opens nothing, the setting and ⌘ aside', async () => {
     // The reference (measured 2026-10-11, its main process's shell.openExternal and openExternal permission hooked): the
     // anchor's click is not prevented, its `_blank` reaches setWindowOpenHandler, which opens only safe external URLs
     // (parseSafeExternalUrl: http(s) and remote editor links), and nothing opens. A table cell's link is the same anchor
-    // (reply-links-reference-behavior RL-5, measured 2026-10-12 on `[the list](mailto:list@example.test)` in a cell).
+    // (measured 2026-10-12 on `[the list](mailto:list@example.test)` in a cell).
     for (const [preference, modifiers] of [['app', ''], ['system', ''], ['app', 'meta']] as const) {
       const { client, rpcs, ops, native } = linkClient({ preference, modifiers });
       for (const url of ['mailto:team@example.test', 'irc://irc.example.test/t3', 'ircs://irc.example.test/t3', 'xmpp:team@example.test']) {
@@ -261,8 +261,8 @@ describe('links from the UI (chatlocal:link-open)', () => {
     await chatLocal(client, native, 'link-open', 'link', 'https://example.com/c');
     expect(external(ops)).toEqual(['https://example.com/c']);
   });
-  it('a fragment link leaves the thread for the most recently active project\'s draft; a modified click does nothing (reply-links-reference-behavior RL-4)', async () => {
-    // The reference (measured 2026-10-12 on the lane's fixture reply, CDP and its main process): a click on
+  it('a fragment link leaves the thread for the most recently active project\'s draft; a modified click does nothing', async () => {
+    // The reference (measured 2026-10-12 on a fixture reply, CDP and its main process): a click on
     // `[the notes](#notes)` finds no element with that id (handleMarkdownFragmentClick), so it goes on and sets the hash,
     // `t3code://app/#notes`; the hash router reads it as the index route, whose IndexDraftLanding replaces it with the draft
     // of the most recently active project (`#/draft/<id>`, "work") and the composer takes the focus. A cell's
@@ -275,7 +275,7 @@ describe('links from the UI (chatlocal:link-open)', () => {
         client.shell = { projects, threads, sequence: 1 };
         expect(await openLinkFromUi(client, native, 'link|', url)).toBe('sidebar:new-thread');
         expect([client.threadId, client.projectId]).toEqual(['', 'work']);
-        expect(ops.map(op => op.op)).toEqual([]); // the click's own modifiers ride with it (contract-keys-and-menu-bar)
+        expect(ops.map(op => op.op)).toEqual([]); // the click's own modifiers ride with it
         expect(rpcs.some(call => call.method === 'preview.open')).toBe(false);
         expect(toasts(client)).toEqual([]);
       }
@@ -363,7 +363,7 @@ describe('the "Open links in" setting', () => {
   });
 });
 
-// contract-keys-and-menu-bar KW-11a: a link's click modifiers are its press's MouseEvent's, sent with it, not the module's
+// A link's click modifiers are its press's MouseEvent's, sent with it, not the module's
 // recorded gesture (T3ComposerIntent no longer reports pointers).
 describe('a link press carries its own modifiers', () => {
   const fns = contractFns('press-modifiers.contract');

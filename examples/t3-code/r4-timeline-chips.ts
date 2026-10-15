@@ -11,7 +11,7 @@ import type { T3Client } from './client';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
 import { fontStack } from './settings-appearance';
 import { collectAssistantCitations, parseAssistantCitationHref } from './diff-citations';
-import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from './media-views'; // media-actions: a message's images and their actions
+import { markdownLinkHref, markdownMediaChips, noteMarkdownDocument, type MediaScope } from './media-views'; // a message's images and their actions
 
 export interface ChipView {
   id: string; href: string; kind: string; label: string; size: string; tip: string;
@@ -68,13 +68,13 @@ export function messageChips(item: Obj, root: string, threads: Obj[], owner = ''
   if (text.includes('](t3-citation:')) for (const match of collectAssistantCitations(text)) add(citationChip(match.source.slice('[Assistant quote]('.length, -1)));
   if (text.includes('](')) for (const match of text.matchAll(FILE_LINK)) {
     const href = (match[3] ?? match[4] ?? '').trim();
-    // markdown-links-and-files-preview TH-9: exactly the destinations markdown.rs draws as file chips.
+    // Exactly the destinations markdown.rs draws as file chips.
     if (match[1] || !markdownLinkHref(href).startsWith('t3-file:')) continue;
     add({ href: `t3-file:${href}`, kind: 'link', label: match[2]!, size: '', tip: fileLinkTarget(href, root), detail: '', icon: fileIconToken(href), target: '' });
   }
-  // media-actions: an image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
+  // An image's chip (kind "media") is matched by href and kind, so a link to the same file keeps its own.
   for (const chip of markdownMediaChips(text, root, media)) chips.push({ id: `chip-${chips.length}`, ...chip, owner });
-  noteMarkdownDocument(owner, text, root, media); // G4-05: the image's press opens the preview over this document's images
+  noteMarkdownDocument(owner, text, root, media); // the image's press opens the preview over this document's images
   return chips;
 }
 

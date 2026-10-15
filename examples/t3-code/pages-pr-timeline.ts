@@ -1,4 +1,4 @@
-// The pull request Timeline tab's model (lane "pages"; MIT reference, see LICENSE-T3, T3 Code
+// The pull request Timeline tab's model (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975 apps/web/src/components/pullRequest/PullRequestTimelineTab.tsx and
 // PullRequestDetailPanel.tsx's tab bar): buildPullRequestTimeline's events in the reader's order,
 // folded by groupPullRequestTimelineConversations (consecutive plain remarks are one "N comments"
@@ -13,7 +13,7 @@ import {
   pullRequestReviewOutcome, pullRequestReviewOutcomeLabel, pullRequestReviewOutcomeStaleLabel, type PullRequestTimelineEvent,
 } from './pages-pr-logic';
 
-/** A remark's writes on the timeline (pr-writing-and-metadata): the pencil where this reader may rewrite it, and its reactions. */
+/** A remark's writes on the timeline: the pencil where this reader may rewrite it, and its reactions. */
 type Writes = { canEdit: boolean; raw: string; kind: string; saving: boolean; savedSerial: number; reactions: PrReactionPill[]; reacted: string[]; canReact: boolean };
 export type PrTimelineCard = { key: string; id: string; author: string; title: string; stateLabel: string; age: string; path: string; url: string; bodyId: string; body: string; markdown: boolean } & Writes;
 export type PrTimelineRow = {
@@ -49,7 +49,7 @@ function rows(events: PullRequestTimelineEvent[], newestCommitAt: string | null,
     const event = row.event, base = { ...blank(event.id, event.kind), age: relativeLabel(event.at, now) };
     if (event.kind === 'commit') {
       const counted = event.additions !== null && event.deletions !== null && (event.additions > 0 || event.deletions > 0);
-      // pr-code-tab: the whole oid, which the row's press opens in the Code tab (CommitEvent onOpen(event.id)).
+      // The whole oid, which the row's press opens in the Code tab (CommitEvent onOpen(event.id)).
       return { ...base, ...who(event.commitAuthors[0] ?? null), id: event.id, sha: event.id.slice(0, 7), headline: event.body ?? 'Untitled commit',
         additions: counted ? `+${event.additions!.toLocaleString('en-US')}` : '', deletions: counted ? `-${event.deletions!.toLocaleString('en-US')}` : '' };
     }

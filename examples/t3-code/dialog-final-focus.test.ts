@@ -1,4 +1,4 @@
-// dialog-initial-focus-and-model-prices (review fix): the data a dialog's DialogFinalFocus reads to name the control that
+// The data a dialog's DialogFinalFocus reads to name the control that
 // opened it, where that is not in the Contract view already. The git card's dialogs remember whether the quick action or
 // the options menu opened them, and the Save plan dialog the plan row whose menu opened it. dialog-trap.test.ts checks
 // where each DialogFinalFocus stands and what it names.

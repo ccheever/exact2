@@ -1,4 +1,4 @@
-// Background environments (lane settings-b). The reference keeps every
+// Background environments. The reference keeps every
 // switched-on saved environment connected at once (ConnectionsSettings.tsx
 // SavedBackendListRow, environmentCatalog.setEnabled). The focused environment
 // stays T3Client's own connection; every other switched-on environment is a
@@ -18,13 +18,13 @@ import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
 import { letGo } from './let-go';
 import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
-import { usageFleetEvent, usageFleetReset, usageFleetSynced } from './usage-replies'; // usage-pooled-view
+import { usageFleetEvent, usageFleetReset, usageFleetSynced } from './usage-replies';
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
 import { automationFleetEvent } from './browser-automation';
-import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the primary's handoff stream
+import { codexHandoffEvent } from './codex-handoff-events'; // the primary's handoff stream
 import { providerSetupEvent } from './provider-setup';
-import { fleetSetupHost } from './codex-fleet-host'; // managed-codex-chatgpt: a background computer's Codex setup streams
-import { fleetPortsEvent, fleetPortsPass } from './legacy-sidebar-ports'; // legacy-sidebar-full LS-2: a background environment's discovered ports
+import { fleetSetupHost } from './codex-fleet-host'; // a background computer's Codex setup streams
+import { fleetPortsEvent, fleetPortsPass } from './legacy-sidebar-ports'; // a background environment's discovered ports
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -32,7 +32,7 @@ export interface FleetEntry {
   phase: FleetPhase; message: string; traceId: string;
   generation: number; synchronized: number; lastEvent: number; subscriptions: Record<string, string>;
   config: Obj; shell: Shell; scopes: string[]; error: string; requested: boolean; busy?: boolean;
-  /** The route this environment's transport connected over (lane environment-routes). */
+  /** The route this environment's transport connected over. */
   activeRouteId?: string;
   /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
   primary?: boolean;
@@ -69,7 +69,7 @@ export class EnvironmentFleet {
   entries = new Map<string, FleetEntry>();
   saved: Obj[] = [];
   revision = 0;
-  /** U6: the last sync dropped a saved duplicate of the primary that was the focus (client.ts hands the focus to the primary). */
+  /** The last sync dropped a saved duplicate of the primary that was the focus (client.ts hands the focus to the primary). */
   focusDropped = false;
   takeFocusDropped(): boolean { const dropped = this.focusDropped; this.focusDropped = false; return dropped; }
   private epoch = 0;
@@ -83,7 +83,7 @@ export class EnvironmentFleet {
   /** Saved environments this device keeps switched on, and the primary once its server is ready, other than the focused one. */
   wanted(focused: FocusedHost): Obj[] {
     const local = primary.connectable ? primaryEntry() : null;
-    // The focus may be any of its environment's routes, so it is matched by id (lane environment-routes).
+    // The focus may be any of its environment's routes, so it is matched by id.
     return [...(local ? [local] : []), ...this.saved].filter(entry => entry.enabled !== false && str(entry.environmentId)
       && !(focused.environmentId && str(entry.environmentId) === focused.environmentId)
       && !(!focused.environmentId && focused.origin && trimOrigin(str(entry.origin)) === trimOrigin(focused.origin))).slice(0, 8);
@@ -101,7 +101,7 @@ export class EnvironmentFleet {
     try {
       const listed = await bridgeReply(native, { op: 'environments' });
       if (epoch !== this.epoch || !listed.ok) return;
-      // Decision U6 (as the reference): a saved entry with the primary's id is removed and its credential forgotten.
+      // As the reference: a saved entry with the primary's id is removed and its credential forgotten.
       const all = arr(obj(listed.value).saved);
       this.saved = withoutPrimaryDuplicates(all);
       if (this.saved.length !== all.length) {
@@ -120,7 +120,7 @@ export class EnvironmentFleet {
       if (!entry) { entry = fresh(key, str(saved.origin), str(saved.environmentId)); entry.primary = saved.primary === true; this.entries.set(key, entry); this.revision++; }
       await this.syncOne(native, entry, epoch).catch(error => { if (letGo(error)) throw error; entry!.error = error instanceof Error ? error.message : 'The environment failed.'; });
     }
-    // Lane environment-routes: each connected environment's reported addresses become learned routes.
+    // Each connected environment's reported addresses become learned routes.
     await learnRoutes(native, this, focused).catch(() => {});
     // Outdated-host updates (settings-b-outdated.ts) finish in the background: toast each result once.
     await announceJobs(native, 'local' in focused ? focused as unknown as T3Client : null).catch(() => {});
@@ -180,7 +180,7 @@ export class EnvironmentFleet {
     const auth = await this.call(remote, entry, { op: 'http', path: '/api/auth/session' });
     entry.scopes = Array.isArray(auth.scopes) ? auth.scopes.filter((scope): scope is string => typeof scope === 'string') : [];
     entry.config = await this.call(remote, entry, { op: 'request', method: 'server.getConfig', payload: {} });
-    entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // usage-pooled-view: hub sources, as the focused client asks
+    entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
     entry.subscriptions.shell = str((await this.call(remote, entry, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: { afterSequence: entry.shell.sequence } })).id);
     if (generation === entry.generation) { this.retries.delete(entry); entry.synchronized = generation; entry.error = ''; this.revision++; }
@@ -196,7 +196,7 @@ export class EnvironmentFleet {
   }
 
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
-    // pr-list-place-and-thread-picker PLS-1: a stream the transport scheduled to resubscribe on this session (`_retryDue`:
+    // A stream the transport scheduled to resubscribe on this session (`_retryDue`:
     // the app became active again, T3Transport.applicationActive, or a failed stream's backoff came due).
     for (let pass = 0; pass < 8; pass++) {
       const batch = await this.call(remote, entry, { op: 'events', after: entry.lastEvent });
@@ -253,7 +253,7 @@ export class EnvironmentFleet {
    * session the shell resumes from its in-memory cursor and keeps its snapshot, so the environment stays synchronized and
    * every surface reading it (the Pull Requests page's server set, the sidebar's threads) keeps its rows. Before, the
    * marker reached applyShell as a snapshot without a sequence, which threw and dropped the environment until a fresh
-   * bootstrap: on every return to the app the Pull Requests list emptied and came back at its top (PLS-1). A resubscription that fails asks for that bootstrap instead.
+   * bootstrap: on every return to the app the Pull Requests list emptied and came back at its top. A resubscription that fails asks for that bootstrap instead.
    */
   private async resubscribe(remote: Native, entry: FleetEntry): Promise<void> {
     const retry = this.retries.get(entry);
@@ -354,7 +354,7 @@ export async function focusFleetThread(client: { local: { selections: Record<str
 }
 /**
  * Open a background environment's project on its new-thread draft (useNewThreadHandler with another environment's
- * project ref: a clone toast's Open project, scheduled-tasks-followups ST-2): that environment's selection is the
+ * project ref: a clone toast's Open project): that environment's selection is the
  * project's draft, then T3Client reconnects there. The project need not be in the entry's shell yet: a clone's project
  * is the server's from projectClone.start on, and the reconnected shell reads it.
  */

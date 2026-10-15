@@ -1,4 +1,4 @@
-// Custom snooze's date (shell-sidebar-palette-keys TH-8): CustomSnoozeDialog.tsx's outline date button
+// Custom snooze's date: CustomSnoozeDialog.tsx's outline date button
 // and the Calendar popover it opens (components/ui/calendar.tsx over DayPicker; MIT reference, see
 // LICENSE-T3). DayPicker with its defaults: the en-US caption ("October 2026"), two-letter weekdays,
 // outside days shown, the weeks the month spans, past days disabled (`before` today's midnight), the

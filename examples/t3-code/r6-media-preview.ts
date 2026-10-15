@@ -1,4 +1,4 @@
-// Lane r6-media: the attachment preview's media bodies (MIT reference, see LICENSE-T3:
+// The attachment preview's media bodies (MIT reference, see LICENSE-T3:
 // components/files/AttachmentFilePreview.tsx, BrowserDocumentFrame.tsx, AudioPreview.tsx).
 // A PDF and a rendered HTML page draw in the app module's `t3-media` hook (R6MediaPreview.swift:
 // PDFKit; a WebKit view whose document is the attachment's bytes under a sandbox CSP with no

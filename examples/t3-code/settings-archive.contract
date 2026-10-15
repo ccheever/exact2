@@ -64,7 +64,7 @@ component ArchivedPanel
             for thread in group.threads key=thread.id
               ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close, menuFor=menuFor)
 
-// The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label; G4-14b).
+// The row's Unarchive button is named by its text, "Unarchive", as the reference's Button (no aria-label).
 component ArchivedRow
   props
     thread: ArchiveThreadView
@@ -83,7 +83,7 @@ component ArchivedRow
           text "Unarchive" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 
 // ArchivedThreadsPanel's row menu (api.contextMenu.show, ElectronMenu.ts showContextMenu: Unarchive, then Delete after a
-// separator with the trash glyph), as the panel's one context popover (contract-keys-and-menu-bar X292; it was
+// separator with the trash glyph), as the panel's one context popover (#292; it was
 // T3ContextMenu's NSMenu). The host presents it as a native menu at the pointer, or at the focused row's centre from the
 // ContextMenu key, and schedules it; the agent paints it. A choice runs settings-a-archive.ts `archive-pick`: Unarchive
 // toasts a failure, Delete asks first while Delete confirmation is on.

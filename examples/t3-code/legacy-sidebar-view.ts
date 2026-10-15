@@ -18,7 +18,7 @@ import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
-import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12
+import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr';
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
@@ -166,7 +166,7 @@ export function legacyProjectOrder(client: T3Client, threadId: string): string[]
 const blank = { label: '', color: '', dot: '', pulse: false };
 const pillFields = (status: StatusPill | null) => status ?? blank;
 /** LegacySidebar.tsx's glyph for a thread with no current link: useLinkedThreadPullRequest's pull request (its branch's,
- * read by its summary; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12), none until the summary arrives. */
+ * read by its summary; sidebar-branch-pr.ts), none until the summary arrives. */
 function fallbackPr(client: T3Client, thread: Obj): { prIcon: string; prState: string; prTooltip: string; prPending: boolean } {
   const pr = branchPullRequest(client, thread);
   if (!pr) return { prIcon: '', prState: '', prTooltip: '', prPending: false };

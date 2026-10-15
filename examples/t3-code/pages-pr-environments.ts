@@ -1,4 +1,4 @@
-// The servers a pull request can be read on (pr-links-previews-and-routing): the focused connection
+// The servers a pull request can be read on: the focused connection
 // (T3Client) and every connected background environment (settings-b-fleet.ts), each with its config,
 // its shell and a way to send it a request. This is the clone's side of T3 Code's EnvironmentRegistry
 // as the pull request code uses it (MIT, see LICENSE-T3: packages/client-runtime/src/connection/
@@ -56,7 +56,7 @@ export const readsPullRequests = (environment: PrEnvironment) => obj(obj(environ
 /**
  * One request on one server: the focused connection's own (its generation and write rules), or a background
  * transport's (`fleet: <key>` at its generation). `timeoutSeconds` is the transport's per-request deadline
- * (T3Transport `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here (X19: no timer
+ * (T3Transport `timeout`), how the reference's 2 s probes and 1 s invalidations are bounded here (issues/closed/20261009-typescript-failure-parity.md: no timer
  * in the data module).
  */
 export async function environmentRequest(client: T3Client, native: Native, environmentId: string, method: string, payload: Obj,

@@ -1,4 +1,4 @@
-// Lane r9-input: a sidebar row's hover key names its place and how many times it has moved.
+// A sidebar row's hover key names its place and how many times it has moved.
 // Natively one node is hovered at a time and a node that unmounts under a still pointer sends
 // no hover-out, so a press that moves its row (Settle, Pin, Snooze) left the window's hovered
 // key behind; when ⌘Z (thread.undo) moved the row back, that stale key matched again and the

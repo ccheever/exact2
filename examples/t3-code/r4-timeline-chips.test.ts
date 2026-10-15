@@ -1,4 +1,4 @@
-// Lane r4-timeline: sent-message chips resolved against HEAD's message shapes
+// Sent-message chips resolved against HEAD's message shapes
 // (OrchestrationMessageContext records, ChatAttachment), file-link paths, and
 // the Markdown settings the chat reads.
 import { describe, expect, test } from 'bun:test';
@@ -47,7 +47,7 @@ describe('sent-message context chips', () => {
     expect(chips.filter(chip => chip.kind !== 'media').map(chip => [chip.href, chip.tip])).toEqual([
       ['t3-file:src/a.ts#L3', '/repo/root/src/a.ts:3'], ['t3-file:./docs/../b.md:4', '/repo/root/b.md:4'], ['t3-file:/etc/hosts', '/etc/hosts']]);
   });
-  // markdown-links-and-files-preview TH-9: react-markdown's defaultUrlTransform empties `fixture.txt:3` (its "scheme"
+  // react-markdown's defaultUrlTransform empties `fixture.txt:3` (its "scheme"
   // is fixture.txt), so only the bare path is a chip; the same table as markdown_links.rs relative_name_line_links_lose_their_target.
   test('relative name:line destinations lose their target, so only the bare path is a file chip', () => {
     const chips = messageChips({ text: 'Review [parser](fixture.txt:3), [fixture.txt](fixture.txt), [fixture.txt:3](fixture.txt:3).' }, '/repo', []);

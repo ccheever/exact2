@@ -1,4 +1,4 @@
-// composer-fidelity G15: a route to a thread the environment does not hold shows
+// A route to a thread the environment does not hold shows
 // NoActiveThreadState (T3 Code 1e2ecbd975 ChatView.tsx / NoActiveThreadState.tsx, MIT; see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
 import { landingKind, pagesHome } from './pages-home';

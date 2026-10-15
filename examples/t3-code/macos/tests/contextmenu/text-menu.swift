@@ -133,12 +133,12 @@ final class TextContextMenuTests: XCTestCase {
         NSApp.sendEvent(rightClick(at: NSPoint(x: 60, y: 40)))
         XCTAssertEqual(menu.lastShown, ["Cut (disabled)", "Copy", "Paste (disabled)", "Select All"], "the items go to the log")
         XCTAssertEqual(popped, 0, "nothing tracks in the agent's never-key window")
-        XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu (the after drive's 120 s hang)")
+        XCTAssertEqual(paragraph.hostMenus, 0, "nor does ExactKit's menu")
         NSApp.sendEvent(rightClick(at: NSPoint(x: 280, y: 40)))
         XCTAssertEqual(other.ownMenus, 1)
     }
 
-    /// R11-SEL: Electron's drawn menu adds Services to the shell's editing template over selected page text.
+    /// Electron's drawn menu adds Services to the shell's editing template over selected page text.
     /// Inspect the actual menu during tracking: AppKit inserts Services without adding an item to `menu.items`.
     func testSelectedPageTextOffersServicesAndWritesOnlyTheSelection() throws {
         let requestor = ServicesRequestor(frame: NSRect(x: 20, y: 120, width: 200, height: 40))

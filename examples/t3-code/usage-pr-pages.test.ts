@@ -1,8 +1,8 @@
-// usage-and-pr-pages (2026-10-09 desktop audit PG-3..PG-7): the Usage page's unpriced popover on hover, the
+// The Usage page's unpriced popover on hover, the
 // toggles' titles, the environment menu's sizing and glass, the Pull Requests page's "Search authors" and its
 // Escape to go back. Reference: T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) UsagePage.tsx,
 // PullRequestListFilters.tsx PullRequestAuthorFilter, _chat.pull-requests.tsx and hooks/useNavigateBack.ts.
-// PG-2's rounding is in pages-usage.test.ts.
+// The Usage page's rounding is in pages-usage.test.ts.
 import { describe, expect, test } from 'bun:test';
 import { defaultPrPrefs, presentList, emptyList } from './pages-prs';
 import { contractFn } from './contract-fn-fixture';
@@ -17,8 +17,8 @@ const component = async (file: string, name: string) => {
   return lines.slice(start, end < 0 ? undefined : end).join('\n');
 };
 
-describe('the Usage page (PG-3, PG-4, PG-5)', () => {
-  test('the unpriced info opens its popover on hover and pins it on a press, as a pooled segment does (PG-3)', async () => {
+describe('the Usage page', () => {
+  test('the unpriced info opens its popover on hover and pins it on a press, as a pooled segment does', async () => {
     const info = await component('pages-usage.contract', 'UnpricedInfo');
     // PopoverTrigger openOnHover: the page's enterSeg (300 ms open delay on the window's hover clock) and pin; the
     // frame the page places the popup by and gives the focus back to on Escape is `usage-seg-unpriced`.
@@ -41,7 +41,7 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
     expect(popup).toContain('role="dialog" aria-label="Unpriced usage details"');
   });
 
-  test('every metric and period toggle and select option carries its shortcut title (PG-4)', async () => {
+  test('every metric and period toggle and select option carries its shortcut title', async () => {
     const page = await component('pages-usage.contract', 'UsagePage');
     const commands: [string, string][] = [['Cost', 'usage.cost'], ['Tokens', 'usage.tokens'], ['Limits', 'usage.limits'], ['Past 24h', 'usage.period.day'],
       ['7 days', 'usage.period.week'], ['30 days', 'usage.period.month'], ['90 days', 'usage.period.quarter']];
@@ -58,7 +58,7 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
     expect(fn).toBe('fn usageTitle(keys: UsageKey[], id: string, label: string): string = match first(keys.filter((k) => k.id == id)) { case some(k) => k.title, case none => label }');
   });
 
-  test('the environment menu grows to its rows on an opaque popup (PG-5)', async () => {
+  test('the environment menu grows to its rows on an opaque popup', async () => {
     const breadcrumb = await component('pages-usage.contract', 'UsageBreadcrumb');
     expect(breadcrumb).toContain('column min-width=`${page.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box"');
     expect(breadcrumb).not.toContain('column width=`${page.menuWidth');
@@ -73,10 +73,10 @@ describe('the Usage page (PG-3, PG-4, PG-5)', () => {
   });
 });
 
-describe('the Pull Requests page (PG-6, PG-7)', () => {
+describe('the Pull Requests page', () => {
   const author = (login: string, name = '', selected = false) => ({ key: login.toLowerCase(), login, name, avatar: '', initial: login[0]!, detail: '0 merges loaded', selected });
 
-  test('the Author submenu lists the chosen author, then up to ten that match "Search authors" (PG-6)', async () => {
+  test('the Author submenu lists the chosen author, then up to ten that match "Search authors"', async () => {
     const matches = await contractFn('pages-prs.contract', 'prAuthorMatches', ['person', 'needle']);
     const visible = await contractFn('pages-prs.contract', 'prVisibleAuthors', ['authors', 'query'], { prAuthorMatches: matches });
     const people = [author('alice', 'Alice Doe'), author('bob', 'Robert'), author('carol'), ...Array.from({ length: 12 }, (_, i) => author(`dev${i}`))];
@@ -90,7 +90,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(logins(visible(people, 'dev1'))).toEqual(['dev1', 'dev10', 'dev11']);
   });
 
-  test('"Search authors" is focused as a press opens the submenu, Anyone from the keyboard, and keeps its keys (PG-6)', async () => {
+  test('"Search authors" is focused as a press opens the submenu, Anyone from the keyboard, and keeps its keys', async () => {
     const menu = await component('pages-prs.contract', 'PrFiltersMenu');
     expect(menu).toContain('derive authors = prVisibleAuthors(page.authors, authorQuery)');
     // A press on Author focuses the search (the field's autoFocus); →, Enter or Space focus the first row, Anyone, as
@@ -108,7 +108,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(menu).toContain('authors.map((person) => KmItem(id=`pr-author-${person.key}`, label=person.login))');
     const sub = await component('pages-prs.contract', 'PrFilterSub');
     expect(sub).toContain('input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" class=FieldPlaceholder aria-label="Search authors"');
-    // Its keys stay in the field but ↓; Escape closes the submenu (audit-wave-followups-3 FW-3, menu-keys.test.ts).
+    // Its keys stay in the field but ↓; Escape closes the submenu (menu-keys.test.ts).
     expect(sub).toContain('action searchKey(k: string)\n    if k == "Escape"\n      preventDefault()\n      stopPropagation()\n      searchEscape()\n    else if k != "ArrowDown"\n      stopPropagation()');
     expect(sub).toContain('for person in authors key=person.key');
     expect(sub).toContain('if authors.length == 0\n          text "No authors found"');
@@ -116,7 +116,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(sub.indexOf('pr-author-search')).toBeLessThan(sub.indexOf('testId="pr-author-anyone"'));
   });
 
-  test('the list sends every author with a row in the state, with the name the search also matches (PG-6)', () => {
+  test('the list sends every author with a row in the state, with the name the search also matches', () => {
     const prefs = defaultPrPrefs();
     const entry = (number: number, login: string, name: string | null) => ({ projectId: 'p1', environmentId: 'e1', host: 'github.com', repository: 'acme/app', number,
       title: `PR ${number}`, url: '', state: 'open', isDraft: false, author: { login, name, avatarUrl: null }, labels: [], updatedAt: '2026-10-01T00:00:00Z', createdAt: '2026-10-01T00:00:00Z' });
@@ -127,7 +127,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(view.authors.find(person => person.login === 'user3')).toMatchObject({ name: 'Dana Smith', detail: '0 merges loaded' });
   });
 
-  test('an Escape nothing else holds blurs the focus and goes back to the page before, as history.back() (PG-7)', async () => {
+  test('an Escape nothing else holds blurs the focus and goes back to the page before, as history.back()', async () => {
     const back = await component('pages-prs.contract', 'PrPageBack');
     expect(back).toContain('button press=escape aria-keyshortcuts=(held ? "" : "Escape") aria-label="Back" tabindex=-1 testId="pull-requests-key-back"');
     expect(back).toContain('  action escape\n    blur()\n    back()');
@@ -145,7 +145,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(root).toContain('  action pageBack\n    utilityPage = match pageTrail.at(-1) { case some(page) => page, case none => "" }\n    pageTrail = pageTrail.slice(0, -1)');
   });
 
-  test('history: a trail of pages, as the reference\'s router history goes back through them (PG-7)', async () => {
+  test('history: a trail of pages, as the reference\'s router history goes back through them', async () => {
     // pageTrailNext (pages-hero.contract) as openPage applies it, and pageBack's step (app.contract), page by page.
     const next = await contractFn('pages-hero.contract', 'pageTrailNext', ['trail', 'current', 'name']);
     let page = '', trail: string[] = [];
@@ -157,9 +157,9 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     open('usage'); page = ''; open('pull-requests'); back(); expect(page).toBe('');
   });
 
-  test('the page\'s popovers and menus hold Escape as modals while they show (PG-7, X66)', async () => {
+  test('the page\'s popovers and menus hold Escape as modals while they show (issues/closed/20261009-popover-action-commands.md)', async () => {
     // Popovers (Base UI Popover stops the Escape it dismisses with) while they show; menus already are (KeyMenu modal).
-    // KW-6: each keeps its reference placement with flip candidates (adopt-main-fixes-r12.test.ts holds the table).
+    // Each keeps its reference placement with flip candidates (adopt-main-fixes-r12.test.ts holds the table).
     const flip = 'position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline"';
     expect(await source('pages-pr-quick.contract')).toContain(`row id=popId popover="auto" position-area="bottom span-right" ${flip} aria-modal=true position="absolute" margin-top="0.25rem" testId=\`\${popId}-layer\`\n        column width="20rem"`);
     expect(await source('pages-pr-compose.contract')).toContain(`row id=popId popover="auto" ${flip} aria-modal=true `);
@@ -171,7 +171,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(await component('pages-usage.contract', 'UsageSelect')).toContain(`column id=menuId popover="auto" position-area="bottom span-left" ${flip} aria-modal=true `);
   });
 
-  test('a pull request editor holds Escape from Back while its field has the focus, never as a modal (PG-7)', async () => {
+  test('a pull request editor holds Escape from Back while its field has the focus, never as a modal', async () => {
     // No editor silences the app's other shortcuts: none is aria-modal.
     for (const file of ['pages-pr-edit.contract', 'pages-pr-threads.contract']) expect(await source(file)).not.toContain('aria-modal');
     // PrPanel keeps the focused field's hold (from `local`, op "pr-escape-hold") for the pull request it was on.
@@ -208,7 +208,7 @@ describe('the Pull Requests page (PG-6, PG-7)', () => {
     expect(await source('pages-pr-code.contract')).toContain('add=add, agent=agent, local=local)');
   });
 
-  test('a hold stands where the data says its editor is still open: the draft, a reply not yet sent (PG-7)', async () => {
+  test('a hold stands where the data says its editor is still open: the draft, a reply not yet sent', async () => {
     const live = await contractFn('pages-pr-detail.contract', 'prdEscapeLive', ['field', 'code']);
     const code = (draftOpen: boolean, threads: { id: string; repliedSerial: number }[] = []) => ({ draftOpen, threads });
     expect(live('pr-code-draft', code(true))).toBe(true);

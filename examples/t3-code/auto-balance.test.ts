@@ -1,4 +1,4 @@
-// Auto balance (task auto-balance). Ports of T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// Auto balance. Ports of T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
 // packages/client-runtime/src/state/projectGrouping.test.ts "load balancing shared project
 // machines" (every case, original names) and apps/web/src/components/ServerUpdateAction.test.tsx
 // "ServerUpdatesAction" (every case, original names; the clone's update is a T3Fleet job, so a

@@ -1,7 +1,7 @@
 // How the composer's footer controls fit their host: labels drop first, then
 // trailing blocks move into the "More composer controls" menu, then the model
-// picker shrinks, and below its minimum the cluster hides (task
-// composer-fidelity, G11). Adapted from T3 Code 1e2ecbd975 (MIT); see
+// picker shrinks, and below its minimum the cluster hides.
+// Adapted from T3 Code 1e2ecbd975 (MIT); see
 // LICENSE-T3. Source: apps/web/src/components/composerFooterLayout.ts
 // (RestingComposerControlsMeasurement, resolveRestingComposerControlsNaturalWidth,
 // resolveRestingComposerControlsLayout, RESTING_CONTROLS_SLACK_PX).

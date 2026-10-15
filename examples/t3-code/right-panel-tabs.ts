@@ -1,5 +1,5 @@
 // MIT T3 Code 1e2ecbd975: rightPanelStore / RightPanelTabs / ChatView.
-// Browser tabs close through the 'browser' close hook (browser-surface.ts); their Mute / Unmute row is part 5's (tabMuteMenuItem).
+// Browser tabs close through the 'browser' close hook (browser-surface.ts); their Mute / Unmute row is tabMuteMenuItem.
 import type { T3Client } from './client';
 import type { PanelState, Surface, SurfaceKind } from './r4-surfaces-panel';
 import type { DeviceTarget } from './r6-media-device';

@@ -1,4 +1,4 @@
-// Lane r8-pointer: real-input pointer/state defects D9, D14, D15, D16 and the
+// Pointer/state defects found with real input, and the
 // ⌘] minor, at the logic level (the AppKit halves are macos/tests/sidebar and
 // macos/tests/r8-pointer).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
@@ -34,7 +34,7 @@ class Fake implements Native {
   }
 }
 
-describe('D16: completion time is a real epoch', () => {
+describe('Completion time is a real epoch', () => {
   test('a window time counted from launch (exactTime unresolved) falls back to the runtime clock', () => {
     const before = Date.now();
     expect(epochNow(118_000)).toBeGreaterThanOrEqual(before);
@@ -51,7 +51,7 @@ describe('D16: completion time is a real epoch', () => {
   });
 });
 
-describe('D14: a relaunch reconnects to the saved environment', () => {
+describe('A relaunch reconnects to the saved environment', () => {
   const loop = { origin: 'http://127.0.0.1:14922', environmentId: 'env-local', label: 'Fixture', enabled: true };
   const remote = { origin: 'https://box.example.com', environmentId: 'env-box', label: 'Box', enabled: true };
   test('the last origin wins, then the first saved; switched-off ones never (a loopback saved one is not this machine)', () => {
@@ -94,7 +94,7 @@ describe('D14: a relaunch reconnects to the saved environment', () => {
   });
 });
 
-describe('D9: an answer and its attached changed files share one hover', () => {
+describe('An answer and its attached changed files share one hover', () => {
   const at = '2026-10-03T13:13:00.000Z';
   const row = (id: string, kind: string, extra: Partial<Message> = {}): Message => ({ id, kind, title: kind, body: '', createdAt: at, runId: 'r1', sourceThreadId: 't1', completed: true, ...extra });
   test('the attached card takes the answer’s hover key; other rows keep their own', () => {

@@ -1,4 +1,4 @@
-// context-menu-gaps: the items of three right-click menus (T3 Code 1e2ecbd975, MIT; see
+// The items of three right-click menus (T3 Code 1e2ecbd975, MIT; see
 // LICENSE-T3): fileContextMenu.ts (a workspace file: Open, the server-worded reveal, "Open
 // with" the detected editors) with FileBrowserPanel.tsx's "Copy mention" / "Add to chat",
 // components/pullRequest/pullRequestLinkContextMenu.ts (a change request's number),
@@ -150,7 +150,7 @@ export function pullRequestLinkContextMenuItems(openLabel: string): MenuItem[] {
 /**
  * ChatMarkdown's file-link menu: "Preview media" for media in a thread, the open item whenever
  * shell actions are allowed (named for the preferred editor), the reveal item with the server's
- * wording, then the two copies. "Open in integrated browser" is the Browser surface's (X1).
+ * wording, then the two copies. "Open in integrated browser" is the Browser surface's (#100).
  */
 export function markdownFileMenuItems(input: { canPreviewMedia: boolean; canOpen: boolean; preferredEditor: string | null; revealLabel: string | undefined }): MenuItem[] {
   return [

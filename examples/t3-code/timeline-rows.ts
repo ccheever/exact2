@@ -78,7 +78,7 @@ export function timelineEntries(input: Pick<RowInput, 'rows' | 'attempts' | 'nod
   const entries: Entry[] = [];
   for (const row of input.rows) {
     const item = obj(row.item), type = str(item.type), id = rowKey(row);
-    if (turnItemIsWorkspacePreparation(item) || type === 'todo_list') continue; // lane r11-upstream: a retried preparation's cancelled failure hides too
+    if (turnItemIsWorkspacePreparation(item) || type === 'todo_list') continue; // a retried preparation's cancelled failure hides too
     if (type === 'user_message' && answered.has(str(item.messageId))) continue;
     const createdAt = str(item.startedAt ?? item.updatedAt), attempt = resolveAttempt(item);
     const base = { id, createdAt, row, ...(attempt ? { attempt } : {}) };
@@ -237,7 +237,7 @@ export function deriveRows(input: RowInput): Row[] {
           const singleLabel = single !== null && isToolLike(single) && groupAction(single) !== 'edit';
           const latestTool = findLast(visible, isToolLike);
           // WorkGroupToggleTimelineRow: a lone tool's T3 icon, else the tools' surface, else the summary glyph;
-          // the image is the primary tool source's icon, else the last entry's (timeline-work-rows TH-3).
+          // the image is the primary tool source's icon, else the last entry's.
           const presented = groupToolPresentation(visible.map(item => item.item));
           const summaryToolIcon = singleLabel ? toolPresentation(single, 'completed')?.icon : undefined;
           rows.push({ kind: 'group', id: `work-toggle:${entry.id}`, createdAt: entry.createdAt, runId: work.runId, groupId, count: visible.length, expanded,

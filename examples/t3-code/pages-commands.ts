@@ -1,4 +1,4 @@
-// Local commands of lane "pages" (pageslocal:*): page preferences, the
+// Local commands of the pages (pageslocal:*): page preferences, the
 // clipboard actions of the Usage, Pull Requests and Welcome pages, and the
 // pull request writes (pr-act-*), which report their own outcome as toasts.
 import type { T3Client } from './client';
@@ -23,18 +23,18 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
   // Set price closes the model dialog and opens Model prices with that model's row (UsagePage).
   if (op === 'usage-prices-open') setOpenModel(client, '');
   if (op.startsWith('usage-prices-')) return usagePricesLocal(client, op.slice(13), id, value);
-  // managed-codex-chatgpt: ChatGptUsageButton on the Usage page and in the model picker opens ChatGPT's usage settings.
+  // ChatGptUsageButton on the Usage page and in the model picker opens ChatGPT's usage settings.
   if (op === 'usage-chatgpt' || op === 'chatgpt-usage') {
     if (native?.available) await bridgeReply(native, { op: 'remoteEditorsOpen', url: CHATGPT_USAGE_URL });
     return '';
   }
-  if (op.startsWith('usage-pool-')) return usagePoolLocal(client, native, op.slice(11), id); // usage-pooled-view: environments, redeem, Cursor
+  if (op.startsWith('usage-pool-')) return usagePoolLocal(client, native, op.slice(11), id); // environments, redeem, Cursor
   if (op.startsWith('usage-')) return usageLocal(client, op.slice(6), value);
   if (op.startsWith('welcome-')) {
     if (!native?.available) throw new ClientError('Open on macOS to set up T3 Code.');
     return welcomeLocal(client, native, op.slice(8), id, value);
   }
-  // context-menu-gaps: a pull request row number's menu choice (the detail header's goes through chatLocal).
+  // A pull request row number's menu choice (the detail header's goes through chatLocal).
   if (op === 'pr-link-pick') {
     if (native?.available) await pullRequestLinkPick(client, native, value);
     return '';
@@ -43,7 +43,7 @@ export async function pagesLocal(client: T3Client, native: Native | null | undef
     if (!native?.available) throw new ClientError('Open on macOS to change pull requests.');
     return prCommand(client, native, op.slice(7), id, value, _storage);
   }
-  if (op.startsWith('pr-quick-')) return prQuickLocal(client, op.slice(9), value); // pr-handoffs-and-quick-actions: a row's popovers
+  if (op.startsWith('pr-quick-')) return prQuickLocal(client, op.slice(9), value); // a row's popovers
   if (op.startsWith('pr-')) return prLocal(client, op.slice(3), value);
   if (op === 'copy') {
     if (!native?.available) throw new ClientError('Open on macOS to copy.');

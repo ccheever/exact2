@@ -1,11 +1,11 @@
 // Settings → Providers: T3's ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
-import { setupOf } from './provider-setup'; // provider-sign-in-and-install: the Account and Runtime rows
+import { setupOf } from './provider-setup'; // the Account and Runtime rows
 import { providerAccount, providerWizardAuth } from './provider-auth';
 import { providerRuntime, configuredBinaryPath } from './provider-install';
 import { redactedValue } from './redacted-text';
-import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // managed-codex-chatgpt: CodexSetupSection
+import { codexSetupView, codexRuntimeFields, codexPicker, codexFlow, readCodexSetupMode } from './codex-setup'; // CodexSetupSection
 import { usesChatGptSharing } from './chatgpt-plan';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
@@ -15,7 +15,7 @@ import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_O
 import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
 import { letGo } from './let-go';
-// provider-settings-upkeep: the update popover, Update all, ACP management and the custom model
+// The update popover, Update all, ACP management and the custom model
 // editor are providers-upkeep.ts (app.ts adds them to this page with `withUpkeep`).
 import { deriveProviderModelsForDisplay, readCustomModelEntries, storedCustomModels } from './custom-model-editor';
 import { instanceIconUrl, resolveOfficialAcpRegistryIconUrl, resolveProviderInstanceAcpRegistryIconUrl } from './acp-icons';
@@ -97,7 +97,7 @@ function capabilityLabels(model: Obj): string {
 // One set per environment's host: the same instance id on two environments keeps its own drafts (the reference keys the panel on its environment).
 const envDraftStores = new WeakMap<object, Map<string, Obj[]>>();
 function envDraftsOf(host: ProviderHost): Map<string, Obj[]> { let drafts = envDraftStores.get(host); if (!drafts) envDraftStores.set(host, drafts = new Map()); return drafts; }
-// settings-escape-and-nav: each custom model add or remove this host makes is a new revision of the instance's
+// Each custom model add or remove this host makes is a new revision of the instance's
 // "Models" block, so the block's key never comes back after a write (add a model, then remove it). An open
 // "Add custom model" field is held by that key (SettingsWindow `modelAdding`): a successful add closes it, as
 // ProviderModelsSection's handleAdd calls setIsAdding(false); a refused one keeps it open with its error.

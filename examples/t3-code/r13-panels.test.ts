@@ -1,4 +1,4 @@
-// Lane r13-panels: the floating device player's baseline (r12-threads-device.ts) and the panel tab
+// The floating device player's baseline (r12-threads-device.ts) and the panel tab
 // strip (r12-threads-tabs.ts). Ported from T3 Code (MIT, see LICENSE-T3):
 // apps/web/src/previewMiniPlayerStore.test.ts and components/ChatView.logic.test.ts ("floating
 // browser preview"), with device sources where the reference uses browser tabs (this client floats

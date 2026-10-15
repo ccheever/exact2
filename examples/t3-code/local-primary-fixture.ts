@@ -7,7 +7,7 @@ import { primary } from './local-primary';
 export function primaryAt(origin: string, environmentId: string, label = 'This Mac', enabled = true): void {
   primary.update(parseLocalBackendStatus({ state: 'ready', enabled, httpBaseUrl: origin, wsBaseUrl: origin.replace(/^http/, 'ws'), bearerReady: true, environmentId, label }), enabled);
 }
-/** A development build without its lane variables: no primary (the hosted rules apply). */
+/** A development build without T3_LOCAL_HOME and T3_LOCAL_PORT: no primary (the hosted rules apply). */
 export function noPrimary(): void {
   primary.update(parseLocalBackendStatus({ state: 'refused', refused: 'Development build: set T3_LOCAL_HOME and T3_LOCAL_PORT to start the local server.' }), true);
 }

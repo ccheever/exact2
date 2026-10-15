@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { DUO_POSES, duoSelected, r9Folding, r9FoldingValue } from './r9-device-duo';
 
-// Lane r9-device: DeviceDuoControls and DeviceAndroidFoldControls from the module's synthetic
+// DeviceDuoControls and DeviceAndroidFoldControls from the module's synthetic
 // reports (the shapes R9DeviceDuo.swift / R9DeviceFold.swift publish).
 describe('iPhone Duo stands', () => {
   const duo = (extra: object = {}) => ({ status: 'streaming', inputConnected: true, duo: { supported: true, screenId: 3, hingeAngle: 180, hingePose: 'open', pending: false, requested: null, error: '', ...extra } });

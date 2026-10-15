@@ -1,4 +1,4 @@
-// Lane r13-store (F3): every wall-clock value this client persists is an instant (Unix ms, ISO), under the three
+// Every wall-clock value this client persists is an instant (Unix ms, ISO), under the three
 // runtime-clock shapes a data source can see, or nothing at all.
 //   refused  — the data runtime: js/src/prelude.js replaces Date.now() with a function that throws (shell-details.ts,
 //              composer-controls-queue.test.ts model it the same way);

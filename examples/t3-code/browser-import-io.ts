@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): what the cookie import reads the other browser with. The reference's readers run on
+// What the cookie import reads the other browser with. The reference's readers run on
 // Effect's FileSystem, Path, SqlClient (node:sqlite), node:crypto, the keyring binding and child processes
 // (apps/desktop/src/preview/BrowserImport/*). The clone's port (browser-import-*.ts) is the same logic over this one
 // interface: in the app the clone's module answers it (T3BrowserImportIO.swift: FileManager, SQLite, CommonCrypto,

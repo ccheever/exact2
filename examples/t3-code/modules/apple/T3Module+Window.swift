@@ -7,7 +7,7 @@ import AppKit
 extension T3Module {
     /// Window-level popup frames (R8KeysMeasure.swift), device presentation, the folder picker and the clipboard.
     func windowOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
-        if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return } // lane r8-keys
+        if request["op"] as? String == "r8MeasureFrame" { DispatchQueue.main.async { [weak self] in reply.send(self?.measure.perform(request) ?? ["ok": false, "generation": 0]) }; return }
         if request["op"] as? String == "installedFonts" {
             DispatchQueue.main.async {
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0,
@@ -33,7 +33,7 @@ extension T3Module {
             }
             return
         }
-        if request["op"] as? String == "shellMenu" { // reply-links: a link's `contextmenu` left its click (or ContextMenu key) to the shell (T3TextContextMenu)
+        if request["op"] as? String == "shellMenu" { // A link's `contextmenu` left its click (or ContextMenu key) to the shell (T3TextContextMenu)
             DispatchQueue.main.async { [weak self] in
                 let shown = self?.textMenu.shellMenuForLastClick(href: request["href"] as? String ?? "") ?? false
                 reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["shown": shown]])

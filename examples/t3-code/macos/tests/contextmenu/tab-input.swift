@@ -61,7 +61,7 @@ final class TabInputTests: XCTestCase {
     }
     func testMiddleClickClosesTheTabUnderThePointerAmongSeveral() {
         // A second tab beside the first: a middle click closes the one it is on, not the first
-        // the monitor lists (adopt-main-fixes-r3, found by the agent's `auxclick`, exact2 #186).
+        // the monitor lists (found by the agent's `auxclick`, exact2 #186).
         let row = NSView(frame: NSRect(x: 150, y: 0, width: 100, height: 24))
         window.contentView!.addSubview(row)
         install("r12-tab:files", node: 5, view: row)

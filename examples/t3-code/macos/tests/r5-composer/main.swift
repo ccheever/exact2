@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// r5-composer: the ref lists' next-page signal (R5ComposerScroll.swift) and the
+// The ref lists' next-page signal (R5ComposerScroll.swift) and the
 // citation jump to an assistant row (T3TimelineTurns.swift `cite:` rows).
 private let resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
 private let act: ExactHatches.ActFn = { _, _, _ in 0 }
@@ -94,7 +94,7 @@ final class R5ComposerTests: XCTestCase {
         XCTAssertEqual(ends.ends.count, 1, "plain anchors are not lists")
     }
 
-    /// The citation's own jump (KW-12a/b moved the minimap's to Contract): the cited answer lands at its
+    /// The citation's own jump (the minimap's moved to Contract): the cited answer lands at its
     /// lead whatever other rows the registry holds.
     func testCitationJumpPlacesTheAssistantRowAtItsLead() {
         let fixture = Fixture()

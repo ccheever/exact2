@@ -1,7 +1,8 @@
 // Scheduled task logic (MIT reference, see LICENSE-T3; T3 Code 1e2ecbd975:
 // apps/web/src/components/settings/scheduledTasksSettings.logic.ts, and scheduleLabel /
 // relativeLabel / statusVariant from ScheduledTasksSettings.tsx). Changes from the
-// reference: `now` is an argument (data sources have no clock, X19); the draft's weekdays
+// reference: `now` is an argument (data sources have no clock,
+// issues/closed/20261009-typescript-failure-parity.md); the draft's weekdays
 // are seven booleans, the editor's Contract fields; provider entries are the server's
 // provider snapshots (`deriveProviderInstanceEntries` read inline); a scope is the plain
 // record below instead of ResolvedSettingsScope.

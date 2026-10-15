@@ -1,4 +1,4 @@
-// Lane settings-a: Source Control → Bitbucket credentials.
+// Source Control → Bitbucket credentials.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';

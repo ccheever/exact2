@@ -64,7 +64,7 @@ test('the list controls persist in the preference record and narrow the request'
     filters: { review: 'approved', draft: 'hide', author: 'eiiot', labels: [['ui'], ['bug']] } });
   const view = emptyList(prefs, '');
   expect([view.filterCount, view.filterBadge, view.authorLabel, view.labelsLabel, view.stateIcon, view.draftIcon]).toEqual([4, '4', 'eiiot', '1 selected', 'git-merge', 'eye-off']);
-  // KW-6: the Filters menu is placed by `position-area="bottom span-left"`; no estimated trigger width feeds a tail.
+  // The Filters menu is placed by `position-area="bottom span-left"`; no estimated trigger width feeds a tail.
   expect('filtersWidth' in view).toBe(false);
   prLocal(owner, 'author', 'EIIOT');
   expect(prPrefs(owner).author).toBe('');
@@ -106,14 +106,14 @@ test('one Refresh press invalidates once, though the announcement it causes asks
   expect(calls.filter(c => c === 'pullRequests.invalidate').length).toBe(1);
 });
 
-// pr-list-title-clip: a `button` centres its text (the UA sheet's `text-align: center`, LLP 1001), and the
-// macOS host lays an overflowing centred line out centred, cutting its start (X57; CSS and Chrome start-align
+// A `button` centres its text (the UA sheet's `text-align: center`, LLP 1001), and the
+// macOS host lays an overflowing centred line out centred, cutting its start (issues/closed/20261009-apple-overflow-line-alignment.md; CSS and Chrome start-align
 // it). The reference's pull request buttons say `text-left` (PULL_REQUEST_ROW_CLASS, the timeline's
 // CollapsibleTrigger, PullRequestCopyableCode), so on every pull request surface a single-line text that can
 // overflow (an ellipsis, `line-clamp=1`, or `nowrap` with `overflow="hidden"`) inside a button must resolve
 // `text-align` to left: the nearest `text-align` on the way up to the button decides. Read from the Contract
 // sources as dialog-focus.test.ts reads its stops; driving the app on macOS shows the
-// titles themselves. Since main 24083b9b9 (X57) an overflowing line is start-aligned on the Apple hosts, so a text sized by
+// titles themselves. Since main 24083b9b9 an overflowing line is start-aligned on the Apple hosts, so a text sized by
 // its own words (no `flex=1`, `flex-grow` or `width`) has no spare width to centre in and needs no override: the
 // base freshness mark and the filter submenu's value lost theirs.
 test('every single-line text that can overflow inside a pull request button is start-aligned, as PULL_REQUEST_ROW_CLASS says text-left', async () => {
@@ -134,7 +134,7 @@ test('every single-line text that can overflow inside a pull request button is s
     const indent = (line: string) => line.length - line.trimStart().length;
     lines.forEach((line, index) => {
       if (!/^\s*text\b/.test(line) || !overflows(line)) return;
-      // Only the two KW-2 lines, each sized by its words in a row, are exempt; any other overflowing text still resolves left.
+      // Only the two `exempt` lines, each sized by its words in a row, pass; any other overflowing text still resolves left.
       if (exempt.has(`${file}:${index + 1}`)) { sized.push(`${file}:${index + 1}`); return; }
       // The ancestors, innermost first, up to the component's `view`: the first `text-align` met (the text's
       // own, an ancestor's, or the button's own) wins; a button with none centres.
@@ -157,7 +157,7 @@ test('every single-line text that can overflow inside a pull request button is s
   expect(checked).toBeGreaterThanOrEqual(13);
   expect(sized).toHaveLength(2);
   expect(offenders).toEqual([]);
-  // The two KW-2 sites are among the text-sized lines and carry no alignment of their own.
+  // The two exempt sites are among the text-sized lines and carry no alignment of their own.
   expect(sized.sort()).toEqual([...exempt].sort());
   for (const line of [prs[value]!, actions[base]!]) {
     expect(line).not.toContain('text-align=');
@@ -166,7 +166,7 @@ test('every single-line text that can overflow inside a pull request button is s
   }
   expect(prs[value]).toContain('max-width="8rem"');
   // Its label is the reference's `flex-1` span, which keeps its words' width (min-width auto), so a long value such as
-  // "Changes requested" is the one cut, never drawn over the label (css-workaround-retirements drive, repair 1).
+  // "Changes requested" is the one cut, never drawn over the label.
   const label = prs[value - 2]!;
   expect(label).toMatch(/^\s*text label [^\n]*flex=1 /);
   expect(label).not.toContain('min-width=0');

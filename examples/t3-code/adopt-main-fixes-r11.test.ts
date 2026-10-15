@@ -5,17 +5,17 @@ import { readdirSync } from 'node:fs';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
-describe('RT-1: what #327 retires', () => {
-  test('X51: the colour popover takes no press or retainFocus of its own (a press inside a popover stops at its top layer)', async () => {
+describe('what #327 retires', () => {
+  test('the colour popover takes no press or retainFocus of its own (a press inside a popover stops at its top layer)', async () => {
     const picker = await source('theme-color-picker.contract');
     const popover = picker.split('\n').find(line => line.includes('testId=`theme-color-${row.id}-popover`'))!;
-    // Painted (LLP 1115.002 D7.3's authored fallback row); KW-6: align="end" with Base UI's flips, no app-computed side.
+    // Painted (LLP 1115.002 D7.3's authored fallback row); align="end" with Base UI's flips, no app-computed side.
     expect(popover).toContain('column id=`theme-color-${row.id}` popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=popKey tabindex=-1 position="absolute" position-area="bottom span-left" margin-top="0.625rem" ');
     expect(popover).not.toMatch(/\bpress=|\bretainFocus=/);
     expect(picker).not.toContain('popPress');
   });
 
-  test('X50: the module keeps its files where its context says (named roots under --storage), no TMPDIR re-rooting', async () => {
+  test('the module keeps its files where its context says (named roots under --storage), no TMPDIR re-rooting', async () => {
     const dir = new URL('./modules/apple/', import.meta.url);
     const swift = await Promise.all(readdirSync(dir).filter(name => name.endsWith('.swift')).map(name => Bun.file(new URL(name, dir)).text()));
     expect(swift.filter(text => text.includes('T3Storage'))).toEqual([]);
@@ -23,7 +23,7 @@ describe('RT-1: what #327 retires', () => {
     expect(module).toContain('transport = T3Transport(persistent: !context.agent, dataDirectory: context.data,');
   });
 
-  test('X63: Edit › Redo is the host\'s item and Edit › Undo sends undo: up the focused text\'s chain (macos/tests/r8-keys)', async () => {
+  test('Edit › Redo is the host\'s item and Edit › Undo sends undo: up the focused text\'s chain (macos/tests/r8-keys)', async () => {
     const menus = await source('modules/apple/R8KeysMenus.swift');
     expect(menus).not.toContain('textHistory');
     expect(menus).not.toContain('@objc func redo(');
@@ -34,7 +34,7 @@ describe('RT-1: what #327 retires', () => {
   });
 });
 
-describe('RT-3: the shell\'s menu takes a Control-click and VoiceOver\'s show menu (macos/tests/contextmenu)', () => {
+describe('the shell\'s menu takes a Control-click and VoiceOver\'s show menu (macos/tests/contextmenu)', () => {
   test('a secondary click is a right-click or a Control-click, in the monitor, the replacement and the tail', async () => {
     const menu = await source('modules/apple/T3TextContextMenu.swift');
     expect(menu).toContain('event.type == .rightMouseDown || (event.type == .leftMouseDown && event.modifierFlags.contains(.control))');
@@ -50,7 +50,7 @@ describe('RT-3: the shell\'s menu takes a Control-click and VoiceOver\'s show me
   });
 });
 
-describe('X86 (#496): the citation comment\'s textarea sits straight in its popover, as the reference\'s', () => {
+describe('the citation comment\'s textarea sits straight in its popover, as the reference\'s (#496)', () => {
   test('no box holds it at 4rem to 10rem; the textarea keeps its own min and max height', async () => {
     const lines = (await source('citation-comment.contract')).split('\n');
     const at = lines.findIndex(line => line.trimStart().startsWith('textarea id="citation-comment-text"'));

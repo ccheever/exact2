@@ -2,7 +2,7 @@ import { test, expect, describe } from 'bun:test';
 import { highlight, type Token } from './timeline-highlight';
 import { ifStatementBegins, inImportLine } from './r11-misc-ts-decl';
 
-// Lane r11-misc: the shared JavaScript / TypeScript tokenizer against Shiki 4.2 (pierre-light) runs
+// The shared JavaScript / TypeScript tokenizer against Shiki 4.2 (pierre-light) runs
 // recorded from the HEAD source's own Shiki (f870c419fc node_modules), as `character+colour` for
 // every non-space character, mapped from the app's classes by synColor (markdown.contract).
 const COLOR: Record<string, string> = { kw: '#d32a61', decl: '#a631be', type: '#a631be', fn: '#693acf', var: '#d47628', const: '#d5901c', param: '#636363',

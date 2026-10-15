@@ -92,7 +92,7 @@ describe('the Pull Requests list reads again as the reference page does (useLive
   });
 
   test('close #158, the list read without it, reopen, an answer that has not seen the reopen yet, then the window focused again: the row is back', async () => {
-    // The live check of 2026-10-08 (pr-writing-and-metadata): the server lists through GitHub search, so the read
+    // The live check of 2026-10-08: the server lists through GitHub search, so the read
     // right after the reopen can still lack the row; nothing read the list again. The focus read (through the
     // server's cache, its 30 s gone) brings it back, the reopen's note (notedListEntry, #261) agreeing with it.
     let state = 'open';
@@ -139,7 +139,7 @@ describe('the Pull Requests list reads again as the reference page does (useLive
   });
 
   test('another answer does not await a read the runner let go with its answer: it reads for itself, and its rows show (a search typed after the first)', async () => {
-    // pr-links-previews-and-routing retry, 2026-10-08: a data revision asked the list again while a search's read was
+    // 2026-10-08: a data revision asked the list again while a search's read was
     // out; the runner let the first answer go and rejected its read, and the new answer, which had joined that read,
     // failed and kept the old rows for good. Each answer gets its own `native` (app.ts letGoAware).
     const later = [...entries, { ...entries[0]!, number: 159, title: 'Explain the vowel rule' }];

@@ -1,9 +1,9 @@
-// Auto balance's multi-machine update banner (task auto-balance; T3 Code MIT, see
+// Auto balance's multi-machine update banner (T3 Code MIT, see
 // LICENSE-T3; reference 1e2ecbd975 chat/useAutoBalanceUpdateBanner.tsx and
 // ServerUpdateAction.tsx ServerUpdateProgress / ServerUpdateAction). The notice's title
 // is an InlineButton that opens the machine list above it (PopoverPopup side="top"
 // align="start" width="md": w-80, p-4, space-y-3, text-xs), placed by position-area
-// (X17: no collision flip). Escape and a press outside close it, and focus goes back
+// (no collision flip: issues/20261009-popover-css-flip-fallbacks.md). Escape and a press outside close it, and focus goes back
 // to the title (the popover's light dismiss). Data: auto-balance-banner.ts.
 use ComposerNotice from "./composer-shapes.contract"
 

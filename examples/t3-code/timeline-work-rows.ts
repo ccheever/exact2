@@ -4,13 +4,12 @@
 // threadWorkflows.ts (canForkProjectedAssistantItem), work-log/toolPresentation.ts
 // (extractToolActivityPresentation), MessagesTimeline.logic.ts (the work-toggle row's icons),
 // V2ItemInspector.tsx (search results and file changes) and AgentElapsed.tsx (formatElapsedSeconds).
-// Desktop audit 2026-10-09, task timeline-work-rows (TH-1, TH-2, TH-3, TH-5, TH-6).
 import { arr, num, obj, str, type Obj } from './domain';
 
 const isRecord = (value: unknown): value is Obj => value !== null && typeof value === 'object' && !Array.isArray(value);
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
 
-// ---- TH-2: notification sources (OrchestrationV2NotificationSource) ----
+// ---- Notification sources (OrchestrationV2NotificationSource) ----
 const KNOWN_SOURCE_KINDS = new Set(['delegated_task', 'background_task', 'background_command', 'subagent', 'command', 'monitor']);
 
 /**
@@ -50,7 +49,7 @@ export function notificationSource(value: unknown): Obj {
   return decodeNotificationSource(value) ?? { kind: 'background_task' };
 }
 
-// ---- TH-1: Fork from this response (AssistantForkButton) ----
+// ---- Fork from this response (AssistantForkButton) ----
 /** resolveV2ItemSupport's provider session: the item's provider thread, then that thread's session. */
 export function itemProviderSession(projection: Obj, item: Obj): Obj | null {
   const providerThreadId = item.providerThreadId;
@@ -79,7 +78,7 @@ export function assistantCanFork(projection: Obj, item: Obj): boolean {
   return canForkProjectedAssistantItem(item, session && isRecord(session.capabilities) ? session.capabilities : undefined);
 }
 
-// ---- TH-3: tool presentation (work-log/toolPresentation.ts extractToolActivityPresentation) ----
+// ---- Tool presentation (work-log/toolPresentation.ts extractToolActivityPresentation) ----
 function trimmedString(value: unknown, max: number): string | undefined {
   if (typeof value !== 'string') return undefined;
   const trimmed = value.trim();
@@ -142,7 +141,7 @@ export function groupToolPresentation(items: Obj[]): { toolIcon?: Obj; toolSurfa
   return { ...(icon ? { toolIcon: icon } : {}), ...(surface ? { toolSurface: surface } : {}) };
 }
 
-// ---- TH-5: V2ItemInspector's search results and file changes ----
+// ---- V2ItemInspector's search results and file changes ----
 export interface InspectorResult { id: string; kind: 'file' | 'web' | 'change'; label: string; href: string; preview: string }
 export interface InspectorExtras { results: InspectorResult[]; changePath: string; stats: boolean; additions: number; deletions: number; diffRunId: string; diffPath: string }
 export const NO_INSPECTOR_EXTRAS: InspectorExtras = { results: [], changePath: '', stats: false, additions: 0, deletions: 0, diffRunId: '', diffPath: '' };
@@ -186,7 +185,7 @@ export function inspectorExtras(item: Obj, relative: (path: string) => string): 
   }
 }
 
-// ---- TH-6: the subagent card's elapsed time (AgentElapsed) ----
+// ---- The subagent card's elapsed time (AgentElapsed) ----
 /** formatElapsedSeconds: "0s", "12s", "1m 05s", "1h 02m". */
 export function formatElapsedSeconds(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(Number.isFinite(totalSeconds) ? totalSeconds : 0));

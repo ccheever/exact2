@@ -16,7 +16,7 @@ import {
 } from './browser-import-sources';
 import { BrowserImportFailedError, importBrowserCookies, sourcePathContext, writeCookies, type CookieWriter } from './browser-import-service';
 import { bunImportIO, tempDirectory } from './browser-import-fixture';
-import { cookieCountLabel } from './browser-import'; // G5-A3: the Configure subtitle of a profile's count
+import { cookieCountLabel } from './browser-import'; // the Configure subtitle of a profile's count
 
 const io = bunImportIO();
 const scratch: { cleanup(): void }[] = [];
@@ -360,7 +360,7 @@ describe('Safari profiles', () => {
     db.close();
     const profiles = await listSourceProfiles(io, safari, context);
     expect(profiles).toEqual([{ directory: '.', name: 'Personal' }, { directory: store(workUuid), name: 'Ping' }]);
-    // G5-A3 (browser-panel-parity, the user's 2026-10-14 ruling): as the reference's listSafariProfiles, which returns
+    // As the reference's listSafariProfiles, which returns
     // before withCookieCounts, Safari's profiles carry no cookie count, so Configure draws no count subtitle for them.
     expect(profiles.map(profile => ['cookieCount' in profile, cookieCountLabel(profile.cookieCount)])).toEqual([[false, ''], [false, '']]);
     expect(await resolveCookieDatabase(io, safari, context, '.')).toBe(posixPath.join(root, 'Cookies.binarycookies'));

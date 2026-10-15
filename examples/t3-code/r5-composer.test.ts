@@ -1,4 +1,4 @@
-// r5-composer: measured composer labels and menus, ref paging.
+// Measured composer labels and menus, ref paging.
 import { describe, expect, test } from 'bun:test';
 import { footerLayout } from './composer-controls-view';
 import { measuredLabels } from './r5-composer-measure';
@@ -71,7 +71,7 @@ describe('ref pages (usePaginatedBranches, shouldLoadNextBranchPageAfterScroll)'
     let pages = firstPage(page(['r0'], 100), 3);
     pages = await morePages(pages, { scrollEnds: { 'scroll:details-refs': 3 } }, 'details-refs', fetch);
     expect(calls).toEqual([]);
-    // r6-polish: each signal is answered twice, first with "Loading more refs...", then with the page.
+    // Each signal is answered twice, first with "Loading more refs...", then with the page.
     const twice = async (ends: number) => {
       const presentation = { scrollEnds: { 'scroll:details-refs': ends } };
       const marked = await morePages(pages, presentation, 'details-refs', fetch);

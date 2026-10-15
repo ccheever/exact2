@@ -1,6 +1,6 @@
-// import-wizard-initial-focus: where the browser import wizard and the profile removal confirm put the focus, as the
+// Where the browser import wizard and the profile removal confirm put the focus, as the
 // reference's Base UI dialogs do (T3 Code 1e2ecbd975 BrowserImportWizard.tsx, IntegrationsSettings.tsx; recorded over CDP
-// on the reference with the lane's fixture browsers). As the wizard opens, the popup's first Tab stop takes the focus
+// on the reference with fixture browsers). As the wizard opens, the popup's first Tab stop takes the focus
 // (Configure: the first "From" tile; the quit step: Cancel; Full Disk Access: Allow; a blocked source: Close). After a step
 // change, Base UI moves the focus to the popup itself only when the element that held it was removed (restoreFocus
 // "popup"): a step's buttons go with their step, Allow with a grant, and the close X stays between two steps that can close.
@@ -226,7 +226,7 @@ describe('the contract wiring (browser-profiles.contract, app.contract)', () => 
   test('the popup takes the focus and tells the root; from it Tab reaches the first stop and Shift+Tab the guard before it', async () => {
     const profiles = await source('browser-profiles.contract');
     expect(profiles).toContain('      column id="browser-import-popup" tabindex=-1 focus=track("browser-import-popup", true) blur=track("browser-import-popup", false) class=BpPopup role="dialog" aria-modal=true');
-    // adopt-main-fixes-r11 RT-5: the popup's own `popupKeys` (X79's workaround) is gone; main #490 carries Tab on from it,
+    // The popup's own `popupKeys` (the workaround for issues/closed/20261010-macos-tab-from-a-focused-box.md) is gone; main #490 carries Tab on from it,
     // and the trap's guards lie before and after it (dialog-trap.test.ts), as Base UI's do.
     expect(profiles).not.toContain('popupKeys');
     expect(profiles).toContain('      FocusGuard(guardId="browser-import-guard-start", targets=dialogTargets, popup="browser-import-popup")\n      column id="browser-import-popup" ');

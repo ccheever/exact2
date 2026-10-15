@@ -1,4 +1,4 @@
-// Settings shell + General route data (lane settings-core).
+// Settings shell + General route data.
 // Reference: apps/web/src/components/settings/{SettingsPanels,ProjectDefaultsSettings,
 // settingsLayout,SettingsScopeSentence,settingsScope,scopedSettings}.tsx and
 // packages/shared/src/projectSettings.ts. Server rows read and write the connected
@@ -28,14 +28,14 @@ import { persistScopedSettingsPatch, planScopedSettingsClear, planScopedSettings
   selectScopedSettingsEnvironments, type ScopedSettingsEnvironment, type ScopedSettingsPlan, type ScopedSettingsTarget } from './scoped-settings-plan';
 import { postScopedNotice, scopeEnvironments, scopeMemberFiles, scopeProjectGroups, scopedWriter, type ScopeEnvironment } from './settings-scope-sources';
 import { fleet, type EnvironmentFleet } from './settings-b-fleet';
-import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from './browser-defaults'; // browser-surface part 4: Restore defaults' browser rows
+import { changedBrowserSettingLabels, restoreBrowserTabDefaults } from './browser-defaults'; // Restore defaults' browser rows
 
 export type CoreOption = { id: string; value: string; label: string; detail: string; icon: string; selected: boolean; disabled: boolean };
 export type CoreRow = {
   id: string; title: string; description: string; status: string; kind: string; checked: boolean; value: string; label: string;
   icon: string; width: number; options: CoreOption[]; value2: string; label2: string; options2: CoreOption[]; driver: string; badge: string; badgeColor: string;
   inheritance: string; inheritanceSummary: string; resettable: boolean; resetLabel: string; disabled: boolean; inert: boolean;
-  /** ScopedSwitch: the selected targets disagree (D15); the switch draws its thumb centred and a press turns it on everywhere. */
+  /** ScopedSwitch: the selected targets disagree; the switch draws its thumb centred and a press turns it on everywhere. */
   mixed: boolean;
   note: string; min: number; max: number; step: number; target: string; placeholder: string; suffix: string; info: string; divider: boolean;
   layers: CoreOption[]; layerTitle: string; amount: number; previewSize: number; menuWidth: number;
@@ -54,7 +54,7 @@ export function coreRow(id: string, title: string, description: string, kind: st
 }
 
 // ── Device (client) settings ───────────────────────────────────────────────
-// Reference ClientSettingsSchema defaults for the rows this lane renders. The
+// Reference ClientSettingsSchema defaults for the rows these pages render. The
 // five legacy device keys stay in deviceSettings, which other code reads.
 export const CLIENT_DEFAULTS = {
   notificationMode: 'off', inAppNotificationsEnabled: false, diffColorScheme: 'red-green', chatWidth: 'comfortable',
@@ -65,11 +65,11 @@ export const CLIENT_DEFAULTS = {
   followUpBehavior: 'queue', proactivePanelsEnabled: false, showSkillsInSlashMenu: true, legacySidebarEnabled: false, sidebarWorkingShelfEnabled: false,
   wordWrap: true, browserLinkTarget: 'system', theme: 't3-code', themeLight: 't3-code', themeDark: 't3-code', typographyAdvanced: false, confirmQuit: 'hold',
   sidebarProjectSortOrder: 'updated_at',
-  // legacy-sidebar: the legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
+  // The legacy sidebar's Sidebar options (contracts settings.ts: sort orders, preview count 1-15, default 6).
   sidebarThreadSortOrder: 'updated_at', sidebarThreadPreviewCount: 6,
-  // browser-surface part 3: the recording and floating-preview defaults it reads (contracts settings.ts names and defaults:
-  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Part 4 (profiles) draws
-  // their rows in Settings › Integrations › Browser and writes them.
+  // The browser's recording and floating-preview defaults (contracts settings.ts names and defaults:
+  // BROWSER_RECORDING_FRAME_RATES 30 | 60, default 30; key and mouse presses off; auto-show on). Settings › Integrations ›
+  // Browser draws their rows and writes them.
   browserRecordingFrameRate: 30, browserRecordingShowKeyPresses: false, browserRecordingShowMousePresses: false, browserAutoShowFloatingPreview: true,
 } as const;
 export type ClientPrefs = { -readonly [K in keyof typeof CLIENT_DEFAULTS]: (typeof CLIENT_DEFAULTS)[K] extends number ? number : (typeof CLIENT_DEFAULTS)[K] extends boolean ? boolean : string };
@@ -155,14 +155,14 @@ export function changedDeviceLabels(local: LocalPrefs): string[] {
 }
 /** What useSettingsRestore leaves alone (SettingsPanels.tsx restoreDefaults: its one updateSettings patch and useTheme's keys):
  *  Font smoothing, Sidebar (legacy), the legacy thread sort, Plan mode (legacy), and typography's Advanced switch, which the
- *  reference keeps in its own local storage key (TypographySection), outside the settings (restore-defaults-and-timeline-glyph RD-1). */
+ *  reference keeps in its own local storage key (TypographySection), outside the settings. */
 export const KEPT_ON_RESTORE = ['fontSmoothing', 'legacySidebarEnabled', 'sidebarThreadSortOrder', 'typographyAdvanced'] as const;
 export function restoreDeviceDefaults(local: LocalPrefs): void {
   const prefs = local.clientSettings || decodeClientPrefs({}), planModeEnabled = local.deviceSettings.planModeEnabled;
   Object.assign(local.deviceSettings, DEVICE_DEFAULTS, { planModeEnabled });
   local.clientSettings = { ...decodeClientPrefs({}), ...Object.fromEntries(KEPT_ON_RESTORE.map(key => [key, prefs[key]])) };
   local.groupingMode = 'repository';
-  restoreBrowserTabDefaults({ local }); // browser-surface part 4: the default viewport, zoom and appearance (browser-defaults.ts)
+  restoreBrowserTabDefaults({ local }); // the default viewport, zoom and appearance (browser-defaults.ts)
 }
 
 // ── Scope ─────────────────────────────────────────────────────────────────
@@ -273,7 +273,7 @@ const WRITING_STYLE_LABELS: Record<string, string> = { repo_conventions: 'Reposi
 /**
  * SettingInheritance formatValue: human labels for the chain's values, every page's popover (General's here,
  * Source Control's and Integrations' in source-control-view.ts). An object other than a model selection or a writing
- * style reads "Custom": Background activity's `{ profile }` has no label of its own there (settings-rows-and-labels S1-9).
+ * style reads "Custom": Background activity's `{ profile }` has no label of its own there.
  */
 export function formatSettingValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return key === 'pullRequestMergeMethod' ? 'Last selected' : key === 'sidebarAutoSettleAfterDays' ? 'Never'

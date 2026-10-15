@@ -1,4 +1,4 @@
-// Lane r7-polish: the Files breadcrumbs as the reference scrolls them (MIT reference, see LICENSE-T3:
+// The Files breadcrumbs as the reference scrolls them (MIT reference, see LICENSE-T3:
 // FilePreviewPanel.tsx — a `ScrollArea scrollFade` around `w-max min-w-full` crumbs, scrolled with
 // `scrollIntoView({ inline: "end" })` to the current file whenever the file changes; ui/scroll-area.tsx
 // masks each overflowing edge over `min(1.5rem, overflow)`). The crumb row here is end-justified inside
@@ -20,7 +20,7 @@ export function crumbsShift(presentation: Obj = {}): number {
 /** The clip's mask: transparent at its left edge, opaque after min(24, overflow) points; "none" while the trail fits. */
 export function crumbsMask(presentation: Obj = {}): string {
   const clip = anchorFrame(presentation, 'crumbs-clip'), hidden = -crumbsShift(presentation);
-  // Lane r9-device: a trail that settled short of its end (r9-device-crumbs.ts) also fades its right edge.
+  // A trail that settled short of its end (r9-device-crumbs.ts) also fades its right edge.
   const trail = anchorFrame(presentation, 'crumbs'), after = clip && trail ? trail[0] + trail[1] - clip[1] : 0;
   if (!clip || (hidden < 0.5 && after < 0.5)) return 'none';
   const percent = Math.round(Math.min(FADE, hidden) / clip[1] * 1000) / 10;

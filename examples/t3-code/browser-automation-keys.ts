@@ -1,9 +1,9 @@
-// browser-surface part 5: `preview_press`'s key (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// `preview_press`'s key (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PreviewKeyboard.ts, ported whole with its tests). The reference builds CDP and
 // Electron key packets; the clone's module sends the same key as an `NSEvent` to a page in a window
 // (T3BrowserAutomationInput.swift reads `chord` and `text`), runs the macOS editing shortcuts in the page
 // (`editing`, the reference's `previewAutomationEditingCommandExpression`), and for a page in no window
-// dispatches DOM key events and their default edit (`dom`; untrusted, X1 path B).
+// dispatches DOM key events and their default edit (`dom`; untrusted).
 
 export type PressInput = { key: string; modifiers?: ReadonlyArray<'Alt' | 'Control' | 'Meta' | 'Shift'> };
 

@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r12-sidebar: a keyboard-opened sidebar menu (ContextMenu on a focused thread
+// A keyboard-opened sidebar menu (ContextMenu on a focused thread
 // row, ContextMenu or Shift+F10 on a draft row) opens at the focused row, as the
 // f870c419fc reference does in Chrome on macOS: a thread row's centre (127, 238 for
 // the 239×78 card at 8, 199) and a draft row's bottom-left corner (8, 180 for the

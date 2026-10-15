@@ -1,4 +1,4 @@
-// T3Transport's route ops (T3Transport.perform routes them; lane environment-routes):
+// T3Transport's route ops (T3Transport.perform routes them):
 // the app's route edits for one saved environment. The walk itself is T3Routes.swift's
 // T3RouteState, driven from T3Transport.start. Runs on the transport's queue.
 import Foundation
@@ -18,7 +18,7 @@ extension T3Transport {
     /// While connected, a route that now ranks above the one in use (a learned LAN address, a reorder) is checked at
     /// once, with the token it owns or borrows, and replaces the session when it would connect: supervisor.ts
     /// learnRoutesFrom requests the better-route check as it learns ("A learned route may rank above the one in use"),
-    /// and registry.ts replaceRoutesLocked reconnects over a new order (network-routes-followups NR-1).
+    /// and registry.ts replaceRoutesLocked reconnects over a new order.
     func setRoutes(_ request: [String: Any], completion: @escaping Completion) throws {
         guard let environment = request["environmentId"] as? String, !environment.isEmpty, let list = request["routes"] as? [[String: Any]] else {
             throw arguments("setRoutes requires environmentId and routes.")

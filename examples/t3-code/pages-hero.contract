@@ -1,5 +1,5 @@
 use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
-// The empty main view (lane "pages"), measured against the served reference
+// The empty main view, measured against the served reference
 // at 1280×840: DraftHeroHeadline's sentence and its project menu, and the
 // index landings (NoProjectsHero, DraftStartError and the hosted
 // HostedStaticOnboardingState), from T3 Code (MIT, see LICENSE-T3).
@@ -23,7 +23,7 @@ shape PagesHome
   landing: string
   headline: string
   projectName: string
-  // r6-polish: the name keyed by its text, so a new name mounts a fresh text (a reused one-line text keeps drawing the old string).
+  // The name keyed by its text, so a new name mounts a fresh text (a reused one-line text keeps drawing the old string).
   projectNames: HeroName[]
   projects: HeroProject[]
   noProjectItem: bool
@@ -37,7 +37,7 @@ shape PagesHome
   // HostedStaticOnboardingState's second paragraph: the Local environment switched off, or the pairing hint.
   noEnvironmentDescription: string
 
-// useNavigateBack's history over the utility pages (app.contract pageTrail, usage-and-pr-pages PG-7): the pages a
+// useNavigateBack's history over the utility pages (app.contract pageTrail): the pages a
 // page's Back goes back through after `current` opens `name`. A page opened from another keeps the one it left; one
 // opened from a thread, or a thread, starts over.
 fn pageTrailNext(trail: string[], current: string, name: string): string[] = current == "" or name == "" ? [] : (name == current ? trail : trail.concat([current]))
@@ -138,7 +138,7 @@ component HeroMenu
     command: action
     addProject: action
   state lit = ""
-  // FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the focus hands it to the popup.
+  // menu-keys.contract: the pointer entering a row focuses it; leaving the row that holds the focus hands it to the popup.
   action hover(id: string, rowId: string, over: bool)
     if over
       focus(rowId)
@@ -172,7 +172,7 @@ component PagesLanding
   inject
     rem: number
   props
-    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
     home: PagesHome
     scheme: string
@@ -191,10 +191,10 @@ component PagesLanding
             Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         if home.landing == "no-environment"
           text "T3 Code" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b99, #81818199)"
-        // composer-fidelity G15: NoActiveThreadState's desktop header.
+        // NoActiveThreadState's desktop header.
         if home.landing == "no-thread"
           text "No active thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" testId="no-active-thread-header"
-      // Each landing is ui/empty.tsx's Empty (NoProjectsHero, NoActiveThreadState, _chat.index's two): `text-balance` (KW-1).
+      // Each landing is ui/empty.tsx's Empty (NoProjectsHero, NoActiveThreadState, _chat.index's two): `text-balance`.
       column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" text-wrap="balance"
         if home.landing == "no-projects"
           column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center"

@@ -1,4 +1,4 @@
-// Chat Markdown tables and image chips (lane r4-timeline), included by markdown.rs.
+// Chat Markdown tables and image chips, included by markdown.rs.
 // T3's MarkdownTable (ChatMarkdown.tsx, MIT, see LICENSE-T3) draws one table:
 // cells of 12pt text padded 7.2/12 (8.8 in the header), a column as wide as its
 // widest cell up to 24rem, and a footer with the expand toggle and the Copy as
@@ -76,7 +76,7 @@ fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
         .replace('|', "\\|")
 }
 /// The destination a cell's link copies with: serializeAnchor keeps only an http(s) URL (`if (!/^https?:\/\//i.test(href))
-/// return content;`), so a mailto, irc, xmpp or fragment link copies its text (reply-links review); a file link copies its
+/// return content;`), so a mailto, irc, xmpp or fragment link copies its text; a file link copies its
 /// source (the chip's `data-markdown-copy`), and a context or citation reference its link, as before.
 fn cell_link(href: &str) -> Option<&str> {
     if let Some(path) = href.strip_prefix(FILE_LINK) {

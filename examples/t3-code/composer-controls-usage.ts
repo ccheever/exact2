@@ -1,5 +1,5 @@
-// The /usage-limits notice and the usage-limit recovery notice (lane
-// composer-controls), adapted from T3 Code (MIT); see LICENSE-T3. Sources:
+// The /usage-limits notice and the usage-limit recovery notice,
+// adapted from T3 Code (MIT); see LICENSE-T3. Sources:
 // chat/ComposerUsageLimits.tsx (accountLabel, AccountSummary, usageLimitsBannerItem,
 // UsageLimitsBannerBody), usage/UsageLimits.tsx (WindowBar, LimitWindows, ResetCredits,
 // useResetCredit), chat/UsageLimitRecoveryBanner.tsx and ChatView.tsx (usageLimitsPanel,

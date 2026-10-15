@@ -167,7 +167,7 @@ component PrdCode
         if code.orphanCount > 0
           PrdCodeOrphans(code=code, surface=surface, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press)
         row flex=1 min-height=0 width="100%"
-          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+          // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
           list appearance="none" virtualized=true id=listId reachend=press("next", "") scroll=scrolled flex=1 min-width=0 min-height=0 testId="pull-request-code-list"
             for item in code.items key=item.id
               PrdCodeRow(item=item, code=code, scheme=scheme, size=size, surface=surface, draftText=draftText, handoffs=handoffs, choices=choices, documents=documents, highlights=highlights, env=env, still=still, local=local, act=act, press=press, rowCommand=rowCommand, begin=begin, cancel=cancel, editDraft=editDraft, add=add, agent=agent)
@@ -208,7 +208,7 @@ component PrdCodeToolbar
               // MenuPopup's glass blurs what is under it (backdrop-blur); the macOS presenter draws no backdrop blur, so the
               // glass sits on the popover colour itself, or the list's rows would read through the menu (live drive 1).
               column border-radius="0.625rem" backdrop-filter="blur(12px)" background-color="light-dark(#ffffff, #111111)"
-                // Every row has a stable id (= its testId) for fix-keyboard-focus's KeyMenu: "All commits" through PrMenuItem,
+                // Every row has a stable id (= its testId) for the KeyMenu: "All commits" through PrMenuItem,
                 // the commits by their short oid, "Show more" its own.
                 PrMenuBox(scheme=scheme, width=288, label=`Diff scope: ${code.scopeLabel}`)
                   KeyMenu(menuId="pull-request-code-scope-keys", items=menuItems, keyed=0, gap="0px", modal=true)

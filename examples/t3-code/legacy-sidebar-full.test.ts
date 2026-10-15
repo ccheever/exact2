@@ -1,8 +1,8 @@
-// legacy-sidebar-full (U22): the legacy sidebar's remaining reference behaviour (T3 Code 1e2ecbd975, MIT, see
-// LICENSE-T3): LS-1 a row's pull request link (handlePrClick, useOpenPrLink), LS-2 the discovered-port button
-// (useThreadDiscoveredPorts, openDiscoveredPort), LS-3 files dropped on a row (sidebarPendingFileDropStore and
-// ChatView's consumePendingFileDrop), LS-4 Archive and New thread in the tab order (group-focus-within), LS-5
-// "New thread on <branch>" (handleNewThread with the branch), LS-6 a background environment's project and thread
+// The legacy sidebar's remaining reference behaviour (T3 Code 1e2ecbd975, MIT, see
+// LICENSE-T3): a row's pull request link (handlePrClick, useOpenPrLink), the discovered-port button
+// (useThreadDiscoveredPorts, openDiscoveredPort), files dropped on a row (sidebarPendingFileDropStore and
+// ChatView's consumePendingFileDrop), Archive and New thread in the tab order (group-focus-within),
+// "New thread on <branch>" (handleNewThread with the branch), a background environment's project and thread
 // actions and environmentGrouping.test.ts's physical dedupe cases.
 import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -99,7 +99,7 @@ function background(threads: Obj[] = [], projects?: Obj[]): FleetEntry {
 }
 afterEach(() => { fleet.entries.clear(); });
 
-describe('LS-1: the pull request glyph (handlePrClick)', () => {
+describe('the pull request glyph (handlePrClick)', () => {
   test('beside an open thread, a pull request its environment reads opens in that thread\'s right panel, and the thread opens', async () => {
     const { client, native, opened } = rig();
     expect(await sidebarCommand(client, native, files, 'legacy-pr', 'thread-2', '')).toBe('sidebar:opened:focus');
@@ -156,7 +156,7 @@ describe('LS-1: the pull request glyph (handlePrClick)', () => {
   });
 });
 
-describe('LS-2: the discovered-port button (useThreadDiscoveredPorts, openDiscoveredPort)', () => {
+describe('the discovered-port button (useThreadDiscoveredPorts, openDiscoveredPort)', () => {
   const server = (port: number, threadId: string | null) => ({ host: '127.0.0.1', port, url: `http://localhost:${port}/`, processName: 'vite', pid: 42, terminal: threadId ? { threadId, terminalId: 'term-1' } : null });
   test('the sidebar keeps its own stream (no configured URLs) while the legacy sidebar shows', async () => {
     const { client, native, ops } = rig();
@@ -201,7 +201,7 @@ describe('LS-2: the discovered-port button (useThreadDiscoveredPorts, openDiscov
   });
 });
 
-describe('LS-2 on a background environment: its own stream, and its thread opens before the tab', () => {
+describe('the discovered-port button on a background environment: its own stream, and its thread opens before the tab', () => {
   const server = (port: number, threadId: string) => ({ host: '127.0.0.1', port, url: `http://localhost:${port}/`, processName: 'node', pid: 7, terminal: { threadId, terminalId: 't' } });
   test('the fleet subscribes while the legacy sidebar shows rows; a background row shows its own ports', async () => {
     const { client, native } = rig();
@@ -244,7 +244,7 @@ describe('LS-2 on a background environment: its own stream, and its thread opens
   });
 });
 
-describe('LS-7 (found while building): the row\'s tooltips', () => {
+describe('the row\'s tooltips', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   test('the title, the worktree glyph, the collapsed project\'s status and the controls carry the reference\'s tooltips', () => {
     expect(view).toContain('LegacyTitleTip(label=t.title, tipId=`legacy-tip-title-${t.id}`, relay=innerHover)');
@@ -255,7 +255,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
   });
   // The host hovers only the nearest node with a hover handler (MouseChainMac `hoverUnderPointer`), so a pointer entering
   // a row on its title would hover the title's tooltip and not the row: Archive stayed hidden and a press there opened the
-  // thread (the first after drive). Every tooltip trigger inside a row tells the row, as group-hover holds for the whole row.
+  // thread. Every tooltip trigger inside a row tells the row, as group-hover holds for the whole row.
   test('every tooltip trigger inside a thread row or a project header tells the row the pointer is on it', () => {
     const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
     const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
@@ -271,9 +271,9 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
       expect(body).toContain('action setOver(value: bool)\n    relay(value)');
     }
   });
-  // Review round 2: the thread list clips its rows (overflow hidden, the reference's, for autoAnimate), which cut a bubble
+  // The thread list clips its rows (overflow hidden, the reference's, for autoAnimate), which cut a bubble
   // drawn beside each project's first row. The reference portals every TooltipPopup; the window's hover layer is the clone's.
-  test('review 2: the row\'s and the header\'s tooltips are drawn by the window\'s hover layer, so the list\'s clip does not cut them', () => {
+  test('the row\'s and the header\'s tooltips are drawn by the window\'s hover layer, so the list\'s clip does not cut them', () => {
     const rows = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// The rename field reports its focus'));
     expect(rows).not.toContain('TipBubble(');
     expect(view).toContain('border-color="light-dark(#e4e4e7, #ffffff14)" overflow="hidden"'); // the list still clips
@@ -292,7 +292,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
     expect(tips).toHaveLength(2);
     expect(view).toContain('fn legacyTip(label: string, side: string, align: string, at: Geometry, rem: number, testId: string): HoverTip = hoverTipAtFrame("legacy-tip", "tooltip", label');
   });
-  test('review 2: the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press and a right-click close their own', () => {
+  test('the row or header the pointer is on closes a legacy tooltip a gone trigger left; Archive\'s press and a right-click close their own', () => {
     const tips: unknown[][] = [], runs: unknown[][] = [];
     const host = { performanceNow: () => 0, run: (...args: unknown[]) => { runs.push(args); }, hoverTipAt: (...args: unknown[]) => { tips.push(args); }, legacyTipOff: () => ({ key: 'legacy-tip' }) };
     const row = mount('LegacyThread', { reduced: false, page: '', busy: false, legacy: { confirmArchive: false }, t: { id: 't1', running: false, renaming: false, prIcon: '', portLabel: '' } }, host);
@@ -315,7 +315,7 @@ describe('LS-7 (found while building): the row\'s tooltips', () => {
   });
 });
 
-describe('LS-8 (found while building): list motion and the destructive "Delete anyway"', () => {
+describe('list motion and the destructive "Delete anyway"', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   test('autoAnimate (180 ms ease-out, none under reduced motion): project and thread rows slide and a leaving row fades', () => {
     expect(view).toContain('keyframes lsRowOut\n  from opacity=1 scale=1\n  to opacity=0 scale=0.98');
@@ -346,7 +346,7 @@ describe('LS-8 (found while building): list motion and the destructive "Delete a
   });
 });
 
-describe('LS-3: files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
+describe('files dropped on a row (consumePendingFileDrop, addDroppedFiles)', () => {
   test('once the dropped-on thread is open, its queued files join its composer: images to the shelf, files as chips', async () => {
     const queued = { rowDrops: ['fleet:local:thread-9', 'fleet:local:thread-2'] };
     const { client, native, ops } = rig({ threadId: 'thread-2', presentation: queued });
@@ -375,7 +375,7 @@ describe('LS-3: files dropped on a row (consumePendingFileDrop, addDroppedFiles)
   });
 });
 
-describe('LS-4: Archive and New thread in the tab order (group-focus-within)', () => {
+describe('Archive and New thread in the tab order (group-focus-within)', () => {
   const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('component LegacyRenameField'));
   const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
@@ -403,7 +403,7 @@ describe('LS-4: Archive and New thread in the tab order (group-focus-within)', (
   });
 });
 
-describe('LS-5: "New thread on <branch>" carries the branch (handleNewThread with branch, worktreePath, envMode)', () => {
+describe('"New thread on <branch>" carries the branch (handleNewThread with branch, worktreePath, envMode)', () => {
   test('a worktree thread\'s draft reuses its worktree; a plain one takes its branch on the local checkout', async () => {
     const { client, native, drafts } = rig({ threads: [thread('thread-1'), thread('wt', { branch: 'feature/x', worktreePath: '/work/.t3/wt' }), thread('local', { branch: 'fix/y' })], picks: ['new-thread-on-branch', 'new-thread-on-branch'] });
     expect(await sidebarCommand(client, native, files, 'legacy-thread-menu', 'wt', '')).toBe('sidebar:new-thread');
@@ -414,7 +414,7 @@ describe('LS-5: "New thread on <branch>" carries the branch (handleNewThread wit
   });
 });
 
-describe('LS-6: a background environment\'s rows act on that environment', () => {
+describe('a background environment\'s rows act on that environment', () => {
   test('environmentGrouping.test.ts: stale rows of one checkout keep the fresher, with its identity, and their threads join it', () => {
     const shared = { canonicalKey: 'github.com/example/shared-repo' };
     const dup = rig({ threads: [], projects: [
@@ -497,7 +497,7 @@ describe('LS-6: a background environment\'s rows act on that environment', () =>
 // The review of PR #469: the row that opened its thread kept the focus (so Archive stayed shown), a tooltip trigger that
 // went away under the pointer left its row hovered, Confirm ended when the focus or the pointer moved within the row,
 // the toast's destructive tone, and the drop and port edge cases.
-describe('review: a thread change focuses the composer (ChatView\'s effect on activeThread.id)', () => {
+describe('a thread change focuses the composer (ChatView\'s effect on activeThread.id)', () => {
   const select = async (client: T3Client, native: Native, id: string, how = 'click') => {
     const out = { message: '', id: '', value: '' } as OpOut;
     await threadOps.call(client, 'select-thread', id, how, 0, native, files, out);
@@ -526,7 +526,7 @@ describe('review: a thread change focuses the composer (ChatView\'s effect on ac
   });
 });
 
-describe('review: a row\'s hover and focus as the host reports them (LegacyThread, LegacyProject run)', () => {
+describe('a row\'s hover and focus as the host reports them (LegacyThread, LegacyProject run)', () => {
   const clock = { now: 1000 };
   const tips: unknown[][] = [];
   // The host's functions and the hover layer's (T3Window `hoverTipAt`; `legacyTip` and `legacyTipOff` are the file's fns).
@@ -638,9 +638,9 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     expect(run.view.confirmShown).toBe(false);
   });
 
-  // Review round 2 (B2): the row re-sorts in the batch that takes its trigger away, so the host hovers another row and
+  // The row re-sorts in the batch that takes its trigger away, so the host hovers another row and
   // never this one again; only the trigger's own leave can let go of the pointer.
-  test('review 2: the pointer on Archive as a new message runs the thread and re-sorts it to the top: the row lets go', () => {
+  test('the pointer on Archive as a new message runs the thread and re-sorts it to the top: the row lets go', () => {
     const run = row(), archive = trigger(run, 'Archive');
     run.act('hover', true);
     run.act('hover', false); archive.act('setOver', true);
@@ -651,7 +651,7 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     run.props.t = { ...(run.props.t as Obj), running: false };
     expect(run.view.revealed).toBe(false); // the run over: its time, not Archive, until the pointer crosses it
   });
-  test('review 2: a collapsed project\'s status trigger that goes as the projects re-sort lets go of the header', () => {
+  test('a collapsed project\'s status trigger that goes as the projects re-sort lets go of the header', () => {
     const header = mount('LegacyProject', { reduced: false, p: { key: 'k', expanded: false, statusLabel: 'Working' }, legacy: {}, now: 0, page: '', busy: false }, host());
     const status = trigger(header, 'Working');
     header.act('hover', true);
@@ -661,7 +661,7 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     expect(header.view.pointed).toBe(false);
     expect(header.view.revealed).toBe(false);
   });
-  test('review 2: every trigger of a row and a header keeps its box (display none) while it is not drawn', () => {
+  test('every trigger of a row and a header keeps its box (display none) while it is not drawn', () => {
     const view = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
     const thread = view.slice(view.indexOf('component LegacyThread'), view.indexOf('// A legacy row\'s or project header\'s tooltip trigger'));
     const project = view.slice(view.indexOf('component LegacyProject'), view.indexOf('// SidebarThreadRow'));
@@ -675,7 +675,7 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
     run.act('archive');
     for (const at of ['tipId=`legacy-tip-pr-', 'tipId=`legacy-tip-port-', 'tipId=`legacy-tip-worktree-', 'tipId=`legacy-tip-terminal-', 'tipId=`legacy-tip-archive-']) expect(run.drawn(at)).toBe(true);
   });
-  test('review 2: a double-click on the pull request link after its first click moved the focus to the composer: the row is not focused', () => {
+  test('a double-click on the pull request link after its first click moved the focus to the composer: the row is not focused', () => {
     const run = row();
     run.act('hover', true);
     run.act('within', 'pr', true); // the first mousedown focuses the link
@@ -690,7 +690,7 @@ describe('review: a row\'s hover and focus as the host reports them (LegacyThrea
   });
 });
 
-describe('review: LS-1 on a background environment\'s row', () => {
+describe('the pull request glyph on a background environment\'s row', () => {
   const remoteProject = { id: 'r2', title: 'app', workspaceRoot: '/srv/app', repositoryIdentity: repo, createdAt: at(0), updatedAt: at(0) };
   const reading = (entry: FleetEntry) => { entry.config = { environment: { label: 'Studio', capabilities: { pullRequests: true, threadPullRequests: true } }, settings: {} }; return entry; };
   test('beside a thread, the pull request opens in that thread\'s panel by its key (prTarget over its environment\'s projects), then that environment becomes the focus', async () => {
@@ -712,7 +712,7 @@ describe('review: LS-1 on a background environment\'s row', () => {
   });
 });
 
-describe('review: drops and port opens whose thread did not open (handleThreadFileDrop, handleOpenDiscoveredPort)', () => {
+describe('drops and port opens whose thread did not open (handleThreadFileDrop, handleOpenDiscoveredPort)', () => {
   test('a drop queued for a thread that is not open goes once another thread opens; one whose thread opens is taken', async () => {
     const { client, native, ops } = rig({ threadId: 'thread-1', presentation: { rowDrops: ['fleet:local:thread-3'] } });
     expect(await takeRowDrops(client, native)).toBe(false); // its press is still on the way
@@ -755,7 +755,7 @@ describe('review: drops and port opens whose thread did not open (handleThreadFi
 });
 
 // The IDs below come from a later real-input session and differ from the older LS numbering above.
-describe('LS-8: additive ranges and stable anchors', () => {
+describe('additive ranges and stable anchors', () => {
   for (const legacy of [true, false]) test(`Command A, Command C, Shift B retains A/B/C (${legacy ? 'legacy' : 'default'})`, async () => {
     // The press's own modifiers (sidebar-row.contract and legacy-sidebar.contract `openPress`): "click:meta", "click:shift".
     const { client, native } = rig({ threads: [thread('a'), thread('b'), thread('c')], settings: { legacySidebarEnabled: legacy } });
@@ -803,7 +803,7 @@ describe('LS-8: additive ranges and stable anchors', () => {
   });
 });
 
-describe('LS-7: Mark unread uses the reference silent failure policy', () => {
+describe('Mark unread uses the reference silent failure policy', () => {
   test('a server refusal for a local thread with no completed run stays silent, while archive failures still toast', async () => {
     const { client, native } = rig({ picks: ['mark-unread'] });
     client.request = async () => { throw new Error('No completed run'); };
@@ -839,7 +839,7 @@ describe('LS-7: Mark unread uses the reference silent failure policy', () => {
   });
 });
 
-describe('LSF-3: row drop ownership during an environment handoff', () => {
+describe('row drop ownership during an environment handoff', () => {
   test('a queued background drop waits for synchronization and attaches once in the destination, preserving file order', async () => {
     const { client, native, ops } = rig({ presentation: { rowDrops: ['fleet:env-remote:thread-1'] } });
     const staged = ['notes.txt', 'other.txt'].map((name, i) => ({ kind: 'file', name, id: `11111111-1111-4111-8111-11111111111${i}`, sizeBytes: 5, mimeType: 'text/plain' }));
@@ -942,7 +942,7 @@ describe('LSF-3: row drop ownership during an environment handoff', () => {
   });
 });
 
-describe('LS-4 / LSF-4b: mounted initial focus survives late thread-open completion', () => {
+describe('mounted initial focus survives late thread-open completion', () => {
   const source = readFileSync(new URL('./legacy-sidebar.contract', import.meta.url), 'utf8');
   const root = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
   const guard = root.split('\n').find(line => line.trim().startsWith('if result.message.startsWith("focus:")'))!.trim().slice(3).split(' //')[0]!;
@@ -975,7 +975,7 @@ describe('LS-4 / LSF-4b: mounted initial focus survives late thread-open complet
   });
 });
 
-describe('LS-6: project identity is included in local and remote dialog copy', () => {
+describe('project identity is included in local and remote dialog copy', () => {
   test('a project-menu reply carries its destination even while the snapshot still contains the previous navigation', async () => {
     for (const remote of [false, true]) {
       const { client, native } = rig({ picks: ['project-settings'] });
@@ -1067,7 +1067,7 @@ describe('LEG-TIP: the root validates the rendered owner, including delayed tips
   });
 });
 
-describe('LS-3: the complete Sidebar options focus boundary', () => {
+describe('the complete Sidebar options focus boundary', () => {
   test('radio, field and step-button transitions stay open; outside focus and no target close without redirecting focus', () => {
     const options = contractComponent('legacy-sidebar.contract', 'LegacyOptions'), state = options.state();
     const hidden: string[] = [], focused: string[] = [];
@@ -1120,7 +1120,7 @@ describe('LS-3: the complete Sidebar options focus boundary', () => {
     expect(source).not.toContain('for n in [legacy.previewCount]');
   });
 
-  // menu-keys repair round 2 (AFTER drive 20–22): typed 22, Tab went to the increase stepper, the clamp disabled it,
+  // With 22 typed, Tab went to the increase stepper, the clamp disabled it,
   // and the focus stayed on that disabled button. Base UI 1.4.1's steppers (useNumberFieldButton: tabIndex -1) are
   // no Tab stops and keep the focus in the field, so the field is the popup's last stop and Tab leaves the popup.
   test('the steppers are no Tab stops: Tab from a clamped field leaves the popup instead of landing on a disabled stepper', () => {

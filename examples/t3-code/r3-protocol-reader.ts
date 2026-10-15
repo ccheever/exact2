@@ -1,4 +1,4 @@
-// Abandon-safe plumbing for answers Exact may let go mid-flight (lane r3-protocol).
+// Abandon-safe plumbing for answers Exact may let go mid-flight.
 //
 // Since exact2 #183 (#109) a watched topic that changes while an answer awaits a
 // native reply lets that reply land and then asks once more, so the snapshot
@@ -66,7 +66,7 @@ export function settleTraces(client: T3Client, status: Obj, ticket: number): num
  * A status read for the traces still live, ending those the transport no longer lists. A refresh reads
  * the status only when a topic changes, so a quiet window keeps an answered request whose answer was
  * let go until the next refresh (or until T3Transport's 30 s deadline, shell-slow.ts). Nothing calls
- * this yet: shellView would, on each tick while `tracking(client)` (lane r13-slow report, shell.ts hunk).
+ * this yet: shellView would, on each tick while `tracking(client)`.
  */
 export async function settleLiveTraces(client: T3Client, native: Native): Promise<number> {
   if (!traces.get(client)?.live.size) return 0;

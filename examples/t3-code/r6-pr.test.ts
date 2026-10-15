@@ -1,4 +1,4 @@
-// Lane r6-pr: the details card's pull request row against the reference's rules
+// The details card's pull request row against the reference's rules
 // (ThreadDetailsPrRow, PullRequestChecksPopover, pullRequestDetail.logic,
 // usePullRequestActions) and the payloads it sends to the server. Native paths
 // run against a recording fake; nothing here reaches a host.
@@ -41,7 +41,7 @@ function fakeClient() {
       return reply(payload);
     },
     async openProjectDraft(_native: unknown, projectId: string) { opened.push(projectId); this.projectId = projectId; this.threadId = ''; },
-    // r7-handoff: the draft's thread id comes from the transport's id allocator.
+    // The draft's thread id comes from the transport's id allocator.
     restAccess: () => ({ ids: async (count: number) => Array.from({ length: count }, (_, index) => `draft-thread-${index + 1}`) }),
   } as unknown as T3Client;
   return { client, calls, replies, opened };

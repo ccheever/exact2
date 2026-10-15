@@ -98,7 +98,7 @@ describe('header and panels', () => {
     // The launcher hears a row's letter in either case (surfaceShortcutActionForKey).
     expect(rows.map(row => row.letter).join('')).toBe('btfdplm');
     expect(rows.find(row => row.id === 'diff')).toMatchObject({ available: true, reason: '' });
-    // browser-surface: the Browser row needs the desktop module (its WKWebView); without one it says why.
+    // The Browser row needs the desktop module (its WKWebView); without one it says why.
     expect(rows.find(row => row.id === 'browser')).toMatchObject({ available: false, reason: 'Only available in the desktop app.' });
     expect(surfaces(Object.assign(client, { available: true })).find(row => row.id === 'browser')).toMatchObject({ available: true, reason: '' });
     expect(rows.find(row => row.id === 'pull-request')!.reason).toBe('No pull request on this branch yet.');
@@ -180,7 +180,7 @@ describe('thread notifications', () => {
     expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag, request.threadId])).toEqual([['Thread completed', 'T a', 'env:a', 'fleet:env:a']]);
   });
 
-  // PG-10 (desktop audit 2026-10-09): ThreadNotificationCoordinator mounts EnvironmentNotifications for every
+  // ThreadNotificationCoordinator mounts EnvironmentNotifications for every
   // environment, so a turn that ends in a background environment notifies while another one is focused.
   describe('every connected environment (ThreadNotificationCoordinator)', () => {
     const active = { active: true, authorization: 'authorized', agent: false, opened: '', openedThread: '' };
@@ -405,7 +405,7 @@ describe('shell commands and routed failures', () => {
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save&id=t', 'Scheduled task is incomplete: Add a title, prompt, project, and model.')).toBe('Scheduled task is incomplete');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Use an interval of at least one minute.')).toBe('Invalid interval');
     expect(settingsFailure(value, 'rest:task', 'scope', 'action=save', 'Enter an existing checkout path.')).toBe('Checkout path is required');
-    // settings-rows-and-labels S2-3: the editor's own message (taskInput) maps to the reference's title and description.
+    // The editor's own message (taskInput) maps to the reference's title and description.
     const checkout = client().value;
     expect(settingsFailure(checkout, 'rest:task', 'scope', 'action=save', 'Checkout path is required: Enter the path of the checkout to run in.')).toBe('Checkout path is required');
     expect(toasts(checkout).map(toast => [toast.title, toast.description])).toEqual([['Checkout path is required', 'Enter the path of the checkout to run in.']]);

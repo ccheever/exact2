@@ -1,4 +1,4 @@
-// r6-polish: laid-out widths read back from the t3-anchor hook (T3Composer.swift
+// Laid-out widths read back from the t3-anchor hook (T3Composer.swift
 // reports each hooked box as [x, width] in its parent) instead of estimated
 // advance tables: the sidebar's row tooltips (r3-sidebar-tips.ts, probes drawn by
 // r6-polish.contract) and the Files breadcrumbs' folder menu (r4-surfaces-files.ts,

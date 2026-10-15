@@ -1,4 +1,4 @@
-// browser-surface part 5: the previewAutomation host's decisions, without the client (MIT reference, see
+// The previewAutomation host's decisions, without the client (MIT reference, see
 // LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/previewAutomationHostBudget.ts,
 // previewAutomationOpenReadiness.ts, previewAutomationTarget.ts, previewAutomationRequestConsumer.ts,
 // previewAutomationErrors.ts, previewAutomationClientId.ts, agentBrowserCursorLogic.ts, the request handler of
@@ -165,9 +165,9 @@ export type PlanContext = {
   budgetMs: number;
   /** Tabs whose presentation the agent suppressed (`open: false`) in this thread. */
   suppressed: ReadonlySet<string>;
-  /** The floating-preview preference (`browserAutoShowFloatingPreview`, part 3's setting, default on; its row is Settings › Integrations › Browser, part 4). */
+  /** The floating-preview preference (`browserAutoShowFloatingPreview`, default on; its row is Settings › Integrations › Browser). */
   autoShowFloatingPreview: boolean;
-  /** The configured open defaults (part 4's browserDefaults): a tab an agent creates without a size gets them, as a
+  /** The configured open defaults (browserDefaults): a tab an agent creates without a size gets them, as a
    *  hand-opened one does. Fill and Default when absent. */
   openDefaults?: { viewport: PreviewViewportSetting; profileId: string };
 };
@@ -236,7 +236,7 @@ export function planRequest(context: PlanContext): { plan: Plan; effects: PlanEf
       break;
     }
     case 'resize': {
-      // resolvePreviewViewport (part 2): a preset carries its size, swapped for the other orientation; an unknown
+      // resolvePreviewViewport: a preset carries its size, swapped for the other orientation; an unknown
       // preset or a freeform size without both sides fails the request, as the reference's throw does.
       const input = request.input as Partial<PreviewViewportResizeInput>;
       try { plan.viewport = resolvePreviewViewport({ ...input, mode: input.mode ?? 'fill' }); }

@@ -144,7 +144,7 @@ describe('AuthStandardClientScopes', () => {
       ['connect', encodeOAuthScope(AUTH_STANDARD_CLIENT_SCOPES)]]);
   });
 
-  test('a session paired before this change keeps working with its three scopes (U12: left as is)', () => {
+  test('a session paired before this change keeps working with its three scopes (left as is)', () => {
     // The old exchange's grant, kept only as a fixture of a pre-change session.
     const legacy = 'orchestration:read orchestration:operate review:write'.split(' ');
     const host: ConnectionHost = { connection: 'connected', origin: 'http://127.0.0.1:16140', environmentId: 'env-a', statusMessage: '', scopes: legacy,

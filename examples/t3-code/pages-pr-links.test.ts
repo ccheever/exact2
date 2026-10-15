@@ -1,4 +1,4 @@
-// The detail panel's links between pull requests and threads, and its link previews (pr-links-previews-and-routing),
+// The detail panel's links between pull requests and threads, and its link previews,
 // driven through pages-pr-detail.ts and pages-pr-links.ts against injected host replies: the linked-thread count and
 // its 10 s re-read, the Link / Unlink item and the picker, the palette pages, the autolinked text and a link's click.
 import { describe, expect, test } from 'bun:test';

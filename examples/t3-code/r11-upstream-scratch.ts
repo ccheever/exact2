@@ -1,4 +1,4 @@
-// Lane r11-upstream: one way to open a machine's "No project" folder (upstream
+// One way to open a machine's "No project" folder (upstream
 // 845ddd9354; T3 Code, MIT, see LICENSE-T3: client-runtime projectCommands.ts
 // openScratch / ScratchProjectNotLoadedError, operations/projects.ts
 // availableScratchWorkspaceRoot, web useScratchProject.ts). projects.ensureScratch
@@ -25,6 +25,6 @@ export async function openScratchProject(client: T3Client, native: Native): Prom
   const result = await client.rpc(native, 'projects.ensureScratch', {}, true);
   const projectId = str(result.projectId);
   if (!projectId) throw new ClientError(SCRATCH_NOT_LOADED);
-  await awaitFocusedScratch(client, native, projectId); // r12-threads: openScratch waits up to 10 s for the project
+  await awaitFocusedScratch(client, native, projectId); // openScratch waits up to 10 s for the project
   return projectId;
 }

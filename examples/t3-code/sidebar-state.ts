@@ -10,7 +10,7 @@ export const SETTLED_TAIL_PAGE_COUNT = 25;
 
 /**
  * Shelf expansion (t3code:sidebar:*-expanded), project scope (sidebarProjectScopeKey) and local visits;
- * legacy-sidebar: the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
+ * for the legacy sidebar, the persisted UI store's projectExpandedById and projectOrder (uiStateStore.ts).
  */
 export interface SidebarPrefs {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean;
@@ -38,9 +38,9 @@ export function sidebarPrefs(client: T3Client): SidebarPrefs {
   return local.sidebar;
 }
 
-export type UndoAction = 'Settled' | 'Snoozed' | 'Unpinned' | 'Archived' | 'Discarded'; // lane r11-upstream: Discarded (95edeb753b)
+export type UndoAction = 'Settled' | 'Snoozed' | 'Unpinned' | 'Archived' | 'Discarded'; // Discarded: 95edeb753b
 export interface UndoEntry { action: UndoAction; threadIds: string[]; at: number }
-/** `from: 'title'`: the chat header's title menu opened it (title-custom-snooze), so it confirms without moving on and gives the focus back to the title. */
+/** `from: 'title'`: the chat header's title menu opened it, so it confirms without moving on and gives the focus back to the title. */
 export interface SidebarDialog { kind: '' | 'archive' | 'delete' | 'delete-many' | 'snooze' | 'unpin' | 'delete-worktree'; threadIds: string[]; title: string; from?: 'title' }
 export interface SidebarSession {
   settledVisible: number; settledScope: string;
@@ -56,9 +56,9 @@ export interface SidebarSession {
   /** A navigation the window performs (Project settings): read by the shell after the command. */
   scopeOpen: boolean; scopeQuery: string;
   dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string;
-  /** shell-sidebar-palette-keys (TH-8): the date popover's month (`YYYY-MM`), its keyboard focus and a count of its moves (snooze-calendar.ts). */
+  /** The date popover's month (`YYYY-MM`), its keyboard focus and a count of its moves (snooze-calendar.ts). */
   calendarMonth: string; calendarFocus: string; calendarFocusSeq: number;
-  /** lane r11-upstream (1826fb55cc): bumped when a row-action sweep is released, which ends the view's sweep. */
+  /** 1826fb55cc: bumped when a row-action sweep is released, which ends the view's sweep. */
   sweepEpoch: number;
 }
 const sessions = new WeakMap<T3Client, SidebarSession>();

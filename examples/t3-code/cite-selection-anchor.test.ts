@@ -1,9 +1,9 @@
-// cite-selection-anchor (G4-03a, G4-03b/KW-9, DCP-E): Cite's place, its Tab, and where the comment opens after it, against
+// Cite's place, its Tab, and where the comment opens after it, against
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): components/chat/AssistantSelectionToolbar.tsx (the capture-phase Tab, Escape,
 // `removeAllRanges()` after `onCite`, the position from `rects.item(rects.length - 1)` and the toolbar's 8 pt hold),
 // lib/selectionActions.ts (`resolveSelectionActionPosition`, the release point of `observeSelectionActions`) and
 // AssistantCitationChip.tsx (`popupAnchor`: the range's last client rect, `side="bottom" align="end"`). The reference's
-// numbers were read over CDP on the lane reference with the lane's Cite fixture answer, 1280×840 (scenarios A to E).
+// numbers were read over CDP on the reference with the Cite fixture answer, 1280×840 (scenarios A to E).
 //
 // The functions run from their `.contract` lines; the answer's and the window's actions run with Contract's action
 // semantics (contract-action-fixture.ts).
@@ -29,7 +29,7 @@ function referencePosition(bounds: { left: number; top: number; width: number; h
 
 const geometry = (x: number, y: number, width: number, height: number) => ({ x, y, width, height, unavailable: false });
 const cite = contractFns('diff-cite.contract');
-// The clone's timeline box at 1280×840 (the lane's layout: `transcript` 256,52 1024×788) and the window.
+// The clone's timeline box at 1280×840 (its layout: `transcript` 256,52 1024×788) and the window.
 const transcript = geometry(256, 52, 1024, 788);
 const place = (px: number, py: number, tooLong = false) => {
   const x = cite.citeAxis!(px as never, transcript.x as never, transcript.width as never, false as never) as number;
@@ -39,7 +39,7 @@ const place = (px: number, py: number, tooLong = false) => {
 const reference = (pointer: { x: number; y: number } | null, rect: { right: number; bottom: number } | null, tooLong = false) =>
   referencePosition({ left: 256, top: 52, width: 1024, height: 788 }, rect, pointer, { width: 1280, height: 840 }, { width: tooLong ? 138 : 66, height: 28 });
 
-describe('G4-03b: Cite at the release point, else at the selection\'s last line (resolveSelectionActionPosition)', () => {
+describe('Cite at the release point, else at the selection\'s last line (resolveSelectionActionPosition)', () => {
   test('a pointer\'s selection: Cite\'s top-left is where it was released (the reference\'s A, B, C and D)', () => {
     // A: a drag from "parser" to the end of "paragraph", released at (420, 208): the reference's Cite at 420, 208.
     expect(place(420, 208)).toEqual({ left: 420, top: 208 });
@@ -115,7 +115,7 @@ function answer() {
   return { md, state, scope, calls, selection, line2, offers: () => calls.filter(c => c[0] === 'offer').map(c => c[1] as Env) };
 }
 
-describe('G4-03b: the answer offers Cite as observeSelectionActions does', () => {
+describe('the answer offers Cite as observeSelectionActions does', () => {
   test('a drag: Cite hides at the press, waits through the drag, and is offered at the release point', () => {
     const a = answer();
     a.md.call('down', a.state, a.scope('["t","a"]'), [{ buttons: 1, clientX: 280.5, clientY: 362.8 }]);
@@ -168,7 +168,7 @@ describe('G4-03b: the answer offers Cite as observeSelectionActions does', () =>
   });
 });
 
-describe('G4-03a: a plain Tab focuses Cite (AssistantSelectionToolbar.tsx:87-107)', () => {
+describe('a plain Tab focuses Cite (AssistantSelectionToolbar.tsx:87-107)', () => {
   const key = (k: string, mods: Partial<Record<'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey', boolean>> = {}) =>
     ({ key: k, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, code: '', repeat: false, ...mods });
   const parts = [{ block: '2', start: 12, end: 31, lx: 0, ly: 1, lw: 140, lh: 21 }];
@@ -290,7 +290,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
     window.call('citeScrolled', state, {}, [0, 120]);
     expect(state.citeFor).toBe('');
     expect(source('app-window.contract')).toContain('derive citeShows = citeFor != "" and citeThread == data.threadId and citeViewport == `${viewport.width}x${viewport.height}` and citeWaits <= citeWaitDone and citeDismissedAt == citeDismissals and not pageCover and not settingsOpen and not modal');
-    // The transcript's scroll (timeline-and-window-hooks: ChatColumn's transcriptScrolled) still hides it, before it keeps the position.
+    // The transcript's scroll (ChatColumn's transcriptScrolled) still hides it, before it keeps the position.
     expect(source('app-main.contract')).toContain('reachend=releaseFold scroll=transcriptScrolled');
     const scrolled: unknown[][] = [];
     contractComponent('app-main.contract', 'ChatColumn').call('transcriptScrolled', { firstKey: '', anchor: { owner: '' }, turnsSeen: [] },
@@ -351,7 +351,7 @@ describe('the window draws Cite and sends it (app-window.contract)', () => {
   });
 });
 
-describe('DCP-E: the pencil\'s comment above its chip (no change: the clone already places it as the reference)', () => {
+describe('the pencil\'s comment above its chip (no change: the clone already places it as the reference)', () => {
   test('side top, align end on the pencil, 4 pt off: the reference\'s E and the clone\'s base drive', async () => {
     const left = await contractFn('citation-comment.contract', 'citationPopoverLeft', ['chip', 'width', 'viewportWidth'], { max: Math.max, min: Math.min });
     const below = await contractFn('citation-comment.contract', 'citationPopoverBelow', ['chip', 'height', 'viewportHeight']);
@@ -359,7 +359,7 @@ describe('DCP-E: the pencil\'s comment above its chip (no change: the clone alre
     const reference = { anchor: 'chip', ax: 380.4, ay: 695.4, aw: 14.1, ah: 14.1 };
     expect(left(reference, 320, 1280)).toBeCloseTo(74.5, 5);
     expect(below(reference, 114, 840)).toBe(false);
-    // The clone before this change (the lane drive, chip resource): the pencil 377..391 at 654.5; its popup 71..391, 536.5..650.5.
+    // The clone before this change (chip resource): the pencil 377..391 at 654.5; its popup 71..391, 536.5..650.5.
     const clone = { anchor: 'chip', ax: 377, ay: 654.5, aw: 14, ah: 14 };
     expect(left(clone, 320, 1280)).toBe(71);
     expect(below(clone, 114, 840)).toBe(false);

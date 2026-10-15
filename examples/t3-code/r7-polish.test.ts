@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { highlight, type Cls } from './timeline-highlight';
 import { codeLines } from './r4-surfaces-files';
 
-// Lane r7-polish. Pierre-light colours Shiki 4.2 painted (the reference's ReadOnlySourcePreview theme)
+// Pierre-light colours Shiki 4.2 painted (the reference's ReadOnlySourcePreview theme)
 // for the media fixture's page.html and a style/script snippet: [non-space text, colour] runs.
 const LIGHT: Record<Cls, string> = { '': '#0a0a0a', kw: '#d32a61', decl: '#a631be', type: '#a631be', fn: '#693acf', var: '#d47628', const: '#d5901c',
   param: '#636363', pyparam: '#d5a910', str: '#199f43', esc: '#16a994', num: '#1ca1c7', nul: '#08c0ef', op: '#08c0ef', punct: '#636363', com: '#737373',
@@ -29,7 +29,7 @@ describe('HTML source in the reference theme', () => {
     const tokens = highlight('class A extends B { constructor(x) { super(x); } }\nconst f = (a, b) => `${a}!`;', 'ts');
     const classOf = (text: string) => tokens.find(token => token.text.trim() === text)?.cls;
     expect([classOf('B'), classOf('constructor'), classOf('x'), classOf('super'), classOf('f'), classOf('a'), classOf('`'), classOf('${')])
-      .toEqual(['decl', 'decl', 'param', 'const', 'fn', 'param', 'punct', 'kw']); // lane r12-render: 'decl' paints as 'type' did
+      .toEqual(['decl', 'decl', 'param', 'const', 'fn', 'param', 'punct', 'kw']); // 'decl' paints as 'type' did
   });
 });
 

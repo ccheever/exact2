@@ -117,7 +117,7 @@ component UsagePooled
     pinned: string
     enterSeg: action
     pin: action
-    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    // A legend row's press, which anchors the popover to that row.
     pinLegend: action
     op: action
   view
@@ -148,7 +148,7 @@ component PoolSection
     pinned: string
     enterSeg: action
     pin: action
-    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    // A legend row's press, which anchors the popover to that row.
     pinLegend: action
   view
     column width="100%" gap="0.75rem" position="relative" z-index=(shown.startsWith(pool.prefix) ? 1 : 0) testId=`usage-limits-${pool.key}`
@@ -177,7 +177,7 @@ component PoolWindowCard
     pinned: string
     enterSeg: action
     pin: action
-    // fix-hover-cards: a legend row's press, which anchors the popover to that row.
+    // A legend row's press, which anchors the popover to that row.
     pinLegend: action
   view
     box width="100%" display="grid" grid-template-columns=(md ? `${11 * rem}px minmax(0, 1fr)` : "minmax(0, 1fr)") column-gap="1.5rem" row-gap="0.75rem" align-items="center" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" position="relative" z-index=(shown.startsWith(window.prefix) ? 1 : 0) testId=`usage-window-${pool.key}-${window.key}`
@@ -240,7 +240,7 @@ component TicketGlyph
 // spent share hatched when a reset will restore it; wide it carries the name, the share and a plate
 // with the countdown and banked credits, narrow its 1-based position. Its popover hangs off it. The
 // keyboard ring is the host's (exact2 #179, fixed by main #189): a ring drawn from a `focus` handler
-// restyled the button at mouse-down and the macOS host dropped that click's press (X56).
+// restyled the button at mouse-down and the macOS host dropped that click's press.
 component PoolSegment
   props
     seg: PooledSegment
@@ -284,7 +284,7 @@ component PoolSegment
 // Drawn by the page in its scroll content (UsagePopups) at the segment's rect there (x, y, w, h), the
 // card inside its placement box and every box around it, so the macOS host tracks the pointer on it:
 // beside its segment it lay outside the segment's box, heard no pointer and closed as the pointer moved
-// in (#263; X62, #322, before main #327). It stays mounted for the segment last shown, so the fade has a start and an end.
+// in (#263; #322, before main #327). It stays mounted for the segment last shown, so the fade has a start and an end.
 component SegmentPopup
   inject
     rem: number

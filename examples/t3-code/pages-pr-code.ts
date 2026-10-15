@@ -348,7 +348,7 @@ export async function prCodeLocal(ctx: CodeLocalContext & { native: Native }, op
       // DiffRow's commands: `diffreview|expand|<gap>|<path>`, and the gutter's drags (diff-line-drag.ts): `drag:<side>[:shift]`
       // and `gutter:<side>` on a press on a line number or the "+", `to` with the cell id under the pointer, `end` on the release;
       // `press`, a primary press on the gutter that starts none. Each press is an outside press for a skill chip's details,
-      // which the window's root never hears (the panel beside the composer; files-gutter-parity FG-4).
+      // which the window's root never hears (the panel beside the composer).
       const [, id = '', n = '', path = ''] = fields(value, 4), [action = '', side = '', shift = ''] = id.split(':');
       if (action === 'expand') return prCodeLocal(ctx, 'expand', `${path}|${n}`);
       if (action === 'press' || action === 'drag' || action === 'gutter') await closeChipFromPress(ctx.native);

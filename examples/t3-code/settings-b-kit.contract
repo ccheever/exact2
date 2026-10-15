@@ -7,13 +7,13 @@ shape CnOption
   label: string
   selected: bool
 
-// Lane settings-b building blocks (Connections, Providers, Project): the
+// Settings building blocks (Connections, Providers, Project): the
 // reference's EnvironmentMachineIcon, Menu/MenuItem popups (ui/menu.tsx),
 // TooltipPopup side="top" (ui/tooltip.tsx), FoldedSettingsSection, and the
 // xs Select trigger, at the served build's computed sizes and colors.
 
 // EnvironmentMachineIcon: Lucide server/cloud/monitor/laptop, the Linux mark,
-// and T3's two drawn Apple desktops (24 grid, stroke 2). auto-balance: "scale" is Lucide's
+// and T3's two drawn Apple desktops (24 grid, stroke 2). "scale" is Lucide's
 // ScaleIcon, Auto balance's Run on trigger and item.
 component CnMachineIcon
   props
@@ -101,7 +101,8 @@ component CnMenuItem
     button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(radio ? "menuitemradio" : "menuitem") aria-checked=(radio and highlighted) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       if icon != ""
         CnMachineIcon(kind=icon, size=16, color="light-dark(#27272a, #f5f5f5)")
-      // A button centres its text (its UA text-align); the reference's menu rows start at the left (X57).
+      // A button centres its text (its UA text-align); the reference's menu rows start at the left
+      // (issues/closed/20261009-apple-overflow-line-alignment.md).
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" line-clamp=1 text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
       if note != ""
         text note font-size="0.75rem" line-height="1rem" flex-shrink=0 color="light-dark(#71717b, #818181)"

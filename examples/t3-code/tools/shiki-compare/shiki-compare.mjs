@@ -1,4 +1,4 @@
-// Verification apparatus (shiki-residuals; never part of the app build). Runs real Shiki 4.2 with the
+// Verification apparatus (never part of the app build). Runs real Shiki 4.2 with the
 // Oniguruma engine — the reference T3 Code's highlighter (apps/web/src/lib/syntaxHighlighting.ts,
 // PREFERRED_HIGHLIGHTER "shiki-wasm") — and the clone's grammar engine (r12-render-textmate.ts) on
 // the same files, and compares every non-blank character's pierre-light colour, pierre-dark colour
@@ -16,12 +16,12 @@
 //   add --max-line <n> to run the clone's app path (highlight(), the Files and diffs line limit) against
 //                                                      Shiki's tokenizeMaxLineLength <n>, compared by synColor class
 //
-// code-highlighting-languages: each language runs in a Shiki highlighter of its own that holds the
+// Each language runs in a Shiki highlighter of its own that holds the
 // language's module (its embedded grammars and injectors) and every other bundled language whose
 // module brings no injector, which is the clone's state: all grammars loaded, so a markdown fence
 // or an html script finds its language, and only the root language's own injectors apply.
 //
-// code-highlighting-languages: the grammars the generator leaves out for their licences (LICENCE_HELD) are left out on
+// The grammars the generator leaves out for their licences (LICENCE_HELD) are left out on
 // both sides: no Shiki highlighter here loads them as languages, and each is the same empty grammar of its scope name the
 // generator makes it, so a language that embeds one (cpp, elm and ts-tags glsl, latex gnuplot) keeps the embedding rule and
 // paints its content plain on both sides.

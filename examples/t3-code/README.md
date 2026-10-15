@@ -373,6 +373,71 @@ and hovers, macOS notification and screen-capture grants, provider installs and 
 GitHub writes. Agent drives cover the rest. Where a person's keys or pointer found what an agent drive
 could not, the comment at the fix says what happened and why the code is so.
 
+## Work left
+
+As of 2026-10-15. Each item says what is wrong or missing; the open framework issues that
+someone using the app runs into are in the section above.
+
+**Fails** (the first four with real keys and pointer):
+
+- In Settings › Keybindings, one Escape after a recorded chord ends the recording and also
+  closes Settings. The reference ends only the recording.
+- After Snooze is closed with Escape while the pointer is outside it, no element has the focus
+  and no ring shows.
+- Return on a row of the sidebar's + menu does nothing (Space works).
+- The surface launcher's letter shortcut stops working after the launcher is mounted again.
+- The `timeline-keyboard` AppKit test fails: Tab does not leave the result region. The test
+  links the app's archive but uses none of its code, so the cause is in the host; no issue is filed yet.
+
+**Not built:**
+
+- Most presses on composer chips: the mention preview, attachments, threads, a citation's
+  source link, pull requests, review comments and annotations open no popover.
+- Home picks the most recent project in the focused environment only; the reference compares
+  every environment.
+- Settings › Projects gives the wrong focus to a project that only a background environment has.
+- In a reply, an image in a table cell or inside a link's text draws its alt text.
+- After Cite, a code block's selection is not cleared.
+- In full screen, an accessibility press on "Toggle thread details panel" does nothing (cause
+  not looked for).
+
+**Main has it, the clone does not use it yet** (besides the ones listed above): the click of a
+thread notification (`issues/closed/20261009-notification-default-click-design.md`) is still
+the module's, and its comment still says the click is refused. The resize cursors of the device
+player's eight edges came with main's fix and have not been checked.
+
+**Fixed, not checked with real input or VoiceOver.** The fixes of 2026-10-14 and 2026-10-15
+passed in-process and agent-drive checks only. VoiceOver was last turned on before them; it
+then misread the theme editor's sliders and the accent picker as percentages, did not reach the
+composer's skill chip, and its show menu (VO-⇧-M) opened nothing on a reply link, a thread row
+or chat media. To check with real input, VoiceOver, or both:
+
+- Terminal: Korean 2-Set composition, middle-click paste, link opening, closing a terminal.
+- Composer chips and the context popover under VoiceOver.
+- Chat: Cite by double-click, Tab and drag; Markdown media and code.
+- Sidebar: hover, archive and its undo, the branch's PR glyph; the legacy sidebar's drop into a
+  second environment and its tip row.
+- Device player: every pointer gesture.
+- Pull Requests: refocus, the scheme switch, the thread picker.
+- Dialogs: focus return and Tab traps of every dialog.
+- Connections: route order kept across launches, a physical drag of the grip.
+- Menus: Enter on the rows of Settings › Connections' machine menus (needs a machines list),
+  the Browser's Appearance submenu by hover.
+- Settings › Appearance: font faces, bold and italic, Files and PR typography, persistence.
+- Timeline: trackpad and wheel settling, reduced motion.
+- The permission helper: a real grant, and Finder coming to the front.
+
+**Needs a fixture:** a second environment, a tailnet, a machines list for Settings ›
+Connections, and an ACP agent stand-in.
+
+**Framework issues opened by this app that block nothing but change behaviour on macOS:**
+`issues/20261013-macos-axpress-on-a-button-whose.md`,
+`issues/20261014-macos-a-focused-button-that-becomes.md`,
+`issues/20261014-macos-a-reinserted-autofocus-node-is.md` and
+`issues/20261014-macos-aria-hidden-on-an-ancestor.md`. The app works around the last three.
+`issues/20261010-pointer-events-reach-ancestors.md` waits for a decision; until then the app
+forwards presses to the window itself.
+
 ## Source and checks
 
 `app.contract` keeps the window's resources, mutations and tasks, the state they read and

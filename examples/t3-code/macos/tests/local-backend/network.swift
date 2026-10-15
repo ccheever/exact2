@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 
 // The native facts behind Network access and Tailscale HTTPS
-// (T3LocalNetwork.swift) and the restart with a new envelope (T3LocalBackend.restart, the U4 stopgap).
+// (T3LocalNetwork.swift) and the restart with a new envelope (T3LocalBackend.restart, the Local environment switch's stopgap).
 // The first tests keep the reference's names (MIT, see LICENSE-T3; reference 1e2ecbd975:
 // apps/desktop/src/backend/DesktopNetworkInterfaces.test.ts and packages/tailscale/src/tailscale.test.ts,
 // the process half); `tailscale serve` runs inside the server, so its tests stay there.
@@ -178,7 +178,7 @@ final class LocalNetworkTests: XCTestCase {
     }
 
     func testTheHttpsProbeIsADeadlineForTheWholeRequest() {
-        // probeTailscaleHttpsEndpoint: `timeoutOption(2_500)` bounds the whole request (U9 check, 2026-10-08).
+        // probeTailscaleHttpsEndpoint: `timeoutOption(2_500)` bounds the whole request (checked 2026-10-08).
         let network = T3LocalNetwork()
         network.interfaces = { [:] }
         network.environment = { [:] }

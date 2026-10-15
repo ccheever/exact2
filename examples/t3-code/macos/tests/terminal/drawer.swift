@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Task terminal-drawer: the native output buffer against the shared vectors (also replayed by
+// The native output buffer against the shared vectors (also replayed by
 // terminal-output.test.ts against the reference port), the attach stream reducer, and a session view
 // writing what is new, the reference's `[terminal] …` lines and its exit report once.
 final class TerminalDrawerTests: XCTestCase {
@@ -391,7 +391,7 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(text(view).filter { $0 == "[terminal] Process exited" }.count, 1)
     }
 
-    /// terminal-links-and-close G1-7: `TerminalWriteInput` bounds `data` at 65,536 UTF-16 units and the reference's client
+    /// `TerminalWriteInput` bounds `data` at 65,536 UTF-16 units and the reference's client
     /// refuses a longer write before sending it ("Schema validation failed", effect's sync encode); a system message's own
     /// line ends are written as CRLFs, so a server's two-line message does not stair-step.
     func testAnOversizedWriteIsRefusedBeforeSendingAndSystemLinesStartAtTheLeftEdge() throws {

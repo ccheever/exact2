@@ -16,7 +16,7 @@ final class T3Timeline {
     private var movement: CGFloat = 0
     private(set) var resting = false
     private(set) var atEnd = true
-    /// r4-composer: wheel or key gestures toward the end made while already at
+    /// Wheel or key gestures toward the end made while already at
     /// it. A composer that grew over the transcript holds its new reservation
     /// back until the reader asks for more (r4-composer-overlay.ts).
     private(set) var pulls = 0

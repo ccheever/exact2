@@ -1,4 +1,4 @@
-// Lane r12-sidebar: Settings → Connections' Environments list (ConnectionsSettings.tsx
+// Settings → Connections' Environments list (ConnectionsSettings.tsx
 // savedEnvironments, f870c419fc; MIT, see LICENSE-T3). The reference's primary
 // environment ("This machine", the embedded server: local-primary.ts) never has a row
 // there; it has its own section (this-machine.ts). Every saved environment keeps its

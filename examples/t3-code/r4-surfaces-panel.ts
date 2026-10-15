@@ -1,7 +1,7 @@
 import { parseScopedThreadKey } from './terminal-ui-state';
 import { addTerminalSurface, focusPanelTerminal, terminalPanelLocal, terminalPanelView, panelTerminalLabel, terminalSurfaceCloseCopy, installTerminalPanelCleanup, type PanelTerminal } from './terminal-panel';
 import { activeRef, terminalAvailable, terminalDrawerView, emptyTerminalDrawerView, type TerminalDrawerView } from './terminal-drawer-view';
-// The right panel's tabbed surfaces (lane r4-surfaces; MIT reference, see LICENSE-T3:
+// The right panel's tabbed surfaces (MIT reference, see LICENSE-T3:
 // apps/web/src/rightPanelStore.ts, components/RightPanelTabs.tsx, ChatView.tsx
 // addFilesSurface / addDeviceSurface / openFileSurface): an ordered set of surface
 // tabs per thread with one active, opened from the launcher, the "+" menu, the
@@ -20,27 +20,27 @@ import { visiblePullRequests } from './shell-pr';
 import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './r4-surfaces-files';
 import { prsView, prsLocal, prsCommand, emptyPrs, type PrsView } from './r4-surfaces-prs';
 import { deviceView, deviceLocal, deviceCommand, deviceReady, watchDevice, emptyDevice, deviceHidden, deviceStateOf, type DeviceView } from './r4-surfaces-device';
-// lane r6-media: opening a device, its workspace and the floating player (r6-media-device.ts).
+// Opening a device, its workspace and the floating player (r6-media-device.ts).
 import { r6DeviceView, r6DeviceMini, r6DeviceLocal, r6DeviceCommand, emptyMini, deviceTab, floatMiniDevice, type R6DeviceMini } from './r6-media-device';
-import { threadDevices, visibleMini } from './r12-threads-device'; // lane r12-threads
-import { activeSerial, tabStrip, NO_TAB_STRIP, type TabStrip } from './r12-threads-tabs'; // lane r12-threads: the tab strip scrolls
-// lane r5-panels: the Pull request (P) surface and sent attachments (r5-panels-surfaces.ts).
+import { threadDevices, visibleMini } from './r12-threads-device';
+import { activeSerial, tabStrip, NO_TAB_STRIP, type TabStrip } from './r12-threads-tabs'; // The tab strip scrolls
+// The Pull request (P) surface and sent attachments (r5-panels-surfaces.ts).
 import { openThreadPullRequest, r5Local, r5Command, r5Tab, r5Views, r5Prefetch, emptyPrSurface, threadPrTarget, type PrSurfaceView } from './r5-panels-surfaces';
 import { emptyAttachment, type AttachmentView, type AttachmentMeta } from './r5-panels-attach';
-import { crumbsHidden } from './r10-device-crumbs'; // lane r10-device: the Files preview unmounted
-import { restoreRightPanel } from './r10-device-panels'; // lane r10-device: the panel as the last launch left it
-import { restoredEffects } from './r11-device-panels'; // lane r11-device: with its Diff and device
+import { crumbsHidden } from './r10-device-crumbs'; // The Files preview unmounted
+import { restoreRightPanel } from './r10-device-panels'; // The panel as the last launch left it
+import { restoredEffects } from './r11-device-panels'; // With its Diff and device
 import { requestDiff } from './r11-device-diff';
 import { deviceTargetOf, deviceThreadId, miniStoreOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
 import { ensureDraftThreadId } from './r7-handoff-thread';
 import type { PrTarget } from './r5-panels-pr';
 import { letGo } from './let-go';
-// browser-surface part 1: Browser tabs over the module's WKWebView (browser-surface.ts).
-import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // browser-surface part 3: the floating player's browser source, an annotation's send
+// Browser tabs over the module's WKWebView (browser-surface.ts).
+import { annotationSendSerial, browserMiniView, emptyBrowserMini, floatingTabOf, type BrowserMiniView } from './browser-capture'; // The floating player's browser source, an annotation's send
 import { automationRecordingView, serveRecordingRequests, type AutomationRecordingView } from './browser-automation-recording';
 import { browserMiniPlayerSource } from './previewMiniPlayerStore';
 import { addBrowserSurface, browserLocal, browserMiniSessions, browserPrepare, browserTab, browserView, emptyBrowserView, installBrowserCleanup, selectBrowserTab, type BrowserView } from './browser-surface';
-import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // browser-surface part 5: Mute / Unmute and the audible indicator
+import { browserTabAudio, browserTabMute } from './browser-automation-tabs'; // Mute / Unmute and the audible indicator
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment' | 'browser';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal; browser?: { tabId: string; threadKey: string } };
@@ -52,11 +52,11 @@ export type PanelView = {
   key: string; launcher: boolean;
   open: boolean; kind: string; active: string; count: number; tabs: PanelTab[]; terminal: TerminalDrawerView; terminalClose: { serial: number; title: string; body: string; target: string; op: string };
   files: FilesView; prs: PrsView; device: DeviceView; deviceSetup: boolean; pr: PrSurfaceView; attachment: AttachmentView; deviceMini: R6DeviceMini; tabStrip: TabStrip; browser: BrowserView;
-  /** Part 3: the floating player's browser tab (its frame: chat-canvas-view.ts). */
+  /** The floating player's browser tab (its frame: chat-canvas-view.ts). */
   browserMini: BrowserMiniView;
-  /** Part 3: bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
+  /** Bumps when an annotation's ⌘Return should send, whatever the panel shows (app.contract annotationSend). */
   annotationSend: number;
-  /** browser-recording-and-downloads: bumps when the previewAutomation host hands over a recording request, and names the
+  /** Bumps when the previewAutomation host hands over a recording request, and names the
    *  queued send to run it on (app.contract automationRecording). */
   automationRecording: AutomationRecordingView;
 };
@@ -131,7 +131,7 @@ export function availability(client: T3Client) {
     // ChatView `deviceAvailable={activeThreadRef !== null}`: a draft has its thread ref too (its id is allocated on open).
     device: !!client.environmentId && (!!client.threadId || !!client.projectId),
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
-    pullRequest: !!threadPrTarget(client), // r5-panels: supportsPullRequests && threadPullRequestPanelTarget
+    pullRequest: !!threadPrTarget(client), // supportsPullRequests && threadPullRequestPanelTarget
     diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
   };
 }
@@ -154,8 +154,8 @@ async function showDiff(client: T3Client, native: Native): Promise<void> {
 /** Opens one surface kind as the reference's onAdd* handlers do; unavailable kinds are ignored. */
 export async function openSurface(client: T3Client, native: Native, value: string): Promise<string> {
   const kind = surfaceKindOf(value), state = panelState(client), can = availability(client);
-  if (openThreadPullRequest(client, state, value) !== null) return ''; // r5-panels: Pull request (P)
-  if (value === 'browser' || value === 'b' || value === 'B') return addBrowserSurface(client, native, state); // browser-surface: Browser (B), the default profile
+  if (openThreadPullRequest(client, state, value) !== null) return ''; // Pull request (P)
+  if (value === 'browser' || value === 'b' || value === 'B') return addBrowserSurface(client, native, state); // Browser (B), the default profile
   if (!kind || kind === 'file') return '';
   if (kind === 'terminal') { await addTerminalSurface(client, native); return ''; }
   if (kind === 'diff') { if (!can.diff) return ''; upsert(state, singleton('diff')); await showDiff(client, native); return ''; }
@@ -206,7 +206,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op.startsWith('terminal-')) return terminalPanelLocal(client, native, op.slice(9), id, value);
   if (op === 'open') return openSurface(client, native, id || value);
   if (op === 'file') { await openFileSurface(client, native, id, Number(value) || 0, value === 'tree'); return ''; }
-  if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), ''); // browser-surface part 5
+  if (op === 'toggle-mute') return browserLocal(client, native, state, 'toggle-mute', id.replace(/^browser:/, ''), '');
   if (op === 'menu') { const action = await showTabMenu(client, native, state, id, value === 'key', surface => browserTabMute(client, surface)); return action && panelState(client) === state ? surfaceLocal(client, native, action, id, '') : ''; }
   if (op.startsWith('rename')) { editTabName(state, op, id, value); return ''; }
   if (op === 'copy-path') { const surface = state.surfaces.find(entry => entry.id === id); if (surface) await copyTabPath(client, native, surface); return ''; }
@@ -216,7 +216,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     state.active = id; state.visible = true;
     if (surface.kind === 'terminal') focusPanelTerminal(client);
     if (surface.kind === 'device') selectDeviceTarget(client, panelKey(client), surface.device);
-    selectBrowserTab(client, surface); // setActivePreviewTab: ⇧⌘J shows this tab again (G4-18)
+    selectBrowserTab(client, surface); // setActivePreviewTab: ⇧⌘J shows this tab again
     if (surface.kind === 'diff') await showDiff(client, native);
     else { client.diffOpen = false; if (surface.kind === 'file') await ensureFile(client, native, surface.path, false); if (surface.kind === 'files') await ensureTree(client, native); }
     return '';
@@ -248,12 +248,12 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
     const active = state.visible ? state.surfaces.find(entry => entry.id === state.active) : undefined, target = active?.kind === 'device' ? deviceTargetOf(client, panelKey(client)) : undefined;
     const thread = deviceThreadId(client);
     if (target && thread) floatMiniDevice(client, thread, target);
-    // Part 3: a live Browser tab floats too (closePreviewPanel's browser half).
+    // A live Browser tab floats too (closePreviewPanel's browser half).
     if (active?.kind === 'browser' && active.browser && thread && floatingTabOf(client) !== active.browser.tabId) miniStoreOf(client).open(thread, browserMiniPlayerSource(active.browser.tabId));
     state.visible = false; client.diffOpen = false; client.diffLoading = false; return '';
   }
   if (op === 'show') {
-    // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface (audit-wave-followups FU-2).
+    // rightPanelStore.show: the thread's panel opens, on its launcher when it has no surface.
     state.visible = true;
     const active = state.surfaces.find(entry => entry.id === state.active);
     if (state.visible && active?.kind === 'diff') await showDiff(client, native);
@@ -262,7 +262,7 @@ export async function surfaceLocal(client: T3Client, native: Native, op: string,
   if (op === 'setup-close') { surfaceStore(client).deviceSetup = ''; return ''; }
   if (op.startsWith('r5-')) return r5Local(client, native, state, op.slice(3), id, value); // r5-panels-surfaces.ts
   if (op.startsWith('browser-')) return browserLocal(client, native, state, op.slice(8), id, value); // browser-surface.ts
-  // right-panel-escape: a sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
+  // A sheet's Files search Escape clears the search, then the dialog closes (app.contract chatLocal).
   if (op === 'files-search-key' && id === 'sheet' && value === 'Escape') { await filesLocal(client, native, 'search-key', id, value); return surfaceLocal(client, native, 'hide', '', ''); }
   if (op.startsWith('files-')) return filesLocal(client, native, op.slice(6), id, value);
   if (op.startsWith('pr-')) return prsLocal(client, native, op.slice(3), id, value);
@@ -304,7 +304,7 @@ function tabOf(client: T3Client, surface: Surface, active: string, pending: Read
   if (r5) return { id: surface.id, kind: surface.kind, ...r5, ...rename, active: surface.id === active, pending: false, favicon: '', faviconFallback: '' };
   if (surface.kind === 'browser') { const tab = browserTab(client, surface); return { id: surface.id, kind: surface.kind, ...rename, title: tab.title, icon: 'earth', tone: '', fileToken: '', active: surface.id === active, pending: false, favicon: tab.favicon, faviconFallback: tab.faviconFallback, audio: browserTabAudio(client, surface) }; }
   const name = surface.path.slice(Math.max(surface.path.lastIndexOf('/'), surface.path.lastIndexOf('\\')) + 1);
-  const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // lane r7-device: the open device's name and mark
+  const device = surface.kind === 'device' ? deviceTab(client, panelKey(client)) : null; // The open device's name and mark
   const title = surface.kind === 'terminal' ? panelTerminalLabel(client, surface.terminal?.activeTerminalId ?? '') : surface.kind === 'diff' ? 'Diff' : surface.kind === 'files' ? 'Files' : surface.kind === 'file' ? name : surface.kind === 'pull-requests' ? 'Pull requests' : surface.title || surface.device?.name || device?.title || 'Device';
   const icon = surface.kind === 'terminal' ? 'square-terminal' : surface.kind === 'diff' ? 'file-diff' : surface.kind === 'files' ? 'files' : surface.kind === 'pull-requests' ? 'link-2' : surface.kind === 'device' ? (surface.device ? surface.device.platform === 'android' ? 'android' : 'apple' : 'smartphone') : '';
   return { id: surface.id, kind: surface.kind, ...rename, title, icon, tone: '', fileToken: surface.kind === 'file' ? fileIconToken(surface.path) : '', active: surface.id === active, pending: pending.has(surface.path), favicon: '', faviconFallback: '' };
@@ -313,8 +313,8 @@ function tabOf(client: T3Client, surface: Surface, active: string, pending: Read
 /** The panel's projection for ShellView: tabs, the active surface's body and the device wizard. */
 export async function panelView(client: T3Client, native: Native | null | undefined, now: number, sheet = false): Promise<PanelView> {
   const state = panelState(client), store = surfaceStore(client);
-  await threadDevices(client, native, sheet); // lane r12-threads: a thread's device session floats (ChatView autoShowFloatingPreview)
-  if (restoreRightPanel(client, panelKey(client), state)) { // lane r11-device: the device it showed and its open Diff
+  await threadDevices(client, native, sheet); // A thread's device session floats (ChatView autoShowFloatingPreview)
+  if (restoreRightPanel(client, panelKey(client), state)) { // The device it showed and its open Diff
     const effects = restoredEffects(state.surfaces, state.active, state.visible);
     if (effects.device) restoreDeviceTarget(client, panelKey(client), effects.device);
     if (effects.diff && native?.available) await showDiff(client, native);
@@ -323,7 +323,7 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   if (deviceSurface) selectDeviceTarget(client, panelKey(client), deviceSurface.device);
   syncDiff(client, state);
   if (!availability(client).files) reconcileFiles(state);
-  await browserPrepare(client, native, state); // browser-surface: the thread's sessions, the native web views, status reports
+  await browserPrepare(client, native, state); // The thread's sessions, the native web views, status reports
   const active = state.surfaces.find(entry => entry.id === state.active) ?? null;
   const open = state.visible && !!active && active.kind !== 'diff';
   const live = native?.available ? native : null;
@@ -335,17 +335,17 @@ export async function panelView(client: T3Client, native: Native | null | undefi
   if (live && open && active.kind === 'device' && !deviceSetup) device.r6 = await r6DeviceView(client, live, deviceStateOf(client) ?? {}, device.loaded, panelKey(client));
   const prs = open && active.kind === 'pull-requests' ? prsView(client, now) : emptyPrs();
   const r5 = await r5Views(client, live, active, open, now);
-  await r5Prefetch(client, live, state.surfaces, now); // lane r6-pr: tab icons from loaded detail
+  await r5Prefetch(client, live, state.surfaces, now); // Tab icons from loaded detail
   return {
     terminalClose: store.terminalClose,
     terminal: active?.kind === 'terminal' ? terminalPanelView(client, await terminalDrawerView(client, native, 0, now), active) : emptyTerminalDrawerView(),
     key: panelKey(client), launcher: state.visible && !active, open, kind: active?.kind ?? '', active: active?.id ?? '', count: state.surfaces.length,
     tabs: state.surfaces.map(surface => tabOf(client, surface, state.active, pendingPaths(client))), files, prs, device, deviceSetup, ...r5,
-    deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // r12-threads: shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
+    deviceMini: visibleMini(r6DeviceMini(client, deviceStateOf(client)), shownDevice(client)), // shouldRenderPreviewMiniPlayer (its frame: chat-canvas-view.ts)
     tabStrip: tabStrip(obj(client.presentation), state.surfaces.map(surface => surface.id), active?.id ?? '', activeSerial(client, panelKey(client), active?.id ?? '')),
-    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // part 4: the client's profiles for the "+" menu and the launcher
-    browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // part 3: shouldRenderPreviewMiniPlayer's browser half
-    annotationSend: annotationSendSerial(client), // part 3: after browserPrepare applied the picks
+    browser: open && active.kind === 'browser' ? browserView(client, active, now) : emptyBrowserView(client), // The client's profiles for the "+" menu and the launcher
+    browserMini: browserMiniView(client, ref => browserMiniSessions(client, ref), shownBrowserTab(client)), // shouldRenderPreviewMiniPlayer's browser half
+    annotationSend: annotationSendSerial(client), // After browserPrepare applied the picks
     automationRecording: automationRecordingView(client), // the agent's recording tools (browser-automation-recording.ts)
   };
 }

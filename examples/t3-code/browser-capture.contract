@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview buttons and the floating
+// The chrome row's Annotate, Capture and Float preview buttons and the floating
 // player's browser source (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/
 // PreviewChromeRow.tsx 121-320, ThreadPreviewMiniPlayer.tsx BrowserMiniPlayer and MiniPlayerShell; index.css
 // `animate-status-pulse`). `view.capture` is browser-capture.ts `browserCaptureView`; `local` runs
@@ -185,7 +185,7 @@ component BrowserMiniPlayer
       // the handle: a real pointer that came to rest on the 12 pt box often brought no enter there, so the pill waited for
       // another move, while the player's box has heard the pointer since it crossed the page. The
       // pill's buttons hear no hover of their own either: on macOS a hover node over another trades the hover with it on
-      // every move, and a child outside its parent's box got none before main #327 (X62, #322). Their tooltips follow the pointer's place.
+      // every move, and a child outside its parent's box got none before main #327 (issues/closed/20261009-macos-subtree-hover.md, #322). Their tooltips follow the pointer's place.
       // The drag is a box behind the pill, not the handle that holds its buttons: the reference's buttons stop the
       // pointer-down, so a press on one never drags, while the dot and the pill's padding still do (the pill lets the
       // pointer through; only its buttons take it).

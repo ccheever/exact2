@@ -1,4 +1,4 @@
-// Lane r12-sidebar: the row-action sweep's Escape, the rows' keyboard context
+// The row-action sweep's Escape, the rows' keyboard context
 // menus, the Environments list without a switched-off primary, and the sidebar's
 // minimum width at the Interface font size (f870c419fc).
 import { afterEach, describe, expect, test } from 'bun:test';
@@ -105,7 +105,7 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
   });
 });
 
-// adopt-main-fixes-r7: since exact2 #314 the host's default for ContextMenu at a focused element runs its `contextmenu`
+// Since exact2 #314 the host's default for ContextMenu at a focused element runs its `contextmenu`
 // and opens its context popover at its centre. A thread row leaves it to the host (ThreadMenu, as Chromium's keyboard
 // contextmenu); a draft row and a legacy row prevent it and open their own menus, or the host would open a second one.
 describe('the rows\' key handlers and the host\'s ContextMenu default (exact2 #314)', () => {
@@ -143,7 +143,7 @@ describe('the rows\' key handlers and the host\'s ContextMenu default (exact2 #3
       '    if name != "Enter" and name != " "',
       '      run("legacy-row-key", t.id, name)',
     ].join('\n'));
-    // The pointer's menu is `openMenu` (legacy-sidebar-full review 2: it closes the row's tooltip first), then the same op.
+    // The pointer's menu is `openMenu` (it closes the row's tooltip first), then the same op.
     const legacy = await source('legacy-sidebar.contract');
     expect(legacy).toContain('contextmenu=openMenu key=rowKey ');
     expect(legacy).toContain('  action openMenu\n    hoverTipAt(legacyTipOff(), "trigger", false)\n    run("legacy-thread-menu", t.id, "")');

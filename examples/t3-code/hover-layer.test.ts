@@ -1,4 +1,4 @@
-// fix-hover-cards: the window's hover layer (hover-layer.contract), read from the Contract sources as
+// The window's hover layer (hover-layer.contract), read from the Contract sources as
 // dialog-focus.test.ts reads them. T3 Code portals every TooltipPopup and PopoverPopup to the body, so
 // no scroll area or clipping card around a trigger cuts them, and an openOnHover popover stays while
 // the pointer crosses into it (safePolygon) and for its closeDelay after it leaves. These checks guard
@@ -112,7 +112,8 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
     expect(page.match(/hoverTipAt\(noHoverTip\(\), "", true\)/g)).toHaveLength(4);
     expect(page).toContain('  action toggle(id: string)\n    if held == id\n      hoverTipAt(noHoverTip(), "", true)');
     // A press elsewhere in the window (the sidebar, a toast) closes a hover-opened popover too, until the next enter:
-    // macOS could hand the segment an enter while the pointer was elsewhere (X62, #322, before main #327), and Base UI's outside press
+    // macOS could hand the segment an enter while the pointer was elsewhere (#322, issues/closed/20261009-macos-subtree-hover.md,
+    // before main #327), and Base UI's outside press
     // closes the popover however it opened.
     expect(page).toContain('state hoverAt = 0');
     expect(await source('hover-layer.contract')).toContain('fn hoverDelay(kind: string): number = kind == "scopes" ? 100 : (kind == "freshness" or kind == "pr-preview" ? 120 : (kind == "usage" ? 50 : 0))');
@@ -159,7 +160,7 @@ describe('the layer and its timing', () => {
   test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on each of the four sides', async () => {
     const body = await component('hover-layer.contract', 'HoverLayer');
     expect(body.match(/column hover=hoverAt\(tip, "card"\) padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="auto"/g)).toHaveLength(4);
-    // A tooltip's column: 20rem on the left and right, and on the top and bottom the span's (a "code" tip's 30rem; MSU-1).
+    // A tooltip's column: 20rem on the left and right, and on the top and bottom the span's (a "code" tip's 30rem).
     expect(body.match(/column padding-(left|right)=4 max-width="20\.25rem" pointer-events="none"\n/g)).toHaveLength(2);
     expect(body.match(/column padding-(top|bottom)=4 max-width=\(\(span - 2\.5\) \* rem\) pointer-events="none"\n/g)).toHaveLength(2);
     expect(body).toContain('derive span = tip.kind == "code" ? 32.5 : 22.5');
@@ -185,7 +186,7 @@ describe('the layer and its timing', () => {
   });
 });
 
-describe('settings-rows-and-labels S1-16, S2-7: one "Background policy details" tooltip, drawn by the window layer', () => {
+describe('one "Background policy details" tooltip, drawn by the window layer', () => {
   test('PolicyTip hands its button frame to the layer on hover and focus: kind policy, side top, centred, after 200 ms', async () => {
     const body = await component('settings-kit.contract', 'PolicyTip');
     expect(body).toContain('inject\n    rem: number\n    hoverTipAt: action');

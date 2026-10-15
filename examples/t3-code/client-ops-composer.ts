@@ -1,5 +1,5 @@
 import { omitExpiredTerminalContexts } from './terminal-integrations';
-import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
+import { terminalOpen } from './terminal-drawer-view'; // the real terminalOpen
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
@@ -11,22 +11,22 @@ import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
 import { additiveGesture, fanoutSelections, fanoutSupported, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
-import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
+import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink';
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, serverThreadWorkspace, workspaceStrategy } from './composer-controls-branch';
-import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6, the sent selection
+import { composerSelection } from './composer-provider-selection'; // the sent selection
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
-import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
+import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback';
 import { withMessageContext } from './composer-editor';
-import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
+import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from './browser-annotation'; // an annotation's send
 import { pressGesture, sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
 import { composerFileAttachments } from './composer-editor-files';
 import { activeInput, pendingRequests, setCustomAnswer, chooseOption, advanceQuestion, previousQuestion, dismissPayload, approvalPayload } from './requests';
 import { threadPhase } from './composer-presentation';
-import { autoBalanceSend } from './auto-balance'; // auto-balance
-import { fleet } from './settings-b-fleet'; // settings-model-picker: favorites from another environment's catalog
+import { autoBalanceSend } from './auto-balance';
+import { fleet } from './settings-b-fleet'; // favorites from another environment's catalog
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, activeRun, providerAvailable, modelSelection, sendPayload,
   launchPayload, type Native, type Files } from './protocol';
@@ -72,7 +72,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
+    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); // onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
@@ -97,7 +97,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
   if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts); onSend checks /usage-limits first
-  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
+  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // new SnapShot images upload
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);
@@ -119,7 +119,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   // gesture the module recorded (T3ComposerIntent: a key press, or none once a click has retired it).
   const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
-  // browser-surface part 3: an annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
+  // An annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === sendProviderId);
   if (!provider || !providerAvailable(provider)) { if (annotationSend) return annotationAttachedToDraft(this); throw new ClientError('This provider is unavailable. Configure it in T3 Code.'); } // onSend: !providerAvailable
@@ -127,11 +127,11 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
-  // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend, PA-9).
+  // An unstarted server thread set to New worktree starts in one with its first message (ChatView onSend).
   const serverWorkspace = selection.threadId ? serverThreadWorkspace(this) : null;
   const attachments = [...await this.uploadSnapshots(native, storage), ...await composerFileAttachments(this, native, text)]; // + folded pastes (composer-editor-files.ts)
   assertOwner();
-  const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // r7-handoff: a draft launches as its own id
+  const [commandId, messageId, freshThreadId] = await this.ids(native, 3), launchKey = this.draftKey, threadId = selection.threadId ? freshThreadId : launchThreadId(this, launchKey, freshThreadId); // a draft launches as its own id
   assertOwner();
   if (selection.threadId) {
     const key = this.draftKey, staged = stagedFor(this);
@@ -191,7 +191,7 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   const locked = lockedProviderReason(this, providerId);
   if (locked) throw new ClientError(locked);
   // A draft's Shift-click (or Shift+Return) adds the model to a multi-model fan-out; a plain pick ends it. The picker says so
-  // (model-picker-parity CO-7, the press's own shiftKey); the native gesture covers a press it could not see. That press is
+  // (the press's own shiftKey); the native gesture covers a press it could not see. That press is
   // taken on every pick, first (T3ComposerIntent hands it out once): left behind, it would toggle again the one model a
   // removal leaves, or make the next pick within 2 s (a ⌘N jump) additive. The model a toggle leaves is a plain pick.
   if (op === 'model' && !toggled) {
@@ -210,7 +210,7 @@ async function changeModel(this: T3Client, native: Native, storage: Files, op: s
   this.modelOptions = remembered;
 }
 async function changeModelOption(this: T3Client, native: Native, storage: Files, id: string, value: string): Promise<void> {
-  if (ultrathinkChoice(this, id, value)) return; // composer-fidelity G9: an injected effort rewrites the prompt
+  if (ultrathinkChoice(this, id, value)) return; // an injected effort rewrites the prompt
   // The traits menu shows the model the turn runs on (composer-provider-selection.ts); its option change keeps that model.
   const chosen = composerSelection(this, !!fanoutSelections(this));
   const providerId = chosen.instanceId || this.providerId, modelId = chosen.entry ? chosen.model : this.modelId;

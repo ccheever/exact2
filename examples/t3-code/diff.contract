@@ -70,7 +70,7 @@ component DiffPanelBody
     scopeOpenedAt = -1
     command("diff-view", "menu", "", 0)
     focus("diff-scope")
-  // fix-keyboard-focus: the end of the scope menu a key on its trigger asked for (menu-keys.contract).
+  // The end of the scope menu a key on its trigger asked for (menu-keys.contract).
   state scopeEnd = ""
   action setScopeEnd(end: string)
     scopeEnd = end
@@ -99,7 +99,7 @@ component DiffPanelBody
     draftText = ""
   view
     column height="100%" width="100%" min-width=0 position="relative" box-sizing="border-box" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "light-dark(#fcfcfc, #0a0a0a)") border-left-style="solid" border-left-width=1 border-color="light-dark(#e4e4e7, #191919)" box-shadow=(sheet ? "0 10px 15px -3px #0000000d, 0 4px 6px -4px #0000000d" : "none") testId="diff-panel" role=(sheet ? "dialog" : "region") aria-label="Diff"
-      // r4-surfaces: the shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet).
+      // The shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet).
       R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="", searchFocused=false)
       // A sheet's toolbar sits 6pt lower over the same content top (served reference at 840).
       column margin-top=(sheet ? "0.375rem" : "0px")
@@ -126,7 +126,7 @@ component DiffPanelBody
                 text data.diffEmptyLabel font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717ab3, #818181b3)" testId="diff-empty"
             else
               // DiffFileLoadingBoundary: nearing the end of a large diff asks for four more files (diff-review.ts).
-              // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out; adopt-main-fixes-r12).
+              // appearance="none": the reference draws these rows as divs, not a platform table (LLP 1115.002 D5's opt-out).
               list appearance="none" virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
                 for item in data.diffItems key=item.id
                   DiffRow(family=data.look.codeFont, item=item, wrap=data.diffWrap, command=command, scheme=data.look.diff, size=data.look.codeSize, commentOpen=data.diffCommentOpen, draftText=draftText, editDraft=editDraft, beginComment=beginComment, cancelComment=cancelComment, saveComment=saveComment)
@@ -177,7 +177,7 @@ component DiffToolbar
       button id="diff-scope" press=openScope key=scopeKey focus=scopeEnd("") aria-label=`Diff scope: ${data.diffScopeLabel}` aria-expanded=scopeShown testId="diff-scope" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fafafa, #111111)" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=(data.diffCompare ? 0 : 1)
         text data.diffScopeLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         ReqIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
-      // diff-panel-parity: Changes with a base ref names "<head> → <base>", the base being the comparison target picker.
+      // Changes with a base ref names "<head> → <base>", the base being the comparison target picker.
       if data.diffCompare
         DiffCompare(data=data, command=command)
       box flex=1
@@ -219,7 +219,7 @@ component DiffScopeMenu
     if data.diffTurns.length > 0
       blur()
       command("diff-view", "menu", "turns", 0)
-  // fix-keyboard-focus: Escape belongs to the open menu (Base UI Menu), not to the right panel. The menu scopes
+  // Escape belongs to the open menu (Base UI Menu), not to the right panel. The menu scopes
   // the window's shortcuts while it shows (`aria-modal`), so the panel toggle's Escape shortcut stays out, and the
   // menu's own Escape (a hidden button inside the scope) closes the menus and gives the focus back to the trigger,
   // also when nothing inside holds the focus.
@@ -322,7 +322,7 @@ fn dbReturn(keys: string[], current: string, query: string): string = keys.index
 // The highlighted item is Base UI's activeIndex, by id: an opening starts at the selected item, the
 // pointer and ↓/↑ in the search move it, typing clears it, and Return picks it (none: Return only
 // closes). The selected item keeps its own tint (data-selected) under a moving highlight. Under a query
-// the keys follow the reference's static Automatic row (dbKeys, the user's rule of 2026-10-09, PR #360):
+// the keys follow the reference's static Automatic row (dbKeys, PR #360):
 // ↓ lights Automatic first, Return on it does nothing, and the last matching ref takes no key. A Return
 // hides the popup after an accepted pick or an empty selection.
 component DiffBasePicker

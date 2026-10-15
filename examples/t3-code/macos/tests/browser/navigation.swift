@@ -2,7 +2,7 @@ import AppKit
 import WebKit
 import XCTest
 
-// browser-surface part 2: the page's zoom (`pageZoom`), its appearance (`prefers-color-scheme`), a fixed viewport
+// The page's zoom (`pageZoom`), its appearance (`prefers-color-scheme`), a fixed viewport
 // scaled to fit (T3BrowserView's `fit-scale`) and the preview's chords (the view's key monitor), against the loopback
 // fixture of main.swift.
 final class BrowserNavigationTests: XCTestCase {
@@ -15,7 +15,7 @@ final class BrowserNavigationTests: XCTestCase {
         fixture = try Fixture()
         fixture.page("/size", "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width'><title>Size</title><style>:root{color-scheme:light dark}body{margin:0;font:16px -apple-system;background:#fff;color:#111}@media (prefers-color-scheme: dark){body{background:#111;color:#eee}}@media (max-width: 500px){h1{color:#1b8a3a}}</style><body><h1>Probe</h1><p id=p></p><input id=f><script>window.keys=0;document.addEventListener('keydown',()=>window.keys++);const show=()=>{document.getElementById('p').textContent=innerWidth+' × '+innerHeight+' · dpr '+devicePixelRatio+' · '+(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')};addEventListener('resize',show);matchMedia('(prefers-color-scheme: dark)').addEventListener('change',show);show()</script>")
         fixture.page("/other", "<!doctype html><title>Other</title>")
-        // The size the page has when its first script runs: its first layout (#352, part 4's default viewport).
+        // The size the page has when its first script runs: its first layout (#352, the default viewport).
         fixture.page("/first", "<!doctype html><meta name=viewport content='width=device-width'><title>First</title><script>window.first = innerWidth + 'x' + innerHeight</script>")
         sessions = T3BrowserSessions(agent: true, changed: { _ in })
         window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 720, height: 560), styleMask: [.titled], backing: .buffered, defer: false)
@@ -71,7 +71,7 @@ final class BrowserNavigationTests: XCTestCase {
     }
 
     /// A page the data module lists at a fixed viewport (`browserSync` with its size and zoom) is made at that size
-    /// before its first load, so its first layout is the viewport: part 4's drive saw an iPhone 12 Pro tab at 125%
+    /// before its first load, so its first layout is the viewport: a live drive saw an iPhone 12 Pro tab at 125%
     /// lay its first page out at 512 × 384, the web view's first 640 × 480 (#352).
     func testAPageSyncedAtAFixedViewportLaysOutAtItFirst() {
         sessions.sync([["id": "tab-first", "url": "\(fixture.base)/first", "profile": "default", "environment": "env-1", "width": 390, "height": 844],
@@ -80,14 +80,14 @@ final class BrowserNavigationTests: XCTestCase {
         spin(until: { plain.report["kind"] as? String == "Success" && zoomed.report["kind"] as? String == "Success" })
         XCTAssertEqual(evaluate(plain.web, "window.first"), "390x844", "the first layout is the viewport")
         // At 125% the viewport is 487.5 × 1,055 points; WebKit drops the half point (487 is 389 CSS px), so the page is
-        // made at 488 × 1,055 (T3BrowserViewport.points), and its first layout is exactly the fields (G4-16).
+        // made at 488 × 1,055 (T3BrowserViewport.points), and its first layout is exactly the fields.
         XCTAssertEqual(evaluate(zoomed.web, "window.first"), "390x844", "at 125% too")
         XCTAssertEqual(viewport(zoomed.web), "390x844")
         XCTAssertEqual(zoomed.zoomFactor, 1.25)
         XCTAssertEqual(zoomed.web.frame.size, NSSize(width: 488, height: 1055))
     }
 
-    /// browser-panel-parity G4-16: a fixed viewport's page reports `innerWidth × innerHeight` equal to the size fields,
+    /// A fixed viewport's page reports `innerWidth × innerHeight` equal to the size fields,
     /// not a pixel under, at 100%, 125%, 150% and 110%, drawn into a box at a non-integral fit scale; through a resize,
     /// a zoom change, the panel hiding (the page parked and held) and a remount. Fill keeps the box's own size.
     func testAFixedViewportMeasuresItsFieldsExactlyAtEveryZoomAndFitScale() {

@@ -1,4 +1,4 @@
-// Integrations → Devices: the version popovers (lane settings-a). Reference:
+// Integrations → Devices: the version popovers. Reference:
 // components/device/DeviceToolVersions.tsx and IntegrationsSettings.tsx
 // versionActions (device.list { updateTool } / { inspectOnly }).
 import type { T3Client } from './client';

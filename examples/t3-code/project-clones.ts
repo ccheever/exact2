@@ -58,7 +58,7 @@ const renderKey = (clone: Obj) => `${str(clone.phase)}:${str(clone.stage)}:${clo
  * The toast for one snapshot. Open project is the reference's openProject on every environment (handleNewThread with
  * scopeProjectRef(environmentId, projectId)): `new-thread` with the project named on its environment, the sidebar's
  * `fleet:<environmentId>:<id>` form (settings-b-fleet.ts parseFleetThreadId), so it opens that environment's draft even
- * after the window moved to another environment (client-ops-threads.ts; scheduled-tasks-followups ST-2).
+ * after the window moved to another environment (client-ops-threads.ts).
  */
 export function cloneToast(clone: Obj, environmentId: string): CloneToast {
   const name = projectCloneDisplayName(clone), projectId = str(clone.projectId);

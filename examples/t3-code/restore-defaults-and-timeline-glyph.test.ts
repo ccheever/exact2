@@ -1,8 +1,8 @@
-// Settings › Restore defaults (RD-1) and the pull request glyph of a timeline lifecycle row (TG-1), against the reference.
-// RD-1: Settings › Restore defaults resets exactly what the reference's useSettingsRestore resets (SettingsPanels.tsx: its
+// Settings › Restore defaults and the pull request glyph of a timeline lifecycle row, against the reference.
+// Settings › Restore defaults resets exactly what the reference's useSettingsRestore resets (SettingsPanels.tsx: its
 // one updateSettings patch, and useTheme's theme, mix and follow-system keys), so Font smoothing, Sidebar (legacy), the
 // legacy thread sort, Plan mode (legacy) and typography's Advanced switch are neither listed nor reset.
-// TG-1: a pull request Timeline's lifecycle rows draw the pull request glyph on the rail (LifecycleEvent's IconMarker),
+// A pull request Timeline's lifecycle rows draw the pull request glyph on the rail (LifecycleEvent's IconMarker),
 // never the actor's avatar.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
@@ -59,7 +59,7 @@ const CHANGED: Record<keyof typeof CLIENT_DEFAULTS, string | number | boolean> =
   browserRecordingShowKeyPresses: true, browserRecordingShowMousePresses: true, browserAutoShowFloatingPreview: false,
 };
 
-describe('RD-1: Restore defaults resets what the reference resets', () => {
+describe('Restore defaults resets what the reference resets', () => {
   test('every device key is either one the reference resets or one it keeps, and nothing else', () => {
     const kept = new Set<string>([...KEPT_ON_RESTORE, 'planModeEnabled']);
     const reset = new Set([...REFERENCE_PATCH_CLIENT_KEYS, ...REFERENCE_THEME_KEYS]);
@@ -109,7 +109,7 @@ describe('RD-1: Restore defaults resets what the reference resets', () => {
   });
 });
 
-describe('TG-1: a lifecycle row draws the pull request glyph on the rail', () => {
+describe('A lifecycle row draws the pull request glyph on the rail', () => {
   test('the lifecycle rows use the icon marker whatever the actor; the actor is named beside the label', async () => {
     const lines = (await Bun.file(new URL('./pages-pr-timeline.contract', import.meta.url)).text()).split('\n');
     const start = lines.findIndex(line => line.trim() === 'if row.kind == "opened" or row.kind == "merged" or row.kind == "closed"');

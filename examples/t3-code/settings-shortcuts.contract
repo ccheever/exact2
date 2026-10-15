@@ -24,7 +24,7 @@ component ShortcutDispatch
     toggleDiff: action
     openDiff: action
     closeDiff: action
-    panel: action // lane r9-input: ⌘W closes the active surface tab (panelUi("tab-close", id))
+    panel: action // ⌘W closes the active surface tab (panelUi("tab-close", id))
     prClose: action
     stop: action
     openOptions: action
@@ -62,7 +62,7 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=closeDiff)
         if item.kind == "close-surface"
           ShortcutButton(item=item, press=panel("tab-close", item.target))
-        if item.kind == "panel-close" // browser-surface part 2: ⇧⌘J closes a shown Browser panel
+        if item.kind == "panel-close" // ⇧⌘J closes a shown Browser panel
           ShortcutButton(item=item, press=panel("close", ""))
         if item.kind == "pr-close"
           ShortcutButton(item=item, press=prClose)
@@ -88,7 +88,7 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=run("flow", item.target, item.extra))
         if item.kind == "terminal-close"
           ShortcutButton(item=item, press=closeTerminal(item.target, item.extra, item.label))
-        // terminal-links-and-close G1-4: while a terminal close confirm is open its chord runs nothing ("ui:refuse" is no
+        // While a terminal close confirm is open its chord runs nothing ("ui:refuse" is no
         // window op), and holding the chord keeps it from the window's Close (keyboard-dispatch.ts refuseTerminalClose).
         if item.kind == "refuse"
           ShortcutButton(item=item, press=confirm("ui:refuse", "", "", "", "", false))
@@ -98,10 +98,10 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=settings)
         if item.kind == "pr-copy"
           ShortcutButton(item=item, press=copy(item.target, item.extra))
-        // thread-commands-and-keys: a command whose argument is its value (composer.cycleHost → environment-run-on).
+        // A command whose argument is its value (composer.cycleHost → environment-run-on).
         if item.kind == "command-value"
           ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
-        // thread-commands-and-keys: ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
+        // ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
         // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
         if item.kind == "composer-key"
           button hatch="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true

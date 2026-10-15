@@ -12,7 +12,7 @@ import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerContro
 import { adoptStash } from './composer-editor-stash';
 import { adoptComposerFiles } from './composer-editor-files';
 import { sidebarOpened, sidebarRefreshed } from './sidebar-commands';
-import { takeRowDrops } from './legacy-sidebar-drop'; // legacy-sidebar-full LS-3
+import { takeRowDrops } from './legacy-sidebar-drop';
 import { reconnectOnLaunch, launchFocus, primaryTakesFocus } from './r8-pointer-reconnect';
 import { adoptSidebarPrefs } from './sidebar-state';
 import { PROVIDER_OPS } from './providers';
@@ -21,7 +21,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut, type ProvidersRoute } from './
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
-import { routedPullRequestRequest } from './pages-pr-environments'; // pr-links-previews-and-routing
+import { routedPullRequestRequest } from './pages-pr-environments';
 import { adoptLocalPrefs, refreshLocal, unknownLocalBackend, type LocalBackendStatus, adoptHandoff, keepAliveEvent, keptThread } from './local-environment';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
@@ -32,29 +32,29 @@ import { mostRecentProjectId } from './pages-home';
 import { adoptPagesPrefs } from './pages-prefs';
 import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
-import { adoptSidebarWidth } from './r4-polish-sidebar-width'; // r4-polish: the stored sidebar width
+import { adoptSidebarWidth } from './r4-polish-sidebar-width';
 import { VCS_STATUS_KEY, vcsStatusEvent } from './shell-vcs';
-import { adoptBrowserPrefs } from './browser-defaults'; // browser-surface part 4
+import { adoptBrowserPrefs } from './browser-defaults';
 import { PR_REFRESH_KEY, prRefreshEvent, adoptPrSnapshots } from './pages-pr-refresh';
 import { DEVICE_STATE_KEY, deviceStateEvent } from './r4-surfaces-device';
 import { LIVE_KEYS, liveEvent } from './live-streams';
-import { discoveredServersEvent, isDiscoveredServersKey } from './browser-targets'; // browser-surface part 2 and the legacy sidebar's ports: the live local servers
-import { adoptBrowserHistory } from './browser-history'; // browser-surface part 2: the Browser tab's history
+import { discoveredServersEvent, isDiscoveredServersKey } from './browser-targets'; // the Browser and the legacy sidebar's ports: the live local servers
+import { adoptBrowserHistory } from './browser-history';
 import { PREVIEW_AUTOMATION_KEY, PREVIEW_EVENTS_KEY, previewStreamEvent } from './browser-automation';
 import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
-import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
+import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view';
 import { adoptTerminalContexts } from './terminal-integrations';
-import { adoptPreviewAnnotations } from './browser-annotation'; // browser-surface part 3: Annotate's drafts
-import { providerSetupEvent } from './provider-setup'; // provider-sign-in-and-install: the auth and install streams
-import { composerReplyEvent, settleLostReplies, settleStaleReplies } from './composer-replies'; // usage-reset-and-feedback: detached requests' replies
-import { codexHandoffEvent } from './codex-handoff-events'; // managed-codex-chatgpt: the handoff stream when this connection is the primary
-import { adoptTerminalPrefs } from './terminal-ui-state'; // terminal-drawer
+import { adoptPreviewAnnotations } from './browser-annotation'; // Annotate's drafts
+import { providerSetupEvent } from './provider-setup'; // the auth and install streams
+import { composerReplyEvent, settleLostReplies, settleStaleReplies } from './composer-replies'; // detached requests' replies
+import { codexHandoffEvent } from './codex-handoff-events'; // the handoff stream when this connection is the primary
+import { adoptTerminalPrefs } from './terminal-ui-state';
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
 import { ClientError, bridgeReply, providerAvailable, applyConfig, type Native, type Files } from './protocol';
 import { clampInterfaceFontSize } from './appearance-fonts';
-import { windowAppearanceMode } from './settings-appearance-look'; // audit-wave-followups-2 FV-3: the window draws in the resolved mode
+import { windowAppearanceMode } from './settings-appearance-look'; // the window draws in the resolved mode
 
 const localPath = 'app:/data/t3-code.json';
 type Selection = { projectId: string; threadId: string };
@@ -70,7 +70,7 @@ export class T3Client {
   /** The embedded server's status (local-backend.ts); "This machine" reads it. */
   localBackend: LocalBackendStatus = unknownLocalBackend();
   revision = 0;
-  /** Resource telemetry samples drained (settings-diagnostics-and-scope): only Diagnostics is keyed on it, as only ResourceTelemetryDiagnostics re-renders on a sample. */
+  /** Resource telemetry samples drained: only Diagnostics is keyed on it, as only ResourceTelemetryDiagnostics re-renders on a sample. */
   telemetryRevision = 0;
   generation = -1;
   environmentId = '';
@@ -105,7 +105,7 @@ export class T3Client {
   local = preferences();
   busy = false;
   private loaded = false;
-  /** load() found keys desktop-settings.json took over (decision U7): the next refresh saves without them. */
+  /** load() found keys desktop-settings.json took over: the next refresh saves without them. */
   private dropLegacyKeys = false;
   shellLoaded = false;
   private synchronizedGeneration = -1;
@@ -202,16 +202,16 @@ export class T3Client {
       for (const [key, mode] of Object.entries(obj(saved.groupingOverrides))) if (groupingModes.includes(str(mode))) next.groupingOverrides[key] = str(mode);
       next.clientSettings = decodeClientPrefs(saved.clientSettings);
       next.customThemes = decodeCustomThemes(saved.customThemes);
-      adoptModelPrefs(next, saved); // settings-b: model visibility/order (settings-b-models.ts)
+      adoptModelPrefs(next, saved); // model visibility/order (settings-b-models.ts)
       next.composerControls = decodeComposerControls(saved.composerControls);
       adoptTerminalContexts(next, saved); adoptPreviewAnnotations(next, saved);
-      adoptStash(next, saved); // composer-editor: the prompt stash (composer-editor-stash.ts)
-      adoptComposerFiles(next, saved); // composer-editor: folded pastes (composer-editor-files.ts)
-      adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // pages: page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
-      adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
-      adoptBrowserPrefs(next, saved); // browser-surface part 4: the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
-      adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
-      adoptBrowserHistory(next, saved); // browser-surface part 2: the Browser tab's history (browser-history.ts)
+      adoptStash(next, saved); // the prompt stash (composer-editor-stash.ts)
+      adoptComposerFiles(next, saved); // folded pastes (composer-editor-files.ts)
+      adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
+      adoptShellPrefs(next, saved); // notice dismissals and closed workspace cards (shell-prefs.ts)
+      adoptBrowserPrefs(next, saved); // the Browser's profiles and the defaults a new tab opens with (browser-defaults.ts)
+      adoptFilesPrefs(next, saved); // Files explorer and render preferences (r5-panels-prefs.ts)
+      adoptBrowserHistory(next, saved); // the Browser tab's history (browser-history.ts)
       adoptTerminalPrefs(next, saved); this.dropLegacyKeys = adoptLocalPrefs(next, saved); // each thread's drawer (terminal-ui-state.ts); the default endpoint (local-environment.ts: the switch and exposure moved to desktop-settings.json)
       if (groupingModes.includes(str(saved.lastGroupingMode))) next.lastGroupingMode = str(saved.lastGroupingMode);
       const device = obj(saved.deviceSettings);
@@ -245,7 +245,7 @@ export class T3Client {
       }
       this.local = next;
     }
-    this.loaded = true; this.changed(); // r4-polish: sources gated on the read preferences (the first-run gate) ask again
+    this.loaded = true; this.changed(); // sources gated on the read preferences (the first-run gate) ask again
   }
   async persist(storage: Files): Promise<void> {
     if (this.environmentId) this.local.selections[this.environmentId] = { projectId: this.projectId, threadId: this.threadId };
@@ -260,7 +260,7 @@ export class T3Client {
     try { await this.persist(storage); } catch (error) { if (!letGo(error)) this.error = 'Could not save local drafts and preferences. Keep a copy before closing.'; }
   }
 
-  // r13-store F5: Remove forgets the focused environment's address, selection and cached threads
+  // Remove forgets the focused environment's address, selection and cached threads
   // (reference ConnectionsSettings.tsx:2600-2640: the pairing, credentials and cached threads go).
   dropFocus(environmentId: string): void {
     delete this.local.selections[environmentId];
@@ -282,9 +282,9 @@ export class T3Client {
     this.origin = str(value.origin) || this.origin;
     this.connection = str(value.state, 'disconnected');
     this.statusMessage = str(value.message);
-    // r5-composer: a ref list scrolled toward its end asks its source again for the next page (r5-composer-paging.ts).
+    // A ref list scrolled toward its end asks its source again for the next page (r5-composer-paging.ts).
     const scrolled = JSON.stringify(obj(value.presentation).scrollEnds ?? {}) !== JSON.stringify(this.presentation.scrollEnds ?? {});
-    // browser-surface: a Browser tab's page state (T3BrowserSessions.swift) redraws its tab and chrome row.
+    // A Browser tab's page state (T3BrowserSessions.swift) redraws its tab and chrome row.
     const browsed = JSON.stringify(obj(value.presentation).browserTabs ?? {}) !== JSON.stringify(this.presentation.browserTabs ?? {});
     this.presentation = obj(value.presentation);
     if (scrolled || browsed) this.changed();
@@ -316,7 +316,7 @@ export class T3Client {
     if (!native?.available) { this.available = false; return; }
     const epoch = ++this.nextRefreshEpoch;
     native.watch('t3.status'); native.watch('t3.events');
-    native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
+    native.watch('t3.notify'); // a command's wake redraws the composer (Send's "Preparing machine")
     try {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
@@ -332,10 +332,10 @@ export class T3Client {
       if (!status.ok) throw new ClientError(status.error!.message);
       this.adoptStatus(obj(status.value), status.generation);
       if (await refreshLocal(this, native)) this.changed(); // the embedded server and the primary: a change redraws "This machine" (local-primary.ts)
-      if (this.dropLegacyKeys) { this.dropLegacyKeys = false; await this.save(storage); } // U7: the native side carried the old keys over at attach; save once without them
-      await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14 and the primary: a launch reconnects (r8-pointer-reconnect.ts)
-      await fleet.sync(native, launchFocus(this)); // settings-b: background environments, the primary among them (settings-b-fleet.ts)
-      if (fleet.takeFocusDropped()) primaryTakesFocus(this); // U6: a focused duplicate of the primary went; the primary takes the window (r8-pointer-reconnect.ts)
+      if (this.dropLegacyKeys) { this.dropLegacyKeys = false; await this.save(storage); } // the native side carried the old keys over at attach; save once without them
+      await reconnectOnLaunch(this, native, obj(status.value)); // a launch reconnects (r8-pointer-reconnect.ts)
+      await fleet.sync(native, launchFocus(this)); // background environments, the primary among them (settings-b-fleet.ts)
+      if (fleet.takeFocusDropped()) primaryTakesFocus(this); // a focused duplicate of the primary went; the primary takes the window (r8-pointer-reconnect.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);
@@ -602,8 +602,8 @@ export class T3Client {
   private finishPending(pending: Pending, environmentId = this.environmentId): void {
     // The outcome is known (acknowledged or reconciled), so "may have reached T3" is answered.
     if (this.error === uncertainError(pending)) this.error = '';
-    // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message (PA-9:
-    // launchThread with reuseExistingThread) owns that thread's composer, its text and its images alike.
+    // A launch from a draft owns the project's new-thread composer; an unstarted server thread's first message
+    // (launchThread with reuseExistingThread) owns that thread's composer, its text and its images alike.
     const key = pending.method === 'orchestration.launchThread' && pending.payload.reuseExistingThread !== true
       ? `${environmentId}:new:${str(pending.payload.projectId)}` : `${environmentId}:${pending.threadId}`;
     if (pending.text && this.local.drafts[key] === pending.text) delete this.local.drafts[key];
@@ -691,7 +691,7 @@ export class T3Client {
   }
 
   /** handleNewThreadInActiveProject: the 'new-thread' op's switch to a draft in the current project. */
-  /** Lane r6-pr: a pull request hand-off opens the project's draft (useNewThreadHandler) from inside its command. */
+  /** A pull request hand-off opens the project's draft (useNewThreadHandler) from inside its command. */
   async openProjectDraft(native: Native, projectId: string): Promise<void> { this.projectId = projectId; await this.openFreshDraft(native); }
   async openFreshDraft(native: Native): Promise<void> {
     this.threadId = ''; this.thread = null; this.threadSubscription = ''; this.threadEpoch++;
@@ -718,7 +718,7 @@ export class T3Client {
   }
   /** Provider settings writes (providers.ts) share this connection's generation and write-uncertainty rules. */
   async rpc(native: Native, method: string, payload: Obj, write = false): Promise<Obj> {
-    // pr-links-previews-and-routing: a pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
+    // A pull request request reads or writes through the server the reader shares GitHub with (pages-pr-environments.ts).
     return method.startsWith('pullRequests.') ? routedPullRequestRequest(this, native, method, payload, write) : this.request(native, method, payload, this.generation, write);
   }
   projectGroups() {
@@ -732,7 +732,7 @@ export class T3Client {
       const members = byKey.get(key) || []; members.push(project); byKey.set(key, members);
     }
     return [...byKey].map(([key, members]) => {
-      const name = groupLabel(members); // r6-polish: deriveProjectGroupLabel (r6-polish-groups.ts)
+      const name = groupLabel(members); // deriveProjectGroupLabel (r6-polish-groups.ts)
       return { key, name, members };
     });
   }
@@ -749,7 +749,7 @@ export class T3Client {
   }
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
-    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // composer-fidelity G15: a missing thread shows NoActiveThreadState
+    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // a missing thread shows NoActiveThreadState
     this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     sidebarOpened(this, native);
@@ -766,7 +766,7 @@ export class T3Client {
   restAccess(native: Native) {
     // `read`: a read the transport shares with an identical one already pending (T3Transport `share`): an
     // answer asked again before its reply (Exact lets the old one go) joins it instead of sending again,
-    // as the reference's query atoms share one request per input (round 5: vcs.refreshStatus four a second).
+    // as the reference's query atoms share one request per input (unshared, vcs.refreshStatus ran four a second).
     return { request: (method: string, payload: Obj = {}, write = false) => this.request(native, method, payload, this.generation, write),
       read: (method: string, payload: Obj = {}) => this.call(native, { op: 'request', method, payload, share: true }, this.generation), http: (path: string) => this.http(native, path), ids: (count: number) => this.ids(native, count), call: (request: Obj) => this.call(native, request),
       dispatch: (storage: Files, payload: Obj, description: string) => this.dispatch(native, storage, payload, description), write: (storage: Files, pending: Pending) => this.write(native, storage, pending) };

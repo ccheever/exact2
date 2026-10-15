@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): the cookie import's contract and its wizard's steps (MIT reference, see LICENSE-T3,
+// The cookie import's contract and its wizard's steps (MIT reference, see LICENSE-T3,
 // T3 Code 1e2ecbd975: packages/contracts/src/browserImport.ts; apps/web/src/components/settings/
 // browserImportWizard.logic.ts, BrowserImportWizard.tsx's labels, IntegrationsSettings.tsx `importFailureReason`).
 //

@@ -1,4 +1,4 @@
-// settings-diagnostics-and-scope. S2-2: Settings › Diagnostics fills again. The page stayed empty: its answer was
+// Settings › Diagnostics fills again. The page stayed empty: its answer was
 // asked on data.revision, every drained event bumped that revision, and the resource telemetry stream the page opens
 // sends a sample at least once a second, so Exact replaced the answer (LLP 1016 D5) before its reads came back, and the
 // next answer sent them again. The reference re-renders only ResourceTelemetryDiagnostics on a sample and reads Live
@@ -30,7 +30,7 @@ const sample = (n: number): Obj => ({ readAt: READ_AT, sampleIntervalMs: 1000, p
   groups: { allT3: { processCount: n, currentCpuPercent: n }, backend: {}, electron: {}, monitor: {} }, health: { native: { status: 'healthy' }, desktop: { status: 'healthy' } } });
 
 /**
- * The lane server behind the fake transport: subscribeResourceTelemetry sends the current sample first, as the
+ * The server behind the fake transport: subscribeResourceTelemetry sends the current sample first, as the
  * server's stream does; a diagnostics read replies `latency` turns after the transport sent it; a shared read
  * (T3Transport `share`) joins an identical one still pending and sends nothing.
  */
@@ -175,7 +175,7 @@ describe('Settings › Diagnostics asks again only when the reference does', () 
   });
 });
 
-describe('Project settings opens on every environment (PG-8)', () => {
+describe('Project settings opens on every environment', () => {
   test("a bare project id is the project's group with no machine or checkout, as /projects/$projectKey redirects", async () => {
     // The palette, the sidebar, the thread menu and the details card name the project by its id (settingsProjectId);
     // routes/projects.$projectKey.tsx redirects to /settings/projects?project=<key> with machine undefined.

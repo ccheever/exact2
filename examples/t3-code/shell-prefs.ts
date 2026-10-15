@@ -1,4 +1,4 @@
-// Lane "shell" preferences, kept inside the one versioned preference file the
+// The shell's preferences, kept inside the one versioned preference file the
 // client persists (app:/data/t3-code.json) under `shell`: the Nightly beta-app
 // notice's dismissal (NightlyMobileBeta.tsx NOTICE_DISMISSED_STORAGE_KEY) and
 // the threads whose inline workspace card was closed (rightPanelStore
@@ -7,8 +7,8 @@
 // `t3code:provider-update-dismissals:v1`), the dismissed version-skew notices
 // (versionSkew.ts `t3code:version-mismatch-dismissals:v1`, keyed environment:client:server),
 // and the last editor an Open In menu used (editorPreferences.ts LAST_EDITOR_KEY
-// `t3code:last-editor`; thread-commands-and-keys), and the ChatGPT plan dialogs already shown
-// (ChatGptWelcomeCoordinator `t3:chatgpt-sharing-welcome:v1`; managed-codex-chatgpt, chatgpt-plan.ts).
+// `t3code:last-editor`), and the ChatGPT plan dialogs already shown
+// (ChatGptWelcomeCoordinator `t3:chatgpt-sharing-welcome:v1`; chatgpt-plan.ts).
 // The client writes the file after every command.
 import { obj, type Obj } from './domain';
 

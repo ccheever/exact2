@@ -1,4 +1,4 @@
-// Lane r11-upstream: retry a failed workspace preparation (upstream 737993303d;
+// Retry a failed workspace preparation (upstream 737993303d;
 // T3 Code, MIT, see LICENSE-T3: client-runtime turnItemPresentation.ts
 // workspacePreparationRetryRunIds / turnItemIsWorkspacePreparation,
 // operations/commands.ts retryWorkspacePreparation, ChatView.tsx and

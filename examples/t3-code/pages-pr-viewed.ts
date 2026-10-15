@@ -3,8 +3,8 @@
 // store the panel's resource and its commands share, one per change request on one environment.
 //
 // Presses show at once (the overlay) and gather until the flush: the panel's resource waits the
-// reference's 400 ms with the native sleep once the presses stop moving `key()` (X19: a data source
-// has no timer; a press meanwhile asks the resource again and lets the wait go), and the flush sends
+// reference's 400 ms with the native sleep once the presses stop moving `key()` (a data source
+// has no timer, issues/closed/20261009-typescript-failure-parity.md; a press meanwhile asks the resource again and lets the wait go), and the flush sends
 // one `pullRequests.setFilesViewed` of at most 500 presses, detached from the answer that sent it
 // (composer-replies.ts). One write is in flight per change request (the reference's serial command
 // scheduler); presses made while a write is out wait for the next flush. A press is held over the host's answers until a read that could have seen

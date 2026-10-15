@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// Lane r8-keys: where a hooked node sits in the window right now (hook `t3-measure`,
+/// Where a hooked node sits in the window right now (hook `t3-measure`,
 /// `data-frame` names it). Contract's `frame(id)` is the layout's position, which a
 /// scrolled transcript leaves behind; a popup anchored to a node inside the transcript
 /// (a table's Copy menu) asks for the drawn position at the moment it opens.

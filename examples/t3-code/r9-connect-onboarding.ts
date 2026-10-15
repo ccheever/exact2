@@ -1,17 +1,16 @@
-// Lane r9-connect: a stored onboardingCompletedAt older than T3 Code itself is
-// not a completion time. Builds before r8-pointer's D16 fix saved seconds since
+// A stored onboardingCompletedAt older than T3 Code itself is
+// not a completion time. Earlier builds saved seconds since
 // launch as an epoch (1970-01-01T00:01:58Z); such a value reads as unset, so the
 // welcome decision stores the real time the next time it records completion.
 // T3 Code's first commit (f194c9661c, "Monorepo electron init") is 2026-02-07.
 //
-// r13-store (F3) — what is done with the old values, recorded here and in the
-// round-13 report:
+// What is done with the old values:
 //  - The WRITER is fixed (pages-welcome.ts, r8-pointer-clock.ts, app.contract's
 //    finish/import commands): a completion time is the window's wall time, or
-//    nothing. Round 8 saved `1970-01-01T00:01:58.501Z` and the round-12 real
-//    first launch `1970-01-01T00:01:37Z`: both were `now()` (ms since launch)
+//    nothing. Earlier builds saved `1970-01-01T00:01:58.501Z` and, on a real
+//    first launch, `1970-01-01T00:01:37Z`: both were `now()` (ms since launch)
 //    passed as if it were an epoch. No new 1970 value can be written.
-//  - Old values are NOT deleted or rewritten here. This reader keeps the r9
+//  - Old values are NOT deleted or rewritten here. This reader keeps its
 //    rule (a stamp before the app existed reads as unset), which is the one
 //    place an old value is hidden. The reference has no such rule (any stored
 //    string means "completed", FirstRunGate/firstRun.ts), so the difference is

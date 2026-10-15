@@ -1,4 +1,4 @@
-// Lane r11-upstream: views for the upstream commits f90b77d809..f870c419fc
+// Views for the upstream commits f90b77d809..f870c419fc
 // (T3 Code, MIT, see LICENSE-T3).
 
 // 737993303d: WorkEntryLogRow's Retry under a failed workspace preparation

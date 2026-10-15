@@ -1,4 +1,4 @@
-// The Pull Requests page (lane "pages"): pullRequests.list / listStats /
+// The Pull Requests page: pullRequests.list / listStats /
 // detail / activity, grouped, sorted and presented as the reference page does.
 // Sources: T3 Code (MIT, see LICENSE-T3) apps/web/src/routes/_chat.pull-requests.tsx
 // and components/pullRequest/{pullRequestList.logic,pullRequestListPreferences,
@@ -12,11 +12,11 @@ import { projectIdentity } from './presentation';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
 import { holdPullRequestRefreshes, liveRefreshAsked, liveRefreshDue, noteViewRefreshed, pullRequestRefreshEpoch, viewRefreshedAt } from './pages-pr-refresh';
-import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // pr-header-actions-and-stacks: the panel's onActed
-import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick'; // pr-handoffs-and-quick-actions
-import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // pr-links-previews-and-routing: several servers' rows
+import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr-actions'; // the panel's onActed
+import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick';
+import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // several servers' rows
 import { environmentQueries, filterKeyOf, foldAnswers, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
-import { openOnHostLabel } from './context-menus'; // contract-keys-and-menu-bar: the number's menu label
+import { openOnHostLabel } from './context-menus'; // the number's menu label
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -203,7 +203,7 @@ export const conflictLabel = (entry: Obj) => entry.state === 'open' && entry.isD
 const CHECKS_LABELS: Record<string, string> = { passing: 'All checks have passed', failing: 'Some checks were not successful', pending: "Some checks haven't completed yet" };
 const REVIEW_LABELS: Record<string, string> = { approved: 'Approved', 'changes-requested': 'Changes requested', 'review-required': 'Awaiting review' };
 const count = (value: number) => String(Math.round(value)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-/** pullRequestEntryKey: a background server's row carries that server (pr-links-previews-and-routing). */
+/** pullRequestEntryKey: a background server's row carries that server. */
 export const entryKey = (entry: Obj) => pullRequestEntryKey(entry);
 const labelColor = (color: unknown) => { const hex = str(color).trim().replace(/^#/, ''); return /^[0-9a-fA-F]{6}$/.test(hex) ? `#${hex}` : ''; };
 const actor = (value: unknown) => { const person = obj(value), login = str(person.login, 'ghost'); return { login, avatar: str(person.avatarUrl), initial: login.slice(0, 1).toUpperCase(), name: str(person.name) }; };
@@ -235,9 +235,9 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     labels: arr(entry.labels).slice(0, 3).map(label => labelChip(str(label.name), labelColor(label.color))),
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
-    // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
+    // The number's right-click (pageslocal:pr-link-menu) names the host it was read from.
     linkMenu: `${str(entry.provider)} ${str(entry.url)}`, linkOpenLabel: openOnHostLabel(str(entry.provider)), // its menu's Open on <host> (PrLinkMenu)
-    // pr-handoffs-and-quick-actions: the Shift quick actions and the stack trigger (pages-pr-quick.ts quickRow).
+    // The Shift quick actions and the stack trigger (pages-pr-quick.ts quickRow).
     ...quickRow({}, entry),
   };
 }
@@ -302,7 +302,7 @@ const listStored = new WeakMap<object, number>();
 const growingShown = new WeakMap<object, string>();
 const failure = (error: unknown) => (error instanceof Error ? error.message : 'Pull requests could not be read.');
 /**
- * One list read over every server this round asks (pr-links-previews-and-routing: each server's `pullRequests.list`,
+ * One list read over every server this round asks (each server's `pullRequests.list`,
  * folded by foldAnswers; a continuation's slice appended under the rows held). A read that fails keeps the rows the
  * last answer to the same question showed (the reference's `answered ?? carried`): the list stays in place, its
  * scroll with it, rather than blanking to an error; a server that fails beside others that answer leaves their rows
@@ -313,7 +313,7 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
   const cached: ListCache = { key, scope, refresh: input.refresh, epoch: pullRequestRefreshEpoch(client), relist: listRelist(client), result: null, error: '', stats: previous?.stats ?? new Map<string, Obj>() };
   try {
     // One invalidate per Refresh press, on every server the page reads: each one announces a change, which asks this read
-    // again while the first is still out, and that read would invalidate (and announce) again (pr-writing-and-metadata
+    // again while the first is still out, and that read would invalidate (and announce) again (a
     // live drive: 141 invalidates, ~50 detail and list reads in 3 s after one press).
     if (input.refresh > 0 && previous?.refresh === input.refresh - 1 && invalidated.get(client) !== input.refresh) {
       invalidated.set(client, input.refresh);
@@ -358,7 +358,7 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
   return lists.get(client) ?? cached;
 }
 /**
- * The list last drawn, per client, with the server it was drawn for. pr-list-place-and-thread-picker PLS-1: while the
+ * The list last drawn, per client, with the server it was drawn for. While the
  * focused connection resynchronizes on the same server (a return to the app resubscribes its shell and thread streams,
  * T3Transport.applicationActive, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
  * reference's list keeps its data (`answered ?? carried`); an empty "loading" view there emptied the list for a moment
@@ -384,13 +384,13 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
   const payload = listPayload(prefs, query);
-  // pr-conversation-and-refresh: the server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
+  // The server's announcements read the list again (its refreshTrigger), the rows staying meanwhile.
   await holdPullRequestRefreshes(client, native, 'list', true);
   // A due live read stays due until a read lands: a later run (a tick, a revision) overtakes this one's answer.
   const ask = listLiveAsk(client, input), live = listLives.get(client)!;
   if (ask !== null && await liveRefreshDue(client, native, LIST_VIEW, ask)) live.due = true;
   let cached = lists.get(client);
-  // pr-links-previews-and-routing: every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
+  // Every server that reads pull requests, a page at a time (pages-pr-paging.ts). A refresh
   // (Refresh, an announcement, a live read, a relist) reads the whole visible list again, never only the last slice.
   const { limit: _limit, ...question } = payload;
   const queries = environmentQueries(client, prefs.projectId), filterKey = filterKeyOf(queries, question);
@@ -412,7 +412,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
     // One read out at a time per question: a run that asks while it is out (a second focus, an announcement, a
     // revision) joins it, as the reference's query layer coalesces a refresh with the fetch in flight. A relist
     // asked for after it went out (an action that changed more than a state) is a new question.
-    // Only a read this answer started is joined (pr-links-previews-and-routing retry): the runner lets an earlier
+    // Only a read this answer started is joined (a retry): the runner lets an earlier
     // answer go when it asks the resource again (a data revision, a typed search), and that answer's read is rejected
     // with it; another answer awaiting it waits on work it does not own (js/src/prelude.js) and failed, keeping the
     // old rows for good ("Loading more" stayed; a second search never landed). A new answer reads for itself.
@@ -427,10 +427,10 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   // The reader's pending answers (a closed pull request leaves an open list on the click), before the filters.
   const answered = cached.result ? { ...cached.result, entries: overrideListEntries(client, arr(cached.result.entries), prefs.state) } : null;
   const presented = presentList(view, answered, answered ? '' : cached.error, cached.stats, prefs, query, input.now, input.selected);
-  // pr-links-previews-and-routing: the list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
+  // The list footer (Load more, Loading more, Narrow your search) and a failed read over shown rows.
   Object.assign(presented, pagingFooter(client, round.key, cached.result?.truncated === true, arr(answered?.entries).length, false, false));
   presented.listError = answered && cached.error ? `${cached.error} Showing the last pull requests loaded.` : '';
-  // pr-handoffs-and-quick-actions: the rows' quick actions with their pending state, speed mode, and the open popovers.
+  // The rows' quick actions with their pending state, speed mode, and the open popovers.
   const byKey = new Map(arr(answered?.entries).map(entry => [entryKey(entry), entry]));
   for (const group of presented.groups) group.rows = group.rows.map(row => { const entry = byKey.get(row.key); return entry ? { ...row, ...quickRow(client, entry) } : row; });
   native.watch?.('t3.pr');
@@ -467,9 +467,9 @@ export function emptyList(prefs: PrPrefs, query: string) {
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
     draftIcon: DRAFT_ICONS[prefs.draft || 'all'] ?? 'layers', reviewIcon: REVIEW_ICONS[prefs.review || 'all'] ?? 'layers', checksIcon: CHECKS_ICONS[prefs.checks || 'all'] ?? 'layers',
     filterBadge: filterCount > 0 ? String(filterCount) : '', providerIconOnly: !!prefs.host,
-    // pr-handoffs-and-quick-actions: Shift alone held (the rows' quick actions show), and the open row popovers.
+    // Shift alone held (the rows' quick actions show), and the open row popovers.
     speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
-    // pr-links-previews-and-routing: the list footer ("more", "loading", "narrow") and a failed read over the rows shown.
+    // The list footer ("more", "loading", "narrow") and a failed read over the rows shown.
     footer: '', footerText: '', loadDisabled: false, listError: '',
   };
 }
@@ -511,7 +511,7 @@ export function presentList(view: PrListView, result: Obj | null, error: string,
     for (const label of arr(entry.labels)) { const name = lower(label.name); if (!name) continue; const held = labels.get(name); labels.set(name, { name: held?.name ?? str(label.name), color: held?.color ?? labelColor(label.color), count: (held?.count ?? 0) + 1 }); }
   }
   // Every author with a row in the state: the Author submenu shows the chosen one and ten that match its search
-  // (PullRequestAuthorFilter, pages-prs.contract prVisibleAuthors; usage-and-pr-pages PG-6).
+  // (PullRequestAuthorFilter, pages-prs.contract prVisibleAuthors).
   view.authors = [...authors.values()].filter(author => author.count > 0).sort((a, b) => b.merged - a.merged || b.count - a.count || str(a.actor.login).localeCompare(str(b.actor.login)))
     .map(author => { const person = actor(author.actor); return { key: person.login.toLowerCase(), login: person.login, name: person.name, avatar: person.avatar, initial: person.initial, detail: `${author.merged} merges loaded`, selected: lower(prefs.author) === person.login.toLowerCase() }; });
   const chosen = new Set(prefs.labels.map(label => label.toLowerCase()));
@@ -545,7 +545,7 @@ export function prLocal(client: { local: object }, op: string, value: string): s
   else if (op === 'project') prefs.projectId = bounded(value);
   else if (op === 'label') prefs.labels = prefs.labels.some(label => label.toLowerCase() === value.toLowerCase()) ? prefs.labels.filter(label => label.toLowerCase() !== value.toLowerCase()) : [...prefs.labels, bounded(value)].slice(0, 10);
   else if (op === 'query') prefs.q = bounded(value);
-  else if (op === 'load-more') { loadMore(client); return ''; } // pr-links-previews-and-routing: the next page
+  else if (op === 'load-more') { loadMore(client); return ''; } // the next page
   else throw new ClientError(`Unknown pull request control: ${op}`);
   savePrPrefs(client, prefs);
   return '';

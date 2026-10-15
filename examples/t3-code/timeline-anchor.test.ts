@@ -1,4 +1,4 @@
-// timeline-and-window-hooks KW-12b: the transcript's remembered position per thread, Contract's since R9Input.swift's
+// The transcript's remembered position per thread, Contract's since R9Input.swift's
 // native restoration retired (its cases are ported here). Reference: T3 Code 1e2ecbd975 (MIT, see LICENSE-T3)
 // timelineScrollAnchoring.ts rememberTimelinePosition (scoped thread keys, 100 entries) and MessagesTimeline.tsx's
 // handleScroll / restoration (scrollToIndex with -offsetWithinRow, else scrollToOffset, else the end). ChatColumn's
@@ -52,7 +52,7 @@ function chat() {
   return c;
 }
 
-describe('KW-12b: each thread keeps its own place', () => {
+describe('each thread keeps its own place', () => {
   test('a thread left scrolled up returns to its row and the offset into it; another one opens at its end', () => {
     const c = chat();
     c.open(A);
@@ -157,7 +157,7 @@ describe('KW-12b: each thread keeps its own place', () => {
   });
 });
 
-describe('KW-12b: one writer per navigation', () => {
+describe('one writer per navigation', () => {
   test('the marker beside the list reports each thread\'s transcript, and R9Input keeps only the composer\'s input', () => {
     const main = source('app-main.contract');
     expect(main).toContain('          for owner in [composerOwner] key=owner\n            box intersect=transcriptOpened(owner) position="absolute"');

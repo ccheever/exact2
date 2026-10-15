@@ -1,4 +1,4 @@
-// Lane "pages", round 3: Usage mixes, the reshaped model table, the model
+// Usage mixes, the reshaped model table, the model
 // dialog (e8545b293b) and Model prices with Map to (b05adb70b0).
 import { expect, test } from 'bun:test';
 import { mergeUsage, presentUsage, emptyUsage, makeWindow } from './pages-usage';
@@ -186,7 +186,7 @@ test('Set price closes the model dialog and opens Model prices with a row for th
   expect(presentPrices(c).rows.map(row => [row.id, row.modelValue, row.isNew])).toEqual([['new:initial', 'mystery', true]]);
 });
 
-// dialog-initial-focus-and-model-prices MP-2: Custom model prices' X, its "Add model price" + and the Apply to chevron
+// Custom model prices' X, its "Add model price" + and the Apply to chevron
 // take their colour from the appearance the window draws (light-dark(), as New task's X does), not from the scheme fact
 // alone: where the two disagree a fact-picked #f5f5f5 drew them white on the light dialog. Each glyph stays mounted
 // while its light-dark() paint follows the appearance.

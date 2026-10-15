@@ -1,4 +1,4 @@
-// Lane settings-b: per-instance model visibility and order (ProviderModelsSection
+// Per-instance model visibility and order (ProviderModelsSection
 // groupModelsForDisplay / nextHiddenModelsForBulkToggle, modelOrdering.ts
 // sortModelsForProviderInstance, modelSelection.ts applyInstanceModelPreferences).
 // "Favorites, visibility, and ordering are saved on this device": the

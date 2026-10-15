@@ -1,4 +1,4 @@
-// Pull requests across several servers (task pr-links-previews-and-routing): which server lists a
+// Pull requests across several servers: which server lists a
 // repository, where a pull request can be acted on, the environments' listings folded into one, and
 // the routing of a pull request read or write through another connected server that shares the
 // same GitHub account. Sources: T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975 —
@@ -16,7 +16,7 @@
 // reads its SubscriptionRef), `request` is `registry.run(id, request(tag, input))`. Effect.cached is a
 // lazily started, memoized promise. Timeouts (30 s reads, 2 s identity probes, 1 s invalidations) are
 // the transport's own per-request deadline (`timeoutSeconds`, T3Transport `timeout`): a data module
-// has no timer (X19). Interruption is Exact letting the answer go (`letGo`), which every fallback
+// has no timer (issues/closed/20261009-typescript-failure-parity.md). Interruption is Exact letting the answer go (`letGo`), which every fallback
 // rethrows, as the reference re-raises `Cause.hasInterrupts`. The SSH-profile re-check of
 // `routingAllowed` is folded into `permission` by the host: an SSH environment whose saved profile no
 // longer produces the stored connection key reads "off" (routingPermissionFor over the key the

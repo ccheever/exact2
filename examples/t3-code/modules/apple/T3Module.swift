@@ -9,20 +9,20 @@ final class T3Module: ExactModule {
     private let panelTabs = RightPanelTabsInput()
     private let toolIcons = T3ToolActivityIcon()
     private let timelineTips = T3TimelineTooltip()
-    let fleet: T3Fleet // Background environments (T3Fleet.swift); browser-surface part 5 answers their previewAutomation hosts.
+    let fleet: T3Fleet // Background environments (T3Fleet.swift); T3BrowserAutomation answers their previewAutomation hosts.
     let ssh: T3Ssh // Add Environment → SSH: discovery, ssh -G, tunnels (T3Ssh.swift).
     let composer: T3Composer
     /// Settings › Appearance's editable prompt sample: its own editor, never the composer's (T3ComposerEditor.swift).
     let promptPreview = T3ComposerEditor(changed: { _ in }, hatch: .t3PromptPreview)
     let intent: T3ComposerIntent // Send gestures and ⌘ state (T3ComposerIntent.swift).
     private let frames: T3ComposerFrames // Popover anchors in window space (T3ComposerFrames.swift).
-    private let scrollEnds: R5ComposerScroll // r5-composer: ref lists' next-page signal (R5ComposerScroll.swift).
+    private let scrollEnds: R5ComposerScroll // Ref lists' next-page signal (R5ComposerScroll.swift).
     let attach: T3ComposerAttach // Attach files: picked images become PNG drafts (T3ComposerAttach.swift).
-    let rowDrop: T3RowDrop // legacy-sidebar-full LS-3: files dropped on a legacy sidebar row (T3RowDrop.swift).
+    let rowDrop: T3RowDrop // Files dropped on a legacy sidebar row (T3RowDrop.swift).
     private let video: T3ComposerVideo // A shelf video's expanded preview (T3ComposerVideo.swift).
-    private let media: R6MediaPreview // lane r6-media: attachment PDF and HTML bodies (R6MediaPreview.swift).
-    private let mediaFocus = T3MediaFocus() // chat-markdown-media-and-code G4-09: a press elsewhere takes the focus off a media node (T3MediaActions.swift).
-    let devices: R6DeviceStreams // lane r6-media: device screens, input and screenshots (R6DeviceStream.swift).
+    private let media: R6MediaPreview // Attachment PDF and HTML bodies (R6MediaPreview.swift).
+    private let mediaFocus = T3MediaFocus() // A press elsewhere takes the focus off a media node (T3MediaActions.swift).
+    let devices: R6DeviceStreams // Device screens, input and screenshots (R6DeviceStream.swift).
     private let timeline: T3Timeline
     let turns = T3TimelineTurns() // A citation's jump to its answer (T3TimelineTurns.swift).
     let mermaid: T3TimelineMermaid // Mermaid fences laid out with the server's own Mermaid (T3TimelineMermaid.swift).
@@ -32,16 +32,16 @@ final class T3Module: ExactModule {
     let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     let sidebar: T3Sidebar // Thread menu, held-key hints and speed mode (T3Sidebar.swift).
-    let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
-    private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
-    let browserSessions: T3BrowserSessions // browser-surface: this session's Browser pages (T3BrowserSessions.swift)
-    let browserAutomation: T3BrowserAutomation // browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift)
-    private let r10: R10Connect // lane r10-connect: wake, chords by physical key, hover under a still pointer (R10Connect.swift).
+    let measure = R8KeysMeasure() // Drawn frames for window-level popups (R8KeysMeasure.swift).
+    private let r9: R9Input // Composer focus and composing text, the transcript's remembered position (R9Input.swift).
+    let browserSessions: T3BrowserSessions // This session's Browser pages (T3BrowserSessions.swift)
+    let browserAutomation: T3BrowserAutomation // The previewAutomation host's executor (T3BrowserAutomation.swift)
+    private let r10: R10Connect // Wake, chords by physical key, hover under a still pointer (R10Connect.swift).
     let textMenu: T3TextContextMenu // the desktop shell's context menu wherever the page shows none (T3TextContextMenu.swift).
     // The SSH password dialog's secure field (T3SshAuth.swift). (The keybinding recorder is Contract's, key-recorder.contract.)
     override class var views: [String: ExactNativeFactory] { ["t3-ssh-password": ExactNativeFactory { props, events in T3SshPasswordField(props: props, events: events) },
                                                               "t3-terminal": T3TerminalView.factory,
-                                                              "t3-browser": T3BrowserView.factory] } // browser-surface: a Browser tab's page (T3BrowserView.swift)
+                                                              "t3-browser": T3BrowserView.factory] } // A Browser tab's page (T3BrowserView.swift)
 
     required init(context: ExactModuleContext) {
         // A topic announced while the snapshot read is in flight lets its reply land, then asks once
@@ -69,14 +69,14 @@ final class T3Module: ExactModule {
         activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: context.data, pageFacts: true)
         transport = T3Transport(persistent: !context.agent, dataDirectory: context.data, credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: changed)
-        fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // terminal-drawer-unthreaded: a background environment's terminals
+        fleet.transportCreated = T3TerminalSessions.fleetObserver(focused: transport) // a background environment's terminals
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
         ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         r9 = R9Input()
         r10 = R10Connect(agent: context.agent)
         textMenu = T3TextContextMenu(agent: context.agent)
         let browser = T3BrowserSessions(agent: context.agent, changed: changed)
-        browser.dataRoot = context.data // part 3: artifacts, Annotate's crops
+        browser.dataRoot = context.data // artifacts, Annotate's crops
         browserSessions = browser
         browserAutomation = T3BrowserAutomation(sessions: browser) // wired in attachBrowserAutomation (T3Module+Browser.swift)
         exportsRoot = context.agent ? context.data.appendingPathComponent("exports", isDirectory: true) : nil
@@ -85,7 +85,7 @@ final class T3Module: ExactModule {
         DispatchQueue.main.async { [sidebar, textMenu] in sidebar.install(); textMenu.install() }
         attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
         attachAppControl(context) // `t3 app <dir>`: the control socket follows the embedded server (T3Module+Activation.swift)
-        attachBrowserAutomation() // browser-surface part 5 (T3Module+Browser.swift)
+        attachBrowserAutomation() // T3Module+Browser.swift
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
         if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
@@ -119,8 +119,8 @@ final class T3Module: ExactModule {
         frames.install(element); scrollEnds.install(element)
         composer.install(element); promptPreview.install(element); chrome.install(element); timeline.install(element); menus.install(element); turns.install(element); video.install(element); media.install(element); devices.install(element)
         measure.install(element); r9.install(element); mediaFocus.install(element)
-        T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift, lane r5-panels)
-        rowDrop.install(element) // legacy-sidebar-full LS-3: a legacy row's file drop target
+        T3FileEditor.install(element) // the Files editor takes the focus its press began (T3PanelsNative.swift)
+        rowDrop.install(element) // a legacy row's file drop target
         activationElement(element) // `t3 app`: the window whose closing fails its requests (T3Module+Activation.swift)
         if element.hatch == .t3Composer { snapShot.setComposer(key: ObjectIdentifier(element), owner: element.data[.snapshotOwner] ?? "", view: element.view, focus: { [weak element] in element?.focus() }) }
         if element.hatch == .t3SnapshotTile, let view = element.view { snapShot.installTile(id: element.data[.snapshotId] ?? "", view: view) }

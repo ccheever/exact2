@@ -1,4 +1,4 @@
-// Lane composer-controls, round 3: dragging a queued message's grip
+// Dragging a queued message's grip
 // (QueuedRunsControl completeDrag) reorders it with queued-run.reorder.
 import { describe, expect, test } from 'bun:test';
 import { arr } from './domain';

@@ -9,7 +9,7 @@ final class T3WindowChrome {
     private var toolbar: NSToolbar?
     private var observations: [NSObjectProtocol] = []
     /// Merged into the status read's presentation: the Mac's locale (T3Locale.swift). Full screen is
-    /// Contract's `exactViewport().displayMode` (timeline-and-window-hooks KW-12c, presentation.ts).
+    /// Contract's `exactViewport().displayMode` (presentation.ts).
     var status: [String: Any] { ["systemLocale": T3Locale.systemLocale()] }
 
     func install(_ element: ExactElement) {

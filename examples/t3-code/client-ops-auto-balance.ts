@@ -1,4 +1,4 @@
-// Auto balance's multi-machine update banner ops (client-ops.ts READ_OPS; task auto-balance,
+// Auto balance's multi-machine update banner ops (client-ops.ts READ_OPS;
 // auto-balance-banner.ts). Like the su: ops they run offline and need no write scope.
 //   ab:update-all  Update all / Update K machines / Retry (desktop apps ask once first)
 //   ab:dismiss     "Dismiss update notice"

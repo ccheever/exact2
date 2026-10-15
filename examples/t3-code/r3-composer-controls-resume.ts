@@ -1,4 +1,4 @@
-// "Resume with less context" (lane composer-controls, round 3), adapted from
+// "Resume with less context", adapted from
 // T3 Code (MIT); see LICENSE-T3. Sources: ChatView.tsx (resumeCompactionBannerItem,
 // compactThreadUnavailable, compactBeforeSend — a976f8c74c),
 // chat/ContextWindowMeter.logic.ts (shouldOfferResumeCompaction,

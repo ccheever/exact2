@@ -71,7 +71,7 @@ component ThreadRow
     dragVerb: string
     dragOffset: number
     page: string
-    // r11-upstream (1826fb55cc): the section's sweep (sidebar.contract ThreadSection): its move action, the armed rows (`|id|…|`) and their action.
+    // Upstream 1826fb55cc: the section's sweep (sidebar.contract ThreadSection): its move action, the armed rows (`|id|…|`) and their action.
     sweep: action
     sweepKeys: string
     sweepVerb: string
@@ -110,7 +110,7 @@ component ThreadRow
       case none
         actionsFocused = false
   derive snoozeItems = presets.map((preset) => KmItem(id=`snooze-${t.id}-${preset.id}`, label=preset.label)).concat([KmItem(id=`snooze-${t.id}-custom`, label="Custom…")])
-  // r8-pointer D8, contract-keys-and-menu-bar: ⌘-click toggles the row in the multi-selection and ⇧-click extends it, read
+  // ⌘-click toggles the row in the multi-selection and ⇧-click extends it, read
   // from the press's own MouseEvent (a keyboard or assistive press has no modifiers), not from a native click monitor.
   action openPress(e: MouseEvent)
     open(t.id, e.metaKey ? "click:meta" : (e.shiftKey ? "click:shift" : "click"))
@@ -183,7 +183,7 @@ component ThreadRow
                   SidebarPrBadge(t=t, recede=false)
                 if t.terminalCount > 0
                   TerminalProcessIndicator(label=t.terminalLabel, tooltip="", size=14, reduced=reduced, id=`sidebar-terminal-status-${t.id}`)
-                // r6-polish: a thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
+                // A thread on another environment carries its machine glyph (size-3.5, muted/70) before the provider stack.
                 if t.remoteMachine != ""
                   box flex-shrink=0 margin-right="-0.125rem" display="flex" aria-hidden=true testId=`remote-${t.id}`
                     CnMachineIcon(kind=t.remoteMachine, size=14, color="light-dark(#71717bb3, #818181b3)")
@@ -292,8 +292,8 @@ component SidebarTip
 
 // The card's hover actions: Discard draft, Snooze (its menu) and Settle,
 // each with its reference tooltip. A press on Snooze or Settle (and the slim rows'
-// Wake and Un-settle) closes its tooltip at once, as Base UI's tooltips close on press
-// (sidebar-hover-archive-and-glyph SW-3a): the window's `sidebarPressDown` moves
+// Wake and Un-settle) closes its tooltip at once, as Base UI's tooltips close on press:
+// the window's `sidebarPressDown` moves
 // the card and tips away and forwards outside-press dismissal. The row keeps its hover and the press its gesture.
 component SidebarCardActions
   props
@@ -303,7 +303,7 @@ component SidebarCardActions
     hoverCard: action
     pressDown: action
     hoverId: string
-    // r11-upstream (1826fb55cc): Settle sweeps the section (ThreadSection's move action; the release is the window's drag end).
+    // Upstream 1826fb55cc: Settle sweeps the section (ThreadSection's move action; the release is the window's drag end).
     sweep: action
     release: action
     sweepKeys: string
@@ -409,7 +409,7 @@ component SidebarStatusSlot
             SidebarIcon(name=t.statusIcon, size=16, color=t.statusColor)
           text t.status role="status" font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor
           if t.duration != ""
-            // r6-polish: WorkingDuration ticks each second from the root clock (the snapshot's own label until it runs).
+            // WorkingDuration ticks each second from the root clock (the snapshot's own label until it runs).
             text (t.workingSince > 0 and now > t.workingSince ? r6WorkingLabel(now - t.workingSince) : t.duration) font-size="0.75rem" line-height="1rem" font-weight=500 color=t.statusColor font-variant-numeric="tabular-nums" aria-hidden=true
       else
         text t.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" font-variant-numeric="tabular-nums"
@@ -455,7 +455,7 @@ component SearchResult
 
 // SidebarDraftRow: an unsent new-thread draft above the pinned block (pen,
 // project, first line of the prompt or its attachment count); X discards it.
-// Right click opens the draft's action menu (r11-upstream, 95edeb753b).
+// Right click opens the draft's action menu (upstream 95edeb753b).
 // It hovers through the window's hover id (`draft:<project>`), so its Discard
 // control keeps it hovered and the overlay draws that control's tooltip.
 component DraftCard
@@ -467,7 +467,7 @@ component DraftCard
     hoverCard: action
     hoverId: string
   derive hovering = hoverId == `draft:${d.id}` or hoverId.startsWith(`draft:${d.id}#`)
-  // r12-sidebar: SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the menu at the row's
+  // SidebarDraftRow handleKeyDown: ContextMenu or Shift+F10 opens the menu at the row's
   // bottom left. The row's own key handler hears both, with its modifiers (main's KeyboardEvent, 8a0afbeab),
   // and prevents both, so the host's ContextMenu default (exact2 #314) opens no second menu at its centre.
   action rowKey(k: string, e: KeyboardEvent)
@@ -499,7 +499,7 @@ component DraftCard
 component SidebarDropVerb
   props
     verb: string
-    // r11-upstream: a swept settled row's badge recedes with the row.
+    // A swept settled row's badge recedes with the row.
     ink: string
   view
     row role="status" height="1.25rem" margin-left="auto" padding-left="0.375rem" padding-right="0.375rem" box-sizing="border-box" gap="0.25rem" flex-shrink=0 align-items="center" border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed866, #346bf166)" background-color="light-dark(#1b4ed81a, #346bf11a)" testId="sidebar-drop-verb"
@@ -522,7 +522,7 @@ style SidebarMenuItem
 // the row's `contextmenu` and opens this popover at the row's centre, as Chromium's keyboard
 // contextmenu does. Shift+F10 opens nothing on a thread row (Chromium on macOS). A draft row
 // (DraftCard) and a legacy row prevent that default and open their own menus.
-// Placement (KW-6): the menu keeps `position-try-fallbacks="none"`, as it opens at the pointer with no invoker and the
+// Placement: the menu keeps `position-try-fallbacks="none"`, as it opens at the pointer with no invoker and the
 // reference's is the system's context menu; a painted submenu sits beside its row and flips to the row's start side.
 component ThreadMenu
   props
@@ -559,7 +559,7 @@ component ThreadMenu
                   text e.label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color=(e.destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
 
 
-// handleDraftContextMenu (r11-upstream, 95edeb753b) as the draft rows' one context popover:
+// handleDraftContextMenu (upstream 95edeb753b) as the draft rows' one context popover:
 // Copy ▸ Path / Branch, Project settings, Discard draft (see ThreadMenu).
 component DraftMenu
   props

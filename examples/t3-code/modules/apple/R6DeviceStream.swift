@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import UniformTypeIdentifiers
 
-/// Lane r6-media / r7-device: a device's live screen (MIT reference, see LICENSE-T3:
+/// A device's live screen (MIT reference, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts, hubAccess.ts, screenshot.ts;
 /// apps/web/src/components/device/DeviceStreamView.tsx). Hook `t3-media` with
 /// `data-media-kind` "device-ios" / "device-android", `data-device-id`, `data-device-host`,
@@ -107,7 +107,7 @@ final class R6DeviceScreenView: NSView {
     var deviceName = "" { didSet { if deviceName != oldValue { phone?.setName(deviceName) } } }
     var axOverlay = false { didSet { if axOverlay != oldValue { refresh() } } }
     private(set) var phone: R7DevicePhoneView?
-    /// Lane r9-device: the iPhone Duo's hinged viewer (R9DeviceDuoView.swift) and a foldable's fold reads (R9DeviceFold.swift).
+    /// The iPhone Duo's hinged viewer (R9DeviceDuoView.swift) and a foldable's fold reads (R9DeviceFold.swift).
     private(set) var duoView: R9DuoView?
     private(set) var fold: R9DeviceFold?
     private(set) var duoState = R9DuoControlState()
@@ -178,7 +178,7 @@ final class R6DeviceScreenView: NSView {
         if let screen = client.screen { value["orientation"] = screen.orientation }
         value["ax"] = overlay.count
         if let duo = client.screen?.duo { value["duo"] = duo.report.merging(duoState.report) { _, new in new } }
-        // Lane r10-device: the Duo's panel feeds (fixed 1 / 3, or the elected 0), for drive evidence.
+        // The Duo's panel feeds (fixed 1 / 3, or the elected 0), for drive evidence.
         if !client.panelClients.isEmpty { value["duoFeeds"] = client.panelClients.map { ["panel": $0.panelId ?? -1, "reopened": $0.reopened, "recovered": $0.recovered, "mjpeg": $0.mjpeg] } }
         if let duoView { value["duoReady"] = duoView.readyDisplay }
         if let fold { value["fold"] = fold.report }

@@ -149,7 +149,7 @@ export function toCustomModelSetting(entry: CustomModelDefinition): Json {
 }
 /**
  * The stored `customModels` (ProviderInstanceCard `updateCustomModels`): `toCustomModelSetting` for every
- * driver, ACP Registry included (decision (c) of provider-settings-upkeep, 2026-10-08: as the original).
+ * driver, ACP Registry included (as the original).
  * An added model is a bare slug; a name or options make an entry, which the server's ACP schema (a string
  * list) refuses when it next loads the instance, as it does for the reference.
  */

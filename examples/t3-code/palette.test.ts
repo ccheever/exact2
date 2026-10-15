@@ -97,7 +97,7 @@ describe('command palette root', () => {
     const projects = commandView(c, { page: 'new-thread-in', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
     expect(projects.rows.map(entry => entry.title)).toEqual(['Parity fixture', 'Second']);
     expect(projects.rows[0]!.header).toBe('Projects');
-    expect(projects.rows.map(entry => entry.shortcut)).toEqual(['⌘1', '⌘2']); // thread.jump.N holds isDesktop: the desktop reference numbers them (SH-3).
+    expect(projects.rows.map(entry => entry.shortcut)).toEqual(['⌘1', '⌘2']); // thread.jump.N holds isDesktop: the desktop reference numbers them.
     expect(projects.back).toBe(true);
     expect(projects.placeholder).toBe('Search...');
     const themes = commandView(c, { page: 'theme', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false });
@@ -262,7 +262,7 @@ describe('file picker and content search', () => {
   });
   test('content results group by file with line numbers and marks', async () => {
     expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }]).map(part => [part.text, part.hit])).toEqual([['# Exact T3 ', false], ['fixture', true]]);
-    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'tag'], ['fixture', true, 'tag']]); // lane r12-render: Shiki's heading ink
+    expect(lineParts('# Exact T3 fixture', [{ start: 11, end: 18 }], 'fixture-result.md').map(part => [part.text, part.hit, part.cls])).toEqual([['# Exact T3 ', false, 'tag'], ['fixture', true, 'tag']]); // Shiki's heading ink
     expect(fileRows([{ kind: 'file', path: 'docs/a.md' }, { kind: 'file', path: 'src/b.ts' }], '').map(entry => entry.icon)).toEqual(['file-md', 'file']);
     const rows = contentRows([{ path: 'fixture-result.md', lineNumber: 1, lineContent: '# Exact T3 fixture', matchRanges: [{ start: 11, end: 18 }] }]);
     expect(rows.map(entry => entry.kind)).toEqual(['file-header', 'line']);

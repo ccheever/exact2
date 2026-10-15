@@ -12,8 +12,8 @@ use DialogOpenFocus from "./dialog-trap.contract"
 // moves it there), Tab stays between the two buttons, Escape is Cancel's, and
 // closing gives the focus back to the switch. The popup measures
 // as ConfirmDialogHost (shell-panels.contract AppConfirm). The dialog closes
-// when the switch reads the new value; the reference relaunches the app there
-// (decision U4), which exact2 cannot (issue X45, exact2 #122): the stopgap
+// when the switch reads the new value; the reference relaunches the app there,
+// which exact2 cannot (exact2 #122): the stopgap
 // restarts the embedded server in place. Motion is the reference's: the
 // backdrop fades and the popup scales from 98 % and fades in 200 ms each way
 // (dialog-styles.ts; no reduced-motion variant, so it runs then too), and the

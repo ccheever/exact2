@@ -1,4 +1,4 @@
-// Settings → Diagnostics, the server's resource telemetry (lane settings-a).
+// Settings → Diagnostics, the server's resource telemetry.
 // Reference ResourceTelemetryDiagnostics.tsx (+ .logic.ts), resourceTelemetryState.ts
 // and DiagnosticsSettings.tsx's process signals. The snapshot is the
 // `subscribeResourceTelemetry` stream (one subscription while the page is open);
@@ -242,7 +242,7 @@ export function telemetryView(client: T3Client, now: number, timeline: Telemetry
  * The Diagnostics page's telemetry: read the timeline, then subscribe, then project the view. The reads land first: the
  * server sends the stream's current sample at once, draining it asks the page again (data.telemetry) and Exact forgets
  * this answer, dropping a reply that reached the transport but not yet this answer; the next answer's shared read joins
- * only a read still pending, so it sent the timeline again (lane trace: 13 ms after the first reply ended).
+ * only a read still pending, so it sent the timeline again (in a trace, 13 ms after the first reply ended).
  */
 export async function telemetryPage(client: T3Client, native: Native | null | undefined, active: boolean, now: number, refresh: number) {
   const timeline = await telemetryTimeline(client, native, active, refresh);

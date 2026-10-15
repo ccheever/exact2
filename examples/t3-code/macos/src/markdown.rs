@@ -63,7 +63,7 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "shellView",
             "shellDetails",
             "chatCanvas",
-            "terminalDrawer", // terminal-drawer: the thread terminal drawer (terminal-drawer-view.ts)
+            "terminalDrawer", // the thread terminal drawer (terminal-drawer-view.ts)
             "sidebarLaunchWidth",
             "prList",
             "prDetail",
@@ -86,9 +86,9 @@ impl DataSource for Markdown {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        // renderPullRequestMarkdown: the same parse for a pull request body and its comments (lane pages);
-        // renderFileMarkdown: a Markdown file in Files (markdown-links-and-files-preview, r4-surfaces-files.ts)
-        // and a sent attachment's (audit-wave-followups-3 FW-2, r5-panels-attach.ts).
+        // renderPullRequestMarkdown: the same parse for a pull request body and its comments;
+        // renderFileMarkdown: a Markdown file in Files (r4-surfaces-files.ts)
+        // and a sent attachment's (r5-panels-attach.ts).
         if source != "renderMarkdown"
             && source != "renderPullRequestMarkdown"
             && source != "renderFileMarkdown"
@@ -116,13 +116,13 @@ impl DataSource for Markdown {
                 continue;
             }
             let text = fields.get(3).and_then(Value::as_str).unwrap_or("");
-            // markdown-links-and-files-preview PA-3: an editable file's rendered Markdown
+            // An editable file's rendered Markdown
             // (FileMarkdownPreview), whose task checkboxes write the file.
             if kind == "file" {
                 documents.push(document_with_tasks(id.clone(), text, None, true));
                 continue;
             }
-            // audit-wave-followups-3 FW-2: a sent attachment's rendered Markdown
+            // A sent attachment's rendered Markdown
             // (AttachmentFilePreview: ChatMarkdown with no `cwd`), its checkboxes disabled.
             if kind == "attachment" {
                 documents.push(document_with_links(id.clone(), text, None, false, false));
@@ -255,7 +255,7 @@ fn chat_run(value: Value, link_start: bool) -> Value {
         fields[1] = Value::str(&text);
         ("file", icon)
     } else if href == NO_HREF {
-        // markdown-links-and-files-preview TH-9: an anchor the URL transform emptied.
+        // An anchor the URL transform emptied.
         fields[5] = Value::str("");
         ("link", "")
     } else if href.is_empty() {
@@ -620,7 +620,7 @@ fn document_with_links(
     // `![name](t3-context://…)`, which would shift every later marker by one.
     let source = text;
     let text = image_chip_links(text);
-    // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text is a media run.
+    // An image inside a line of text is a media run.
     let text = inline_image_links(&text);
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
     if !cwd {
@@ -1168,7 +1168,7 @@ mod tests {
         assert_eq!(pierre_icon_token("Cargo.toml"), "default");
     }
 
-    /// shell-context-menu: a web link's own menu is dispatched per node (FlowRuns), not per inline run (ChatRuns), so
+    /// A web link's own menu is dispatched per node (FlowRuns), not per inline run (ChatRuns), so
     /// every prose block holding a link, with no code or chip beside it, is laid out word by word.
     #[test]
     fn a_prose_block_with_only_a_web_link_flows_so_its_link_is_a_node() {
@@ -1392,7 +1392,7 @@ mod tests {
 
     #[test]
     fn an_image_with_a_fragment_source_loads_nothing() {
-        // A fragment stays a link's href (reply-links RL-2), but an image's `#…` source loads nothing, as an emptied one
+        // A fragment stays a link's href, but an image's `#…` source loads nothing, as an emptied one
         // (media-views.ts markdownImageHref).
         let Value::Record(doc) = document(
             Value::str("m"),

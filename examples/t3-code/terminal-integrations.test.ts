@@ -125,7 +125,7 @@ const storage: Files = { fs: { async mkdir() {}, async atomicWriteFile() {}, asy
 function scriptClient(fail = '') {
   const client = new T3Client(), calls: { method: string; payload: Obj }[] = [];
   client.environmentId = 'e'; client.threadId = 't'; client.projectId = 'p';
-  Object.assign(client, { loaded: true }); // the saved settings were read: a preview opens only under read defaults (part 4)
+  Object.assign(client, { loaded: true }); // the saved settings were read: a preview opens only under read defaults
   client.shell = { projects: [{ id: 'p', workspaceRoot: '/repo', scripts: [{ id: 'test', name: 'Test', command: 'bun test', icon: 'play' }, { id: 'build', name: 'Build', command: 'bun build', icon: 'play' }] }], threads: [{ id: 't', projectId: 'p' }], sequence: 0 };
   client.request = async (_native, method, payload) => { calls.push({ method, payload }); if (method === fail) throw new Error(`${method} refused`); return {}; };
   return { client, calls };
@@ -142,7 +142,7 @@ describe('project script integration', () => {
     expect(calls[3]?.payload.data).toBe('bun build\r');
     expect(calls[2]?.payload.terminalId).toBe(calls[0]?.payload.terminalId);
   });
-  test('autoOpenPreview runs the script, then opens its preview URL in a Browser tab (browser-surface part 5)', async () => {
+  test('autoOpenPreview runs the script, then opens its preview URL in a Browser tab', async () => {
     const { client, calls } = scriptClient();
     const request = client.request;
     client.request = async (nativeArg, method, payload, ...rest) => method === 'preview.open'

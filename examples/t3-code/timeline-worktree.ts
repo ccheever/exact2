@@ -97,7 +97,7 @@ export function threadWorktreeSetup(client: T3Client): { snapshot: Obj | null; p
   const live = state.latest && str(state.latest.threadId) === client.threadId ? state.latest : null;
   const run = activeRun(client.projection);
   const users = arr(client.projection.visibleTurnItems).filter(row => obj(row.item).type === 'user_message').length;
-  const snapshot = visibleWorktreeSetup(live, setupTurnStarted(client.projection), users > 1); // r12-threads: the activity run, a settled one included
+  const snapshot = visibleWorktreeSetup(live, setupTurnStarted(client.projection), users > 1); // The activity run, a settled one included
   const preparing = str(run?.status) === 'preparing' || (live?.phase === 'running' && !agentStarted(live));
   return { snapshot, preparing };
 }

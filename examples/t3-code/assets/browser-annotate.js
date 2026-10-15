@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the Browser tab's annotation overlay, a classic script the module runs in
+// The Browser tab's annotation overlay, a classic script the module runs in
 // its own content world (`.defaultClient`, T3BrowserAnnotate.swift): it sees the page's DOM, not its JS, and its
 // message handler cannot be called by the page. MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/desktop/src/preview/PickPreload.ts (startAnnotation and its helpers), AnnotationKeyboard.ts

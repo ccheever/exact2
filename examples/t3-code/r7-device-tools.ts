@@ -1,4 +1,4 @@
-// Lane r7-device: the device workspace's 3D / Flat presentation, Android's Back / Recents / Rotate
+// The device workspace's 3D / Flat presentation, Android's Back / Recents / Rotate
 // and the Tools drawer (MIT reference, see LICENSE-T3: components/device/DeviceWorkspace.tsx,
 // DeviceStreamView.tsx, DeviceControlsRail.tsx, DeviceToolsPanel.tsx, useDeviceControls.ts,
 // deviceHubApi.ts). The picture, the 3D phone, accessibility frames and the hub's foreground /

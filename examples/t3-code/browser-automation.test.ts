@@ -1,4 +1,4 @@
-// browser-surface part 5. Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
+// Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), under their own names:
 // apps/web/src/components/preview/previewAutomationHostBudget.test.ts (10: its `it.each` rows count one each),
 // previewAutomationOpenReadiness.test.ts (13), previewAutomationTarget.test.ts (4), agentBrowserCursorLogic.test.ts
 // (3) and previewAutomationRequestConsumer.test.ts (11). The consumer's stream is the transport's inbox here
@@ -363,7 +363,7 @@ describe('planRequest (the request handler up to the page)', () => {
     expect(reused.plan.open).toEqual({ tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), url: 'http://localhost:5173/', present: false, needsOverlay: true });
     expect(reused.effects).toEqual({ present: null, suppress: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), unsuppress: null });
   });
-  it('an agent’s new tab gets the configured viewport and profile, and Auto-show off keeps it hidden (part 4)', () => {
+  it('an agent’s new tab gets the configured viewport and profile, and Auto-show off keeps it hidden', () => {
     const iphone = { _tag: 'responsive', width: 390, height: 844 } as const;
     const { plan, effects } = planRequest(context(requestOf('r1', { operation: 'open', input: { url: 'localhost:5173' } }), stateWith(), { autoShowFloatingPreview: false, openDefaults: { viewport: iphone, profileId: 'work' } }));
     expect(plan.open).toMatchObject({ create: { viewport: iphone, profileId: 'work' }, present: false, defaultViewport: null });
@@ -384,7 +384,7 @@ describe('planRequest (the request handler up to the page)', () => {
     expect(String(selectAll.editing)).toContain('__T3_PREVIEW_CLIPBOARD__');
     expect(planRequest(context(requestOf('r3', { operation: 'resize', input: { mode: 'freeform', width: 800, height: 600 } }), stateWith(loaded()))).plan.viewport).toEqual({ _tag: 'freeform', width: 800, height: 600 });
   });
-  it('resize resolves a preset to its size (part 2’s resolvePreviewViewport) and fails what the reference throws on', () => {
+  it('resize resolves a preset to its size (resolvePreviewViewport) and fails what the reference throws on', () => {
     const resize = (input: Obj) => planRequest(context(requestOf('r1', { operation: 'resize', input }), stateWith(loaded()))).plan;
     expect(resize({ mode: 'preset', preset: 'iphone-12-pro' }).viewport).toEqual({ _tag: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 });
     expect(resize({ mode: 'preset', preset: 'iphone-12-pro', orientation: 'landscape' }).viewport).toEqual({ _tag: 'preset', presetId: 'iphone-12-pro', width: 844, height: 390 });
@@ -423,14 +423,14 @@ describe('the host on the client', () => {
     expect(surfaceStore(client).panels.get('env-1:thread-1')).toMatchObject({ active: 'browser:tab-1', visible: true });
     expect(client.diffOpen).toBe(false);
   });
-  it('lists the thread’s sessions before a recording stop too, which names the thread’s current tab (browser-recording-and-downloads BR-1)', async () => {
+  it('lists the thread’s sessions before a recording stop too, which names the thread’s current tab', async () => {
     const { client, sent, rpcs } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }) });
     previewStreamEvent(client, requestEntry('r-stop', { operation: 'recordingStop', input: { transferToEnvironment: true }, timeoutMs: 120_000 }));
     await automationPrepare(client, module);
     expect(rpcs.map(call => call.method)).toContain('preview.list');
     expect(plans(sent)[0]).toMatchObject({ operation: 'recordingStop', tabId: 'tab-1', runtimeId: previewRuntimeTabId(ref, 'epoch-1', 'tab-1'), input: { transferToEnvironment: true }, budgetMs: 118_500 });
   });
-  it('leaves the panel alone for an agent’s use when Auto-show floating preview is off (part 3’s setting, part 4’s row)', async () => {
+  it('leaves the panel alone for an agent’s use when Auto-show floating preview is off', async () => {
     const { client, sent } = await subscribed({ list: () => ({ sessions: [loaded()], serverEpoch: 'epoch-1', revision: 4 }), clientSettings: { browserAutoShowFloatingPreview: false } });
     previewStreamEvent(client, requestEntry('r1', { operation: 'snapshot' }));
     await automationPrepare(client, module);

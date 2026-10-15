@@ -112,7 +112,7 @@ final class ComposerEditorTests: XCTestCase {
                 XCTAssertEqual(fixture.editor.selectedRange().length, 0)
             }
         }
-        // legacy-sidebar-full LS-3: a caller naming its composer (a sidebar row's dropped files) never types into another's.
+        // A caller naming its composer (a sidebar row's dropped files) never types into another's.
         let fixture = EditorFixture()
         fixture.type("KEEP")
         let refused = fixture.composer.editor.insert(["text": "[a.txt](t3-context://v1/file/x)", "owner": "owner-b"])

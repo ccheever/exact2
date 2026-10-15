@@ -1,4 +1,4 @@
-// Source Control → Bitbucket credentials (lane settings-a). Reference
+// Source Control → Bitbucket credentials. Reference
 // BitbucketCredentialsSettings.tsx: an access token, or an Atlassian account
 // email + API token, never both. Tokens are write-only: the server keeps them
 // in its secret store and reports a redacted value; resending that value keeps

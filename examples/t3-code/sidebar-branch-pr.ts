@@ -1,10 +1,10 @@
-// sidebar-hover-archive-and-glyph B12-PR-GLYPH: a sidebar row's pull request when the thread links none (T3 Code
+// A sidebar row's pull request when the thread links none (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3): ThreadStatusIndicators.tsx useLinkedThreadPullRequest. With no current link in the
 // thread's `pullRequests`, the row reads `(!supportsLinks ? linkedPullRequest : null) ?? branchPullRequest` (the pull
 // request the server found for the thread's branch) through `linkedPullRequestDetailAtom`, the server's
 // `pullRequests.summary` (client-runtime pullRequests.ts createLinkedPullRequestSummaryAtomFamily: stale after 60 s,
 // refreshed every 60 s), and both sidebars draw it as prStatusIndicator does: the state's glyph and tone, the number,
-// "PR #113 - Open: Document the release steps". The B12 lane's "Studio branch" (feature/release-notes) carries
+// "PR #113 - Open: Document the release steps". The "Studio branch" row (feature/release-notes) carries
 // `branchPullRequest` #113 and `pullRequests: []`, so the clone, which read `pullRequests` alone, drew nothing.
 // Data sources have no clock: the summaries are asked inside each refresh (sidebar-commands.ts sidebarRefreshed, as the
 // favicons are), each again once it is a minute old.

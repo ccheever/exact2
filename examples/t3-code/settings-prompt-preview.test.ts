@@ -35,7 +35,7 @@ describe('the editable sample', () => {
     expect(source).toContain('appearance="none"'); // the bare box: no field look
     expect(source).toContain('state prompt = "Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) before shipping."');
   });
-  // shell-context-menu: the reference's editor (ComposerPromptEditorTiptap.tsx) sets spellCheck={false} only on its chips, so
+  // The reference's editor (ComposerPromptEditorTiptap.tsx) sets spellCheck={false} only on its chips, so
   // the composer and this sample underline a misspelling and the shell's menu suggests (T3TextContextMenu.swift). The Mac
   // host checks a textarea's spelling unless it says spellcheck="false" (TextAreaMac.allowsInputSpellChecking); autocorrect
   // stays off, as Chromium replaces no word while one types.
@@ -47,8 +47,8 @@ describe('the editable sample', () => {
       expect(textarea).toContain('autocorrect="off"');
     }
   });
-  // adopt-main-fixes-r10 RT-1: the reference's editor is `focus:outline-none` (ComposerPromptEditorTiptap.tsx), in the
-  // composer and in this sample, so neither draws a focus ring; main #459 (X61) gave Contract `outline="none"` for it.
+  // The reference's editor is `focus:outline-none` (ComposerPromptEditorTiptap.tsx), in the
+  // composer and in this sample, so neither draws a focus ring; main #459 (issues/closed/20261009-field-outline-none.md) gave Contract `outline="none"` for it.
   test('draws no focus ring, as the reference editor is focus:outline-none', async () => {
     const line = async (file: string, start: RegExp) => (await Bun.file(new URL(file, import.meta.url)).text()).split('\n').find(entry => start.test(entry))!;
     for (const textarea of [await line('settings-prompt-preview.contract', /^\s*textarea value=prompt /), await line('composer.contract', /^\s*textarea id="composer" /)]) {

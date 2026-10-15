@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r8-keys: the reference menu bar over the host's (R8KeysMenus.swift), routed
+// The reference menu bar over the host's (R8KeysMenus.swift), routed
 // keystrokes through real NSMenu key-equivalent lookup with the bar installed as
 // the main menu, and the surface launcher's letters beside type-to-focus (T3Composer)
 // in a real window. Compiled with every file in modules/apple (T3Module included).
@@ -277,7 +277,7 @@ final class R8KeysTests: XCTestCase {
         measure.remove(element)
         XCTAssertEqual(measure.perform(["name": "table-copy-1"])["ok"] as? Bool, false)
     }
-    /// fix-misc-batch (#298 bug 3), adopt-main-fixes-r11 (X63): ⌘Z, ⇧⌘Z and Edit › Undo and Redo undo typing in an Exact
+    /// #298 bug 3, issues/closed/20261009-macos-textarea-native-undo.md: ⌘Z, ⇧⌘Z and Edit › Undo and Redo undo typing in an Exact
     /// textarea, whose text view keeps its own history (host TextAreaMac.swift `textUndo`), as the composer and the prompt
     /// preview are. Since exact2 #327 the textarea answers `undo:` and `redo:` itself, so the clone's Edit › Undo sends it
     /// up the chain and Edit › Redo is the host's own item.

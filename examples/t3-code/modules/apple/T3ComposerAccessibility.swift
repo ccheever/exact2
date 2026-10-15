@@ -1,11 +1,11 @@
 #if os(macOS)
 import AppKit
 
-/// composer-chips-accessibility (G1-8, G5-D4, DCP-Gv): the prompt as assistive technology reads it.
+/// The prompt as assistive technology reads it.
 ///
 /// In T3 Code (1e2ecbd975, MIT, see LICENSE-T3) the composer is a contenteditable whose chips are elements
 /// (ComposerPromptEditorTiptap.tsx's node views): Chromium serves it as an `AXTextArea` whose value holds each chip's label
-/// ("Terminal 2 lines 1-738 ", G1-8), and whose children are the chips, each named as its node view names
+/// ("Terminal 2 lines 1-738 "), and whose children are the chips, each named as its node view names
 /// it (a PopoverTrigger is an `AXPopUpButton`). Here the chip is its hidden Markdown source in Exact's text view
 /// (T3ComposerStyler), so AppKit served the source: VoiceOver read `$frontend-design` and `[Assistant quote](t3-citation://…)`,
 /// and the chips' buttons were not elements a navigation-order reader keeps.

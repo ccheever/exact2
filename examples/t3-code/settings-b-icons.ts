@@ -1,4 +1,4 @@
-// Lane settings-b: Settings → Project → Project icon (ProjectSettingsPanel.tsx's
+// Settings → Project → Project icon (ProjectSettingsPanel.tsx's
 // icon row, ProjectIconPickerDialog.tsx, ProjectFaviconPickerDialog.tsx,
 // projectIconOptions.ts, projectIconColors.ts, projectIdentity.ts,
 // ProjectMonogram.tsx, ProjectFavicon.tsx). An override is a Lucide icon, an

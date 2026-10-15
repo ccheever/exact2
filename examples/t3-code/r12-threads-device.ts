@@ -1,4 +1,4 @@
-// Lane r12-threads: a device session floats over the chat (T3 Code, MIT, see LICENSE-T3:
+// A device session floats over the chat (T3 Code, MIT, see LICENSE-T3:
 // ChatView.tsx's device-session effects with autoShowFloatingPreview, which the clone keeps on
 // as the reference's default; ChatView.logic.ts shouldRenderPreviewMiniPlayer;
 // previewMiniPlayerStore.ts). ChatView reads the environment's device state for every open
@@ -7,7 +7,7 @@
 // whose device summary has not arrived stays out of the baseline. Sheet layouts (window ≤ 980 pt)
 // float nothing. A floating device follows its session, and the player hides while the panel shows
 // the same device.
-// Lane r13-panels: the reference's own rule for a load, not a launch flag. useDeviceState's
+// The reference's own rule for a load, not a launch flag. useDeviceState's
 // `loaded` is `query.data !== undefined`, but useEnvironmentQuery's data is `A | null`
 // (Option.getOrNull), so `loaded` already holds before the subscription's first chunk and the
 // effects read EMPTY_DEVICE_STATE then. A thread shown before its environment's device state

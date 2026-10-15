@@ -1,4 +1,4 @@
-// adopt-main-fixes-r10 RT-6: since main #457 (X55) the Mac host exposes `role="status"` and `role="alert"` as AppKit's
+// Since main #457 (issues/closed/20261009-macos-role-modal-accessibility.md) the Mac host exposes `role="status"` and `role="alert"` as AppKit's
 // live-region groups (AXApplicationStatus, polite; AXApplicationAlert, assertive) and `dialog` as AXApplicationDialog,
 // so an explicit `aria-live` is written only where T3 Code (1e2ecbd975, MIT, see LICENSE-T3) writes one: the browser
 // profile removal error (IntegrationsSettings.tsx `<p aria-live="polite">`) and the toast viewport (Base UI's

@@ -6,7 +6,7 @@
 // (disabled), then a separator; over a safe external link Copy Link and a separator; over an image Copy Image and a
 // separator; and always Cut, Copy, Paste and Select All, each enabled by Chromium's edit flags.
 //
-// The flags as the reference reports them (shell-context-menu, measured over CDP with the main process's menu read
+// The flags as the reference reports them (measured over CDP with the main process's menu read
 // back): a page selection enables Copy; editable content enables Cut with a selection and Paste with something on the
 // clipboard; Select All is enabled everywhere except in an empty text control (an `<input>` or `<textarea>`; the
 // composer, a contenteditable, keeps it). A right-click on text first selects the word under it (Chromium on a Mac),

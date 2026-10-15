@@ -1,4 +1,4 @@
-// Pull request routing through the clone's servers (pr-links-previews-and-routing): T3Client.rpc hands every
+// Pull request routing through the clone's servers: T3Client.rpc hands every
 // `pullRequests.*` request to the router (pages-pr-routing.ts) over the focused connection and the background
 // transports (pages-pr-environments.ts), with each server's GitHub sharing read from Settings › Connections' stored
 // preference under its current saved key. The router's own decisions are ported in pages-pr-routing.test.ts; these

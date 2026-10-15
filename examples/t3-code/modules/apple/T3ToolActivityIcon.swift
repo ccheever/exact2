@@ -6,7 +6,7 @@ import AppKit
 /// Contract toggles its fallback through the hook button's documented click API.
 /// The hook draws only its own subview, including transparent logos. A muted
 /// image (`data-tool-icon-muted`) is drawn at the reference's `light:brightness-60`
-/// in the light appearance; Contract applies its `opacity-70` (timeline-work-rows TH-10).
+/// in the light appearance; Contract applies its `opacity-70`.
 final class T3ToolActivityIcon {
     private var entries: [ObjectIdentifier: IconView] = [:]
 
@@ -40,7 +40,7 @@ final class T3ToolActivityIcon {
         var changed: (() -> Void)?
         private var reported = false
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        /// The shell's Copy Image over the icon (shell-context-menu, T3TextContextMenu.swift): the loaded image's bitmap.
+        /// The shell's Copy Image over the icon (T3TextContextMenu.swift): the loaded image's bitmap.
         var shellImage: CGImage? { image?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
         override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true; resolve() }
         func update(light: String, dark: String, muted: Bool) {

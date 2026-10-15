@@ -1,4 +1,4 @@
-// Task terminal-drawer-unthreaded: the drawer of a draft (TD-1) and of a background environment's thread (TD-2).
+// The drawer of a draft and of a background environment's thread.
 // T3 Code 1e2ecbd975 (MIT reference, see LICENSE-T3) ChatView.tsx: a draft is the active thread under its own
 // `draftThread.threadId`, `toggleTerminalVisibility` opens its `term-1` in the project root, and the mounted drawers
 // are the open ones among `existingThreadKeys` = every environment's `serverThreadKeys` plus `draftThreadKeys`.
@@ -53,7 +53,7 @@ function loadShell(client: Client, projects: Obj[], threads: Obj[]) {
 
 afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 
-test('TD-1: ⌘J in a draft opens term-1 in the project root under the draft id, and the draft drawer stays mounted behind a server thread', async () => {
+test('⌘J in a draft opens term-1 in the project root under the draft id, and the draft drawer stays mounted behind a server thread', async () => {
   const { client, calls, retains } = focusedClient();
   await toggle(client);
   expect(calls).toEqual([{ method: 'terminal.open', payload: { threadId: 'draft-1', terminalId: 'term-1', cwd: '/a', env: { T3CODE_PROJECT_ROOT: '/a' } } }]);
@@ -69,7 +69,7 @@ test('TD-1: ⌘J in a draft opens term-1 in the project root under the draft id,
   expect(calls).toHaveLength(1);
 });
 
-test('TD-2: a background environment\'s thread keeps its drawer mounted across a focus change, each session under its own environment', async () => {
+test('A background environment\'s thread keeps its drawer mounted across a focus change, each session under its own environment', async () => {
   const { client, calls, retains } = focusedClient();
   client.threadId = 'a-1';
   await toggle(client);
@@ -100,7 +100,7 @@ test('TD-2: a background environment\'s thread keeps its drawer mounted across a
   expect(calls.filter(call => call.method === 'terminal.open')).toHaveLength(2);
 });
 
-test('TD-2: a background environment\'s drawer goes when its thread is gone or the environment is switched off', async () => {
+test('A background environment\'s drawer goes when its thread is gone or the environment is switched off', async () => {
   const { client, retains } = focusedClient();
   client.threadId = 'a-1';
   await toggle(client);

@@ -1,4 +1,4 @@
-// Lane r11-device: the Diff's working-tree and branch preview for a project outside the server's
+// The Diff's working-tree and branch preview for a project outside the server's
 // workspace root (MIT reference, see LICENSE-T3: apps/web/src/components/DiffPanel.tsx
 // shouldRetryBranchDiffAtEnvironmentCwd). The server answers `review.getDiffPreview` for a cwd outside
 // its configured root with "Review diff preview cwd must stay within the configured workspace root.";

@@ -1,4 +1,4 @@
-// The pull request panel's hand-offs (pr-handoffs-and-quick-actions): "Ask a question", "Explain this
+// The pull request panel's hand-offs: "Ask a question", "Explain this
 // PR", "Fix findings", the Check out menu ("In a separate worktree", "In this repository"), a
 // finding's own Fix on the Summary tab, and Resolve conflicts — the panel's startAsk/startHandoff
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: apps/web/src/components/pullRequest/
@@ -87,7 +87,7 @@ async function writeToComposer(client: T3Client, native: Native, task: HandoffTa
  * `sidebar:new-thread` when it opened a thread the window should show.
  */
 export async function prHandoffCommand(client: T3Client, native: Native, ctx: HandoffContext, value: string,
-  // pr-links-previews-and-routing ("Act on"): a page hand-off for a server other than the focused one runs there (pages-pr-acton.ts).
+  // "Act on": a page hand-off for a server other than the focused one runs there (pages-pr-acton.ts).
   elsewhere?: (kind: string, task: HandoffTask | null, mode: 'worktree' | 'local', detail: Obj) => Promise<string>): Promise<string> {
   const bar = value.indexOf('|');
   const surface = bar < 0 ? 'page' : value.slice(0, bar), kind = bar < 0 ? value : value.slice(bar + 1);
@@ -137,7 +137,7 @@ export async function prHandoffCommand(client: T3Client, native: Native, ctx: Ha
 }
 
 /**
- * pr-code-tab: the Code tab's "Add to agent" (PullRequestDetailPanel addSelectionToAgent → startAsk): the
+ * The Code tab's "Add to agent" (PullRequestDetailPanel addSelectionToAgent → startAsk): the
  * lines and the reader's request beside a thread go into its composer, elsewhere into a new thread.
  */
 export async function prSelectionHandoff(client: T3Client, native: Native, detail: Obj, surface: string, comment: ReviewCommentContext, request: string): Promise<string> {

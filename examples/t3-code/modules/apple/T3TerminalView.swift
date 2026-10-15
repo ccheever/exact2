@@ -12,7 +12,7 @@ import WebKit
 /// `close-pending` (suppress a second close), `terminal-surface` (drawer or panel identity),
 /// `chords` (the development harness's passthrough chords), `fixture` (development harness bytes:
 /// "render", "loopback", "flood").
-/// Session props (task terminal-drawer; T3TerminalSessions.swift): `environment`, `thread` and `terminal`
+/// Session props (T3TerminalSessions.swift): `environment`, `thread` and `terminal`
 /// name a server terminal session, `cwd`, `worktree` and `env` (JSON object) launch it; the view then
 /// shows the session's output, sends what is typed and its grid size to the server, writes the
 /// reference's `[terminal] …` lines (ThreadTerminalDrawer.tsx writeSystemMessage) and, on the tick after
@@ -125,7 +125,7 @@ final class T3TerminalView: ExactNativeInstance {
         sessions.providerAuthCall(payload, done: done)
     }, failure: { [weak self] failed in self?.emit(["type": failed ? "auth-error" : "auth-recovered"]) })
     lazy var actions = T3TerminalActions(view: self)
-    /// The server session this view shows (terminal-drawer), and the renderer's place in its output.
+    /// The server session this view shows, and the renderer's place in its output.
     private let sessions: T3TerminalSessions?
     private(set) var session: T3TerminalSession?
     private var cursor = T3TerminalOutput.Cursor.initial
@@ -178,7 +178,7 @@ final class T3TerminalView: ExactNativeInstance {
         configureAuthInput()
     }
 
-    // MARK: Session (terminal-drawer)
+    // MARK: Session
 
     var authMode: Bool { !(props["auth-flow"] ?? "").isEmpty }
     var sessionMode: Bool { !authMode && !(props["thread"] ?? "").isEmpty }
@@ -234,8 +234,8 @@ final class T3TerminalView: ExactNativeInstance {
     /// fallback for DOM input; consumed native events never reach it a second time.
     ///
     /// This path runs before the input method (a local monitor, then the key equivalents, both ahead
-    /// of WebKit's keyDown), where Chromium's page sees a key only after it (G1-1,
-    /// G1-2). So while text is composing, a key without ⌘ is the input method's first: the terminal's
+    /// of WebKit's keyDown), where Chromium's page sees a key only after it.
+    /// So while text is composing, a key without ⌘ is the input method's first: the terminal's
     /// bindings and readline keys never act on it ahead of the composition; ⌥Return (Hanja, a candidate
     /// list) is offered to the input context here, synchronously, as Chromium's `interpretKeyEvents`;
     /// a ⌃ chord is offered to the input context too, so conversion and candidate keys stay with
@@ -326,7 +326,7 @@ final class T3TerminalView: ExactNativeInstance {
             }
             return true
         }
-        // Explicit harness passthrough keeps the S1 test's unhandled-key path intact.
+        // Explicit harness passthrough keeps the unhandled-key path intact.
         if Self.chords(props["chords"]).contains(where: { text in
             guard let key = T3TerminalKeys.chord(text) else { return false }
             return T3TerminalKeys.Binding(chord: text, command: "", key: key).matches(event)
@@ -636,7 +636,7 @@ final class T3TerminalView: ExactNativeInstance {
 
     /// The agent's `type` / `press`: real key events through the app's own dispatch (local
     /// monitors, key equivalents, then the web view as first responder), so a chord the page
-    /// declines reaches the app's key path as a person's would (spike S1, S5).
+    /// declines reaches the app's key path as a person's would.
     override func agentInput(_ input: ExactNativeInput) throws {
         guard let window = web.window else { throw ExactNativeRefusal("the terminal is not in a window") }
         if window.firstResponder !== web { window.makeFirstResponder(web) }
@@ -722,7 +722,7 @@ final class T3Terminals {
                     "text": page["text"] ?? [], "served": view.assets.served.count, "refused": view.assets.refusedURLs, "bridge": Array(view.bridgeLog.suffix(6))] // an Array: an ArraySlice is not JSON, and the status reply would fail
         }
         return ["terminals": entries.sorted { ($0["terminal"] as? String ?? "") < ($1["terminal"] as? String ?? "") },
-                "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // terminal-drawer: streams, buffers, acknowledgements
+                "terminalSessions": T3TerminalSessions.all.flatMap(\.status)] // streams, buffers, acknowledgements
     }
 }
 #endif

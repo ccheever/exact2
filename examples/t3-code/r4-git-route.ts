@@ -1,11 +1,11 @@
-// Where the card's Git ops land (lane r4-git): `shell:git-*` writes from
+// Where the card's Git ops land: `shell:git-*` writes from
 // shell-commands.ts and `chatlocal:git-*` view state from timeline-presentation.ts.
 // Any of them closes the card's open popup first, as choosing from a menu does.
 import type { T3Client } from './client';
 import type { Files, Native } from './protocol';
 import { gitCommand, gitLocal } from './r4-git-actions';
 import { branchCommand, branchLocal, branchState } from './r4-git-branch';
-import { checkoutConfirm, checkoutLocal } from './r9-connect-checkout'; // lane r9-connect: the pull request checkout dialog
+import { checkoutConfirm, checkoutLocal } from './r9-connect-checkout'; // the pull request checkout dialog
 
 /** `shell:git-<op>`: branch checkout or creation, else a Git action. */
 export async function gitShellCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {

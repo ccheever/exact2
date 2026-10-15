@@ -1,4 +1,4 @@
-// pr-writing-and-metadata: the pull request panel's writes through pages:pr-act-* (prCommand ->
+// The pull request panel's writes through pages:pr-act-* (prCommand ->
 // pages-pr-writes.ts) against a recorded server, as the reference's components and client cache
 // behave (T3 Code 1e2ecbd975, MIT, see LICENSE-T3). Ported names from
 // packages/client-runtime/src/state/pullRequests.test.ts: "updates cached labels after successful
@@ -124,7 +124,7 @@ describe('the composer: comment, close or reopen with comment (PullRequestCommen
     expect(run.sent('pullRequests.runAction').map(payload => payload.action)).toEqual(['close', 'close']);
   });
   test('close, the list read again without the row, then reopen with comment: the row comes back with the next list answer', async () => {
-    // pr-writing-and-metadata live re-check 2026-10-08: the server announces each write, so the open list is read
+    // Re-checked live 2026-10-08: the server announces each write, so the open list is read
     // again between the close and the reopen and no longer holds the row; the reopen still finds it (the reference's
     // "from every row held … reopening it has to find it anyway"), and its note replaces the close's.
     const LIST_NOW = Date.parse('2026-10-08T12:00:00Z');

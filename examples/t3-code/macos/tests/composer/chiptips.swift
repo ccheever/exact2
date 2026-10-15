@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r4-timeline: the composer chips' hover details (T3ComposerChipTips.swift)
+// The composer chips' hover details (T3ComposerChipTips.swift)
 // on a real text view: one AppKit tool-tip rect per chip, saying what the
 // reference's chip tooltip says.
 final class ComposerChipTipTests: XCTestCase {

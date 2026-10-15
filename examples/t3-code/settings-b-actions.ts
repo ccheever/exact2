@@ -1,4 +1,4 @@
-// Lane settings-b: Settings → Project → Actions (ProjectActionsSettings.tsx,
+// Settings → Project → Actions (ProjectActionsSettings.tsx,
 // ProjectActionsList.tsx, projectScriptEditor.tsx, useProjectScriptSettings.ts,
 // projectScripts.ts, lib/projectScriptKeybindings.ts, shared/projectScripts.ts).
 // Actions belong to a project: a project scope edits each selected checkout's

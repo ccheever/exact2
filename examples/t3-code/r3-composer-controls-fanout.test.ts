@@ -1,4 +1,4 @@
-// Lane composer-controls, round 3: several models for one new thread (the
+// Several models for one new thread (the
 // HEAD server advertises requiredWorktreeBootstrap): Shift-click adds a model,
 // the trigger names them, and Send starts one background thread per model.
 import { describe, expect, test } from 'bun:test';

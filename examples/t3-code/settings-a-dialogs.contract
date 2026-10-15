@@ -1,4 +1,4 @@
-// Settings dialogs at the window root (lane settings-a): the ui/dialog.tsx chrome
+// Settings dialogs at the window root: the ui/dialog.tsx chrome
 // (backdrop, 18pt popup, header, panel, muted footer) and the dialogs it frames —
 // General's Background Activity editor, and the Appearance theme dialogs.
 use CoreIcon, CorePaintIcon from "./settings-core.contract"

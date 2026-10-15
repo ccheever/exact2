@@ -1,6 +1,6 @@
 // TooltipPopup variant="code" (ui/tooltip.tsx; MIT, see LICENSE-T3): a path
 // or command in 11pt monospace on 1.625 lines, up to 480 wide, on one line
-// (MarkdownFileLink's full path scrolls rather than wraps). Lane r4-timeline.
+// (MarkdownFileLink's full path scrolls rather than wraps).
 use TipBubble from "./shell-tip.contract"
 
 component CodeTip

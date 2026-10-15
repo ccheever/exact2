@@ -1,4 +1,4 @@
-// Lane settings-a: an imported Open VSX theme collection on the Appearance page.
+// An imported Open VSX theme collection on the Appearance page.
 import { describe, expect, test } from 'bun:test';
 import { libraryCards, removalPicks, removeThemes, toggleRemovalPick, useCollectionDefaults, variantLabels } from './settings-a-collections';
 import type { CustomTheme } from './settings-themes';

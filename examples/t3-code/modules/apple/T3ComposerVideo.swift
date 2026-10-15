@@ -2,7 +2,7 @@
 import AppKit
 import AVKit
 
-/// r4-composer: the expanded preview of a video on the composer's shelf
+/// The expanded preview of a video on the composer's shelf
 /// (ExpandedImageDialog's ExpandedVideo, MIT reference; see LICENSE-T3). Hook
 /// `t3-video` with `data-snapshot-id` naming the staged file: an AVPlayerView
 /// with its own controls fills the box and starts playing, as the reference's

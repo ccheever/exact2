@@ -166,7 +166,7 @@ enum T3TerminalCommandKey {
     }
 }
 
-/// Development harness bytes for a `t3-terminal` view's `fixture` prop (spike S2–S5): `render`
+/// Development harness bytes for a `t3-terminal` view's `fixture` prop: `render`
 /// draws colours, wide and emoji cells, Nerd glyphs, an alternate-screen round trip and 2,000
 /// scrollback lines; `loopback` echoes typed bytes back as a line discipline would (Return as
 /// CR LF, Backspace erases); `flood` writes 5 MB of numbered lines.

@@ -1,4 +1,4 @@
-// What a person's pointer found in the diff gutter (RF-3) and the pending card (RF-4), checked where a unit test reaches
+// What a person's pointer found in the diff gutter and the pending card, checked where a unit test reaches
 // it. The gutter's drags also run in diff-line-drag.test.ts, pages-pr-code.test.ts and diff-review.test.ts; the shell
 // menu's Services and the activity reporter's pointer in the AppKit tests (macos/tests/contextmenu text-menu.swift,
 // macos/tests/activity); the card's press and the drags' input under an agent drive.
@@ -10,7 +10,7 @@ import { lineCellId } from './diff-line-drag';
 const source = (file: string) => readFileSync(join(import.meta.dir, file), 'utf8');
 const component = (text: string, name: string) => { const start = text.indexOf(`component ${name}\n`); const next = text.indexOf('\ncomponent ', start + 1); return text.slice(start, next < 0 ? undefined : next); };
 
-describe('RF-3: the gutter hears the pointer', () => {
+describe('the gutter hears the pointer', () => {
   const cell = component(source('diff-rows.contract'), 'DiffCell');
   test('the number and the "+" start a drag, follow the pointer and end it; the press no longer only selects', () => {
     expect(cell).toContain('pointerdown=down(false) pointermove=move pointerup=up testId=`diff-line-${path}-${side}-${line}`');
@@ -43,7 +43,7 @@ describe('RF-3: the gutter hears the pointer', () => {
   });
 });
 
-test('RF-4: the pending card\'s dashed border takes no press: it is a border now, not a positioned overlay (css-workaround-retirements KW-7)', () => {
+test('the pending card\'s dashed border takes no press: it is a border now, not a positioned overlay', () => {
   const card = component(source('pages-pr-threads.contract'), 'PrdPendingCard');
   expect(card).toContain('padding="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="dashed" border-color=ptBorder()');
   expect(card).not.toMatch(/position="absolute"|stroke-dasharray|\bsvg width="100%"/);

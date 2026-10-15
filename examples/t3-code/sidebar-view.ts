@@ -11,7 +11,7 @@ import { selectRunningSubprocessTerminalIds } from './terminal-session';
 import { terminalFocused } from './terminal-focus';
 import { searchMatch, serverMatches, snoozePresets, threadSearchPending, type SearchPart, type SnoozePreset } from './sidebar-presentation';
 import { SETTLED_TAIL_INITIAL_COUNT, SETTLED_TAIL_PAGE_COUNT, clock, localDate, sidebarPrefs, sidebarSession, undoLive } from './sidebar-state';
-import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar'; // shell-sidebar-palette-keys (TH-8)
+import { NO_CALENDAR, firstWeekday, snoozeCalendar, type SnoozeCalendar } from './snooze-calendar';
 import { sidebarProviderPill } from './sidebar-provider-pill';
 import { grayIdentity, projectGlyph, type ProjectGlyph } from './r3-sidebar-glyph';
 import { rowTips, type SidebarRowTip } from './r3-sidebar-tips';
@@ -22,11 +22,11 @@ export { grayIdentity } from './r3-sidebar-glyph';
 import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectionOf, settledTimestamp, sidebarStatus, sidebarVisible,
   snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
   wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
-import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
-import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12: the branch's pull request
-import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
-import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
-import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
+import { sidebarPrBadge } from './r5-panels-pr';
+import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr';
+import { notePlaces, rowHoverKey } from './r9-input-hover';
+import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // the persisted project order
+import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup';
 import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
 import { draftMenuRows } from './r11-upstream-drafts';
 import { replaceContextReferences } from './composer-editor-menu'; // a draft row's chips read as their labels
@@ -55,7 +55,7 @@ export interface SidebarThread {
   regenerating: boolean; label: string; hoverKey: string; glyph: ProjectGlyph;
   idleRecede: boolean; idleTitleColor: string; idleTitleWeight: number; tips: SidebarRowTip[];
   hoverEnvironment: string; hoverMachine: string; hoverModel: string; hoverHandoff: string; hoverError: string; hoverErrorWarning: boolean;
-  workingSince: number; remoteMachine: string; // r6-polish: the ticking Working label; a background environment's machine glyph
+  workingSince: number; remoteMachine: string; // the ticking Working label; a background environment's machine glyph
   menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
 }
 export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
@@ -94,7 +94,7 @@ export function projectScopes(client: T3Client): { key: string; name: string; id
       : Math.max(...group.members.map(member => order === 'created_at' ? timestamp(member.createdAt) : timestamp(member.updatedAt ?? member.createdAt)));
     return { key: group.key, name: str(group.name), ids, time, members: group.members };
   });
-  // legacy-sidebar: Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
+  // Manual follows the persisted project order (orderItemsByPreferredIds over physical keys), as the legacy sidebar arranges it.
   if (order === 'manual') return orderItemsByPreferredIds({ items: groups, preferredIds: sidebarPrefs(client).projectOrder, getId: group => group.key,
     getPreferenceIds: group => group.members.map(member => `${client.environmentId}:${str(member.workspaceRoot).trim().replace(/\\/g, '/').replace(/\/+$/, '')}`) });
   return groups.sort((left, right) => (right.time === left.time ? 0 : right.time > left.time ? 1 : -1) || left.name.localeCompare(right.name) || left.key.localeCompare(right.key));
@@ -169,7 +169,7 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
 }
 
 /** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
- * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12). */
+ * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts). */
 function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrBadge> {
   const linked = sidebarPrBadge(thread);
   if (linked.badge) return linked;
@@ -180,7 +180,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
-  // r6-polish: the label is the group's name (r6-polish-groups.ts); the favicon keeps the checkout's own title (ProjectFavicon).
+  // The label is the group's name (r6-polish-groups.ts); the favicon keeps the checkout's own title (ProjectFavicon).
   const projectTitle = str(thread.fleetProjectTitle) || str(project?.title), projectName = displayNames(client).get(str(thread.projectId)) || projectTitle;
   const instance = providers.find(provider => provider.instanceId === obj(thread.modelSelection).instanceId);
   const prs = arr(thread.pullRequests), id = str(thread.id);
@@ -199,7 +199,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
-    ...rowPrBadge(client, thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts), else the branch's pull request
+    ...rowPrBadge(client, thread), // resolveThreadPullRequestBadge (r5-panels-pr.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
@@ -215,7 +215,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     jump: extra.jump, renaming: session.renameId === id, multi, regenerating: thread.titleRegeneration != null || session.regenerating.has(id),
     label: [str(thread.title, 'Untitled thread'), pill?.label ?? '', projectName].filter(Boolean).join(', '),
     // A row's hover belongs to its place: a row that moves to another shelf under a still pointer is not hovered.
-    hoverKey: extra.searching ? id : rowHoverKey(client, id, section), glyph, // lane r9-input: a moved row's stale hover never matches again
+    hoverKey: extra.searching ? id : rowHoverKey(client, id, section), glyph, // a moved row's stale hover never matches again
     // On a utility page no row is open (the route is not a thread): the open row paints as any other.
     idleRecede, idleTitleColor: titleInk(card, section, idleRecede, unread, woke, status, false), idleTitleWeight: idleRecede ? 400 : 500,
     tips: extra.searching ? [] : rowTips({ card, draft: !active && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
@@ -240,7 +240,7 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const prefs = sidebarPrefs(client), session = sidebarSession(client), parts = partition(client, now);
   const scopes = projectScopes(client), scope = scopes.find(group => group.key === prefs.scope);
   const searching = client.query.trim() !== '';
-  notePlaces(client, parts); // lane r9-input: a row's moves count while its shelf is collapsed too
+  notePlaces(client, parts); // a row's moves count while its shelf is collapsed too
   const rows = searching ? searchRows(client, parts) : renderedRows(client, parts);
   if (session.searchQuery !== client.query) { session.searchQuery = client.query; session.searchIndex = 0; }
   const searchIndex = rows.length ? Math.min(session.searchIndex, rows.length - 1) : 0;
@@ -279,18 +279,18 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
       renameId: session.renameId, renameTitle: session.renameTitle, selectionCount: session.selection.length,
-      undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // r11-upstream: drafts (95edeb753b)
-      undoUntil: undo && live ? undo.at + 5000 : 0, // lane r8-keys: the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
+      undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // drafts (upstream 95edeb753b)
+      undoUntil: undo && live ? undo.at + 5000 : 0, // the window hides the notice at this wall time (showThreadUndoNotice's 5 s)
       undoLabel: shortcutLabel(client, 'thread.undo') ? `${shortcutLabel(client, 'thread.undo')} to undo` : 'Undo',
       dialog: session.dialog.kind, dialogTitle: dialogTitle(session.dialog), dialogDescription: dialogDescription(session.dialog),
       dialogMode: session.dialogMode, dialogDate: session.dialogDate, dialogTime: session.dialogTime, dialogAmount: session.dialogAmount, dialogUnit: session.dialogUnit, dialogError: session.dialogError,
-      // shell-sidebar-palette-keys (TH-8): the date button's text and its calendar popover.
+      // The date button's text and its calendar popover.
       calendar: session.dialog.kind !== 'snooze' ? NO_CALENDAR
         : snoozeCalendar(session.dialogDate, session.calendarMonth || session.dialogDate.slice(0, 7), localDate(new Date(now)), firstWeekday(), session.calendarFocus, session.calendarFocusSeq),
-      dialogReturn: dialogReturn(session.dialog), // dialog-shortcut-focus: Base UI's finalFocus
+      dialogReturn: dialogReturn(session.dialog), // Base UI's finalFocus
       jumpHints: hints,
       pillKey: pill?.key ?? '', pillTone: pill?.tone ?? '', pillTitle: pill?.title ?? '', pillDescription: pill?.description ?? '', pillDismissible: pill?.dismissible ?? false,
-      sweepEpoch: session.sweepEpoch, // lane r11-upstream (1826fb55cc)
+      sweepEpoch: session.sweepEpoch, // upstream 1826fb55cc
     },
   };
 }
@@ -306,7 +306,7 @@ function dialogTitle(dialog: { kind: string; threadIds: string[]; title: string 
 }
 /** Where a dialog the sidebar opened gives the focus back as it closes (Base UI's finalFocus): its one
  * thread's row (`sidebar-row.contract`), whose own snooze and menu triggers collapse once the pointer leaves;
- * the chat header's title (`chat.contract`) for the Custom snooze its menu opened (title-custom-snooze). */
+ * the chat header's title (`chat.contract`) for the Custom snooze its menu opened. */
 export function dialogReturn(dialog: { kind: string; threadIds: string[]; from?: string }): string {
   if (dialog.kind !== '' && dialog.from === 'title') return 'thread-title';
   return dialog.kind !== '' && dialog.threadIds.length === 1 ? `thread-${dialog.threadIds[0]}` : '';

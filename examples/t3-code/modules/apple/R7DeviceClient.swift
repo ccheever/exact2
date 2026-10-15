@@ -2,7 +2,7 @@
 import AppKit
 import Foundation
 
-/// Lane r7-device: one device's stream and input (MIT reference, see LICENSE-T3:
+/// One device's stream and input (MIT reference, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts createDeviceStreamClient). iOS reads serve-sim's
 /// `stream.avcc` (falling back to `stream.mjpeg` when the description cannot be decoded) and
 /// talks to `helper/ws?device=` after priming the helper; Android opens serve-emu's one
@@ -19,7 +19,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     var onInput: (Bool, String) -> Void = { _, _ in }
     var onFrame: (CGImage) -> Void = { _ in }
     var onMjpeg: () -> Void = {}
-    // Lane r9-device (R9DeviceDuo.swift): the Duo's command queue, its fixed panel feeds and their frames.
+    // R9DeviceDuo.swift: the Duo's command queue, its fixed panel feeds and their frames.
     var onDuoControl: (R9DuoControlState) -> Void = { _ in }
     var onDuoUnavailable: (String) -> Void = { _ in }
     var onPanelFrame: (Int, CGImage) -> Void = { _, _ in }
@@ -39,7 +39,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     private(set) var origin: URL?
     private var ticket: String?
     private var decoder: R7H264Decoder?
-    /// Lane r11-device: the soft queue measured over time on the device's own feed (R11DeviceBacklog.swift).
+    /// The soft queue measured over time on the device's own feed (R11DeviceBacklog.swift).
     private var backlog = R11DecodeBacklog()
     private let demuxer = R7H264.Demuxer()
     private var mjpegBuffer = Data()
@@ -187,10 +187,10 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         if platform == "ios" { fallBackToMjpeg() } else { closeDecoder(); connecting("Video decoder restarted."); requestKeyframe() }
     }
 
-    /// Lane r10-device: a fixed or elected Duo feed has no MJPEG picture of its own. One that falls
+    /// A fixed or elected Duo feed has no MJPEG picture of its own. One that falls
     /// behind (a stalled main thread receives more samples at once than the soft queue) or whose
     /// decoder fails reopens its video, which starts again at a description and a keyframe, instead
-    /// of going dark until its first-frame timer gives up (the round-9 black cover after Closed).
+    /// of going dark until its first-frame timer gives up (the black cover after Closed).
     /// A second recovery within the retry delay waits for it.
     private var lastReopen = -Double.infinity
     private(set) var reopened = 0
@@ -209,7 +209,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
     private func decode(isKey: Bool, sample: Data, pts: UInt64?) {
         guard let decoder, decoder.configured else { return }
         if awaitingKeyframe { guard isKey else { return }; awaitingKeyframe = false }
-        // A Duo panel feed reopens at once (lane r10-device); the device's own feed waits out a burst.
+        // A Duo panel feed reopens at once; the device's own feed waits out a burst.
         let pending = decoder.queueSize
         if panelId != nil ? pending > R7H264.softDecodeQueue : backlog.behind(pending: pending, now: CACurrentMediaTime()) { recovered = "queue"; return recoverDecoder() }
         decoder.decode(sample: sample, pts: pts.map { Int64(clamping: $0) } ?? timestamp)
@@ -371,7 +371,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
 
     private func helperMessage(_ data: Data) {
         guard let tag = data.first, let payload = try? JSONSerialization.jsonObject(with: data.dropFirst()) as? [String: Any] else { return }
-        // Lane r9-device: a hinge command's reply.
+        // A hinge command's reply.
         if tag == 0x90 {
             guard let id = (payload["requestId"] as? NSNumber).flatMap({ Int(exactly: $0.doubleValue) }), let ok = payload["ok"] as? Bool else { return }
             return duoControl.receive(requestId: id, ok: ok, error: payload["error"] as? String)
@@ -393,7 +393,7 @@ final class R7DeviceClient: NSObject, URLSessionDataDelegate, URLSessionWebSocke
         }
     }
 
-    // MARK: Duo (lane r9-device)
+    // MARK: Duo
 
     /// createDuoControl's send: hinge commands as `0x10`, orientation as the ordinary `0x07`, which
     /// the next screen config acknowledges.

@@ -1,4 +1,4 @@
-// media-actions: the authored location of a piece of media (T3 Code 1e2ecbd975, MIT; see
+// The authored location of a piece of media (T3 Code 1e2ecbd975, MIT; see
 // LICENSE-T3): packages/client-runtime/src/mediaReference.ts, with the two helpers it imports
 // (packages/shared/src/path.ts isWindowsAbsolutePath, markdownLinks.ts safeDecodeURIComponent).
 // No imports, so every media module can use it.

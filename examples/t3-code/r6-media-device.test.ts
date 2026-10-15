@@ -31,7 +31,7 @@ const native = { available: true } as Native;
 const KEY = 'local\u0000SIM-1';
 const settings = { hostId: 'local', deviceId: 'SIM-1', platform: 'ios', settings: { appearance: 'light', textSize: 'default' } };
 
-describe('the Device surface after onboarding (lane r6-media)', () => {
+describe('the Device surface after onboarding', () => {
   test('the list until a device is chosen; host detail, booting devices and a busy host as the reference words them', async () => {
     const c = client([]);
     expect((await r6DeviceView(c, native, deviceState(), true, 'p')).mode).toBe('list');
@@ -42,7 +42,7 @@ describe('the Device surface after onboarding (lane r6-media)', () => {
     expect((await r6DeviceView(c, native, deviceState(), false, 'p')).openingMessage).toBe('Finding devices…');
   });
 
-  test('on a draft a row opens its device for the draft\'s own thread id (ChatView activeThreadRef, PA-1)', async () => {
+  test('on a draft a row opens its device for the draft\'s own thread id (ChatView activeThreadRef)', async () => {
     const calls: Call[] = [];
     const c = Object.assign(client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' } }), { threadId: '', environmentId: 'env', draftKey: 'env:new:p1', local: { composerControls: { draftThreads: { 'env:new:p1': 'draft-7' } } } });
     await r6DeviceCommand(c, native, deviceState(), 'p', 'open', KEY, '');

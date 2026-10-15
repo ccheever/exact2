@@ -1,4 +1,4 @@
-// Lane r12-threads: the worktree setup card leaves a thread once its turn is live, also after the
+// The worktree setup card leaves a thread once its turn is live, also after the
 // run settled (T3 Code, MIT, see LICENSE-T3: client-runtime threadExecution.ts
 // deriveThreadActivityRun, shared orchestrationV2ThreadError.ts latestUnheldRun, ChatView.tsx
 // resolveVisibleWorktreeSetup's `turnStarted: activeActivityRun?.startedAt != null`). The activity

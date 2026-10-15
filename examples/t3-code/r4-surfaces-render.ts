@@ -1,4 +1,4 @@
-// Rendered previews (lane r4-surfaces; MIT reference, see LICENSE-T3: DelimitedTablePreview.tsx and
+// Rendered previews (MIT reference, see LICENSE-T3: DelimitedTablePreview.tsx and
 // packages/shared/src/delimitedPreview.ts): CSV/TSV as rows. Markdown, a file in Files or a sent attachment, is
 // parsed by the chat renderer itself (app.contract filesMarkdown over macos/src/markdown.rs: r4-surfaces-files.ts
 // renderedMarkdown, r5-panels-attach.ts renderedAttachment).

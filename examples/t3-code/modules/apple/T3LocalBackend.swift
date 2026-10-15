@@ -18,7 +18,7 @@ import Foundation
 import Darwin
 import Security
 
-/// Item 8 of the ticket: which home and port this build may use.
+/// Which home and port this build may use.
 enum T3LocalPolicy: Equatable {
     case allowed(home: URL, configuredPort: Int?, scanStart: Int, runtimeDir: URL?)
     case refused(String)
@@ -229,7 +229,7 @@ final class T3LocalBackend: @unchecked Sendable {
     private var policy: T3LocalPolicy?
     private let auth: T3LocalAuth
     private let session: URLSession
-    /// The desktop settings document (decision U7: the original app's desktop-settings.json).
+    /// The desktop settings document (the original app's desktop-settings.json).
     let settings = T3DesktopSettingsStore()
     /// Network access and Tailscale Serve for the next start: from
     /// the desktop settings at launch, replaced by `restart(exposure:)`.
@@ -306,7 +306,7 @@ final class T3LocalBackend: @unchecked Sendable {
         }
     }
 
-    /// The desktop settings (T3DesktopSettings.swift, decision U7): `<T3 home>/userdata/desktop-settings.json`,
+    /// The desktop settings (T3DesktopSettings.swift): `<T3 home>/userdata/desktop-settings.json`,
     /// read once (`DesktopAppSettings.load`), then the one-time carry-over of the keys `t3-code.json` still has.
     private func loadSettings(dataRoot: URL) {
         let policy = T3LocalPolicy.resolve(env: environment(), packaged: T3LocalPolicy.packaged(resources: resources()),
@@ -483,8 +483,8 @@ final class T3LocalBackend: @unchecked Sendable {
         return nil
     }
 
-    /// The Local environment switch (decision U4: the reference relaunches the app; exact2 cannot, issue
-    /// X45 / #122, so this is the stopgap): off stops the server (SIGTERM, SIGKILL after 2 s, at most 5 s);
+    /// The Local environment switch (the reference relaunches the app; exact2 cannot, issue
+    /// #122, so this is the stopgap): off stops the server (SIGTERM, SIGKILL after 2 s, at most 5 s);
     /// on starts it and answers once it is ready. `done(nil)` on success, else the reason. TypeScript
     /// persists the setting first and reconnects after.
     func setEnabled(_ enabled: Bool, done: @escaping (String?) -> Void) {
@@ -544,7 +544,7 @@ final class T3LocalBackend: @unchecked Sendable {
 
     /// `resolvePrimaryStartConfig` for the SEA: `t3 --bootstrap-fd 0` from the version folder, cwd the
     /// home folder (`backendCwd` of a packaged build), local-only (`127.0.0.1`), no Tailscale Serve
-    /// (this-machine-network-access adds exposure), the resource monitor when the tree has one.
+    /// (`exposure` adds it), the resource monitor when the tree has one.
     static func startConfig(versionDir: URL, port: Int, home: URL, token: String, env: [String: String], cwd: String, exposure: T3LocalExposure = T3LocalExposure()) -> T3LocalStartConfig {
         let monitor = versionDir.appendingPathComponent("resource-monitor/darwin-arm64/t3-resource-monitor")
         return T3LocalStartConfig(

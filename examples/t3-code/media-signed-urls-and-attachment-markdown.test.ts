@@ -1,4 +1,4 @@
-// media-signed-urls-and-attachment-markdown (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): ChatMarkdown's `img` renderer
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): ChatMarkdown's `img` renderer
 // in Files' rendered Markdown (FileMarkdownPreview: `cwd` the workspace, `imageBaseDir` the file's folder, the thread or
 // draft ref) and in a sent attachment's (AttachmentFilePreview: no `cwd`, no thread).
 import { describe, expect, test } from 'bun:test';
@@ -51,7 +51,7 @@ async function renderedFile(client: T3Client) {
   return files;
 }
 
-describe('MD-1: media in Files\' rendered Markdown', () => {
+describe('media in Files\' rendered Markdown', () => {
   test('an image inside a line of text is listed with the href markdown_media.rs gives its run', () => {
     const text = 'See ![Logo **x**](<../a b.png> "t") and ![Web](https://a.com/w.png) or ![Bad](javascript:x.png).\n![Alone](a.png)\n`![code](c.png)` \\![esc](e.png) [![linked](l.png)](https://a.com) ![ctx](t3-context://v1/image/i)\n```\n![fenced](f.png)\n```';
     expect(markdownInlineImages(text)).toEqual([
@@ -108,7 +108,7 @@ describe('MD-1: media in Files\' rendered Markdown', () => {
   });
 });
 
-describe('MD-2: a sent attachment\'s Markdown media', () => {
+describe('a sent attachment\'s Markdown media', () => {
   test('with no folder and no thread a host path is unavailable and nothing is signed; a web URL loads as written', async () => {
     const { client, calls } = fakeClient();
     await surfaceLocal(client, native, 'r5-attachment', 'att-md', '');
@@ -142,7 +142,7 @@ describe('the views', () => {
     expect(block).toContain('box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9"');
     expect(block).toContain('if kind != "video" and standalone\n          MediaFailedFrame(alt=alt)\n        if kind != "video" and not standalone\n          MediaUnavailableLabel(alt=alt, video=false)');
     const body = component('MarkdownMediaBody');
-    // chat-markdown-media-and-code G4-05: a failed image keeps MediaActions; the settled one is MediaPreviewActions' button.
+    // A failed image keeps MediaActions; the settled one is MediaPreviewActions' button.
     expect(body).toContain('if kind != "video" and standalone\n          MediaFailedFrame(alt=alt)\n        if kind != "video" and not standalone\n          MediaUnavailableLabel(alt=alt, video=false)');
     expect(body).toContain('image url aria-label=alt error=imageBroke');
     const frame = component('MediaFailedFrame');

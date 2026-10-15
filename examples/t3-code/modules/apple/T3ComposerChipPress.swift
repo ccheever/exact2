@@ -1,7 +1,7 @@
 #if os(macOS)
 import AppKit
 
-/// A skill chip's press (settings-appearance-and-skill-chip). In T3 Code a skill chip is the
+/// A skill chip's press. In T3 Code a skill chip is the
 /// trigger of a ContextChipPopover (ComposerPromptEditorTiptap.tsx ComposerSkillNodeView,
 /// contextChipParts.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a button named
 /// "Skill <label>. Show details" that opens the skill's details above it. Here the chip is drawn
@@ -21,7 +21,7 @@ import AppKit
 /// "x now", over CDP). Here the chip is its hidden source text, so a press selects that text and the
 /// text view never places a caret for it (it put one before the chip, and "x" went in front of it).
 ///
-/// diff-cite-popover DC-1: a citation chip's comment button is the same kind of trigger (AssistantCitationChip.tsx's
+/// A citation chip's comment button is the same kind of trigger (AssistantCitationChip.tsx's
 /// PopoverTrigger "Add comment to citation" / "Edit citation comment"), and Cite opens its comment at once under the
 /// cited text (`openCitation`). Its popover holds a draft the app keeps, so while it is open a press in the text (its
 /// trigger's included) only takes the focus, and the popover's blur settles the draft in the app; the app's Save,
@@ -42,7 +42,7 @@ final class T3ComposerChipPress {
     private(set) var seq = 0
     /// [x, top, width, height] in the window content's top-left space, in points.
     private(set) var frame: [Double] = []
-    /// diff-cite-popover DC-1: a citation chip's comment. "chip" opens it at the chip's comment button
+    /// A citation chip's comment. "chip" opens it at the chip's comment button
     /// (`side="top" align="end"`), "source" under the cited text after Cite (`side="bottom"`).
     private(set) var anchor = "chip"
     /// The comment button's frame (as `frame`), and the cited text's after Cite (the app measured it).
@@ -77,14 +77,14 @@ final class T3ComposerChipPress {
               let root = window.contentView?.superview ?? window.contentView else { return false }
         let hit = root.hitTest(root.convert(event.locationInWindow, from: nil))
         guard hit?.isDescendant(of: view) == true else {
-            // diff-cite-popover DC-1: a press anywhere else outside the citation's comment (the timeline's ground, which
+            // A press anywhere else outside the citation's comment (the timeline's ground, which
             // takes no focus and no window `pointerdown`, included) is Base UI's outside press: the popover's textarea
             // gives the focus up, and its blur settles the draft in the app. A press in the popover is its own.
             if chip?.kind == "citation", !T3ComposerChipPress.inCitationComment(hit), window.firstResponder !== view { window.makeFirstResponder(nil) }
             return false
         }
         let point = view.convert(event.locationInWindow, from: nil)
-        // diff-cite-popover DC-1: while a citation's comment is open, a press in the text is its outside press, and on its
+        // While a citation's comment is open, a press in the text is its outside press, and on its
         // own button the trigger's: the text view takes the focus from the popover's textarea, whose blur settles the draft
         // in the app (resolveAssistantCitationCommentDismissal), so nothing closes here. The trigger's press is taken; any
         // other is the text view's, which places the caret.
@@ -257,7 +257,7 @@ final class T3ComposerChipPress {
         guard let chip, let styler else { return ["seq": seq, "open": false, "surface": surface] }
         var value: [String: Any] = ["seq": seq, "open": true, "surface": surface, "owner": owner(), "kind": chip.kind, "name": chip.label,
                                     "label": styler.displayLabel(chip), "frame": frame]
-        // composer-chips-accessibility G1-8: a terminal excerpt's details; the app reads its record by the context id.
+        // A terminal excerpt's details; the app reads its record by the context id.
         if chip.kind == "context", styler.chipKind(chip) == "terminal" {
             value["kind"] = "terminal"
             value["context"] = styler.contextPath(chip).map { String($0.dropFirst("terminal/".count)) } ?? ""
@@ -317,7 +317,7 @@ final class T3ComposerChipPress {
         observers.removeAll()
     }
 
-    // MARK: Accessibility (composer-chips-accessibility: T3ComposerAccessibility.swift)
+    // MARK: Accessibility (T3ComposerAccessibility.swift)
 
     /// Every chip's element (a citation's link and comment button), children of the text view in text order.
     func refreshAccessibility() {

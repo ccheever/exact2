@@ -1,4 +1,4 @@
-// Lane r6-media (MIT reference, see LICENSE-T3): the Device surface once a device is chosen.
+// MIT reference, see LICENSE-T3: the Device surface once a device is chosen.
 // - R6DeviceStatus: DevicePanel's host detail, "Starting …" and the dismissible operation error.
 // - R6DeviceLoading: DeviceLoadingView (opening, then connecting video; a failed stream offers
 //   Reconnect).
@@ -133,7 +133,7 @@ component R6RailButton
     pressed: bool
     press: action
     testId: string
-    // fix-keyboard-focus: a menu trigger (text size, rotate, more) opens its menu on ↓ and ↑ too, and tells the
+    // A menu trigger (text size, rotate, more) opens its menu on ↓ and ↑ too, and tells the
     // rail which end of it the keys asked for (menu-keys.contract); taking the focus (a pointer press) clears it.
     menu: bool
     menuEnd: action
@@ -179,7 +179,7 @@ component R6MenuItem
       if checked
         R6DeviceGlyph(name="check", size=14, color=r6devInk())
 
-// The rail's buttons that draw an R7DevGlyph (lane r7-device).
+// The rail's buttons that draw an R7DevGlyph.
 component R7DevRailButton
   props
     icon: string
@@ -195,7 +195,7 @@ component R7DevRailButton
     button press=press hover=hover disabled=disabled aria-label=label aria-checked=pressed testId=testId width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") title=""
       R7DevGlyph(name=icon, size=16, color=r6devInk())
 
-// DeviceWorkspace: the stream (flat picture or, lane r7-device, the 3D phone; the app module's
+// DeviceWorkspace: the stream (flat picture or the 3D phone; the app module's
 // `t3-media` hook) under DeviceControlsRail, beside DeviceToolsPanel (static from a 700pt-wide
 // area, else over the screen).
 component R6DeviceWorkspaceView
@@ -203,7 +203,7 @@ component R6DeviceWorkspaceView
     ws: R6DeviceWorkspace
     local: action
     command: action
-  // fix-keyboard-focus: a rail menu opens from the data module, so its trigger lets go of the focus and the
+  // A rail menu opens from the data module, so its trigger lets go of the focus and the
   // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract); Escape gives it back to the trigger.
   action openRailMenu(menu: string)
     blur()
@@ -253,7 +253,7 @@ component R6DeviceWorkspaceView
                 R7DevRailButton(icon="keyboard", label=(ws.r7.rail.keyboardAttached ? "Detach Magic Keyboard" : "Attach Magic Keyboard"), disabled=false, pressed=ws.r7.rail.keyboardAttached, press=local("surface-r6dev-tools-keyboard", "", ""), testId="device-keyboard")
               if ws.r7.rail.phone
                 R7DevRailButton(icon="maximize", label="Restore 3D view", disabled=false, pressed=false, press=local("surface-r6dev-tools-reset", "", ""), testId="device-view-reset")
-            // lane r9-device: DeviceStreamView foldingControls (the Duo's stands, a foldable's Fold / Unfold).
+            // DeviceStreamView foldingControls (the Duo's stands, a foldable's Fold / Unfold).
             if ws.r9.kind != ""
               R9DevFoldingControls(folding=ws.r9, local=local)
         if ws.rail.menu != ""
@@ -291,7 +291,7 @@ component R6DeviceWorkspaceView
 // (16 pt square) resize it, their cursor the only affordance. A gesture reports its pan total since it began
 // (`serial|sourceKey|direction|dx|dy`) to the canvas source, which takes the frame on screen as its start at the
 // serial's first answer; the serial is the gesture's own, made at its first pan and kept until the release (one
-// made per move would restart the gesture from the moved frame at every move: device-player-gestures DP-2), as
+// made per move would restart the gesture from the moved frame at every move), as
 // BrowserMiniPlayer's. The release clears it. The zones are siblings of the clipped frame so their outer half takes the press. The pill
 // ("Open preview in right panel", "Close floating preview") shows while the handle or the pill is hovered, a
 // pill button has focus (group-focus-within) or a gesture runs (the host sends no hover during a pan).

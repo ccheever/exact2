@@ -1,4 +1,4 @@
-// Lane settings-b: Add Environment → SSH (ConnectionsSettings.tsx renderSshFields,
+// Add Environment → SSH (ConnectionsSettings.tsx renderSshFields,
 // parseManualDesktopSshTarget, handleSelectSshHostSuggestion, connectSavedBackendSshTarget;
 // state/desktopSshHosts.ts filterDiscoveredSshHosts; EnvironmentRow.tsx
 // formatDesktopSshTarget). Discovery, `ssh -G` and the tunnel are T3Ssh.swift.
@@ -133,7 +133,7 @@ export async function runSshOp(native: Native, op: string, id: string, value: st
     discovery = null;
     rememberSshAlias(origin, target.alias); // remote Open reads the alias of an SSH environment (remote-open.ts)
     let result: Result = { status: null, generation: -1 };
-    // Lane environment-routes: "Add a route to <label>" over SSH joins that machine's routes, or is refused before the code is spent.
+    // "Add a route to <label>" over SSH joins that machine's routes, or is refused before the code is spent.
     const expected = str(fields.expectedEnvironmentId);
     if (expected) {
       await call(native, { op: 'pairEnvironment', ...withStandardScope({ origin, credential }), expectedEnvironmentId: expected, ssh: true });

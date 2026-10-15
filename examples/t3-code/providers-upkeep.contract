@@ -13,7 +13,7 @@ use PvIconButton from "./providers-kit.contract"
 use PvMicro from "./providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnTooltip from "./settings-b-kit.contract"
-use hoverTipAtFrame from "./hover-layer.contract" // fix-hover-cards
+use hoverTipAtFrame from "./hover-layer.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use AppConfirm from "./shell-panels.contract"
 

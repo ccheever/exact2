@@ -1,4 +1,4 @@
-// Lane r10-device: regular expression literals inside an HTML page's scripts, as Shiki 4.2's
+// Regular expression literals inside an HTML page's scripts, as Shiki 4.2's
 // javascript grammar colours them (MIT reference, see LICENSE-T3: the reference colours source
 // with Shiki's html grammar, which embeds source.js; scopes read from Shiki's own tokens with the
 // pierre-light / pierre-dark themes). A `/` starts a regular expression where the grammar's

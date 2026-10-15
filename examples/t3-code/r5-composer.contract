@@ -1,4 +1,4 @@
-// r5-composer: the composer toolbar's labels at their natural widths, measured
+// The composer toolbar's labels at their natural widths, measured
 // from laid-out text instead of estimated (T3 Code, MIT; see LICENSE-T3:
 // chat/restingComposerControlsMeasurement.ts reads each label's scrollWidth from
 // labels that stay mounted while icons replace them). Each label is drawn once

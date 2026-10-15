@@ -1,4 +1,4 @@
-// media-signed-urls-and-attachment-markdown (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): images inside a line of text,
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): images inside a line of text,
 // and the links of a document with no workspace folder.
 //
 // ChatMarkdown's `img` renderer draws every image: one alone in its block standalone (`markStandaloneImages`), one in a
@@ -179,7 +179,7 @@ fn image_link(link: &dyn Fn(&str) -> String, href: &str) -> String {
     }
 }
 
-/// AttachmentFilePreview's ChatMarkdown has no `cwd` (audit-wave-followups-3 FW-2): resolveMarkdownFileLinkTarget finds
+/// AttachmentFilePreview's ChatMarkdown has no `cwd`: resolveMarkdownFileLinkTarget finds
 /// no folder for a relative destination, so the anchor is a plain one, which the desktop window opens nowhere (its
 /// window-open handler passes only safe external URLs): link-coloured text with no target, as an emptied anchor is. An
 /// absolute path or a `file:` URL is still a chip. Only links change: an image keeps the source the URL transform gives
@@ -356,7 +356,7 @@ mod media_tests {
                 run("paragraph", "Bad", "t3-image:", ""),
             ]
         );
-        // Two adjacent images with one source are two (the review's `![a](x.png)![a](x.png)`), and one with no alt text
+        // Two adjacent images with one source are two (`![a](x.png)![a](x.png)`), and one with no alt text
         // still has its run.
         assert_eq!(
             media_of("Twice ![a](x.png)![a](x.png) and ![](y.png)."),

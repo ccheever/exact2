@@ -1,4 +1,4 @@
-// Lane r6-pr: what the details card's pull request row does against the host
+// What the details card's pull request row does against the host
 // (MIT reference, see LICENSE-T3, upstream f90b77d809):
 // - ThreadDetailsPrRow's detail and checks reads (useEnvironmentQuery, one read
 //   in flight per reference, a 10-minute refresh while the pull request is open);
@@ -14,10 +14,10 @@ import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { dismissToast, pushToast } from './toast';
-import { ensureDraftThreadId, withHandoffThread } from './r7-handoff-thread'; // lane r7-handoff
+import { ensureDraftThreadId, withHandoffThread } from './r7-handoff-thread';
 import { contextReferences } from './composer-editor-menu';
 import { rememberReviewCommentRecord } from './composer-editor';
-import { appendInlineContextReference, chipLink, chipRecord, handoffReviewComments, setReviewCommentLinks, stripPullRequestHandoffReferences, type HandoffComment } from './pages-pr-handoffs-logic'; // pr-handoffs-and-quick-actions
+import { appendInlineContextReference, chipLink, chipRecord, handoffReviewComments, setReviewCommentLinks, stripPullRequestHandoffReferences, type HandoffComment } from './pages-pr-handoffs-logic';
 import { ACTION_FAILURE, ACTION_HINT, ACTION_SUCCESS, actionPayload, fixChecksPrompt, handoffPrompt, preparePayload, readableFailure, resolveConflictsPrompt, type MergeMethod } from './r6-pr-logic';
 import { letGo } from './let-go';
 
@@ -90,7 +90,7 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     }
     entry.detail = num(merged.number) > 0 ? merged : null;
   } catch (error) {
-    // real-github-lane: an answer let go mid-read (Exact replaced it, e.g. for a new revision while
+    // An answer let go mid-read (Exact replaced it, e.g. for a new revision while
     // GitHub was still answering) settles nothing. Storing it as a finished read with no detail and
     // no error made every later answer treat "nothing" as fresh, so the row never split.
     if (letGo(error)) {
@@ -151,7 +151,7 @@ export function toggleShowAll(client: T3Client, rowKey: string): void {
   if (set.has(rowKey)) set.delete(rowKey); else set.add(rowKey);
 }
 
-// ── Hand-offs (usePullRequestHandoffs; generalized for the panel by pr-handoffs-and-quick-actions) ──
+// ── Hand-offs (usePullRequestHandoffs, generalized for the panel) ──
 
 /** PullRequestThreadTask: a prompt, and the chips that go with it (pages-pr-handoffs-logic.ts). */
 export type HandoffTask = { prompt: string; reviewComments?: HandoffComment[] };

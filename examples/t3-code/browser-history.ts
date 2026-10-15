@@ -1,4 +1,4 @@
-// browser-surface part 2: the Browser tab's history (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// The Browser tab's history (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/browserHistoryStore.ts; apps/web/src/timestampFormat.ts `formatRelativeTimeLabel`).
 //
 // Visits are kept per project (the sidebar's logical project key, so history follows the project rows the

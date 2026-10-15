@@ -9,7 +9,7 @@
 // Effect's fibers become callbacks on one serial executor; its clock becomes `T3LocalClock`, so
 // the ported tests (macos/tests/local-backend) drive time by hand. Every method runs on the
 // executor. The WSL preflight states, telemetry fds and runtime pruning are not ported (no WSL,
-// telemetry excluded: spec, issue X39).
+// telemetry excluded: spec).
 import Foundation
 
 protocol T3LocalExecutor: AnyObject { func run(_ block: @escaping () -> Void) }

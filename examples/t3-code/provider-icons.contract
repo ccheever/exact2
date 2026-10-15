@@ -50,7 +50,7 @@ component DriverMark
         text initials font-size="0.4375rem" font-weight=600 line-height=1 color="light-dark(#27272a, #f5f5f5)"
 
 // AcpRegistryAgentIcon (settings/AcpRegistryIcon.tsx:73-170): the ACP glyph until the registry
-// image loads, and again when it fails (an SVG is a load error on Apple, X44); the monochrome
+// image loads, and again when it fails (an SVG is a load error on Apple, #121); the monochrome
 // glyph is tinted to the theme. No URL draws the glyph alone.
 component AcpRegistryAgentIcon
   props

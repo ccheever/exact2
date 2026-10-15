@@ -1,4 +1,4 @@
-// The pull request hand-offs (pr-handoffs-and-quick-actions). The first half ports T3 Code 1e2ecbd975's
+// The pull request hand-offs. The first half ports T3 Code 1e2ecbd975's
 // tests with their original names (pullRequestDetail.logic.test.ts "fix findings handoff", "findings that
 // cannot be attached", "one finding handed over on its own", "findings that are already on a line",
 // "asking about a change rather than working on it", "a second ask into the same composer", "pull

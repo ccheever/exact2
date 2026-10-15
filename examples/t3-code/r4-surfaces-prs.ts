@@ -1,4 +1,4 @@
-// The Linked pull requests surface (lane r4-surfaces; MIT reference, see LICENSE-T3:
+// The Linked pull requests surface (MIT reference, see LICENSE-T3:
 // components/pullRequest/ThreadPullRequestsPanel.tsx, pullRequestListLines.ts,
 // PullRequestListRow.tsx, packages/shared/src/threadPullRequests.ts, upstream
 // 18b21325c3 "watch for changes"): the thread's visible links as stacked rows, the

@@ -1,8 +1,8 @@
 use R5Probe from "./r5-composer.contract"
 use R4EnvOption from "./r4-git-shapes.contract"
 use StripPrTip from "./r7-handoff.contract"
-use R9CheckoutItem from "./r9-connect-shapes.contract" // lane r9-connect
-use UsageAccount from "./usage-bars.contract" // usage-reset-and-feedback: the /usage-limits body
+use R9CheckoutItem from "./r9-connect-shapes.contract"
+use UsageAccount from "./usage-bars.contract" // the /usage-limits body
 // The composer's projected toolbar/menu rows (composer-presentation.ts) and the
 // model picker catalog (model-catalog.ts).
 shape ComposerTrait
@@ -15,7 +15,7 @@ shape ComposerTrait
   selected: bool
   isDefault: bool
   index: number
-  // composer-fidelity G9: the primary effort's rows while "ultrathink" is in the prompt's body.
+  // The primary effort's rows while "ultrathink" is in the prompt's body.
   disabled: bool
 shape ComposerRuntime
   mode: string
@@ -49,22 +49,22 @@ shape ComposerNotice
   actionReason: string
   dismissId: string
   segments: NoticeSegment[]
-  // server-update-banner: the title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
+  // The title's and actions' tooltips, a red icon, a "·" before the description, the title's live role.
   tip: string
   actionTip: string
   action2Tip: string
   iconTone: string
   sep: bool
   liveRole: string
-  // auto-balance: the multi-machine update banner's popover rows, and its title's accessible name.
+  // The multi-machine update banner's popover rows, and its title's accessible name.
   machines: NoticeMachine[]
   menuLabel: string
-  // usage-reset-and-feedback: an account address as the description (redacted until clicked, then `redactAfter`) and the /usage-limits body.
+  // An account address as the description (redacted until clicked, then `redactAfter`) and the /usage-limits body.
   redact: string
   redactMask: string
   redactAfter: string
   usage: UsageAccount[]
-// auto-balance: one machine of the banner's popover (status idle, running or failed; a manual copy action or note).
+// One machine of the banner's popover (status idle, running or failed; a manual copy action or note).
 shape NoticeMachine
   id: string
   label: string
@@ -77,7 +77,7 @@ shape ComposerTask
   text: string
   status: string
   duration: string
-// composer-fidelity G12a: a queued row's image thumbnail, and an attachment the queued edit keeps.
+// A queued row's image thumbnail, and an attachment the queued edit keeps.
 shape QueuedThumb
   id: string
   name: string
@@ -117,22 +117,22 @@ shape ComposerBranches
   creatable: string
   enterOp: string
   enterValue: string
-  // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
+  // "Checkout pull request" before the refs (0 or 1).
   checkout: R9CheckoutItem[]
-  // lane r4-git: "Run on" (r4-git-env.ts stripRunOn).
+  // "Run on" (r4-git-env.ts stripRunOn).
   envShow: bool
-  // lanes r12/r13-threads: a non-Git project (a No project draft, say) shows only the machine selector
+  // A non-Git project (a No project draft, say) shows only the machine selector
   // (BranchToolbarEnvironmentSelector); envLocked then means a started thread's static machine row.
   gitless: bool
   envMachine: string
   envMachineLabel: string
   envOptions: R4EnvOption[]
   envMenuWidth: number
-  // auto-balance: the host-resource load the root's balanceLoad task sends ("" when none is due).
+  // The host-resource load the root's balanceLoad task sends ("" when none is due).
   balanceFetch: string
   originShown: bool
   originOn: bool
-  // lane r7-handoff: the pull request badge before the branch trigger (r7-handoff-strip.ts).
+  // The pull request badge before the branch trigger (r7-handoff-strip.ts).
   prShow: bool
   prText: string
   prIcon: string
@@ -181,7 +181,7 @@ shape ComposerView
   syncStatus: string
   activity: string
   notices: ComposerNotice[]
-  // usage-reset-and-feedback: the account whose reset credit confirm is open ('' when none).
+  // The account whose reset credit confirm is open ('' when none).
   resetConfirm: string
   implementX: number
   implementWidth: number
@@ -211,7 +211,7 @@ shape ComposerView
   queueSteer: bool
   queueSteerReason: string
   queueEditing: string
-  // composer-fidelity G12a: the edit's kept attachments and whether its save is in flight.
+  // The edit's kept attachments and whether its save is in flight.
   queueEditAttachments: QueueEditAttachment[]
   queueEditSaving: bool
   queueDropSeq: number
@@ -225,7 +225,7 @@ shape ComposerView
   runtimeSelected: number
   runtimeCount: number
   runtimes: ComposerRuntime[]
-  // r5-composer: menu texts to measure, and the menus' widths from the measurements (r5-composer-menus.ts).
+  // Menu texts to measure, and the menus' widths from the measurements (r5-composer-menus.ts).
   menuProbes: R5Probe[]
   effortMenuWidth: number
   runtimeMenuWidth: number
@@ -233,9 +233,9 @@ shape ComposerView
   runtimeMenuHeight: number
   planVisible: bool
   planActive: bool
-  // composer-fidelity G9: the prompt drives the ultrathink frame (composer-ultrathink.ts).
+  // The prompt drives the ultrathink frame (composer-ultrathink.ts).
   ultrathink: bool
-  // composer-fidelity G11: blocks moved into "More composer controls", the cluster hidden below the
+  // Blocks moved into "More composer controls", the cluster hidden below the
   // picker's minimum, and the menu's rows and widths, for the expanded and the resting footer.
   modeOverflow: bool
   traitsOverflow: bool
@@ -282,9 +282,9 @@ shape PickerRow
   highlighted: bool
   expanded: bool
   checked: bool
-  // settings-model-picker: getModelDisabledReason; a disabled row cannot be chosen or favorited.
+  // getModelDisabledReason: a disabled row cannot be chosen or favorited.
   reason: string
-  // model-picker-parity CO-1: modelPicker.jump.N's shortcut ("⌘1") and chord ("Meta+1") on the first nine choosable rows.
+  // modelPicker.jump.N's shortcut ("⌘1") and chord ("Meta+1") on the first nine choosable rows.
   jump: string
   jumpKey: string
 shape PickerRail
@@ -293,9 +293,9 @@ shape PickerRail
   name: string
   driver: string
   ready: bool
-  // provider-sign-in-and-install: an instance that needs setup is selectable though not ready.
+  // An instance that needs setup is selectable though not ready.
   selectable: bool
-  // model-picker-parity CO-2: the tooltip, and the accessible name of a button that is not ready or locked out.
+  // The tooltip, and the accessible name of a button that is not ready or locked out.
   label: string
   selected: bool
   providerBadge: string
@@ -324,11 +324,11 @@ shape PickerCatalog
   chatgptSharing: bool
   // The active model is a legacy one: its section starts expanded (expandedLegacyInstances).
   legacyDefault: bool
-  // model-picker-parity CO-3: the first row a search highlights (autoHighlight), -1 when none can be chosen.
+  // The first row a search highlights (autoHighlight), -1 when none can be chosen.
   firstEnabled: number
-  // model-picker-parity CO-7: Shift adds a model to a new thread's draft and keeps the picker open (onToggleModel).
+  // Shift adds a model to a new thread's draft and keeps the picker open (onToggleModel).
   multiple: bool
-// settings-model-picker: the row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
+// The row the open picker chooses for ("" for the composer) and its trigger's window-space edges.
 shape PickerTarget
   id: string
   top: number

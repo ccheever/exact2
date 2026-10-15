@@ -3,7 +3,7 @@ import Network
 import WebKit
 import XCTest
 
-// browser-recording-and-downloads BR-2: a download from a page the agent drove last goes into the artifact directory with
+// A download from a page the agent drove last goes into the artifact directory with
 // no dialog; a person's goes through the save dialog (Manager.ts installDownloadHandler, agentDrivenWebContents,
 // READ_ONLY_CONTROL_ACTIONS, handleHumanInput, navigate; T3 Code 1e2ecbd975, MIT, see LICENSE-T3). The page shows the save
 // dialogs a person's app shows (`dialogs` on, as outside agent mode); the person's input goes through

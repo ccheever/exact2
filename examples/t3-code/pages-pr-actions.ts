@@ -1,4 +1,4 @@
-// The pull request panel's host actions (lane "pages", pr-header-actions-and-stacks): the header's
+// The pull request panel's host actions: the header's
 // primary control (Merge with its method, Ready for review, "Auto-merge (method)", Resolve conflicts,
 // the armed badge, the Merged/Closed badge), the More menu's action group (Merge now, Enable/Disable
 // auto-merge, the merge-method radios, Convert to draft, Close, Reopen, Revert changes), the five
@@ -284,7 +284,7 @@ export async function performAction(client: T3Client, native: Native, ctx: Panel
 }
 /**
  * finishAction: the action once `pending` holds it — performAction's, and performCommentAction's after its
- * comment landed (pr-writing-and-metadata: Close/Reopen with comment, pages-pr-writes.ts). '' when it landed.
+ * comment landed (Close/Reopen with comment, pages-pr-writes.ts). '' when it landed.
  */
 export async function finishAction(client: T3Client, native: Native, ctx: PanelContext, action: string, method?: MergeMethod, updateMethod?: UpdateMethod): Promise<string> {
   const state = actionState(client);

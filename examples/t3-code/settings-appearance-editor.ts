@@ -1,4 +1,4 @@
-// Appearance → the theme editor (lane settings-a). Reference: ThemeEditorPanel.tsx
+// Appearance → the theme editor. Reference: ThemeEditorPanel.tsx
 // (THEME_EDITOR_ROLE_GROUPS, the simple Background/Accent pair, Advanced, Filter
 // colors), themePalette.ts updateThemeColorFamily and packages/shared
 // themePalettes.ts (T3_CODE_LIGHT/DARK_THEME_COLORS). The draft lives with the
@@ -96,7 +96,7 @@ export function updateFamily(colors: Record<string, string>, role: string, input
 
 // ── The draft ────────────────────────────────────────────────────────────────
 // The draft belongs to the client's theme editor session (theme-editor-session.ts), which
-// the window's root state opens and closes; it outlives Settings (D16).
+// the window's root state opens and closes; it outlives Settings.
 export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>>;
   /** The stamp of the last colour-picker op applied, per role (themeLocal). */
   pickerSeq: Record<string, number> };
@@ -214,7 +214,7 @@ const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.
 export function themeLocal(client: T3Client, part: string, id: string, value: string, n: number): string {
   const draft = drafts.get(client);
   const [session, role = ''] = id.split('|');
-  // audit-wave-followups-2 FV-4: the name as it is typed, so the submit label follows it (`<session>|name`).
+  // The name as it is typed, so the submit label follows it (`<session>|name`).
   if (draft && part === 'name' && role === 'name' && session === `session-${draft.sessionId}` && n > (draft.pickerSeq.name ?? -Infinity)) {
     draft.pickerSeq.name = n; draft.name = value; followName(draft, customOf(client));
     return '';

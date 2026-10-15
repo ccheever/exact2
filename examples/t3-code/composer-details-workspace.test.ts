@@ -1,7 +1,7 @@
-// composer-provider-state-and-details: the thread details card's Workspace row
+// The thread details card's Workspace row
 // follows the composer (BranchToolbar layout="panel" with ChatView's forceNewWorktree,
-// envLocked and canOverrideServerThreadEnvMode). CO-8: several models force New
-// worktree; PA-9: an unstarted server thread picks its workspace and its first
+// envLocked and canOverrideServerThreadEnvMode). Several models force New
+// worktree; an unstarted server thread picks its workspace and its first
 // message starts there (startThreadTurn's bootstrap.prepareWorktree).
 import { describe, expect, test } from 'bun:test';
 import { shellDetails } from './shell-details';
@@ -15,7 +15,7 @@ import { T3Client } from './client';
 const image = (): Obj => ({ id: 'img1', name: 'Capture.png', mimeType: 'image/png', sizeBytes: 68, source: {}, uploadId: 'ready.png' });
 
 describe('the details Workspace row', () => {
-  test('CO-8: several models force New worktree in the row, and a pick there changes nothing', async () => {
+  test('several models force New worktree in the row, and a pick there changes nothing', async () => {
     const { client, native, command } = await connected();
     expect(client.threadId).toBe('');
     const details = () => shellDetails(client, native, true, '', false);
@@ -29,7 +29,7 @@ describe('the details Workspace row', () => {
     expect(await details()).toMatchObject({ envMode: 'local', folderName: 'repo', folderLabel: '' });
   });
 
-  test('PA-9: an unstarted server thread is a select; New worktree starts its first message in one', async () => {
+  test('an unstarted server thread is a select; New worktree starts its first message in one', async () => {
     const native = new Fake(), disk = storage(), client = new T3Client();
     const record = (native.details.t1!.projection as Obj).thread as Obj;
     record.branch = 'feature'; // activeThreadBranch: the new worktree's base
@@ -53,7 +53,7 @@ describe('the details Workspace row', () => {
     expect(client.draft).toBe('');
   });
 
-  test('PA-9: a pick is the thread\'s own; Current checkout sends an ordinary message', async () => {
+  test('a pick is the thread\'s own; Current checkout sends an ordinary message', async () => {
     const { client, native, command } = await opened();
     await command('cclocal:env-mode', '', 'worktree');
     await command('select-thread', 't2');
@@ -65,7 +65,7 @@ describe('the details Workspace row', () => {
     expect(client.snapshotDrafts).toEqual([]);
   });
 
-  test('PA-9: Start from origin is the thread\'s own and outlives a workspace switch and a thread change', async () => {
+  test('Start from origin is the thread\'s own and outlives a workspace switch and a thread change', async () => {
     const { client, native, command } = await opened();
     await command('cclocal:env-mode', '', 'worktree');
     expect(startFromOrigin(client)).toBe(true); // newWorktreesStartFromOrigin
@@ -87,7 +87,7 @@ describe('the details Workspace row', () => {
     expect(startFromOrigin(client)).toBe(false);
   });
 
-  test('PA-9: a started thread keeps its workspace', async () => {
+  test('a started thread keeps its workspace', async () => {
     const native = new Fake();
     (native.details.t1!.projection as Obj).messages = [{ id: 'm1', role: 'user', text: 'Earlier' }];
     const client = new T3Client(), disk = storage();
@@ -101,7 +101,7 @@ describe('the details Workspace row', () => {
   });
 });
 
-// CO-5: ProjectScriptsControl's "Add project script" opens the Add Action dialog over the thread
+// ProjectScriptsControl's "Add project script" opens the Add Action dialog over the thread
 // (openAddDialog), not Settings › Project. The hookup is Contract, so the sources are read as
 // context-menu-hookup.test.ts reads them; sb:action-add itself is settings-b.test.ts's.
 describe('the details card\'s Add project script', () => {

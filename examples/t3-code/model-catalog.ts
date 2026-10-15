@@ -4,12 +4,12 @@
 // row commits one (`command("model", …)`).
 import { arr, str, type Obj } from './domain';
 import { providerLock, matchesLock } from './composer-controls-commands';
-import { applyPickerPrefs } from './settings-b-models'; // settings-b: hidden models and saved order
+import { applyPickerPrefs } from './settings-b-models'; // hidden models and saved order
 import { fanoutSelections, fanoutSupported } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
-import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from './provider-picker-setup'; // provider-sign-in-and-install
+import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from './provider-picker-setup';
 import { usesChatGptSharing } from './chatgpt-plan';
-import { composerPair } from './composer-provider-selection'; // composer-provider-state-and-details: the checked row
+import { composerPair } from './composer-provider-selection'; // the checked row
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
@@ -205,6 +205,6 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     firstEnabled: rows.findIndex(entry => entry.kind === 'model' && !entry.reason),
     // ProviderModelPicker onToggleModel (a new thread's draft that can start several models): Shift adds a model and keeps the picker open.
     multiple: !target && fanoutSupported(client as unknown as T3Client),
-    // ChatGptSharingControl: the active instance (the composer's) shares a ChatGPT plan (managed-codex-chatgpt).
+    // ChatGptSharingControl: the active instance (the composer's) shares a ChatGPT plan.
     chatgptSharing: usesChatGptSharing(providers.find(provider => provider.instanceId === current.providerId)) };
 }

@@ -1,4 +1,4 @@
-// Lane r5-panels: a sent attachment opened beside the thread (MIT reference,
+// A sent attachment opened beside the thread (MIT reference,
 // see LICENSE-T3: ChatView.tsx openFileAttachment → rightPanelStore.openAttachment
 // (an `attachment:<id>` file surface that replaces the standalone explorer tab),
 // components/files/AttachmentFilePreview.tsx and @t3tools/shared filePreview /
@@ -6,7 +6,7 @@
 // (`assets.createUrl`, re-minted after five minutes), never from a workspace
 // file of the same name; the subheader reads "Attachment › name  size" with the
 // rendered/source toggle, word wrap, Copy contents and Save file. Its rendered
-// Markdown is ChatMarkdown with no `cwd` (audit-wave-followups-3 FW-2).
+// Markdown is ChatMarkdown with no `cwd`.
 import type { T3Client } from './client';
 import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
@@ -20,8 +20,8 @@ import { messageCodeBlocks } from './timeline-highlight';
 import { filesMermaid, type MermaidDiagramView } from './timeline-mermaid';
 import { timelineView } from './timeline-presentation';
 import { fileIconToken } from './timeline-files';
-import { mediaBody, mediaErrorMessage } from './r6-media-preview'; // lane r6-media: PDF, HTML, audio and video bodies
-import { sourceGutter } from './r9-device-crumbs'; // lane r9-device: the reference's line-number column
+import { mediaBody, mediaErrorMessage } from './r6-media-preview'; // PDF, HTML, audio and video bodies
+import { sourceGutter } from './r9-device-crumbs'; // the reference's line-number column
 import { letGo } from './let-go';
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
@@ -30,7 +30,7 @@ export type AttachmentView = {
   showWrap: boolean; wrap: boolean; canCopy: boolean; copyLabel: string; copied: boolean; canSave: boolean; saving: boolean; saveLabel: string;
   truncatedNote: string; table: { id: string; header: boolean; cells: { id: string; text: string; syntax: string }[] }[];
   lines: CodeLine[]; gutter: number; url: string; noPreview: string;
-  // audit-wave-followups-3 FW-2: the rendered Markdown as Files' (r4-surfaces-files.ts FilesView): renderFileMarkdown's one
+  // The rendered Markdown as Files' (r4-surfaces-files.ts FilesView): renderFileMarkdown's one
   // message (kind "attachment"), its chips and settings, code colours, Mermaid fences, host-path media and Copy code's check.
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[];
   mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[]; codeCopied: string; codeCopyNonce: number;
@@ -111,7 +111,7 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
  * file uses (r4-surfaces-files.ts renderedMarkdown), with no folder: relative links resolve against nothing
  * (macos/src/markdown_media.rs links_without_cwd), code blocks keep their colours and Copy code, tables their menu,
  * ```mermaid fences draw (filesMermaid: Files and an attachment are never the active surface together), and the task
- * checkboxes stay disabled. Its media have no folder and no thread (media-signed-urls-and-attachment-markdown MD-2): a
+ * checkboxes stay disabled. Its media have no folder and no thread: a
  * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's
  * ChatMarkdownImageFallback), so nothing is signed.
  */
@@ -120,7 +120,7 @@ async function renderedAttachment(client: T3Client, native: Native | null | unde
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `attachment:${meta.id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${meta.id}`, { thread: false }) }, // G4-05: the owner names the document
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${meta.id}`, { thread: false }) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
@@ -183,7 +183,7 @@ export async function attachmentLocal(client: T3Client, native: Native, op: stri
   if (op === 'render') { state.rendered = !state.rendered; if (previewKind(meta) === 'html') state.contentError = ''; return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
   if (op === 'retry') { state.url = ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; return ''; }
-  // lane r6-media: the audio/video player's `error` event; a late one from a body already gone is ignored.
+  // The audio/video player's `error` event; a late one from a body already gone is ignored.
   if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewKind(meta)); return ''; }
   if (op === 'copy') {
     if (!state.content) return '';

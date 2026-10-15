@@ -1,4 +1,4 @@
-// The Pull Requests page across servers and pages (pr-links-previews-and-routing, C12 and paging): every connected
+// The Pull Requests page across servers and pages: every connected
 // server that reads pull requests is asked, each repository by one of them (assignProjectsToEnvironments), and the
 // answers fold into one list (mergePullRequestLists). A page is 99 rows; "Load more pull requests" carries on from
 // each server's `nextCursors`, appending the slice under the rows already shown, and reads a server with more rows

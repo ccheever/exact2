@@ -1,4 +1,4 @@
-// Appearance → Add a theme (lane settings-a). Reference: ThemeImportDialog.tsx,
+// Appearance → Add a theme. Reference: ThemeImportDialog.tsx,
 // ThemeSearchSection.tsx, openVsxThemes.ts and vscodeThemeImport.ts. Open VSX is
 // read through the native module's fetchText (open-vsx.org only); an extension's
 // theme files are read from Open VSX's per-file endpoint rather than by unpacking

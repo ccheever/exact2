@@ -1,4 +1,4 @@
-// media-actions (T3 Code 1e2ecbd975, MIT; see LICENSE-T3): components/media/MediaActions.tsx,
+// T3 Code 1e2ecbd975 (MIT; see LICENSE-T3): components/media/MediaActions.tsx,
 // OpenMediaLink.tsx, MediaVideoPlayer.tsx's failure slot and FilePreviewPanel.tsx's
 // WorkspaceImagePreview / WorkspaceVideoPreview (chat Markdown's media: media-markdown.contract).
 // Only ShellIcon is imported, so the timeline's attachment views can use it without a cycle.
@@ -9,7 +9,7 @@
 // (`chatlocal:media-menu`, media-actions.ts): at the pointer, or at the node's bottom-left corner
 // for a key. The source is the JSON a view built (media-views.ts) or `attachment:<id>`.
 use ShellIcon from "./shell-icons.contract"
-use hoverTipAtFrame from "./hover-layer.contract" // MSU-1: the Markdown image's tooltip in the window's hover layer
+use hoverTipAtFrame from "./hover-layer.contract" // the Markdown image's tooltip in the window's hover layer
 
 // A media slot (media-views.ts MediaView): kind "image" / "video" / "" (none); state "loading",
 // "ready" or "failed"; the open link ("" for none) and the Retry key ("" for no Retry).
@@ -35,7 +35,7 @@ component MediaActions
     testId: string
     // The id a dialog's focus guard names (dialog-trap.contract), "" on every other instance.
     elementId: string
-  // MSU-1 (chat-markdown-media-and-code): the tooltip is drawn (MediaTip), as the reference's TooltipPopup; opening the menu closes it.
+  // The tooltip is drawn (MediaTip), as the reference's TooltipPopup; opening the menu closes it.
   state over = false
   action hover(value: bool)
     over = value
@@ -55,10 +55,10 @@ component MediaActions
       children
       MediaTip(label=tip, shown=over)
 
-// G4-05 (chat-markdown-media-and-code): a Markdown image once it has loaded (ChatMarkdown expandableMarkdownImageProps): the
+// A Markdown image once it has loaded (ChatMarkdown expandableMarkdownImageProps): the
 // image is a button "Preview <alt>" (a click, Enter or Space) that opens the expanded image dialog over its document's images
 // (markdownImageGallery), with the zoom-in cursor, and keeps MediaActions' menu and keys. A secondary click focuses it, as the
-// reference's mousedown does. MSU-1: its tooltip is drawn by the window's hover layer (kind "code", hover-layer.contract), as
+// reference's mousedown does. Its tooltip is drawn by the window's hover layer (kind "code", hover-layer.contract), as
 // the reference portals TooltipPopup, so the Files column or the transcript does not cut it and it flips below near the top.
 component MediaPreviewActions
   inject

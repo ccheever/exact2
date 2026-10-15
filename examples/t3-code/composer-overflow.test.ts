@@ -1,4 +1,4 @@
-// composer-fidelity G11: the footer's overflow steps and the "More composer
+// The footer's overflow steps and the "More composer
 // controls" rows (CompactComposerControlsMenu.tsx, T3 Code 1e2ecbd975, MIT; see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
 import { footerLayout } from './composer-controls-view';

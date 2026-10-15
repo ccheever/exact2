@@ -1,5 +1,5 @@
 // The timeline minimap (timelineMinimapItems.ts, MessagesTimeline.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3).
-// timeline-and-window-hooks KW-12a/KW-12b: which turns are on screen and the jump are ChatColumn's (app-main.contract):
+// Which turns are on screen and the jump are ChatColumn's (app-main.contract):
 // its actions and derives run with Contract's action semantics (contract-action-fixture.ts), its functions from
 // timeline-minimap.contract (contract-fn-fixture.ts).
 import { describe, expect, test } from 'bun:test';
@@ -55,7 +55,7 @@ function transcript(drawn = rows, owner = 'http://a:p:t1') {
   };
 }
 
-describe('KW-12a: the turns on screen come from the user turns\' intersect reports', () => {
+describe('The turns on screen come from the user turns\' intersect reports', () => {
   test('each user turn is observed (not its row or the answers); the user-turn native hook is gone', () => {
     const user = source('timeline.contract').split('\ncomponent UserRow\n')[1]!;
     expect(user).toContain('intersect=seen(message.id) intersect-margin="-1px 0px" width="100%" align-items="flex-end"');
@@ -141,7 +141,7 @@ describe('KW-12a: the turns on screen come from the user turns\' intersect repor
   });
 });
 
-describe('KW-12b: a strip or chevron jumps through the public keyed command', () => {
+describe('A strip or chevron jumps through the public keyed command', () => {
   test('the turn\'s row 24pt under the top edge, smooth, or at once under reduced motion', () => {
     const t = transcript();
     t.jump('u2', -1);

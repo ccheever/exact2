@@ -7,7 +7,7 @@ use PvGhost from "./providers-kit.contract"
 use PvIconButton from "./providers-kit.contract"
 use PvIcon from "./provider-icons.contract"
 use CnOption from "./settings-b-kit.contract"
-use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
+use R10PairFields from "./r10-connect-shapes.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use CnMenu from "./settings-b-kit.contract"
@@ -16,11 +16,11 @@ use CnSeparator from "./settings-b-kit.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use CnFolded from "./settings-b-kit.contract"
 use CnSelect from "./settings-b-kit.contract"
-use EnvRoute, RouteKeyboard from "./connections-routes.contract" // lane environment-routes
+use EnvRoute, RouteKeyboard from "./connections-routes.contract"
 use RouteCount from "./connections-routes.contract"
 use RouteMenuItem from "./connections-routes.contract"
 use EnvironmentRoutes from "./connections-routes.contract"
-use NetworkView from "./connections-network.contract" // this-machine-network-access
+use NetworkView from "./connections-network.contract"
 use NetworkAccessRows from "./connections-network.contract"
 use AuthorizedClients from "./connections-network.contract"
 use KmItem from "./menu-keys.contract"
@@ -70,7 +70,7 @@ shape SavedEnvironment
   progressFailed: string
   iconLock: string
   icons: EnvIconChoice[]
-  // Lane environment-routes: "Routes" / "N routes", the list's label and its rows.
+  // "Routes" / "N routes", the list's label and its rows.
   routeCount: string
   routesLabel: string
   routes: EnvRoute[]
@@ -139,8 +139,8 @@ fn routeKeyboardSource(page: ConnectionsPage, environmentId: string, rowKey: str
 
 // Settings → Connections (ConnectionsSettings.tsx): "This machine" (the embedded
 // server, the primary environment: ThisMachineSection), every paired environment
-// as a saved row under Environments with its own switch and menu (lane
-// r9-connect), then Load balancing and GitHub sharing once two or more machines
+// as a saved row under Environments with its own switch and menu,
+// then Load balancing and GitHub sharing once two or more machines
 // are on (this machine first).
 component ConnectionsPanel
   inject
@@ -168,7 +168,7 @@ component ConnectionsPanel
     column width="100%" gap="2rem" testId="connections-settings"
       text routeKeyboard.announcement aria-live="polite" position="absolute" width=1 height=1 overflow="hidden" testId="environment-route-announcement"
       ThisMachineSection(machine=page.thisMachine, net=page.network, wide=rowWide, busy=busy, op=op, ask=remove)
-      // this-machine-network-access: shown while network access is on or Tailscale HTTPS answers.
+      // Shown while network access is on or Tailscale HTTPS answers.
       if page.network.visible and page.network.clientsVisible
         AuthorizedClients(net=page.network, busy=busy, ask=remove, op=op)
       column width="100%" gap="0.625rem"
@@ -191,9 +191,9 @@ component ConnectionsPanel
                 box position="absolute" left=0 top=0 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
                   PvIcon(name="link", size=18, color="light-dark(#27272a, #f5f5f5)")
               column max-width="24rem" gap="0.25rem" align-items="center"
-                // settings-headings: EmptyTitle is a `<div>` (ui/empty.tsx), no heading.
+                // EmptyTitle is a `<div>` (ui/empty.tsx), no heading.
                 text "No saved remote environments" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)"
-                // lane r7-polish: EmptyRemoteEnvironments cloudEnabled={false} — this client has no T3 Connect
+                // EmptyRemoteEnvironments cloudEnabled={false} — this client has no T3 Connect
                 // (no cloud public config), so the HEAD oracle draws neither the T3 Connect nor the
                 // "Publish agent activity" row (CloudLinkRow renders null) and this one-line sentence.
                 text "Click “Add environment” to pair another environment." font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
@@ -286,7 +286,7 @@ component ThisMachineSection
                   text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-update-note"
                 if machine.upToDate
                   text "Up to date" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-up-to-date"
-        // this-machine-network-access: Network access, its endpoints and Tailscale HTTPS (connections-network.contract).
+        // Network access, its endpoints and Tailscale HTTPS (connections-network.contract).
         if machine.canManage and net.visible
           NetworkAccessRows(net=net, wide=wide, busy=busy, ask=ask, op=op)
         if machine.status != ""
@@ -512,7 +512,7 @@ component AddEnvironmentDialog
     if k == "Tab" and not e.shiftKey and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()
       focus("connection-mode-remote")
-  // Lane environment-routes: "Add route" pairs the same machine at this address (id `<environment id> <host>`).
+  // "Add route" pairs the same machine at this address (id `<environment id> <host>`).
   action submitted
     if routeTarget == ""
       submit()
@@ -532,13 +532,13 @@ component AddEnvironmentDialog
     if name == "ArrowDown"
       suggest = true
       dismissedFor = "-"
-  // Lane environment-routes: adding a route pairs only the machine it names (expectedEnvironmentId).
+  // Adding a route pairs only the machine it names (expectedEnvironmentId).
   derive routePayload = (routeTarget == "" ? "" : `expectedEnvironmentId=${encodeURIComponent(routeTarget)}`)
   derive sshPayload = `username=${encodeURIComponent(username)}&port=${encodeURIComponent(port)}${routeTarget == "" ? "" : "&"}${routePayload}`
   derive adding = (routeTarget == "" ? "Add environment" : "Add route")
   // openOnInputClick, and open while typing until Escape dismisses this text.
   derive suggestions = (suggest or sshHost != "") and dismissedFor != sshHost and mode == "ssh" and sshHosts.hasContent and not busy
-  // r10-connect: a pasted pairing URL shows as its host and code (handleSavedBackendHostChange).
+  // A pasted pairing URL shows as its host and code (handleSavedBackendHostChange).
   derive split = pairFields.host != "" and pairFields.source == origin
   view
     column class=CnOverlay testId="connection-overlay"

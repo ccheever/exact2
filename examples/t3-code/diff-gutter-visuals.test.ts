@@ -1,4 +1,4 @@
-// diff-gutter-visuals: the diff gutter's selection colour and the "+"'s place, as T3 Code (1e2ecbd975) paints them in the
+// The diff gutter's selection colour and the "+"'s place, as T3 Code (1e2ecbd975) paints them in the
 // Code tab and the Diff panel (StyledDiffCodeView over @pierre/diffs; computed styles read over CDP, light and dark,
 // stacked and split). The projections' marks for what sits under a selected line run in diff-review.test.ts and
 // pages-pr-code.test.ts; #413's drags in diff-line-drag.test.ts and diff-gutter-pointer.test.ts.
@@ -22,7 +22,7 @@ describe('a selected line takes the reference\'s blue, not amber', () => {
   test('the row, the number\'s cell and the number take them; the selection\'s bar replaces the change bar', () => {
     expect(cell).toContain('position="relative" background-color=(selected ? diffSel("row") : tone == "deletion"');
     expect(cell).toContain('testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? diffSel("gutter") : tone == "deletion"');
-    // The number moved out of the cell into DiffNumber (diff-gutter-selection-followups GS-1); its colour is the same.
+    // The number moved out of the cell into DiffNumber; its colour is the same.
     expect(component(rows, 'DiffNumber')).toContain('font-variant-numeric="tabular-nums" color=(selected ? diffSel("number") : tone == "deletion"');
     expect(cell).toContain('if selected\n          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffSel("bar")');
     expect(cell).toContain('if tone == "addition" and not selected\n');

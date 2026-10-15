@@ -1,4 +1,4 @@
-// Lane r9-device: where Shiki's html grammar ends an embedded script or style sheet (MIT reference,
+// Where Shiki's html grammar ends an embedded script or style sheet (MIT reference,
 // see LICENSE-T3: the reference colours source with Shiki 4.2's html grammar, tags-valid). The
 // grammar's `source.js` region ends at `(?=</(?i:script))` and its `source.css` region at
 // `(?=</(?i:style))`, but TextMate checks a region's end only while no inner rule is open, so a
@@ -9,8 +9,8 @@
 // a `</script >` or `</scriptx>` the `<` is punctuation and the rest stays plain text until the next
 // `/script>`. A style sheet closes at `</style\s*>` (any case) outside comments, strings and blocks.
 import type { Token } from './timeline-highlight';
-import { regexIslands, regexLiteral, regexMayStart, spliced, withRegexLiterals, type Island } from './r10-device-html-regex'; // lane r10-device: regular expression literals
-import { ifStatementBegins, inImportLine } from './r11-misc-ts-decl'; // lane r11-misc: if statements and import lines
+import { regexIslands, regexLiteral, regexMayStart, spliced, withRegexLiterals, type Island } from './r10-device-html-regex'; // regular expression literals
+import { ifStatementBegins, inImportLine } from './r11-misc-ts-decl'; // if statements and import lines
 
 const SCRIPT_TAG = /<\/script/iy;
 const REGEX_BEFORE = /(?:[=(:,[?+!&|;{}~^%*>-]|=>|\breturn|\bcase|\btypeof|\bvoid|\bdelete|\bin|\bof|\bnew|^)\s*$/;
@@ -20,7 +20,7 @@ export function scriptBodyEnd(text: string, start: number): number {
   const stack: string[] = []; // ( [ { and "${" (a template expression)
   let declaration = false; // a var / let / const / import / export declaration open on this line
   let ternary = 0;
-  let ifOpen = false; // lane r11-misc: an if-statement rule at the top level, open to `;`, `}` or the line's end
+  let ifOpen = false; // an if-statement rule at the top level, open to `;`, `}` or the line's end
   let index = start;
   const lineEnd = (at: number) => { const n = text.indexOf('\n', at); return n < 0 ? text.length : n; };
   while (index < text.length) {
@@ -34,7 +34,7 @@ export function scriptBodyEnd(text: string, start: number): number {
     if (character === '/' && text[index + 1] === '/') {
       // The html grammar's line comment: to the line's end or a lower-case `</script`.
       const end = lineEnd(index), close = text.slice(index, end).indexOf('</script');
-      // lane r11-misc: inside an open rule the javascript grammar's own comment runs to the line's end, over the tag.
+      // Inside an open rule the javascript grammar's own comment runs to the line's end, over the tag.
       if (close >= 0 && stack.length === 0 && !declaration && ternary === 0 && !ifOpen) return index + close;
       index = end; continue;
     }
@@ -228,7 +228,7 @@ export function jsxElement(text: string, index: number, script: Script): { token
 
 /** A script body's tokens: JavaScript, with JSX elements where the grammar reads them. */
 export function scriptTokens(body: string, plain: Script): Token[] {
-  // lane r10-device: JSX elements and regular expression literals are islands in one pass over the
+  // JSX elements and regular expression literals are islands in one pass over the
   // script (r10-device-html-regex.ts spliced), so the text around them keeps its context.
   const script: Script = text => withRegexLiterals(text, plain);
   const islands: Island[] = [];

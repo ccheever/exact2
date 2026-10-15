@@ -1,4 +1,4 @@
-// Lane settings-a: Diagnostics' resource telemetry, process signals and tables.
+// Diagnostics' resource telemetry, process signals and tables.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -77,7 +77,7 @@ describe('resource telemetry', () => {
     const client = fake(), t3 = as(client);
     await telemetryPage(t3, native, true, NOW, 0);
     await telemetryPage(t3, native, true, NOW + 1000, 0);
-    await telemetryPage(t3, native, true, NOW + 60_000, 0); // the minute tick (settings-pages-subscribed-config): Atom.swr revalidates on mount only
+    await telemetryPage(t3, native, true, NOW + 60_000, 0); // the minute tick: Atom.swr revalidates on mount only
     expect(client.requests.filter(([method]) => method === 'server.getResourceTelemetryHistory').length).toBe(1);
     telemetryLocal(t3, 'diag-window', '1h');
     await telemetryPage(t3, native, true, NOW + 2000, 0);

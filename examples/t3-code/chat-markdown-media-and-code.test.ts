@@ -1,4 +1,4 @@
-// chat-markdown-media-and-code: the reply's Markdown media and code, read from the clone's sources.
+// The reply's Markdown media and code, read from the clone's sources.
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import type { T3Client } from './client';
@@ -81,7 +81,7 @@ function chatClient() {
   return { client, signed };
 }
 
-describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens the expanded image dialog over its message\'s images', () => {
+describe('a chat Markdown image is a "Preview <alt>" button that opens the expanded image dialog over its message\'s images', () => {
   test('the press opens the gallery of the document\'s images in order (a video, a table cell\'s image left out), stepping round both ways', async () => {
     const { client } = chatClient();
     const chips = messageChips({ text: TEXT }, '/repo', [], '["t1","m1"]');
@@ -145,7 +145,7 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
     expect(markdown).toContain('standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
     const button = component('media-actions.contract', 'MediaPreviewActions');
     expect(button).toMatch(/action pointerMenu\n\s+hover\(false\)\n\s+focus\(nodeId\)\n\s+local\("media-menu", source, "pointer"\)/);
-    // MSU-1: its tooltip is the hover layer's "code" tip at the button's frame, after Base UI's 600 ms (hover-layer.contract).
+    // Its tooltip is the hover layer's "code" tip at the button's frame, after Base UI's 600 ms (hover-layer.contract).
     expect(button).toContain('hoverTipAt(hoverTipAtFrame(nodeId, "code", tip, [], "top", "center", frame(nodeId),');
     expect(source('hover-layer.contract')).toContain('kind == "tooltip" or kind == "code" ? 600 : 0');
     expect(source('app-window.contract')).toContain('else if hoverTip.kind == "code"\n              HoverCode(tip=hoverTip)');
@@ -159,7 +159,7 @@ describe('G4-05: a chat Markdown image is a "Preview <alt>" button that opens th
   });
 });
 
-describe('MSU-1: a media node\'s tooltip is drawn (MediaActions\' TooltipPopup, variant code), with the full path', () => {
+describe('a media node\'s tooltip is drawn (MediaActions\' TooltipPopup, variant code), with the full path', () => {
   test('MediaActions shows MediaTip on hover, no AppKit help tag, and opening its menu closes the tip', () => {
     const actions = component('media-actions.contract', 'MediaActions');
     expect(actions).toContain('title="" hover=hover contextmenu=pointerMenu key=menuKey aria-label=tip hatch="t3-media" data-media-kind="actions"');
@@ -176,7 +176,7 @@ describe('MSU-1: a media node\'s tooltip is drawn (MediaActions\' TooltipPopup, 
   });
 });
 
-describe('X18: the code block, table and welcome copy buttons morph back from the check', () => {
+describe('the code block, table and welcome copy buttons morph back from the check', () => {
   test('no keyframes; each button draws MorphCopyCheck on while its copy is the last and not yet released', () => {
     const markdown = source('markdown.contract'), welcome = source('pages-welcome.contract');
     expect(markdown).not.toMatch(/mdCheck|mdCopy/);

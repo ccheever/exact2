@@ -130,7 +130,7 @@ func runPermissionHelperChecks() {
     expect(revealed == [bundle] && !row.grabbing, "a click on the T3 Code row reveals the running app bundle in Finder")
     expect(content.appRow.accessibilityPerformPress() && revealed == [bundle, bundle], "VoiceOver's press on the row reveals it too")
     expect(helper.panel === panel, "revealing in Finder keeps the helper open")
-    // The reveal (RI-2, RC-1): asked by the active app, as the reference's shell.showItemInFolder after its window's
+    // The reveal: asked by the active app, as the reference's shell.showItemInFolder after its window's
     // click. T3 Code yields activation to Finder, asks for the reveal, then asks Finder to activate; it asks to activate
     // itself only when no click activated it (a VoiceOver press). Finder coming front is a real-input batch row.
     for active in [true, false] {

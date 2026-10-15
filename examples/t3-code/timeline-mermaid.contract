@@ -31,7 +31,7 @@ component DiagramPreviewDialog
       column min-width=0 align-items="center"
         box position="relative" width=(diagram.width * scale) height=(diagram.height * scale)
           // ZoomableImage: the page's background (bg-background), rounded-lg, ring-1 ring-border/70 and shadow-2xl.
-          // audit-wave-followups-3 FW-1: the card takes the page's colour as the window draws it (light-dark(), the window's
+          // The card takes the page's colour as the window draws it (light-dark(), the window's
           // appearance, which the drawing's paints resolve by too), never the scheme fact on its own: where the two parted
           // (mode System in agent mode: the window drawn Light, the fact the Mac's Dark) a light drawing sat on a black card.
           box width="100%" height="100%" border-radius="0.5rem" overflow="hidden" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 0 0 1px light-dark(#e4e4e7b3, #ffffff12), 0 25px 50px -12px #00000040"

@@ -4,7 +4,7 @@ import XCTest
 import simd
 import Network
 
-// Lane r9-device: the iPhone Duo's hinge protocol, panel feeds and 3D viewer, and an Android
+// The iPhone Duo's hinge protocol, panel feeds and 3D viewer, and an Android
 // foldable's fold reads and procedural body, against the loopback hub in hub.swift with synthetic
 // frames (no simulator, emulator or device tools; the device hub is not enabled here).
 // `T3_DEVICE_TEST_DIR` receives the renders; `T3_DEVICE_GLB_DIR` (a T3 server's built client assets)

@@ -1,4 +1,4 @@
-// Config-stream side effects (lane r3-protocol). Reference (MIT):
+// Config-stream side effects. Reference (MIT):
 // apps/web/src/components/KeybindingsUpdateToast.logic.ts and routes/__root.tsx
 // handleServerConfigUpdated: every live `keybindingsUpdated` event toasts once,
 // "Keybindings updated" on success, or a warning naming the first keybindings

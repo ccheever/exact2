@@ -93,7 +93,7 @@ export function snapshotContents(source: Obj): string {
 }
 /** The composer's SnapShot attachment frames (reference SnapShotAttachmentDetails). */
 export function snapshotDraftTiles(client: T3Client) {
-  const referenced = referencedImageIds(client.draft, arr(client.snapshotDrafts).map(image => str(image.id))); // r4-composer: removal asks first
+  const referenced = referencedImageIds(client.draft, arr(client.snapshotDrafts).map(image => str(image.id))); // Removal asks first
   return arr(client.snapshotDrafts).map(image => {
     const source = obj(image.source), app = str(source.appName, 'Window');
     const included = Boolean(source.accessibility) || str(source.accessibleText).trim() !== '';

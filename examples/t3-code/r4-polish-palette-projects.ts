@@ -1,4 +1,4 @@
-// Lane r4-polish: the command palette's project lists in the sidebar's Project
+// The command palette's project lists in the sidebar's Project
 // order (CommandPalette.tsx `pickerProjects`, MIT reference, see LICENSE-T3).
 // The reference builds the sidebar's logical project groups
 // (buildSidebarProjectSnapshots), sorts them by clientSettings

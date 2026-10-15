@@ -1,4 +1,4 @@
-// The Pull Requests page's row extras (pr-handoffs-and-quick-actions): the Shift quick actions
+// The Pull Requests page's row extras: the Shift quick actions
 // (PullRequestSpeedActions: which buttons a row offers, the merge's own checks, the toasts and the row
 // it writes), speed mode read from the native monitor, and the checks and stack popovers read when
 // opened. Driven through the list resource (pages-prs.ts pullRequestsPage) and the panel's command

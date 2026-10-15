@@ -1,4 +1,4 @@
-// Lane settings-core: settings shell, General and Appearance logic.
+// Settings shell, General and Appearance logic.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -218,7 +218,7 @@ describe('writes through the command', () => {
     expect(client.writes.at(-1)).toEqual({ patch: { snoozeLimitedThreads: false, responseStreamingMode: 'paragraph' } });
     expect((client.local.clientSettings as Obj).chatWidth).toBe('comfortable');
   });
-  test("restore lists and resets the Browser defaults (browser-surface part 4; getChangedBrowserSettingLabels)", async () => {
+  test("restore lists and resets the Browser defaults (getChangedBrowserSettingLabels)", async () => {
     // Settings › Integrations › Browser's rows are device-local: listed and reset with no environment connected.
     const client = fake({}, false);
     applyBrowserDefault(client, 'frame-rate', '60');
@@ -236,7 +236,7 @@ describe('writes through the command', () => {
     expect(restoreLabels(client.local as never, null)).toEqual([]);
     expect(browserDefaultsView(client)).toMatchObject({ viewportValue: 'fill', zoomLabel: '100%', appearanceLabel: 'System', frameRateLabel: '30 fps', keyPresses: false, autoShow: true });
   });
-  test('restore lists and re-grants Agent browser access after the browser rows (RD-1; useSettingsRestore)', async () => {
+  test('restore lists and re-grants Agent browser access after the browser rows (useSettingsRestore)', async () => {
     const client = fake({ enableAgentBrowserAccess: false, snoozeLimitedThreads: true });
     applyBrowserDefault(client, 'zoom', '1.25');
     // The reference's order: the environment rows, getChangedBrowserSettingLabels, then "Agent browser access".
@@ -269,8 +269,8 @@ describe('writes through the command', () => {
     await applyCoreSetting(as(client), native, 'restore-device-defaults:|||', '');
     expect(client.writes).toEqual([{ patch: { enableAgentBrowserAccess: true } }]);
   });
-  test('Restore defaults lists the scope target\'s values, in the reference\'s order (FX-1; useSettingsRestore over useScopedSettings)', async () => {
-    // As checked on the reference (audit-wave-followups-4): the environment snoozes limited threads; the checkout p1 of "repo" turns
+  test('Restore defaults lists the scope target\'s values, in the reference\'s order (useSettingsRestore over useScopedSettings)', async () => {
+    // As checked on the reference: the environment snoozes limited threads; the checkout p1 of "repo" turns
     // Auto-settle merged threads off and waits for the full response. Each scope lists what its representative target resolves to.
     const client = fake({ snoozeLimitedThreads: true, projectSettingsOverrides: { p1: { sidebarAutoSettleOnMerge: false, responseStreamingMode: 'turn' } } });
     const list = async (projectKey: string, checkout: string, route = 'general') => (await settingsCore(as(client), native, '', projectKey, checkout, '', route, '', true)).restoreText;
@@ -314,7 +314,7 @@ describe('writes through the command', () => {
     const row = core.sections.flatMap(section => section.rows).find(entry => entry.id === 'worktree-submodules')!;
     expect([row.label, row.inheritance, core.kind, core.scopeKey]).toEqual(['Skip', 'inherited', 'checkout', '|repo|p1']);
     // A bare project id (Project settings' target) is its project on every environment: /projects/$projectKey
-    // redirects with the key and no machine (routes/projects.$projectKey.tsx; settings-diagnostics-and-scope PG-8).
+    // redirects with the key and no machine (routes/projects.$projectKey.tsx).
     const legacy = await settingsCore(as(client), native, '', '', '', 'p3', 'storage', '', true);
     expect([legacy.kind, legacy.projectLabel, legacy.showScope]).toEqual(['project', 'Single checkout two', true]);
   });

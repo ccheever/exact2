@@ -93,7 +93,7 @@ export function codeRows(input: RowsInput): { items: CodeItem[]; truncated: bool
     for (const comment of notes.pending) { const anchor = reviewPositionAnchor(comment.position); group(anchor.side, anchor.line).push({ ...BASE, id: `pending:${comment.id}`, kind: 'pr-pending', path: file.path, expanded, entry: comment.id, text: comment.body }); }
     if (notes.draft) { const anchor = reviewPositionAnchor(notes.draft.position); group(anchor.side, anchor.line).push({ ...BASE, id: `draft:${file.path}`, kind: 'pr-draft', path: file.path, expanded, label: notes.draft.label }); }
     // What sits under a selected line is painted as selected (Pierre's renderSelection marks the annotation that
-    // follows a selected line; diff-gutter-visuals).
+    // follows a selected line).
     const annotate = (oldLine: number, newLine: number) => {
       for (const [key, side, line] of [[oldLine > 0 ? sideKey('left', oldLine) : '', 'deletions', oldLine], [newLine > 0 ? sideKey('right', newLine) : '', 'additions', newLine]] as const) {
         const list = key ? groups.get(key) : undefined;

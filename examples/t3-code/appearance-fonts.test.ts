@@ -48,7 +48,7 @@ describe("root font size in the JS layout", () => {
   });
 });
 
-// adopt-main-fixes-r7: main's Mac host lays out at a root font size of 13 until the app sets one (LLP 1115, 4dbfec2fe).
+// Main's Mac host lays out at a root font size of 13 until the app sets one (LLP 1115, 4dbfec2fe).
 // The reference's root is 16 until the stored Interface size applies, so the rootFont task sets 16 before the data's
 // first answer (`fontSize` 0) and the stored size on every change after; no rem lays out at 13.
 describe("the root font size app.contract sets", () => {

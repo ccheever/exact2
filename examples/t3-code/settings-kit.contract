@@ -1,4 +1,4 @@
-// Settings building blocks for the routes the settings-rest lane owns. Sizes
+// Settings building blocks for the settings routes. Sizes
 // and colors are the reference build's computed values (settingsLayout.tsx,
 // SettingsGroup.tsx, ui/switch.tsx, ui/select.tsx, ui/button.tsx) at 1x, light
 // and dark: CSS px are points.
@@ -99,7 +99,7 @@ component SettingsSelect
     selectId: string
     label: string
     valueLabel: string
-    // True while valueLabel is SelectValue's placeholder: ui/select.tsx colours it data-placeholder:text-placeholder (KW-1).
+    // True while valueLabel is SelectValue's placeholder: ui/select.tsx colours it data-placeholder:text-placeholder.
     empty: bool
     // The chosen value when the caller keeps it as local state (a dialog draft); "" reads each option's own selected.
     value: string
@@ -180,10 +180,10 @@ component SkMenuItem
     button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(check ? "option" : "menuitem") aria-selected=(check and selected) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(check and selected ? "light-dark(#27272a14, #f5f5f514)" : lit ? "light-dark(#27272a14, #f5f5f50f)" : "#00000000") opacity=(disabled ? 0.64 : 1)
       text label font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 white-space="nowrap" text-align="left" color=(destructive ? "light-dark(#c10007, #ff6467)" : "light-dark(#27272a, #f5f5f5)")
 
-// settings-headings: a heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
+// A heading VoiceOver reads and nothing draws, as Tailwind's `sr-only` (1px, clipped, out of
 // flow): SettingsSection's `hideTitle` `<h2 className="sr-only">` (Appearance's "Colors & themes", the Project page's
 // "Project", Scheduled Tasks' environment). (General's Legacy features holds its `<h2>` inside its trigger, a drawn
-// heading in the button, since main #451 keeps a heading inside a Mac button: adopt-main-fixes-r10 RT-2.)
+// heading in the button, since main #451 keeps a heading inside a Mac button.)
 component SettingsSrHeading
   props
     title: string
@@ -214,8 +214,8 @@ component SettingsNotice
 
 // settingsLayout PolicyTooltip: the icon-micro ghost-muted "Background policy details" button whose TooltipPopup
 // (side="top", delay 200) says how a setting meets the shared Background activity policy: General's Background
-// activity, Providers' Health check interval and Source Control's Git fetch interval (settings-rows-and-labels S1-16,
-// S2-7). The window's hover layer draws the popup (hover-layer.contract, kind "policy"), as the reference portals every
+// activity, Providers' Health check interval and Source Control's Git fetch interval.
+// The window's hover layer draws the popup (hover-layer.contract, kind "policy"), as the reference portals every
 // TooltipPopup, so the card or scroll around the row never cuts it. Hover or keyboard focus shows it; the slot is the
 // page's info icon. Agent mode hovers it with `tap <tipId> hover`; the popup's test id is `<tipId>-tooltip`.
 component PolicyTip

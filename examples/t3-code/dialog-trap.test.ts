@@ -1,4 +1,4 @@
-// dialog-trap-and-progress-value (DT-1): every modal dialog keeps Tab and Shift+Tab inside, as Base UI's focus trap does
+// Every modal dialog keeps Tab and Shift+Tab inside, as Base UI's focus trap does
 // in each Dialog and AlertDialog of T3 Code 1e2ecbd975. Exact keeps no Tab inside an `aria-modal` box on macOS
 // (exact2 #282), so each dialog carries a trap: the FocusGuard pair of dialog-trap.contract, or the `key`
 // handlers the older dialogs wrap with. These checks read the Contract sources, as
@@ -40,7 +40,7 @@ const GUARDED: Record<string, string> = {
   'pages-usage-dialogs.contract dialogId': 'usage-dialog',
   'pages-welcome.contract "welcome-dialog"': 'welcome',
   'palette.contract view.testId': 'palette', // CommandPaletteBody, then PaletteDialog (link-pr), below
-  'palette.contract "pull-request-thread-picker"': 'pr-thread-picker', // PaletteThreadPicker (pr-list-place-and-thread-picker PR-PICKER)
+  'palette.contract "pull-request-thread-picker"': 'pr-thread-picker', // PaletteThreadPicker
   'providers-wizard.contract "add-provider-dialog"': 'add-provider',
   'providers-wizard.contract "usage-hub-dialog"': 'usage-hub',
   'providers-wizard.contract "usage-hub-remove-dialog"': 'usage-hub-remove',
@@ -90,7 +90,7 @@ const KEYED: Record<string, { component: string; wraps: string[] }> = {
 const NOT_MODAL: Record<string, string> = {
   'auto-balance.contract `notice-machines-${notice.id}`': 'Popover',
   'composer-chip-popover.contract "chip-popover"': 'Popover',
-  'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment, diff-cite-popover)',
+  'citation-comment.contract "citation-comment"': 'Popover (AssistantCitationChip\'s comment)',
   'diff.contract "diff-base-picker"': 'Popover',
   'markdown.contract `Terminal excerpt, ${chip.label}`': 'Popover',
   'markdown.contract "context-chip-details"': 'Popover',
@@ -249,7 +249,8 @@ describe('the FocusGuard pair (Base UI FloatingFocusManager\'s inside guards)', 
 
   // A popup that takes the focus itself (the import wizard's, Base UI's `restoreFocus: "popup"`) has its guards beside it,
   // before and after, as Base UI renders them around the popup, so Tab from the popup reaches its first stop and Shift+Tab
-  // the guard before it (adopt-main-fixes-r11 RT-5: main #490 carries Tab on from a focused box that is no stop, X79).
+  // the guard before it (main #490 carries Tab on from a focused box that is no stop,
+  // issues/closed/20261010-macos-tab-from-a-focused-box.md).
   const BESIDE = new Set(['browser-profiles.contract `browser-import-step-${wizard.step}`']);
   for (const dialog of dialogs.filter(dialog => dialog.key in GUARDED)) {
     test(`${dialog.key}: the start guard is the popup's first child, the end guard its last${BESIDE.has(dialog.key) ? ' (beside it: before and after)' : ''}`, () => {
@@ -395,7 +396,7 @@ describe('review fixes (PR #431)', () => {
   });
 });
 
-// dialog-initial-focus-and-model-prices (DF-1, DF-2): Base UI's Dialog moves the focus into the popup as it opens, so the
+// Base UI's Dialog moves the focus into the popup as it opens, so the
 // first Tab and Shift+Tab already start inside the trap. Its default is the popup's first Tab stop (what Tab past the
 // last comes round to: the end guard's target, or a key wrap's); an element that autofocuses as it mounts, or the
 // dialog's own `initialFocus`, takes it first. Each modal dialog carries one DialogOpenFocus naming that element: a
@@ -417,7 +418,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     'settings-appearance-import.contract "add-theme-dialog"': '"add-theme-query"', // settings/ThemeSearchSection.tsx
     'connections-network-dialogs.contract "create-pairing-dialog"': '"pairing-label"', // settings/ConnectionsSettings.tsx: Client label autoFocus
   };
-  // The dialogs whose focus on opening app.contract moves itself (import-wizard-initial-focus, #409): the browser import
+  // The dialogs whose focus on opening app.contract moves itself (#409): the browser import
   // wizard (its first stop, or the popup) and the profile removal confirm (Cancel).
   const OWN: Record<string, string> = {
     'browser-profiles.contract "browser-profile-remove-dialog"': 'task removalFocus',
@@ -457,7 +458,7 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
     });
   }
 
-  test('DF-1: Add provider opens on its Provider step, Model prices on Apply to, New task on Runs on (the reference over CDP)', () => {
+  test('Add provider opens on its Provider step, Model prices on Apply to, New task on Runs on (the reference over CDP)', () => {
     const line = (file: string, needle: string) => source(file).split('\n').find(text => text.includes(needle))!.trim();
     expect(line('providers-wizard.contract', 'DialogOpenFocus(target=(wizard.created')).toBe('DialogOpenFocus(target=(wizard.created == "" ? "add-provider-step-0" : "close-add-provider-x"))');
     expect(line('pages-usage-dialogs.contract', 'DialogOpenFocus(')).toBe('DialogOpenFocus(target=first)');
@@ -466,11 +467,12 @@ describe('every modal dialog takes the focus as it opens (Base UI\'s initialFocu
   });
 });
 
-// dialog-initial-focus-and-model-prices, review fix: Base UI's Dialog also gives the focus back as it closes
+// Base UI's Dialog also gives the focus back as it closes
 // (FloatingFocusManager's `returnFocus`, DialogPopup's `finalFocus` left at its default): to its trigger, else to what held
 // the focus as it opened. Once a dialog takes the focus as it opens (above), closing it removes the focused node, so each
 // modal dialog gives the focus back: a DialogFinalFocus beside the `when` that mounts it naming its opener, its own
-// focus() on close, or (a known difference, X53) no opener the view can name.
+// focus() on close, or (a known difference, issues/closed/20261009-gui-dialog-action-commands.md) no opener the view
+// can name.
 describe('every modal dialog gives focus back through a surviving observer or its existing close action', () => {
   const owners: Record<string, [string, string[]]> = {
     'app-overlays.contract "project-dialog"': ['app-overlays.contract', ['project-dialog']],

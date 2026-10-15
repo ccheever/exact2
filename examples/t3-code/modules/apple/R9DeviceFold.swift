@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import SceneKit
 
-/// Lane r9-device: an Android foldable (MIT reference, see LICENSE-T3:
+/// An Android foldable (MIT reference, see LICENSE-T3:
 /// apps/web/src/components/device/deviceFold.ts, DeviceAndroidFoldControls.tsx;
 /// packages/client-runtime/src/device/androidFoldScene.ts, phoneViewer.ts setFoldAngle). serve-emu's
 /// `GET /api/fold?device=` reads `{ok, fold: {supported, posture, hingeAngle}}`; `POST` with

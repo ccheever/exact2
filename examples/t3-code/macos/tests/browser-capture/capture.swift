@@ -3,7 +3,7 @@ import AVFoundation
 import WebKit
 import XCTest
 
-// browser-surface part 3 (capture): screenshots, artifact actions, held pages, the separate preview window and the
+// Screenshots, artifact actions, held pages, the separate preview window and the
 // module's capture ops end to end (T3BrowserCapture.swift, T3BrowserSessions.performCapture). Ported reference tests
 // (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: Manager.test.ts `fitPictureInPictureContentSize` (2)
 // and `recordingFileExtension` (1). The Manager tests of captureScreenshot, revealArtifact, copyArtifactToClipboard and
@@ -137,7 +137,7 @@ final class BrowserCaptureTests: XCTestCase {
         again.destroy()
         XCTAssertNotNil(session.web.window, "still held: parked again")
         sessions.parking.release(session, "recording")
-        XCTAssertNil(session.web.window, "released: no window, as before part 3")
+        XCTAssertNil(session.web.window, "released: no window")
         XCTAssertFalse(sessions.parking.parked.contains("tab-held"))
     }
 

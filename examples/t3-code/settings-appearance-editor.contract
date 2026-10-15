@@ -1,4 +1,4 @@
-// Appearance → the floating theme editor (lane settings-a; settings-appearance-editor.ts).
+// Appearance → the floating theme editor (settings-appearance-editor.ts).
 // Reference ThemeEditorPanel.tsx: a 416pt panel at the window's bottom-right with
 // its header (title, "Select a color below", minimize, close), Theme name,
 // Appearance (Light/Dark), Colors with Advanced and Filter colors, the colour
@@ -14,7 +14,7 @@ use SettingsCore from "./settings-core.contract"
 use Viewport from "./shapes.contract"
 use ThemeColorSwatch from "./theme-color-picker.contract"
 
-// ThemeEditorHost (D16): the editor floats above every route while its session is open
+// ThemeEditorHost: the editor floats above every route while its session is open
 // (the window's create/edit/duplicate dialog), so it stays across threads, pages and
 // Settings; each session is a fresh panel (keyed by its id), as `key={session.id}`.
 component ThemeEditorHost
@@ -32,7 +32,7 @@ component ThemeEditorHost
     commit: action
     live: action
     save: action
-    // popover-escape-parity: the window's outside-press count, for the colour controls that take the pointer.
+    // The window's outside-press count, for the colour controls that take the pointer.
     outsideDown: action
     outsideUp: action
     outsideFocus: action
@@ -46,7 +46,8 @@ component ThemeEditorHost
 // clamped so the header (48) stays reachable within margin 8; the grip grows toward the
 // right and bottom only, at least 280x220. After the window changes size the size shrinks
 // to fit first, then the place is clamped and pulled up so the panel fits again (the
-// viewport resource stands in for the resize event, X22).
+// viewport resource stands in for the resize event,
+// issues/20261009-intersection-visibility-event-design.md).
 component ThemeEditorPanel
   inject
     rem: number
@@ -132,7 +133,7 @@ component ThemeEditorPanel
   action toggleMinimized
     minimized = not minimized
   // The name travels with Save (no commit on blur: a blur-time write would make Save's
-  // own click land on a busy, disabled button). audit-wave-followups-2 FV-4: each keystroke also reaches the draft as a
+  // own click land on a busy, disabled button). Each keystroke also reaches the draft as a
   // stamped `live` op (themelocal, never behind another command), so the submit label follows the name as typed.
   state nameSent = 0
   action editName(next: string)
@@ -185,7 +186,7 @@ component ThemeEditorPanel
           if (not inspecting or node.id == hoveredId) and node.frame.width > 0 and node.frame.height > 0
             box position="absolute" left=node.frame.x top=node.frame.y width=node.frame.width height=node.frame.height border-width=2 border-style="solid" border-color="#3b82f6" border-radius=3 box-sizing="border-box" pointer-events="none" aria-hidden=true z-index=109 testId=`theme-usage-${node.id}`
     column position="absolute" left=(placed ? left : "auto") top=(placed ? top : "auto") right=(placed ? "auto" : "1rem") bottom=(placed ? "auto" : "1rem") width=boxW height=(sized and not minimized ? boxH : "auto") max-height=(minimized ? vh : (sized ? vh - rem : capH)) border-radius="0.875rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.canvas box-shadow="0 20px 25px -5px #0000001a, 0 8px 10px -6px #0000001a" box-sizing="border-box" overflow="hidden" z-index=110 role="dialog" aria-label=editor.title id="theme-editor" testId="theme-editor"
-      // Sized to the window, clipped by the panel and inert: only its resize event matters (X22, #127).
+      // Sized to the window, clipped by the panel and inert: only its resize event matters (#127).
       box position="absolute" left=0 top=0 width=vw height=vh inert=true aria-hidden=true resize=windowSized testId="theme-editor-window-tracker"
       row flex-shrink=0 align-items="center" gap="0.25rem" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.75rem" padding-right="0.75rem" border-bottom-width=(minimized ? 0 : 1) border-bottom-style="solid" border-color=pal.divider box-sizing="border-box" touch-action="none" cursor=(dragging ? "grabbing" : "grab") pan=drag panrelease=dropDrag testId="theme-editor-header"
         row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
@@ -206,7 +207,7 @@ component ThemeEditorPanel
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
         // No Escape of its own, as the reference's panel (ThemeEditorPanel.tsx: a plain role="dialog" whose
         // only key listener cancels Inspect): Escape in the editor reaches the page under it (Settings' Back,
-        // the Usage page's), and the editor stays (user decision 2026-10-08, popover-escape-parity). An open
+        // the Usage page's), and the editor stays (user decision 2026-10-08). An open
         // colour popover is aria-modal, so its Escape is its own: it closes and the focus goes to the swatch.
         button press=close aria-label="Close the theme editor" class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-close" title=""
           CoreIcon(name="x", size=14, color=pal.muted)

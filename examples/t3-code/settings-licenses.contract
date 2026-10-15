@@ -18,7 +18,7 @@ component NoticesPanel
     openSearch: action
     closeSearch: action
     searchKey: action
-    focusSearch: action // settings-escape-and-nav: the search field has the focus, so its Escape is its own
+    focusSearch: action // the search field has the focus, so its Escape is its own
     toggle: action
     retry: action
   view

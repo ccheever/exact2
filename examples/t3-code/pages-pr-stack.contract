@@ -1,4 +1,4 @@
-// The pull request panel's host stack (lane "pages", pr-header-actions-and-stacks), drawn from
+// The pull request panel's host stack, drawn from
 // pages-pr-stack.ts presentStack: PullRequestStackMenu's trigger ("2/3", a warning glyph when the
 // refresh failed), its menu (Stack #N with "May be stale"/"Refreshing…", Retry stack refresh, the
 // layers top-down with their state glyph and a check on this one, "↳ base", Merge stack (k), Rebase
@@ -69,7 +69,7 @@ component PrdStackControls
     scheme: string
     local: action
     select: action
-  // fix-keyboard-focus: the stack menu's keyboard (menu-keys.contract).
+  // The stack menu's keyboard (menu-keys.contract).
   derive stackItems = [KmItem(id=(stack.retry ? "pr-stack-retry" : ""), label="Retry stack refresh")].concat(stack.layers.map((layer) => KmItem(id=(stack.selectable ? `pr-stack-layer-${layer.number}` : ""), label=layer.title))).concat([KmItem(id=(stack.canMerge and not stack.mergeDisabled ? "pr-stack-merge" : ""), label=stack.mergeItemLabel), KmItem(id=(stack.canRebase and not stack.rebaseDisabled ? "pr-stack-rebase" : ""), label="Rebase stack")]).filter((item) => item.id != "")
   action triggerKey(k: string, e: KeyboardEvent)
     if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
@@ -193,7 +193,7 @@ component PsDialogPopup
   state held = false
   action hold
     held = true
-  // Focus starts on Cancel; Tab goes Cancel, the action, Close and round again (X53's stopgap).
+  // Focus starts on Cancel; Tab goes Cancel, the action, Close and round again (a stopgap for issues/closed/20261009-gui-dialog-action-commands.md).
   action fromCancel(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.metaKey and not e.ctrlKey and not e.altKey
       preventDefault()

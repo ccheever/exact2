@@ -72,9 +72,9 @@ describe('diff panel', () => {
     // DiffPanel passes `lineDiffType: "none"`: a replaced line keeps one unmarked run.
     expect(opened.diffItems[3]!.segments.map((segment: Obj) => segment.mark)).toEqual([false]);
     expect(opened.diffItems[1]!.gutter).toBe(33.3);
-    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // lane r12-render: Shiki's heading ink
+    expect(opened.diffItems[1]!.segments.map((segment: Obj) => segment.syntax)).toEqual(['tag']); // Shiki's heading ink
   });
-  test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff, timeline-work-rows TH-5)', async () => {
+  test('a file change’s Open diff (turn-diff) opens the panel on that run’s turn and file (onOpenTurnDiff)', async () => {
     const { client, command, calls } = harness();
     expect(snapshot(client).diffOpen).toBe(false);
     await command('turn-diff', 'fixture-result.md', 'r1', 0);

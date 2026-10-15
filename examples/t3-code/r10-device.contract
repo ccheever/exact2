@@ -1,4 +1,4 @@
-// Lane r10-device (MIT reference, see LICENSE-T3): the tooltips of DeviceDuoControls' stands and
+// After the MIT reference (see LICENSE-T3): the tooltips of DeviceDuoControls' stands and
 // DeviceAndroidFoldControls' Fold / Unfold, and of their destructive "!" (`TooltipPopup side="left"`,
 // ui/tooltip.tsx: sideOffset 4, centred on the trigger, 600 ms open delay), drawn with
 // shell-tip.contract's card. The bubble sits outside its trigger's box, so it takes no hits.

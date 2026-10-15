@@ -1,4 +1,4 @@
-// The workspace card's Version Control rows and their popups (lane r4-git), after
+// The workspace card's Version Control rows and their popups, after
 // T3 Code (MIT; see LICENSE-T3): BranchToolbarBranchSelector + BranchPicker in the
 // panel display mode, GitActionsControl (panel: the split quick action, its options
 // menu, the inline progress and success rows, Initialize Git) and its commit,
@@ -88,7 +88,7 @@ component R4GitRows
             box position="absolute" left=-1 top="0.5rem" width=1 height="1rem" background-color="light-dark(#e4e4e7a6, #ffffff10)"
             ShellIcon(name="chevron-down", size=16, color="light-dark(#71717b, #818181)")
         R4BranchPicker(git=details.git, width=((inline ? 262 : 246) * rem / 16), act=act, local=local)
-      // lane r5-panels: the thread's pull request rows under the branch (ThreadDetailsPrRows).
+      // The thread's pull request rows under the branch (ThreadDetailsPrRows).
       R5DetailsPrRows(prs=details.prRows, act=act, local=local)
     if not details.git.repo
       button press=act("shell:git-init", details.cwd, "") hover=hover("init") disabled=details.git.initPending testId="details-git-init" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" opacity=(details.git.initPending ? 0.64 : 1) background-color=(hovered == "init" ? "light-dark(#0000000e, #ffffff13)" : "#00000000") display="flex" flex-direction="row" align-items="center"
@@ -191,7 +191,7 @@ component R4BranchPicker
           text git.branch.empty font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
         scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:details-refs"
           column width="100%" gap=0 padding-left="0.5rem" padding-right="0.25rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box" role="listbox"
-            // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
+            // A local draft's pull request reference leads (r9-connect-checkout.ts).
             for item in git.branch.checkout key=item.reference
               button press=act("chatlocal:git-pr-open", "", item.reference) popovertarget="details-branch-menu" popovertargetaction="hide" hover=hover(0) role="option" aria-selected=false testId="details-branch-checkout-pr" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(hovered <= 0 ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" id="details-branch-checkout-pr"
                 row min-width=0 gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" align-items="center"

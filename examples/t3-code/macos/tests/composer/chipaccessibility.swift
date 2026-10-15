@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// composer-chips-accessibility (G1-8, G5-D4, DCP-Gv): the prompt as an assistive client reads it
+// The prompt as an assistive client reads it
 // (T3ComposerAccessibility.swift). T3 Code's composer is a contenteditable whose value holds each chip's label and whose
 // children are the chips, named as their node views name them (the reference's reads: `Terminal 2 lines 1-738 ` and the
 // pop-up button "Terminal excerpt, Terminal 2 lines 1-738. Show details"). Read both ways: through the typed accessors

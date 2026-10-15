@@ -1,4 +1,4 @@
-// browser-surface part 2, the clone's rows for the data module's half (browser-navigation.ts), each named after the
+// The clone's rows for the data module's half (browser-navigation.ts), each named after the
 // reference code it follows (T3 Code 1e2ecbd975, MIT, see LICENSE-T3): PreviewEmptyState / PreviewRecentUrlCard /
 // PreviewLocalServerCard, PreviewView handleSubmitUrl / handleOpenServerUrl / the title effect, PreviewMoreMenu's zoom
 // and appearance, handleToggleDeviceToolbar, BrowserDeviceToolbar, useBrowserViewportResize, ZoomIndicator, the
@@ -252,7 +252,7 @@ describe('the preview keys and ⇧⌘J', () => {
     expect(bare).toMatchObject({ visible: true, active: 'browser:tab-1' });
     expect(s.calls.filter(call => call.method === 'preview.open')).toEqual([]);
   });
-  it('G4-18: with two tabs, ⇧⌘J twice floats the selected loaded tab, then shows that same tab and session again', async () => {
+  it('with two tabs, ⇧⌘J twice floats the selected loaded tab, then shows that same tab and session again', async () => {
     const s = setup();
     const { panelState, surfaceLocal } = await import('./r4-surfaces-panel');
     const { floatingTabOf, browserMiniView } = await import('./browser-capture');
@@ -298,7 +298,7 @@ describe('the preview keys and ⇧⌘J', () => {
     expect(panel.active).toBe('browser:tab-2');
     expect(host.store.read(ref).activeTabId).toBe('tab-2');
   });
-  it('G4-18: the panel-close row presses panelUi("close"), which hides the panel through shelllocal:surface-hide', async () => {
+  it('the panel-close row presses panelUi("close"), which hides the panel through shelllocal:surface-hide', async () => {
     const { value } = await import('./contract-action-fixture');
     const lines = (await Bun.file(new URL('./settings-shortcuts.contract', import.meta.url)).text()).split('\n');
     const at0 = lines.findIndex(line => line.includes('if item.kind == "panel-close"'));
@@ -316,7 +316,7 @@ describe('the preview keys and ⇧⌘J', () => {
     }
     expect(sent).toEqual([['shelllocal:surface-hide', '', '', 0], ['shelllocal:surface-hide', '', '', 0]]);
   });
-  it('G4-18: another active surface, or no Browser tab, keeps ⇧⌘J opening a Browser tab', async () => {
+  it('another active surface, or no Browser tab, keeps ⇧⌘J opening a Browser tab', async () => {
     const s = setup();
     const { panelState } = await import('./r4-surfaces-panel');
     const panel = panelState(s.client);

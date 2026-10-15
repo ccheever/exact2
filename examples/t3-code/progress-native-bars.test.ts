@@ -1,4 +1,4 @@
-// progress-native-bars (PB-1, PB-2): every progress UI is the reference's own element and says its value to assistive
+// Every progress UI is the reference's own element and says its value to assistive
 // technology, with main's LLP 1116 D8 (`progress value=… max=…`, AppKit's bar; ARIA's range values on any node, a drawn
 // `progressbar` or `slider` one AppKit element with its value, minimum and maximum). T3 Code 1e2ecbd975: the Antigravity
 // download is ProviderSetupSection.tsx's `<progress aria-label="Antigravity download" value max>`, the context window bar
@@ -6,8 +6,9 @@
 // pickers' stops and hue sliders (the theme editor's ThemeColorPicker.tsx and the provider accent's
 // ProviderAccentColorPicker.tsx, both over color-picker.tsx) its range values, each stop described by the plane's
 // instructions. The Usage bars stay as the reference draws them (an
-// image named with its figures, a button so named, `aria-hidden` decorations). The X49/X55 workaround (an invisible busy
-// indicator named "<label>, <n>%", progress-value.contract) is gone. The bars' accessibility values are read on macOS through the Accessibility API, which these source reads cannot do.
+// image named with its figures, a button so named, `aria-hidden` decorations). The workaround (an invisible busy
+// indicator named "<label>, <n>%", progress-value.contract; issues/closed/20261009-aria-range-accessibility-values.md,
+// issues/closed/20261009-macos-role-modal-accessibility.md) is gone. The bars' accessibility values are read on macOS through the Accessibility API, which these source reads cannot do.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';
 import { providerRuntime } from './provider-install';

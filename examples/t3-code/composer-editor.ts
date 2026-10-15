@@ -20,10 +20,10 @@ import { imageChipContexts, imageContextRecords } from './composer-editor-attach
 import { composerDrawer, composerStackHold, NO_DRAWER, type ComposerDrawer, type StackHold } from './composer-editor-drawer';
 import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapshots';
 import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from './terminal-integrations';
-import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
+import { terminalOpen } from './terminal-drawer-view'; // the real terminalOpen
 import { videoOp } from './r4-composer-attachments';
 import { folderDropTarget, primary } from './local-primary'; // the folder drop's target (folderDrop.ts)
-import { annotationChipContexts, annotationMessageRecords } from './browser-annotation'; // browser-surface part 3: Annotate's chips
+import { annotationChipContexts, annotationMessageRecords } from './browser-annotation'; // Annotate's chips
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -96,7 +96,7 @@ export function threadContextRecords(client: T3Client, text: string): Obj[] {
 export function messageContext(client: T3Client, text: string): Obj | undefined {
   const images = imageContextRecords(client, text);
   const records = [...threadContextRecords(client, text), ...pullRequestRecords(client, text), ...composerFileRecords(client, text), ...images, ...terminalMessageRecords(client, text),
-    ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))]; // browser-surface part 3
+    ...annotationMessageRecords(client, text, new Set(images.map(image => str(image.contextId).replace(/^image_/, ''))))];
   return records.length ? { version: 1, records } : undefined;
 }
 /** Attach the prompt's context records to a dispatch or launch payload. */
@@ -119,7 +119,7 @@ export function chipContexts(client: T3Client, text: string): Record<string, str
   // A line comment (diff-review.ts) draws as the review-comment chip; a pull request as its state's.
   for (const record of pullRequestRecords(client, text)) out[`review-comment/${str(record.contextId)}`] = record.pullRequest ? `pr-${pullRequestState(obj(record.pullRequest))}\t\t${str(obj(record.pullRequest).title)}` : 'review-comment';
   // A terminal reference with a record draws as its excerpt (expired when the record holds no text); one with no record is
-  // composerContextPresentation's UnresolvedContextChip, as any context with none (composer-chips-accessibility).
+  // composerContextPresentation's UnresolvedContextChip, as any context with none.
   for (const record of terminalDraftRecords(client, text)) out[`terminal/${str(record.contextId)}`] = `terminal\t\t${str(record.text)}`;
   return { ...out, ...fileChipContexts(client, text), ...imageChipContexts(client, text), ...annotationChipContexts(client, text) };
 }
@@ -365,9 +365,9 @@ export async function addReviewCommentChip(client: T3Client, native: Native, rec
   const result = await editorCall(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` });
   if (result.applied !== true) throw new ClientError('The composer is not ready');
 }
-/** pr-handoffs-and-quick-actions: a pull request hand-off's chips (pages-pr-handoffs.ts) resolve to these records when sent. */
+/** A pull request hand-off's chips (pages-pr-handoffs.ts) resolve to these records when sent. */
 export function rememberReviewCommentRecord(client: T3Client, record: Obj): void { cache(client).prRecords.set(str(record.contextId), record); }
-/** pr-handoffs-and-quick-actions: a hand-off into the composer on screen is one undoable edit of the whole prompt. */
+/** A hand-off into the composer on screen is one undoable edit of the whole prompt. */
 export async function replaceComposerPrompt(client: T3Client, native: Native, text: string): Promise<void> { await replaceAll(client, native, text); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
 export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string): Promise<void> {

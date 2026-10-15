@@ -1,4 +1,4 @@
-// The Pull Requests page across servers and pages (pr-links-previews-and-routing): the list asks every connected
+// The Pull Requests page across servers and pages: the list asks every connected
 // server that reads pull requests (each repository by one of them), folds their answers, and pages by each server's
 // `nextCursors` (_chat.pull-requests.tsx listTargets / loadMore / refreshList), driven through pullRequestsPage with
 // injected host replies.

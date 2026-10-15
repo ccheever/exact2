@@ -1,4 +1,4 @@
-// Lane r9-connect: Settings › Connections lists every paired server as a saved
+// Settings › Connections lists every paired server as a saved
 // environment, a failed pairing saves nothing, and a 1970 onboarding time from an
 // older build reads as unset; the branch picker checks a pull request out (PullRequestThreadDialog).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';

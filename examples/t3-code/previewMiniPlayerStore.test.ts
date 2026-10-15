@@ -1,6 +1,6 @@
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): apps/web/src/previewMiniPlayerStore.test.ts, its 6 tests under
 // their own names. The store is one object per client keyed by the thread's key (a scoped thread key string here, the
-// ScopedThreadRef there). browser-surface part 3 restored the browser source, so the tabs are browser tabs again, as in
+// ScopedThreadRef there). The browser source is restored, so the tabs are browser tabs again, as in
 // the reference.
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {

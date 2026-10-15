@@ -51,7 +51,7 @@ final class ComposerAttachTests: XCTestCase {
         XCTAssertTrue(((try? FileManager.default.contentsOfDirectory(atPath: root.appendingPathComponent("attach").path)) ?? []).isEmpty)
     }
 
-    // r4-composer: a picked video is a staged file whose tile shows its first
+    // A picked video is a staged file whose tile shows its first
     // frame (a PNG beside the image drafts) and whose preview plays a typed
     // link to the staged copy; removing the file takes both.
     func testVideoStagesFirstFrameAndTypedLink() throws {

@@ -1,4 +1,4 @@
-// Lane r9-input: ⌘W (rightPanel.close) closes the active right-panel surface tab, as the
+// ⌘W (rightPanel.close) closes the active right-panel surface tab, as the
 // reference's ChatView does (MIT, see LICENSE-T3: components/ChatView.tsx `rightPanel.close` →
 // closeRightPanelSurface(activeRightPanelSurface) → rightPanelStore.closeSurface): the
 // neighbour at the closed index becomes active, the last tab closes the panel, and with no

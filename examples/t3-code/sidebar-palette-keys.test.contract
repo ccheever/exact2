@@ -1,12 +1,13 @@
-// shell-sidebar-palette-keys: the keys of SH-1, SH-2, SH-3 and TH-8 as a person presses them, through the
+// ⌘N and ⇧⌘N on a focused row, ⇧⌘S's undo notice, the palette's project picks and Custom snooze's calendar
+// as a person presses them, through the
 // app's own Contract handlers (sidebar-palette-keys.test.ts tests the data side and the numbering). Each test
 // relaunches the app. It needs a T3 home with two projects, "Verification fixture" (`verify-project`, its
 // thread "Timeline verification", `verify-timeline`) and "work", served by the embedded server; the agent's
-// clock starts at 2026-01-01. The task's audit lane is that home:
+// clock starts at 2026-01-01. The audit lane is that home:
 //   EXACT_ROOT=<worktree> target/t3-audit/clone-drive.sh <lane> <port> --test examples/t3-code/sidebar-palette-keys.test.contract
 // The `clock +N real` steps let the embedded server start and answer, as a person waits for it.
 
-test "SH-1: ⌘N with the focus on a thread row opens the palette on New thread in…"
+test "⌘N with the focus on a thread row opens the palette on New thread in…"
   clock +20000 real
   clock +3000 real
   tap "thread-verify-timeline"
@@ -17,7 +18,7 @@ test "SH-1: ⌘N with the focus on a thread row opens the palette on New thread 
   expect state commandPending == false
   expect tree has "palette-row-projects:new-thread-in:verify-project"
 
-test "SH-1: ⇧⌘N with the focus on a thread row opens a draft in its project"
+test "⇧⌘N with the focus on a thread row opens a draft in its project"
   clock +20000 real
   clock +3000 real
   tap "thread-verify-timeline"
@@ -30,7 +31,7 @@ test "SH-1: ⇧⌘N with the focus on a thread row opens a draft in its project"
   // The header's project chip: its mark, then its name.
   expect text "header-project" == "VFVerification fixture"
 
-test "SH-3: in the palette, ⌘5 with two projects is the field's and does nothing; ⌘2 opens a draft in the second"
+test "In the palette, ⌘5 with two projects is the field's and does nothing; ⌘2 opens a draft in the second"
   clock +20000 real
   clock +3000 real
   tap "thread-verify-timeline"
@@ -49,7 +50,7 @@ test "SH-3: in the palette, ⌘5 with two projects is the field's and does nothi
   expect tree missing "thread-title"
   expect text "header-project" == "WKwork"
 
-test "TH-8: the calendar's arrows move a day only from a day, not from a month button, also after reopening"
+test "The calendar's arrows move a day only from a day, not from a month button, also after reopening"
   clock +20000 real
   clock +3000 real
   tap "thread-verify-timeline"
@@ -90,7 +91,7 @@ test "TH-8: the calendar's arrows move a day only from a day, not from a month b
   tap "snooze-cancel"
   clock +500 real
 
-test "SH-2: ⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it back"
+test "⇧⌘S settles the open thread with the undo notice, and ⌘Z brings it back"
   clock +20000 real
   clock +3000 real
   tap "thread-verify-timeline"

@@ -101,7 +101,7 @@ export async function watchProviderSetup(host: Host, native: Native, owner: stri
   }
 }
 
-/** The instances some owner's rows show (their auth streams): managed-codex-chatgpt's mounted setups. */
+/** The instances some owner's rows show (their auth streams): the mounted Codex setups. */
 export function watchedSetup(host: Host): Set<string> {
   const ids = new Set<string>();
   for (const entry of store(host).owners.values()) entry.auth.forEach(id => ids.add(id));

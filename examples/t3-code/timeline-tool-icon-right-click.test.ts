@@ -1,12 +1,12 @@
 // The shell's context menu as a person's right-click found it (T3 Code 1e2ecbd975, MIT; see LICENSE-T3). This file
-// holds the contract side of the tool icon's right-click (RG-1); the shell's search below the hit and the menu's system
+// holds the contract side of the tool icon's right-click; the shell's search below the hit and the menu's system
 // items are AppKit tests (macos/tests/contextmenu/shell-menu-items.swift); the inputs' autocorrect is text-entry.test.ts,
 // the reply links external-link-menu.test.ts and markdown_links.rs.
 import { describe, test, expect } from 'bun:test';
 
 const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
 
-describe('RG-1: the work group\'s tool icon takes its right-click', () => {
+describe('The work group\'s tool icon takes its right-click', () => {
   test('the header\'s hidden timestamp takes no pointer, as TimelineRowTimestamp\'s pointer-events-none', async () => {
     // MessagesTimeline.tsx TimelineRowTimestamp: `pointer-events-none absolute … opacity-0`, and on the row's hover or
     // focus `pointer-events-auto static opacity-100`. The clone's absolute box sat over the row's first icon, so a

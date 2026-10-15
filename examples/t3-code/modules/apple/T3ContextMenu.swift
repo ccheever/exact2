@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// main-queue block. A menu tracked inside a `DispatchQueue.main.async` block stops the main queue
 /// until it closes (CoreFoundation does not drain the main queue in a run loop nested in its own
 /// callout), and ExactKit hands every `native.later` call to the module through that queue. A menu
-/// held open then held back every server request, which went out together when it closed (round 5).
+/// held open then held back every server request, which went out together when it closed.
 /// Electron keeps sending while its menus are open.
 enum T3MenuTurn {
     static func run(_ work: @escaping () -> Void) {
@@ -89,7 +89,7 @@ final class T3ContextMenu: NSObject {
     /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
     static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
         if agent {
-            // The items go to the log (shell-context-menu: a drive reads which menu answered a right-click).
+            // The items go to the log (a drive reads which menu answered a right-click).
             let labels = (request["items"] as? [[String: Any]] ?? []).compactMap { $0["label"] as? String }
             FileHandle.standardError.write(Data("t3.contextmenu: \(labels.joined(separator: " | "))\n".utf8))
             return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]])

@@ -1,4 +1,4 @@
-// right-panel-escape: T3 Code 1e2ecbd975 binds no Escape to the right panel (DEFAULT_KEYBINDINGS: rightPanel.toggle is
+// T3 Code 1e2ecbd975 binds no Escape to the right panel (DEFAULT_KEYBINDINGS: rightPanel.toggle is
 // mod+alt+b, rightPanel.close mod+w). Only its sheet (RightPanelSheet, a Base UI Dialog at a window 980 wide or less)
 // closes on Escape, from any focus whose Escape reaches the document. Checked on the live reference over CDP
 // (2026-10-10): inline, Escape kept Diff, Files (tree, search, editor), Browser (page, URL field) and the launcher open,

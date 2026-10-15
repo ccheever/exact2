@@ -1,4 +1,4 @@
-// Git action rules for the workspace card (lane r4-git), adapted from T3 Code (MIT;
+// Git action rules for the workspace card, adapted from T3 Code (MIT;
 // see LICENSE-T3): apps/web/src/components/GitActionsControl.logic.ts (quick action,
 // menu items, default-branch copy, progress), GitActionsControl.tsx
 // (getMenuActionDisabledReason, the publish provider readiness) and

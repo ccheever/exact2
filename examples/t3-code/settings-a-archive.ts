@@ -1,11 +1,11 @@
-// Settings → Archive row context menu (lane settings-a). Reference:
+// Settings → Archive row context menu. Reference:
 // SettingsPanels.tsx handleArchivedThreadContextMenu — api.contextMenu.show at the
 // pointer with Unarchive and a destructive Delete; Delete goes through
 // useThreadActions confirmAndDeleteThread, which asks first only while the
 // "Delete confirmation" device setting is on (ConfirmDialogHost, in-app). Its title
 // names the thread the live thread store holds (resolveThreadTarget → readThreadShell),
 // which holds no archived thread, so an archived row's confirm reads
-// 'Delete thread "this thread"?' (G4-14; sidebar-hover-archive-and-glyph G4-14b).
+// 'Delete thread "this thread"?'.
 import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';

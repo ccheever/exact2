@@ -1,4 +1,4 @@
-// Lane r3-protocol: wire errors, config folding, read tagging and abandoned-reply traces.
+// Wire errors, config folding, read tagging and abandoned-reply traces.
 import { describe, test, expect } from 'bun:test';
 import { ClientError, reply, bridgeReply, applyConfig, type Native } from './protocol';
 import { keybindingsToastDecision, configEventSideEffects } from './r3-protocol-config';
@@ -107,7 +107,7 @@ describe('abandon-safe reads and traces', () => {
   });
 });
 
-// A minimal connected transport for client-level tests of the lane's plumbing.
+// A minimal connected transport for client-level tests of the protocol plumbing.
 class Wire implements Native {
   available = true; generation = 1; serial = 0; eventSequence = 0;
   calls: Obj[] = []; events: Obj[] = []; subscriptions: Record<string, string> = {};

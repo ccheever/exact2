@@ -1,4 +1,4 @@
-// The device appearance the whole app reads (lane settings-a): the snapshot's
+// The device appearance the whole app reads: the snapshot's
 // `look`. Reference: routes/__root.tsx (data-chat-width, data-diff-color-scheme,
 // font and theme variables on :root), index.css (--chat-content-max-width,
 // :root[data-diff-color-scheme="blue-orange"]), appearanceContrast.ts, the
@@ -43,7 +43,7 @@ const DIFF = {
 };
 
 /**
- * What the app wears: the stored themes in the mode they resolve to (audit-wave-followups-2 FV-3, resolveThemeAppearance),
+ * What the app wears: the stored themes in the mode they resolve to (resolveThemeAppearance),
  * or, while the theme editor is open, its draft: on its appearance's half and in that appearance whatever the mode
  * (ThemeEditorPanel's applyThemeColorPreview toggles the `dark` class to the appearance being edited). The root's
  * `scheme`, the window (devicePresentation) and the palettes all take it.

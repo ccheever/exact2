@@ -13,7 +13,7 @@ function client(calls: Obj[] = []) {
   return { threadId: 't1', generation: 1, environmentId: 'e', origin: 'http://127.0.0.1:1', connection: 'connected',
     projection: { visibleTurnItems: [{ sourceThreadId: 't1', sourceItemId: 'm1', item }] },
     rpc: async (_native: Native, method: string, payload: Obj) => { calls.push({ method, ...payload }); return { relativeUrl: `/api/assets/${(payload.resource as Obj).attachmentId}`, expiresAt: 10_000_000 }; },
-    // T3ImageAccent (lane r4-timeline): a1 reads as rgb(129 140 168), a2 cannot be read.
+    // T3ImageAccent: a1 reads as rgb(129 140 168), a2 cannot be read.
     restAccess: () => ({ call: async (request: Obj) => { calls.push({ method: String(request.op), url: request.url }); return { accent: String(request.url).endsWith('/a1') ? '129 140 168' : '' }; } }) } as unknown as T3Client;
 }
 describe('sent attachments', () => {

@@ -149,7 +149,7 @@ describe('details source (upstream 429c625a85, d1034d62b2)', () => {
     toggleInline(client, 'env:t1');
     expect(await shellDetails(client, native, false, 't1', true)).toMatchObject({ ready: false, inline: false });
     expect(calls.at(-1)).toEqual({ op: 'unsubscribe', key: VCS_STATUS_KEY });
-    // device-player-compact-and-rail-keys DP-2: where the floating player leaves the docked card no placement, the header
+    // Where the floating player leaves the docked card no placement, the header
     // opens the popover on a wide chat too, so an open popover reads the details whatever the docked card's state.
     expect(await shellDetails(client, native, true, 't1', true)).toMatchObject({ ready: true, inline: false });
   });

@@ -4,7 +4,7 @@ import CoreMedia
 import Foundation
 import VideoToolbox
 
-/// Lane r7-device: the hub's H.264 streams and device keyboard input (MIT reference, see
+/// The hub's H.264 streams and device keyboard input (MIT reference, see
 /// LICENSE-T3: packages/client-runtime/src/device/stream.ts). serve-sim (iOS) sends an HTTP
 /// `stream.avcc` body of `u32be length, u8 tag, payload` envelopes (1 avcC description, 2
 /// keyframe, 3 delta, 4 JPEG seed); serve-emu (Android) sends H.264 access units in Annex B over

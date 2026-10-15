@@ -1,4 +1,4 @@
-// r4-composer: video attachments on the composer's shelf and their expanded
+// Video attachments on the composer's shelf and their expanded
 // preview (ChatComposer composerVideos, ExpandedImageDialog's ExpandedVideo;
 // T3 Code, MIT; see LICENSE-T3). r4-composer-attachments.ts projects them.
 use FocusGuard from "./dialog-trap.contract"

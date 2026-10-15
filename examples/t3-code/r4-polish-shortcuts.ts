@@ -1,4 +1,4 @@
-// Lane r4-polish: the shell's header shortcut labels as shortcutLabelForCommand
+// The shell's header shortcut labels as shortcutLabelForCommand
 // finds them (keybindings.ts findEffectiveShortcutForCommand, MIT reference, see
 // LICENSE-T3). Newest binding first, a binding whose `when` fails the default
 // context (no terminal, nothing focused) is skipped and a later binding on the

@@ -4,7 +4,7 @@
 // Rows carry their inheritance chain; writes are server.updateSettings patches
 // with the reference's project-override replacement semantics.
 // 1e2ecbd975 (5318d054a5): Integrations › Devices adds the Simulator support row (device-support.ts).
-import { redactedValue } from './redacted-text'; // provider-sign-in-and-install: RedactedAccount
+import { redactedValue } from './redacted-text'; // RedactedAccount
 import { arr, obj, str, num, type Json, type Obj } from './domain';
 import type { T3Client } from './client';
 import { providerAvailable, type Native } from './protocol';
@@ -24,11 +24,11 @@ type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
   disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
-  /** ScopedSwitch's mixed state (D15): the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
+  /** ScopedSwitch's mixed state: the Integrations device rows compute it across the settings scope's targets (settings-integrations-scope.ts). */
   mixed: boolean;
   /** The control's accessible name and SettingResetButton's `label` ("Reset <label> to default"), as the reference names them; '' uses the title. */
   control: string; resetLabel: string;
-  /** A model row's picker trigger mark (model-picker-parity S2-4): the instance's driver and ProviderInstanceIcon badge. */
+  /** A model row's picker trigger mark: the instance's driver and ProviderInstanceIcon badge. */
   driver: string; badge: string; accent: string };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
@@ -89,7 +89,7 @@ export function sourceControlRows(settings: Obj, projectId: string, environmentL
   const mode = str(value.branchNamingMode, 'static'), writing = str(style.mode, 'repo_conventions');
   const writerOn = value.sourceControlWriterModelSelection !== null && value.sourceControlWriterModelSelection !== undefined;
   const writer = obj(value.sourceControlWriterModelSelection);
-  // ProviderModelPicker's trigger (model-picker-parity S2-4): the writer's instance mark and model name, its slug when the
+  // ProviderModelPicker's trigger: the writer's instance mark and model name, its slug when the
   // instance does not list it; the picker itself is the window's (settings-model-picker.ts).
   const textProviders = providers.filter(provider => provider.supportsTextGeneration !== false);
   const writerProvider = textProviders.find(provider => provider.instanceId === writer.instanceId);
@@ -251,7 +251,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
 export async function integrationsPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, machine = '', projectKey = '', checkout = '') {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, deviceScope: '', browser: [] as ScopedRow[], deviceHub: blankRow(), agentDevice: blankRow(), hubStatus: '', agentStatus: '', hosts: 0,
     hubTool: deviceTool('hub', null), agentTool: deviceTool('agent', null), hostsRow: blankRow(), deviceHosts: deviceHostsView(client, {}, null, projectId !== '', false),
-    simulatorSupport: [] as SimulatorSupportRow[], linkTarget: linkTargetPreference(client) }; // browser-surface part 5: "Open links in"
+    simulatorSupport: [] as SimulatorSupportRow[], linkTarget: linkTargetPreference(client) }; // "Open links in"
   if (!active) return { ...empty };
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };

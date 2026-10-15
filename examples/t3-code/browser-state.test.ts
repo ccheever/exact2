@@ -5,7 +5,7 @@
 // client (`read` for `readThreadPreviewState`, `apply…`/`reconcile…`/`…Close` for the store's exported
 // functions); "keeps independent state atoms for each thread" checks independent per-thread state, and
 // "does not publish duplicate desktop browser state" counts the store's change results instead of an
-// atom subscription. `getConfiguredPreviewUrls` belongs to part 2 (configured local servers).
+// atom subscription. `getConfiguredPreviewUrls` belongs to browser-targets.ts (configured local servers).
 import { beforeEach, describe, expect, it } from 'bun:test';
 import {
   EMPTY_THREAD_PREVIEW_STATE, PREVIEW_RECENT_URL_LIMIT, PreviewStateStore, isCurrentPreviewRuntimeTab, previewRuntimeTabId, readSnapshot,

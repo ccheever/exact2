@@ -134,8 +134,8 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       if (!slots.has(m[1]!)) throw new Error(`${m[1]} is not ${owner} state`);
       writes[m[1]!] = value(m[2]!, env);
     } else if (/^\w+\(.*\)$/.test(line)) {
-      // A call: an action prop (pr-list-scroll-and-sidebar-sweep: `hoverCard`, the window's hover), an
-      // injected action or a host command (legacy-sidebar-full).
+      // A call: an action prop (`hoverCard`, the window's hover), an
+      // injected action or a host command (legacy-sidebar-full.test.ts).
       value(line, env);
     } else {
       throw new Error(`unsupported statement: ${line}`);

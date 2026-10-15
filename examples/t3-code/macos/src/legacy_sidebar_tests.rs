@@ -298,7 +298,7 @@ fn options_count_reconciles_the_clamped_reply_without_replacing_the_input() {
         .any(|c| c.name == "hidePopover" || c.name == "focus"));
 }
 
-/// Repair round 2 (AFTER drive 20–22): Tab from Visible threads went to the
+/// Tab from Visible threads went to the
 /// increase stepper, the clamp to 15 then disabled it, and the focus stayed
 /// on a disabled button that took no further Tab. Base UI's steppers
 /// (useNumberFieldButton, tabIndex -1) are no Tab stops and a press leaves

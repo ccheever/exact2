@@ -3,12 +3,12 @@ import Network
 import WebKit
 import XCTest
 
-// browser-surface part 5: the previewAutomation host's executor (T3BrowserAutomation.swift, its scripts and
+// The previewAutomation host's executor (T3BrowserAutomation.swift, its scripts and
 // native input) against a loopback fixture page: every operation's answer as `previewAutomation.respond` carries
 // it, evaluate, the snapshot (Playwright's ARIA snapshot, the screenshot, console and network diagnostics), click
 // by locator and by point (native in a window, DOM events out of one), type, press (native keys and the macOS
 // editing commands), scroll, wait for, status, open and navigate readiness, the host's error answers, the colour
-// scheme and Mute, and part 2's viewport for the host (fixed sizes, the agent default, the rollback). T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) is the reference for the expected answers.
+// scheme and Mute, and the viewport for the host (fixed sizes, the agent default, the rollback). T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) is the reference for the expected answers.
 // `T3_APP_DIR` names the example (the vendored Playwright script); `T3_BROWSER_TEST_DIR` receives screenshots.
 final class Fixture {
     private let listener: NWListener
@@ -319,7 +319,7 @@ final class BrowserAutomationTests: XCTestCase {
         let session = page(visible: false)
         _ = result(run(plan("click", ["locator": "role=button[name='Go']"])))
         XCTAssertEqual(js(session.web, "window.clicks") as? Int, 1)
-        XCTAssertEqual(js(session.web, "window.trusted") as? Bool, false, "X1 path B: a hidden page gets untrusted DOM events")
+        XCTAssertEqual(js(session.web, "window.trusted") as? Bool, false, "a hidden page gets untrusted DOM events")
     }
 
     func testTypeInsertsTextAndClearReplacesIt() {
@@ -440,7 +440,7 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(overlay["_tag"] as? String, "PreviewAutomationTimeoutError", "no page within the host budget")
         XCTAssertLessThanOrEqual((overlay["detail"] as? [String: Any])?["timeoutMs"] as? Int ?? 9_999, 480)
         page()
-        // The recording operations go to the data module (browser-recording-and-downloads; recording.swift): with none to
+        // The recording operations go to the data module (recording.swift): with none to
         // answer, the hand-off ends at the host deadline as the operation's failure.
         let stop = error(run(plan("recordingStop", timeoutMs: 2_000)))
         XCTAssertEqual(stop["_tag"] as? String, "PreviewAutomationExecutionError")
@@ -456,7 +456,7 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(calls.last { $0.0 == "preview.resize" }?.1["tabId"] as? String, "tab-1")
     }
 
-    // MARK: Viewport (part 2: freeform and presets, the agent default, the rollback)
+    // MARK: Viewport (freeform and presets, the agent default, the rollback)
 
     private static let freeform800: [String: Any] = ["_tag": "freeform", "width": 800, "height": 600]
     private func resizes() -> [Int] { calls.filter { $0.0 == "preview.resize" }.compactMap { ($0.1["viewport"] as? [String: Any])?["width"] as? Int } }
@@ -630,7 +630,7 @@ final class BrowserAutomationTests: XCTestCase {
         XCTAssertEqual(js(session.web, "matchMedia('(prefers-color-scheme: dark)').matches") as? Bool, false)
         let status = (automation.status["browserAutomation"] as? [String: Any])?["tabs"] as? [String: Any]
         XCTAssertEqual((status?[Self.runtime] as? [String: Any])?["colorScheme"] as? String, "light")
-        session.setColorScheme("dark") // part 2's Appearance menu: one mechanism, so the host reports it too
+        session.setColorScheme("dark") // the Appearance menu: one mechanism, so the host reports it too
         let after = (automation.status["browserAutomation"] as? [String: Any])?["tabs"] as? [String: Any]
         XCTAssertEqual((after?[Self.runtime] as? [String: Any])?["colorScheme"] as? String, "dark")
     }
@@ -701,7 +701,7 @@ final class BrowserAutomationTests: XCTestCase {
 
 _ = NSApplication.shared
 NSApp.setActivationPolicy(.accessory)
-// browser-recording-and-downloads: the recording hand-off (recording.swift) and agent-driven downloads (downloads.swift).
+// The recording hand-off (recording.swift) and agent-driven downloads (downloads.swift).
 let suite = XCTestSuite(name: "browser-automation")
 // `T3_AUTOMATION_SUITES` (class names, comma-separated) runs only those.
 let only = Set((ProcessInfo.processInfo.environment["T3_AUTOMATION_SUITES"] ?? "").split(separator: ",").map(String.init))

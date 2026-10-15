@@ -1,10 +1,10 @@
-// browser-surface part 3 (capture): a Browser tab's recording lifecycle (MIT reference, see LICENSE-T3, T3 Code
+// A Browser tab's recording lifecycle (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975: apps/web/src/browser/browserRecording.ts, browserRecordingScope.ts, browserRecordingUpload.ts).
 //
 // The reference arms the desktop's capture of one tab (`startScreencast`), takes the tab's display-media stream
 // in the renderer (`getDisplayMedia`, one grant at a time), decorates it on a detached canvas
 // (recordingCompositor.ts) and encodes it with MediaRecorder; the stop saves the encoded file as an artifact.
-// Here every half of that is the module's (T3BrowserRecorder.swift, X1 path B): `arm` installs the in-page
+// Here every half of that is the module's (T3BrowserRecorder.swift): `arm` installs the in-page
 // cursor and input overlay and holds the page painting (startScreencast), `capture` polls `takeSnapshot` at the
 // recording frame rate (the stream), `decorate` turns the native compositor on (the canvas), `begin`/`finish`
 // run the H.264 encoder (MediaRecorder) and `save` moves the file into the artifact directory. This file keeps

@@ -9,8 +9,7 @@
 // server ("This machine"): the focus when it is the primary, else its background connection.
 // With no primary (the Local environment off, a remote-only or refused launch) there is no prompt
 // and no update: the reference mounts the prompt only for an authenticated primary (__root.tsx
-// `primaryEnvironmentAuthenticated`) and reads only `primaryServerProvidersAtom` (decision (a) of
-// provider-settings-upkeep, 2026-10-08: as the original).
+// `primaryEnvironmentAuthenticated`) and reads only `primaryServerProvidersAtom`.
 import type { T3Client } from './client';
 import { pushToast, dismissToast } from './toast';
 import { arr, obj, str, type Obj } from './domain';

@@ -1,4 +1,4 @@
-// Tests only (browser-surface part 4): the cookie import's ImportIO over Bun, so the ported reference tests run the
+// Tests only: the cookie import's ImportIO over Bun, so the ported reference tests run the
 // clone's readers against fixture browser stores they build in a temporary directory, as the reference's tests do
 // with NodeServices. The app's ImportIO is the module's (browser-import-io.ts `nativeImportIO`, T3BrowserImportIO.swift),
 // whose snapshot, EPERM and fcntl answers its AppKit tests check (macos/tests/browser-profiles).

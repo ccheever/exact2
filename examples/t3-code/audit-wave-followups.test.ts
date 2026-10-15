@@ -1,4 +1,4 @@
-// audit-wave-followups (FU-1..FU-5, found by the 2026-10-10 audit fix wave): an empty server thread docks its composer
+// An empty server thread docks its composer
 // over "Send a message to start the conversation.", the right panel's open state is the thread's, ⌘↩ belongs to a
 // focused Files preview comment draft, a provider link to another target closes "Add custom model", and Escape in the
 // command palette over Settings closes only the palette. Reference: T3 Code 1e2ecbd975 (ChatView.tsx isDraftHeroState,
@@ -45,7 +45,7 @@ function harness() {
   return { client, native, storage, calls, surface };
 }
 
-describe('FU-1: a server thread with no messages docks the composer over the timeline\'s placeholder', () => {
+describe('a server thread with no messages docks the composer over the timeline\'s placeholder', () => {
   test('only a draft with an empty timeline is the hero (isDraftHeroState); the placeholder waits for the thread\'s detail', async () => {
     const column = await component('app-main.contract', 'ChatColumn');
     expect(column).toContain('  derive hero = data.messages.length == 0 and data.threadId == ""\n  derive overlaid = not hero\n');
@@ -68,7 +68,7 @@ describe('FU-1: a server thread with no messages docks the composer over the tim
   });
 });
 
-describe('FU-2: the right panel\'s open state is the thread\'s (rightPanelStore byThreadKey)', () => {
+describe('the right panel\'s open state is the thread\'s (rightPanelStore byThreadKey)', () => {
   test('the launcher opened on a thread stays that thread\'s: a fresh draft and another thread open closed, and it comes back', async () => {
     const { client, native, surface } = harness();
     const view = () => panelView(client, native, 0);
@@ -107,7 +107,7 @@ describe('FU-2: the right panel\'s open state is the thread\'s (rightPanelStore 
   });
 });
 
-describe('FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff)', () => {
+describe('⌘↩ in a Files preview comment draft (as in the Diff)', () => {
   test('while the draft\'s textarea holds the focus the composer\'s Send declares no chord', async () => {
     const { client, native, surface, calls } = harness();
     const chords = () => snapshot(client).composer.sendChords;
@@ -169,14 +169,14 @@ describe('FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff)',
     const app = await source('app.contract');
     expect(app).toContain('  mutation fileCommentChanged as shape Change queue refreshes data');
     // The Code tab's gutter drags have their own queued send between the two, and so does a
-    // Markdown fragment link's open (reply-links-reference-behavior RL-4).
-    expect(app).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab\'s gutter drags and "+", in turn\n    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // reply-links-reference-behavior RL-4 (fragmentOpened)\n    else\n      send localChanged = command(`chatlocal:${op}`');
+    // Markdown fragment link's open.
+    expect(app).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab\'s gutter drags and "+", in turn\n    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // fragmentOpened\n    else\n      send localChanged = command(`chatlocal:${op}`');
     expect(line(app, '  action write(value: string)')).toBe('  action write(value: string)');
     expect(app).toContain('  action write(value: string)\n    draft = value\n    draftOwner = `${composerOwner}${data.requestKey}`\n    send localChanged = command("draft", "", value, 0)');
   });
 });
 
-describe('FU-4: a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key)', () => {
+describe('a provider link to another target remounts the Providers page (ProviderSettingsPanelContent key)', () => {
   // The fns are read from app-settings.contract and run as JavaScript, as diff-panel-parity.test.ts runs dbKeys.
   const fns = async () => {
     const text = await source('app-settings.contract');
@@ -269,7 +269,7 @@ describe('FU-4: a provider link to another target remounts the Providers page (P
   });
 });
 
-describe('FU-5: Escape in the command palette over Settings closes only the palette', () => {
+describe('Escape in the command palette over Settings closes only the palette', () => {
   test('the open palette owns Escape, so Settings\' Back gives up its shortcut', async () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     expect(line(settings, 'derive escapeOwned =')).toContain(' or paletteOpen or ');

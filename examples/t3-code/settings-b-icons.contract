@@ -1,4 +1,4 @@
-// Lane settings-b: the project icon (ProjectFavicon), "Choose project icon"
+// The project icon (ProjectFavicon), "Choose project icon"
 // (ProjectIconPickerDialog: Icons / Emoji / Monogram) and the image-file picker
 // (ProjectFaviconPickerDialog, a CommandDialog). The dialogs mount at the window
 // root so their overlays take hits above the settings scroll view.

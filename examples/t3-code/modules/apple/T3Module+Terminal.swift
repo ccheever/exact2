@@ -1,4 +1,4 @@
-// T3Module's terminal drawer ops (T3Module.swift routes them; task terminal-drawer): the drawer's
+// T3Module's terminal drawer ops (T3Module.swift routes them): the drawer's
 // mounted threads' terminals keep their attach streams without a view (T3TerminalSessions.retain).
 import Foundation
 

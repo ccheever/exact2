@@ -1,4 +1,4 @@
-// Lane r12-threads: the right panel's tab strip scroll (r12-threads-tabs.ts; T3 Code, MIT, see
+// The right panel's tab strip scroll (r12-threads-tabs.ts; T3 Code, MIT, see
 // LICENSE-T3: RightPanelTabs.tsx).
 
 // The strip's geometry: whether its tabs overflow, the viewport width, the furthest scroll, and

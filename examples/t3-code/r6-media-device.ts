@@ -1,4 +1,4 @@
-// Lane r6-media: opening a simulator or emulator from the Device surface and the device
+// Opening a simulator or emulator from the Device surface and the device
 // workspace (MIT reference, see LICENSE-T3: components/device/DevicePanel.tsx selectDevice /
 // closeActive / floatActive, DeviceLoadingView.tsx, DeviceWorkspace.tsx, DeviceControlsRail.tsx,
 // useDeviceControls.ts, preview/ThreadPreviewMiniPlayer.tsx DeviceMiniPlayer,
@@ -6,14 +6,14 @@
 // unless `boot: false`), `device.close` (`shutdown` powers it off), `device.detail` and
 // `device.action`; the picture and touches come from the hub through the server's
 // `/api/device-hub` proxy, which the app module's `t3-media` hook reads (R6DeviceStream.swift:
-// R7DeviceClient.swift: iOS's AVCC / MJPEG feed and helper socket, Android's H.264 socket). Lane
-// r7-device adds the 3D phone, the Flat / 3D toggle, Android's Back / Recents / Rotate and the
+// R7DeviceClient.swift: iOS's AVCC / MJPEG feed and helper socket, Android's H.264 socket). The
+// workspace also has the 3D phone, the Flat / 3D toggle, Android's Back / Recents / Rotate and the
 // Tools drawer (r7-device-tools.ts).
 import type { T3Client } from './client';
 import { emptyR7Workspace, r7Workspace, r7DeviceCommand, r7DeviceLocal, type R7DevDeviceWorkspace } from './r7-device-tools';
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
-import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './r9-device-duo'; // lane r9-device
+import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './r9-device-duo';
 import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
 import { letGo } from './let-go';
 import { activeRef } from './terminal-drawer-view';
@@ -55,13 +55,13 @@ function storeOf(client: T3Client): Store {
   return store;
 }
 
-/** RightPanelTabs: a device tab takes its device's name and platform mark once one is open (lane r7-device). */
+/** RightPanelTabs: a device tab takes its device's name and platform mark once one is open. */
 export function deviceTab(client: T3Client, panelKey: string): { title: string; icon: string } | null {
   const target = storeOf(client).targets.get(panelKey);
   return target ? { title: target.name || 'Device', icon: target.platform === 'android' ? 'android' : 'apple' } : null;
 }
 
-/** Lane r11-device: the device a thread's Device surface shows (rightPanelStore's surface `target`), kept across launches. */
+/** The device a thread's Device surface shows (rightPanelStore's surface `target`), kept across launches. */
 export const deviceTargetOf = (client: T3Client, panelKey: string): DeviceTarget | undefined => storeOf(client).targets.get(panelKey);
 export function restoreDeviceTarget(client: T3Client, panelKey: string, target: DeviceTarget): void {
   const store = storeOf(client);
@@ -160,7 +160,7 @@ export function r6DeviceMini(client: T3Client, state: Obj | null): R6DeviceMini 
 const miniSource = (target: DeviceTarget): PreviewMiniPlayerSource => ({ kind: 'device', hostId: target.hostId, deviceId: target.deviceId, platform: platformOf(target.platform), name: target.name });
 /** The connection's previewMiniPlayerStore (chat-canvas-view.ts reads and moves it). Threads are its keys. */
 export const miniStoreOf = (client: T3Client): PreviewMiniPlayerStore => storeOf(client).mini;
-/** Lane r12-threads: previewMiniPlayerStore open / close / the thread's source, for ChatView's device effects. */
+/** previewMiniPlayerStore open / close / the thread's source, for ChatView's device effects. */
 export function miniDeviceOf(client: T3Client, threadId: string): DeviceTarget | undefined {
   const source = storeOf(client).mini.get(threadId)?.source;
   return source?.kind === 'device' ? { hostId: source.hostId, deviceId: source.deviceId, platform: source.platform, name: source.name } : undefined;
@@ -297,7 +297,7 @@ export async function r6DeviceLocal(client: T3Client, native: Native, state: Obj
     store.targets.set(panelKey, target);
     return 'reopen';
   }
-  if (op === 'duo' || op === 'fold') { // lane r9-device: a stand or fold button
+  if (op === 'duo' || op === 'fold') { // a stand or fold button
     const device = state ? activeDevice(state, deviceThreadId(client), store.targets.get(panelKey)) : null, next = r9FoldingValue(op, value);
     if (device && next) await client.restAccess(native).call({ op: 'r6DeviceInput', action: op, key: deviceKey({ hostId: str(device.hostId), id: str(device.id) }), value: next });
     return '';

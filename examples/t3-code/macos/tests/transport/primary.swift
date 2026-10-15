@@ -6,7 +6,7 @@ import XCTest
 // remembered by origin (its port can change every launch); a focus token `primary` beside
 // `t3.server.origin` names it for the next launch. A saved duplicate (same environment id) can be
 // forgotten without touching the primary's connection, and says when it was the focus; pairing the
-// primary's own server saves nothing (decision U6, as the reference's registry).
+// primary's own server saves nothing (as the reference's registry).
 final class PrimaryTransportTests: XCTestCase {
     private let originKey = "t3.server.origin", focusKey = "t3.server.focus"
     private final class Headers: @unchecked Sendable {
@@ -139,7 +139,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
 
     func testForgettingAFocusedDuplicateSaysSoSoThePrimaryCanTakeTheWindow() throws {
-        // U6: a launch opened the duplicate by its remembered origin (the primary had not named itself yet).
+        // A launch opened the duplicate by its remembered origin (the primary had not named itself yet).
         let socket = try R3Socket(), headers = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
         serve(headers)
         let duplicate = "http://127.0.0.1:\(socket.port)"
@@ -155,7 +155,7 @@ final class PrimaryTransportTests: XCTestCase {
     }
 
     func testPairingThisMachinesOwnServerSpendsTheCodeAndSavesNothing() throws {
-        // U6: the reference's `register` does nothing for the primary's environment id (registry.ts).
+        // The reference's `register` does nothing for the primary's environment id (registry.ts).
         let exchanged = Headers(), saved = T3SavedEnvironments(persistent: false), credentials = T3Credentials(persistent: false)
         R3HTTP.reset { (request: URLRequest) -> (Int, Any) in
             switch request.url!.path {

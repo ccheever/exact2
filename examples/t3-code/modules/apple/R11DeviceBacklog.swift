@@ -1,7 +1,7 @@
 #if os(macOS)
 import Foundation
 
-/// Lane r11-device: stream.ts decode's soft queue (MIT reference, see LICENSE-T3:
+/// stream.ts decode's soft queue (MIT reference, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts SOFT_DECODE_QUEUE). The reference recovers when
 /// more than 8 samples wait for the decoder: iOS falls back to MJPEG (no 3D) and Android restarts
 /// its decoder. Its decoder is fed as the network delivers. Here samples reach the decoder from

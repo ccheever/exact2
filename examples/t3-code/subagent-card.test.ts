@@ -1,4 +1,4 @@
-// composer-fidelity A15 (unit only: the fixture provider cannot produce subagents).
+// Unit tests only: the fixture provider cannot produce subagents.
 // Ports of T3 Code 1e2ecbd975 (MIT; see LICENSE-T3) packages/client-runtime/src/state/
 // subagentDisplay.test.ts (resolveSubagentMetadata, subagentDetailPreview) plus the
 // SubagentTooltipContent account rule (daa1d0ed94).

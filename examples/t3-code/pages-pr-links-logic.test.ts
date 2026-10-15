@@ -1,4 +1,4 @@
-// Tests for pages-pr-links-logic.ts (task pr-links-previews-and-routing). Ported with their original
+// Tests for pages-pr-links-logic.ts. Ported with their original
 // names, from T3 Code (MIT, see LICENSE-T3) at 1e2ecbd975: apps/web/src/components/CommandPalette.logic.test.ts
 // ("linked pull request thread navigation"), apps/web/src/lib/openPullRequestLink.test.ts
 // (changeRequestRepositoryUrl, pullRequestCandidateUrlFromReferenceAutolink, matchesLinkedPullRequestUrl) and

@@ -1,10 +1,10 @@
-// browser-surface part 1: the Browser tab's projection (browser-surface.ts `BrowserView`), apart from its
+// The Browser tab's projection (browser-surface.ts `BrowserView`), apart from its
 // views so the panel's shapes (r4-surfaces-shapes.contract) can carry it without a `use` cycle.
 shape BrowserProfileChoice
   id: string
   name: string
 
-// browser-surface part 2 (browser-navigation.ts): the empty state's rows and the device toolbar's presets.
+// browser-navigation.ts: the empty state's rows and the device toolbar's presets.
 shape BrowserRecent
   url: string
   title: string
@@ -46,7 +46,7 @@ shape BrowserPanel
   failLabel: string
   live: bool
   profiles: BrowserProfileChoice[]
-  // part 2: zoom, appearance, the viewport, the preview's chords, the empty state's lists
+  // Zoom, appearance, the viewport, the preview's chords, the empty state's lists
   zoomFactor: number
   zoomLabel: string
   zoomSerial: number
@@ -63,9 +63,9 @@ shape BrowserPanel
   keys: string
   recents: BrowserRecent[]
   servers: BrowserServer[]
-  capture: BrowserCapture // part 3 (browser-surface-capture)
+  capture: BrowserCapture
 
-// browser-surface part 3 (capture): the chrome row's Annotate, Capture and Float preview, and the separate window
+// The chrome row's Annotate, Capture and Float preview, and the separate window
 // (browser-capture.ts `BrowserCaptureView`).
 shape BrowserCapture
   pickActive: bool

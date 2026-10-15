@@ -1,5 +1,5 @@
 use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
-// The Usage page (lane "pages"), measured against the served reference at
+// The Usage page, measured against the served reference at
 // 1280×840 and 840×620: UsagePage's header (breadcrumb, metric and period
 // toggles or selects, refresh), the cost/tokens summary with the provider
 // chart, Totals, Breakdown, and the Limits view. T3 Code, MIT (LICENSE-T3).
@@ -15,8 +15,8 @@ use UsageModelDetail from "./pages-usage-shapes.contract"
 use UsagePrices from "./pages-usage-shapes.contract"
 use UsageShareBar from "./pages-usage-shapes.contract"
 use ChatGptUsageButton from "./codex-setup.contract"
-use UsagePooled, PooledView, UsagePopups from "./usage-pooled.contract" // usage-pooled-view
-use HoverTip, noHoverTip from "./hover-layer.contract" // fix-hover-cards
+use UsagePooled, PooledView, UsagePopups from "./usage-pooled.contract"
+use HoverTip, noHoverTip from "./hover-layer.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
@@ -37,7 +37,7 @@ shape UsageProviderRow
   sessions: string
   value: string
   detail: string
-  // usage-pooled-view: a CursorEnableRow (its environment id) in place of a provider's figures.
+  // A CursorEnableRow (its environment id) in place of a provider's figures.
   enable: string
   enableLabel: string
   busy: bool
@@ -67,7 +67,7 @@ shape UsagePeriodRow
   cells: UsageText[]
   total: string
   tokens: string
-// One environment of the filter (usage-pooled-view: every connected one, and those that are not, disabled).
+// One environment of the filter (every connected one, and those that are not, disabled).
 shape UsageEnvRow
   key: string
   label: string
@@ -75,16 +75,16 @@ shape UsageEnvRow
   disabled: bool
   status: string
 shape UsageView
-  // managed-codex-chatgpt: a selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
+  // A selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
   chatgptShared: bool
   metric: string
   windowDays: number
   breakdown: string
   plotWidth: number
   // The environment menu's least width (r5-composer-menus.ts checkMenu from the measured texts): the menu sizes to its
-  // content from it (usage-and-pr-pages PG-5).
+  // content from it.
   menuWidth: number
-  // r5-composer: the menus' texts to measure (r5-composer-menus.ts checkMenu).
+  // The menus' texts to measure (r5-composer-menus.ts checkMenu).
   menuProbes: R5Probe[]
   empty: string
   error: string
@@ -121,7 +121,7 @@ shape UsageKey
   value: string
   days: number
   label: string
-  // usage-and-pr-pages PG-4: UsagePage's shortcutTitle, "Cost (C)", "Past 24h (⇧⌘1)".
+  // UsagePage's shortcutTitle, "Cost (C)", "Past 24h (⇧⌘1)".
   title: string
 
 // The `title` of a metric or period option: its label and its effective shortcut (usageKeys), or the label alone.
@@ -133,12 +133,12 @@ fn usageHit(g: Geometry, x: number, y: number): bool = x >= g.x and x < g.x + g.
 component UsagePage
   inject
     rem: number
-    // fix-hover-cards: the window's hover state (T3Window, hover-layer.contract) holds a segment's hover-opened popover.
+    // The window's hover state (T3Window, hover-layer.contract) holds a segment's hover-opened popover.
     hoverTipAt: action
     hoverTip: HoverTip
     hoverShown: bool
   props
-    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
     page: UsageView
     keys: UsageKey[]
@@ -156,15 +156,15 @@ component UsagePage
     setBreakdown: action
     reload: action
     back: action
-    // usage-pooled-view: the reset credit confirm's commands report the focus back (app.contract commandCompleted).
+    // The reset credit confirm's commands report the focus back (app.contract commandCompleted).
     command: action
-    // popover-escape-parity: the confirm shows (PagesCover closes it for the page as it is answered).
+    // The confirm shows (PagesCover closes it for the page as it is answered).
     confirmOpen: bool
     reduced: bool
-    // popover-escape-parity: the window's count of presses outside this page (app-window.contract T3Window).
+    // The window's count of presses outside this page (app-window.contract T3Window).
     outside: number
   // The pooled segments' popovers (usage-pooled.contract, drawn in the scroll content by UsagePopups): the one the
-  // pointer opened (the window's hover state, fix-hover-cards: segment, popover or email, then a 50 ms crossing
+  // pointer opened (the window's hover state: segment, popover or email, then a 50 ms crossing
   // grace), else the pressed one, which holds until a press outside it (`pinnedAt` is `outside` when it was pinned);
   // at its trigger's rect in the content (x, y, w, h), taken when it opens. A press outside the page closes the
   // hover-opened one too (`hoverAt`: `outside` at the last enter), as Base UI's outside press does however it opened.
@@ -282,7 +282,7 @@ component UsagePage
             UsageRefresh(limits=(page.metric == "limits"), busy=page.refreshing, reduced=reduced, reload=reload)
       scroll flex=1 min-height=0 width="100%" testId="usage-scroll"
         // A press on the port's empty ground (below or beside the content) reaches the page's pointerdown and pointerup:
-        // main 3998e650e passes an empty scroll port's press on to the scroll node and its ancestors (X65, popover-escape-parity).
+        // main 3998e650e passes an empty scroll port's press on to the scroll node and its ancestors (issues/closed/20261009-macos-empty-scroll-pointer.md).
         column id="usage-content" position="relative" width="100%" max-width="64rem" margin-left="auto" margin-right="auto" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1.5rem"
           if page.empty != ""
             text page.empty font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="usage-empty"
@@ -353,7 +353,7 @@ component UsageBreadcrumb
               PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
         // MenuPopup align="start" (UsagePage.tsx): 4 pt below the trigger's start, flipping near an edge.
         column id="usage-environment-menu" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId="usage-environment-layer" data-dialog-return="menu" focusin=dialogMenuEntered("usage-environment-menu", "usage-environment")
-          // MenuPopup sizes to its content (usage-and-pr-pages PG-5): the measured width (10rem at least) is its least width
+          // MenuPopup sizes to its content: the measured width (10rem at least) is its least width
           // and no row truncates, where that width as the width cut a long machine name ("Morgan's MacBook Pro") at a word. Its dropdown glass
           // blurs what is under it, which the macOS presenter cannot, so the glass sits on the popover colour itself, as in
           // the pull request Code tab's menus, or the headline reads through it.
@@ -382,7 +382,7 @@ component CheckRow
     label: string
     status: string
     checked: bool
-    // usage-pooled-view: an environment that is not connected is listed with its phase and cannot be chosen.
+    // An environment that is not connected is listed with its phase and cannot be chosen.
     disabled: bool
     press: action
     testId: string
@@ -428,7 +428,7 @@ component UsageMenuItem
       text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
 
 // ToggleGroup variant="segmented": a 24pt toggle, raised when pressed. `title` is the reference Toggle's (the
-// metric and period toggles' label and shortcut, usage-and-pr-pages PG-4): HTML's tooltip, the platform's on macOS;
+// metric and period toggles' label and shortcut): HTML's tooltip, the platform's on macOS;
 // "" for none (Breakdown's toggles have no title).
 component Segment
   props
@@ -536,7 +536,7 @@ component UsageSummary
     lg: bool
     md: bool
     sm: bool
-    // usage-and-pr-pages PG-3: the page's popover machinery (UsagePage), for the unpriced info's.
+    // The page's popover machinery (UsagePage), for the unpriced info's.
     shown: string
     setBreakdown: action
     enterSeg: action
@@ -620,7 +620,7 @@ component UsageHeadline
             text provider.value font-size="0.875rem" line-height="1.25rem" font-weight=500 flex-shrink=0 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
           text provider.detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
-// CursorEnableRow (usage-pooled-view): Cursor's dot and mark, then "Enable" (InlineButton) with the
+// CursorEnableRow: Cursor's dot and mark, then "Enable" (InlineButton) with the
 // Keychain copy as its tooltip; it turns on Cursor account usage on that environment.
 component CursorEnableRow
   props
@@ -643,7 +643,7 @@ component CursorEnableRow
           CnTooltip(tip="Requires access to your Cursor login in macOS Keychain.", tipId=`usage-cursor-tip-${row.enable}`, above=24)
 
 // The "Unpriced usage details" info glyph (PopoverTrigger openOnHover, InlineButton tone="muted"). Its popover is the
-// page's, as a pooled segment's is (usage-and-pr-pages PG-3): the pointer opens it after Base UI's 300 ms delay and it
+// page's, as a pooled segment's is: the pointer opens it after Base UI's 300 ms delay and it
 // closes as the pointer leaves (the window's hover clock, kind "usage"), a press pins it until a press outside, Escape
 // closes it and gives the glyph the focus. `id` is the frame the page places the popup by (`usage-seg-unpriced`).
 component UnpricedInfo
@@ -658,7 +658,7 @@ component UnpricedInfo
 // PopoverPopup side="top" (align center, sideOffset 4) with tooltipStyle: w-fit, rounded-md, text-xs, py-1 px-2 inside
 // the dropdown glass's 1pt border, shadow-md/5; "API estimate excludes 10.0% unpriced records." Drawn in the page's
 // scroll content above the glyph's rect there (x, y, w), inside its placement box so the macOS host tracks the pointer on it
-// (X62, before main #327): the popover's own hover keeps it open, as Base UI's does.
+// (before main #327): the popover's own hover keeps it open, as Base UI's does.
 component UnpricedPopup
   inject
     rem: number

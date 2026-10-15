@@ -73,7 +73,7 @@ export async function openRowPullRequest(client: T3Client, native: Native, id: s
   // `mod:<page>`: the click held ⌘ or Ctrl (legacy-sidebar.contract `prPress`, the press's own MouseEvent).
   const held = pressed.startsWith('mod:'), page = held ? pressed.slice('mod:'.length) : pressed;
   const row = rowThread(client, id);
-  // `prStatus?.url ?? currentLinkedPr?.url`: the link's, else the branch's pull request (sidebar-hover-archive-and-glyph B12).
+  // `prStatus?.url ?? currentLinkedPr?.url`: the link's, else the branch's pull request.
   const url = row ? str(currentPullRequestLink(row.thread.pullRequests)?.url) || str(branchPullRequest(client, { ...row.thread, id })?.url) : '';
   if (!row || !url) return '';
   const linkFailed = (error: unknown) => {

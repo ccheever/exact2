@@ -134,7 +134,7 @@ describe("terminalNavigationShortcutData", () => {
   });
 });
 
-describe("the input's composing state (G1-1, G1-2)", () => {
+describe("the input's composing state", () => {
   test("goes out as states: composing from the first update to the commit, once each, whatever the updates", () => {
     const input = new EventTarget(), states: boolean[] = [];
     const stop = observeComposition(input, (composing) => states.push(composing));

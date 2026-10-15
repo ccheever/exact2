@@ -1,4 +1,4 @@
-// Lane composer-controls, round 3: upstream 4f7760e6a0 (subagent model names),
+// Upstream 4f7760e6a0 (subagent model names),
 // 63f74e209d (provider-reported option labels), 151c241cd2 + a5b34b2537
 // (background-work wording) and 5108c978b1 (latest executed run).
 import { describe, expect, test } from 'bun:test';

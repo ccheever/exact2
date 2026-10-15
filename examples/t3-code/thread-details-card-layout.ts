@@ -1,6 +1,6 @@
 // The inline workspace card's place and fold (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/components/chat/threadDetailsCardLayout.ts, ported as is), and ThreadDetailsCard's
-// measurement of its content per density (device-player-compact-and-rail-keys DP-1).
+// measurement of its content per density.
 import type { PreviewMiniPlayerFrame } from './previewMiniPlayerLayout';
 import { DETAILS_CARD_CLEARANCE } from './chat-canvas-layout';
 

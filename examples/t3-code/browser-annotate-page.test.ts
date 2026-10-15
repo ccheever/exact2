@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the annotation overlay's pure helpers (assets/browser-annotate.js, a classic
+// The annotation overlay's pure helpers (assets/browser-annotate.js, a classic
 // script the module runs in the page; required here it exports them and touches no window or document).
 // Ported from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): apps/desktop/src/preview/AnnotationKeyboard.test.ts, its
 // 2 tests under their own names. Clone rows (marked) cover PickPreload's geometry helpers the script carries.

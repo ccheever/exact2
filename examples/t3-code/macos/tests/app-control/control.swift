@@ -206,7 +206,7 @@ final class AppControlLifecycleTests: XCTestCase {
     }
 }
 
-/// DesktopWindow.activate's window (fix-misc-batch, #298 bug 7): with the window minimized, `t3 app` timed out and
+/// DesktopWindow.activate's window (#298 bug 7): with the window minimized, `t3 app` timed out and
 /// the window stayed in the Dock, because the choice filtered on `canBecomeMain`, which AppKit answers false for a
 /// window that is not visible.
 final class AppControlActivationTargetTests: XCTestCase {

@@ -1,8 +1,8 @@
-// composer-provider-state-and-details: the composer's provider and model rule
+// The composer's provider and model rule
 // (composer-provider-selection.ts). The first three groups port T3 Code's own tests
 // by name (ChatView.logic.test.ts resolveComposerProviderSelection,
 // providerInstances.test.ts resolveSelectableProviderInstance, modelSelection.test.ts);
-// the last drives the composer the audit compared (CO-6, CO-9, CO-10).
+// the last drives the composer against the reference's.
 import { describe, expect, test } from 'bun:test';
 import { obj, type Obj } from './domain';
 import { modelCatalog, snapshot } from './presentation';
@@ -135,19 +135,19 @@ describe('instance-scoped model selection', () => {
   });
 });
 
-describe('the composer the audit compared', () => {
+describe('the composer against the reference\'s', () => {
   const noProviders = () => [
     fixtureProvider('claudeAgent', 'claudeAgent', { installed: false, status: 'error', models: [], setup: { canInstall: true } }),
     fixtureProvider('codex', 'codex', { status: 'error', auth: { status: 'unauthenticated' }, models: [], setup: { canAuthenticate: true } }),
   ];
-  test('CO-9: a draft with no selectable provider asks to enable one, beside the setup control', async () => {
+  test('a draft with no selectable provider asks to enable one, beside the setup control', async () => {
     const client = new T3Client(), native = new Fake(), disk = storage();
     native.config.providers = noProviders(); native.config.settings = { defaultRuntimeMode: 'full-access' };
     await client.refresh(native, disk);
     expect(client.threadId).toBe('');
     expect(snapshot(client).composer).toMatchObject({ placeholder: 'Enable a provider in Settings to send a message', noProvider: 'Open provider settings', providerSetupId: 'claudeAgent' });
   });
-  test('CO-10: a thread on an enabled but failing provider keeps its model, mode and access controls', async () => {
+  test('a thread on an enabled but failing provider keeps its model, mode and access controls', async () => {
     const context = await opened();
     context.client.config.providers = noProviders();
     const view = snapshot(context.client);
@@ -155,7 +155,7 @@ describe('the composer the audit compared', () => {
     expect(view.composer.placeholder).not.toBe('Enable a provider in Settings to send a message');
     expect(view).toMatchObject({ providerDriver: 'codex', modelLabel: DEFAULT_MODEL });
   });
-  test('CO-6: a stored model the catalog does not list shows and sends the instance default', async () => {
+  test('a stored model the catalog does not list shows and sends the instance default', async () => {
     const native = new Fake();
     (native.details.t1!.projection as Obj).thread = { ...(native.details.t1!.projection as Obj).thread as Obj, modelSelection: { instanceId: 'codex', model: 'gpt-5.4' } };
     const shellThread = (native.shell.threads as Obj[])[0]!; shellThread.modelSelection = { instanceId: 'codex', model: 'gpt-5.4' };

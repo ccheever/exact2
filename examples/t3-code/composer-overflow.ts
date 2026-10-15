@@ -1,4 +1,4 @@
-// The "More composer controls" menu's rows (task composer-fidelity, G11),
+// The "More composer controls" menu's rows,
 // adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // apps/web/src/components/chat/CompactComposerControlsMenu.tsx and
 // ChatComposer.tsx (hiddenRestingBlockIds: traits content when the traits block

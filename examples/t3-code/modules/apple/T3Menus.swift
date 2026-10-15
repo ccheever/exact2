@@ -12,7 +12,7 @@ import UniformTypeIdentifiers
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
 /// Updates... sits under About and in Help, as the reference's darwin template places it.
 ///
-/// contract-keys-and-menu-bar (KW-11b) kept these native, each for a reason the adopted API
+/// These stay native, each for a reason the adopted API
 /// leaves open: an `-exact-menu` button's item is enabled only while its window is key and has
 /// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates... is
 /// always enabled (it reopens the main window); no Contract API zooms the main window, an app
@@ -34,7 +34,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     var presentAlert: (NSAlert) -> Void = { _ = $0.runModal() }
     private lazy var appUpdatesItem = makeUpdatesItem()
     private lazy var helpUpdatesItem = makeUpdatesItem()
-    /// Lane r8-keys: File, View, Edit › Undo and the host's extra menus as the reference bar has them (R8KeysMenus.swift).
+    /// File, View, Edit › Undo and the host's extra menus as the reference bar has them (R8KeysMenus.swift).
     let keys = R8KeysMenus()
 
     override init() {
@@ -69,7 +69,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     /// DesktopWindow.ts: a held ⌘W can outlive the panel that took its first press, so its
     /// auto-repeats (no ⌥, no ⇧) never reach the menu's Close Window. Matched by key code 13 as
     /// well, since a non-Latin source (Korean 2-Set) reports ㅈ there: this monitor reads the raw
-    /// event, which exact2 #168's physical-key matching of declared chords does not reach (X15).
+    /// event, which exact2 #168's physical-key matching of declared chords does not reach (#110).
     static func dropsHeldClose(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         guard event.type == .keyDown, event.isARepeat, flags.contains(.command), !flags.contains(.option), !flags.contains(.shift) else { return false }
@@ -379,8 +379,8 @@ final class T3QuitHold {
         }
     }
     /// The event's key; Q's key code stands in when a non-Latin source (Korean 2-Set's ㅂ) types no
-    /// Latin letter there, as the r10-connect chords do: the quit hold reads raw key events, which
-    /// exact2 #168 (declared chords only) does not reach (X15).
+    /// Latin letter there, as R10Connect's chords do: the quit hold reads raw key events, which
+    /// exact2 #168 (declared chords only) does not reach (#110).
     static func key(_ event: NSEvent) -> String {
         let key = (event.charactersIgnoringModifiers ?? "").lowercased()
         return event.keyCode == 12 && !key.unicodeScalars.contains(where: { $0.isASCII }) ? "q" : key

@@ -1,4 +1,4 @@
-// Source Control → Bitbucket credentials (lane settings-a; settings-a-bitbucket.ts),
+// Source Control → Bitbucket credentials (settings-a-bitbucket.ts),
 // the body of the Bitbucket row's details (BitbucketCredentialsSettings.tsx).
 use FieldPlaceholder from "./field-placeholder.contract"
 

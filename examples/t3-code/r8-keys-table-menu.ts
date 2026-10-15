@@ -1,4 +1,4 @@
-// Lane r8-keys: a Markdown table's Copy menu as a window-level popup.
+// A Markdown table's Copy menu as a window-level popup.
 //
 // ChatMarkdown.tsx MarkdownTable (MIT, see LICENSE-T3) opens <MenuPopup
 // align="end"> from the footer's Copy button: Base UI portals it above every
@@ -13,7 +13,7 @@ import { num, obj } from './domain';
 
 export interface TableMenuView {
   id: string; x: number; y: number; triggerX: number; triggerY: number; markdown: string; csv: string;
-  /** fix-keyboard-focus: the item the menu focuses as it mounts, when ↓ (1, the first) or ↑ (-1, the last) opened it; 0 for none. */
+  /** The item the menu focuses as it mounts, when ↓ (1, the first) or ↑ (-1, the last) opened it; 0 for none. */
   keyed: number;
 }
 type TableMenu = TableMenuView & { threadId: string };
@@ -52,14 +52,14 @@ export async function tableMenuAction(client: T3Client, op: string, id: string, 
   if (open && open.id === id && open.threadId === client.threadId) { menus.delete(client); return ''; }
   const parts = value.split('|');
   const [x, y, width, height, windowWidth, windowHeight] = (await drawnFrame(native, id)) ?? parts.slice(0, 6).map(Number);
-  // fix-keyboard-focus: ↓ or ↑ on the Copy button marks its request `keys:first` or `keys:last` and a tab before the
+  // ↓ or ↑ on the Copy button marks its request `keys:first` or `keys:last` and a tab before the
   // table (MenuTrigger's arrow keys open the menu at its first or last item; a table's Markdown starts with a pipe).
   const rest = parts.slice(6).join('|');
   const end = /^keys:(first|last)\t/.exec(rest);
   // The Copy button sends `${markdown}\t${csv}`: Contract's `\t` is a real tab, and neither text holds one
   // (r4_timeline_tables.rs collapses each cell's whitespace and joins rows with newlines), so the first tab
   // divides them. This split once looked for `\u0000`, which Contract no longer writes, so Copy as CSV copied
-  // nothing and Copy as Markdown copied both (fix-keyboard-focus).
+  // nothing and Copy as Markdown copied both.
   const body = end ? rest.slice(end[0].length) : rest;
   const cut = body.indexOf('\t');
   const markdown = cut < 0 ? body : body.slice(0, cut);

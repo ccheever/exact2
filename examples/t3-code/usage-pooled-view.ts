@@ -127,7 +127,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
           name: segment.name, chip: segment.chip, chipBg: segment.chipBg, chipFg: segment.chipFg, text: segment.status })),
       };
     });
-    // provider-settings-upkeep: an ACP agent's pool draws its registry icon (a live provider's iconUrl).
+    // An ACP agent's pool draws its registry icon (a live provider's iconUrl).
     const acp = pool.driver === 'acpRegistry' ? [...presentations.values()].flatMap(entry => arr(entry.serverConfig?.providers)).find(provider => provider.driver === 'acpRegistry' && str(provider.iconUrl)) : undefined;
     return { key: pool.driver, prefix: `${poolIndex}-`, driver: pool.driver, icon: acp ? resolveOfficialAcpRegistryIconUrl(str(acp.iconUrl)) ?? '' : '', label: driverLabel(pool.driver), light, dark, windows, cursorBefore: cursorEnvironments.length > 0 && poolIndex === cursorPromptAt };
   });
@@ -153,7 +153,7 @@ type SideWindow = { count: number; refill: string; description: string; statuses
  * The side each popover takes, as Base UI's collision flip would on an unscrolled page: a bar whose top
  * lies nearer the scroll area's top than the popover is tall opens below it, every other above. The
  * heights are the layout's (UsageLimitsPooled's gaps, PoolWindowCard's padding, SegmentPopover's rows),
- * in points; Contract has no position-try fallback to measure it (X17, exact2 #112).
+ * in points; Contract has no position-try fallback to measure it (exact2 #112).
  */
 export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow[] }[], layout: { wide: boolean; md: boolean; cursorRows: number }): void {
   const cursorHeight = 20 + 12 + 34 + 16 + 12 + 28;

@@ -3,9 +3,9 @@ import Network
 import WebKit
 import XCTest
 
-// browser-surface part 1: the Browser tab's page (T3BrowserSession.swift, T3BrowserSessions.swift,
+// The Browser tab's page (T3BrowserSession.swift, T3BrowserSessions.swift,
 // T3BrowserView.swift, T3BrowserFavicon.swift) against a loopback fixture server: page states, history,
-// refresh, a load failure, crash recovery, the favicon, pop-ups, refused schemes, downloads (part 3), the permission set, the
+// refresh, a load failure, crash recovery, the favicon, pop-ups, refused schemes, downloads, the permission set, the
 // native user agent, Web Inspector, the profile stores and a tab's lifetime across views. Ported reference
 // tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names: webviewCrashRecovery.test.ts (2) and
 // Manager.test.ts `previewWindowOpenAction` (3). `T3_BROWSER_TEST_DIR` receives page PNGs.
@@ -186,7 +186,7 @@ final class BrowserSessionTests: XCTestCase {
         view.destroy()
     }
 
-    // Review round 1: a pending address must end with its load, whatever way the load ends.
+    // A pending address must end with its load, whatever way the load ends.
     func testAFragmentJumpAndARedirectedDownloadDoNotStayLoading() throws {
         fixture.page("/doc", "<!doctype html><title>Doc</title><p id=top>top</p><div style='height:3000px'></div><p id=end>end</p>")
         fixture.redirects["/redirect-to-file"] = "/file.bin"
@@ -203,7 +203,7 @@ final class BrowserSessionTests: XCTestCase {
         spin(until: { self.kind(session) != "Loading" }, timeout: 5)
         XCTAssertEqual(kind(session), "Success", "a download behind a redirect ends its load; the page stays")
         spin(until: { self.downloads(session).contains { $0["state"] as? String == "done" } }, timeout: 5)
-        XCTAssertTrue(downloads(session).contains { ($0["path"] as? String ?? "").hasSuffix("file.bin") && $0["state"] as? String == "done" }, "part 3: it downloads")
+        XCTAssertTrue(downloads(session).contains { ($0["path"] as? String ?? "").hasSuffix("file.bin") && $0["state"] as? String == "done" }, "it downloads")
         view.destroy()
     }
 
@@ -278,7 +278,7 @@ final class BrowserSessionTests: XCTestCase {
         spin(until: { self.downloads(session).contains { $0["state"] as? String == "done" } }, timeout: 5)
         // Manager.ts installDownloadHandler: `browser-download-<start time>-<count>-<name>` in the artifact directory.
         let saved = try XCTUnwrap(downloads(session).first { $0["state"] as? String == "done" }?["path"] as? String)
-        XCTAssertTrue(saved.hasPrefix(artifacts.path), "part 3: an agent run's download goes to the artifact directory")
+        XCTAssertTrue(saved.hasPrefix(artifacts.path), "an agent run's download goes to the artifact directory")
         XCTAssertTrue((saved as NSString).lastPathComponent.hasPrefix("browser-download-") && saved.hasSuffix("-file.bin"), saved)
         XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: saved)), Data(repeating: 1, count: 64))
         spin(until: { self.kind(session) == "Success" }, timeout: 3)
@@ -441,7 +441,7 @@ NSApp.setActivationPolicy(.accessory)
 let suite = XCTestSuite(name: "browser")
 suite.addTest(XCTestSuite(forTestCaseClass: BrowserReferenceTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: BrowserSessionTests.self))
-suite.addTest(XCTestSuite(forTestCaseClass: BrowserNavigationTests.self)) // part 2 (navigation.swift)
+suite.addTest(XCTestSuite(forTestCaseClass: BrowserNavigationTests.self))
 suite.run()
 let run = suite.testRun!
 print("Executed \(run.executionCount) tests, with \(run.totalFailureCount) failures")

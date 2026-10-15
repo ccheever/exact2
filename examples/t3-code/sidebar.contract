@@ -30,7 +30,7 @@ component Sidebar
   props
     reduced: bool
     data: Snapshot
-    // r6-polish: the root's live clock (epoch ms), so a Working row's label ticks each second.
+    // The root's live clock (epoch ms), so a Working row's label ticks each second.
     now: number
     width: number
     busy: bool
@@ -64,12 +64,12 @@ component Sidebar
     dragVerb: string
     dragOffset: number
     hoverId: string
-    // pr-list-scroll-and-sidebar-sweep (X13): the window's hover count (ThreadSection's resting hover).
+    // The window's hover count (ThreadSection's resting hover).
     hoverSeq: number
     openProviders: action
     shell: ShellView
     scrolled: action
-    // r11-upstream: the list's scroll offset, which a row-action sweep clamps the pointer to.
+    // The list's scroll offset, which a row-action sweep clamps the pointer to.
     scrollY: number
   // The row a right-click named, for its context popover (ThreadMenu, DraftMenu): the row's `contextmenu` runs first.
   state menuThread = ""
@@ -95,7 +95,7 @@ component Sidebar
             text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color="#ffffffb3"
           else
             LookWordmark(ink=(data.look.themed ? data.look.sidebarText : "light-dark(#27272a, #f1f3f7)"), muted=(data.look.themed ? data.look.sidebarMuted : "light-dark(#71717b, #a3a3a3)"))
-        // r11-upstream (9efb016900): the pill sits on the brand's line only while it fits inside the
+        // Upstream 9efb016900: the pill sits on the brand's line only while it fits inside the
         // header's 12pt right padding and the 1pt border (it wraps onto the clipped second line
         // otherwise): brand at 130 + 53.77, 12pt, the 43.27pt pill (the brand at controlsLeft + 40: 52 in full screen).
         if data.look.pill != "" and width - 13 >= data.controlsLeft + 149.04
@@ -110,7 +110,7 @@ component Sidebar
             button cursor="pointer" press=search("") aria-label="Clear thread search" testId="clear-thread-search" width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
               Icon(name="x", size=14, color="light-dark(#71717b, #a3a3a3)")
         row flex-shrink=0 align-items="center"
-          // shell-sidebar-palette-keys (SH-4): Filter and Add project show only with a project group (SidebarThreadHeader `hasProjects`).
+          // Filter and Add project show only with a project group (SidebarThreadHeader `hasProjects`).
           if data.sidebar.projectGroupCount > 0
             SidebarTip(tip="sidebar-filter", hoverCard=hoverCard)
               button cursor="pointer" press=local("scope-open", "", "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.sidebar.scopeOpen ? "light-dark(#f4f4f5, #ffffff0a)" : hoverId == "sidebar-filter" ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=(data.sidebar.scopeKey == "" ? "Filter threads by project" : `Filter threads by project: ${data.sidebar.scopeLabel}`) aria-expanded=data.sidebar.scopeOpen testId="filter-project" title=""
@@ -121,7 +121,7 @@ component Sidebar
             SidebarTip(tip="sidebar-add-project", hoverCard=hoverCard)
               button cursor="pointer" press=addProject width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Add project" testId="add-project" disabled=(not data.connected) title=""
                 Icon(name="folder-plus", size=16, color=(hoverId == "sidebar-add-project" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
-          // r4-polish: these controls hover the root sidebar hover id; SidebarOverlays draws their tooltips (r4-polish-tip.contract).
+          // These controls hover the root sidebar hover id; SidebarOverlays draws their tooltips (r4-polish-tip.contract).
           SidebarTip(tip="sidebar-new-thread", hoverCard=hoverCard)
             button cursor="pointer" press=newThread width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#fcfcfc, #f1f3f714)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="New thread" testId="new-thread" disabled=(busy or not data.connected or not data.sidebar.hasProjects) title=""
               Icon(name="compose", size=16, color=(hoverId == "sidebar-new-thread" and data.connected ? "light-dark(#27272a, #f3f3f3)" : "light-dark(#a8a8ae, #545454)"))
@@ -173,7 +173,7 @@ component Sidebar
       // SidebarProviderUpdatePill (r4-polish-tip.contract: with its two tooltips).
       if data.sidebar.pillKey != ""
         ProviderPill(tone=data.sidebar.pillTone, title=data.sidebar.pillTitle, description=data.sidebar.pillDescription, dismissible=data.sidebar.pillDismissible, open=openProviders(""), dismiss=local("pill-dismiss", "", data.sidebar.pillKey))
-      // SidebarUtilityMenu (lane pages): Settings, Pull Requests and Usage; a utility page shows Back instead;
+      // SidebarUtilityMenu: Settings, Pull Requests and Usage; a utility page shows Back instead;
       // then SidebarUpdatePill at the end (ml-auto).
       row height="2.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" align-items="center" gap="0.25rem" flex-shrink=0 role="list"
         if page == ""
@@ -196,13 +196,13 @@ component Sidebar
             SidebarUpdatePill(color="light-dark(#a8a8ae, #545454)", testId="sidebar-check-updates")
       // The resize rail is SidebarOverlays' (r5-shell.contract): a strip reaching past the sidebar is not hit-testable here.
 
-// The hover a section's rows see (pr-list-scroll-and-sidebar-sweep, X13): none while a row-action sweep is live (the
+// The hover a section's rows see: none while a row-action sweep is live (the
 // reference's list takes `**:pointer-events-none`), a cancelled sweep's resting row until the window's hover count moves
 // on, else the window's.
 fn sweepRowHover(live: bool, rest: string, restSeq: number, seq: number, hoverId: string): string = live ? "" : rest != "" and seq == restSeq ? rest : hoverId
 
 // The row a control's hover key belongs to (`<row>#<control>`: SidebarTip, DraftCard's Discard), "" for a row's own key
-// or another hover (sidebar-hover-archive-and-glyph SW-2: the window gives the row its hover back as the tip ends).
+// or another hover (the window gives the row its hover back as the tip ends).
 fn sidebarTipRow(id: string): string = id.includes("#") ? id.slice(0, id.indexOf("#")) : ""
 
 // A shelf of rows. Working, Snoozed and Settled carry the collapsible header
@@ -233,7 +233,7 @@ component ThreadSection
     page: string
     scrollY: number
     hoverSeq: number
-  // r11-upstream (1826fb55cc): pressing a row's Settle, Un-settle or Wake and
+  // Upstream 1826fb55cc: pressing a row's Settle, Un-settle or Wake and
   // dragging 6 pt arms every row of this section between it and the pointer
   // (resolveSidebarSweepKeys, the pointer clamped to the visible list; a gap
   // resolves to the row above). The release is a `sweep|…` drop; the client
@@ -249,15 +249,15 @@ component ThreadSection
   state sweepDx = 0
   state sweepDy = 0
   state sweepKeys = ""
-  // r12-sidebar: Escape cancels a live sweep (SidebarPointerSensor keydown): nothing is applied at the release.
+  // Escape cancels a live sweep (SidebarPointerSensor keydown): nothing is applied at the release.
   state sweepCancelled = false
-  // pr-list-scroll-and-sidebar-sweep (X13): a cancelled sweep gives the rows the pointer again, as the reference's
+  // A cancelled sweep gives the rows the pointer again, as the reference's
   // `**:pointer-events-none` comes off: the row under the pointer is the hovered one (its actions, no card yet), through
   // the release, until the window's hover moves on. The host keeps the pressed row hovered through a pan and hovers
   // nothing new at the release until the pointer moves; that first move, out of the section too, sends the leave of
   // the node it kept hovered (the pressed control's tip) through the window's `sidebarHover`, which counts it.
   // `sweepRestSeq` is the window's hover count when it was cancelled. The section takes no `hover` of its own: the
-  // macOS host hovered one node at a time before main #327 (X62), so it traded the hover with the row under the pointer.
+  // macOS host hovered one node at a time before main #327, so it traded the hover with the row under the pointer.
   state sweepRest = ""
   state sweepRestSeq = 0
   derive sweepLive = sweepKeys != "" and sweepEpoch == data.sidebar.sweepEpoch and not busy and not sweepCancelled
@@ -268,8 +268,8 @@ component ThreadSection
     sweepRestSeq = hoverSeq
   // A press on another row, or the first move after the last sweep's release (sweepEpoch), starts a sweep: fresh, as
   // the reference's startActionSweep makes a new closure per press. An action reads the values from before it, so the
-  // start's values and this move's offset are bound first and every slot is written from them (adopt-main-fixes-r10:
-  // the old body read what its start branch reset, so a sweep kept the last one's offset, origin, verb, armed rows and
+  // start's values and this move's offset are bound first and every slot is written from them
+  // (the old body read what its start branch reset, so a sweep kept the last one's offset, origin, verb, armed rows and
   // cancel, and each move armed the rows of the move before; sidebar-sweep.test.ts).
   action sweep(id: string, verb: string, dx: number, dy: number)
     let fresh = sweepId != id or sweepEpoch != data.sidebar.sweepEpoch
@@ -298,7 +298,7 @@ component ThreadSection
     sweepAt = at
     if not cancelled and (armed != "" or movedX * movedX + movedY * movedY >= 36)
       // SidebarPointerSensor's onStart: the list stops taking the pointer (`**:pointer-events-none`), so a row's card or
-      // a control's tooltip closes as the sweep takes over (X13), whether or not the press moved the focus (the
+      // a control's tooltip closes as the sweep takes over, whether or not the press moved the focus (the
       // buttons' `focus` only moves them off): the hovered row hears its leave through the window's `sidebarHover`, as a
       // pointer leaving it does (since main #478 an action bound to `pan=` may call it; #468 called the root's half).
       if armed == ""
@@ -311,7 +311,7 @@ component ThreadSection
   derive expanded = section == "settled" ? data.sidebar.settledExpanded : section == "snoozed" ? data.sidebar.snoozedExpanded : data.sidebar.workingExpanded
   derive tone = section == "snoozed" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#71717b99, #a3a3a399)"
   view
-    // r5-shell: an empty pinned or active block takes no gap (the reference's markers are 0pt tall with a -1pt margin).
+    // An empty pinned or active block takes no gap (the reference's markers are 0pt tall with a -1pt margin).
     column gap=1 width="100%" margin-bottom=(label == "" and rows.length == 0 ? "-1px" : "0px")
       if label != ""
         button cursor="pointer" id=`shelf-${section}` press=local("shelf", section, "") width="calc(100% - 4px)" margin-left="0.125rem" height="2rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.5rem" aria-label=`Toggle ${label}` aria-expanded=expanded testId=`toggle-${section}`
@@ -320,7 +320,7 @@ component ThreadSection
           SidebarIcon(name=(expanded ? "chevron-up" : "chevron-down"), size=12, color=tone)
       for t in rows key=t.id
         ThreadRow(reduced=reduced, t=t, now=now, presets=data.snoozePresets, busy=busy, local=local, run=run, menu=menu, open=open, hoverCard=hoverCard, pressDown=pressDown, hoverId=sweepRowHover(sweepLive, sweepRest, sweepRestSeq, hoverSeq, hoverId), drag=drag, dragEnd=dragEnd, dragId=dragId, dragVerb=dragVerb, dragOffset=(dragId == t.id ? dragOffset : 0), page=page, sweep=sweep, sweepKeys=(sweepCancelled and sweepEpoch == data.sidebar.sweepEpoch ? "|cancel|" : sweepLive ? sweepKeys : ""), sweepVerb=sweepVerb)
-      // r12-sidebar: the sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
+      // The sweep owns Escape while it is armed (a window shortcut: the pan's section gets no keys).
       if sweepLive
         button press=cancelSweep aria-keyshortcuts="Escape" aria-label="Cancel sweep" tabindex=-1 testId=`sweep-cancel-${section}` position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" title=""
 

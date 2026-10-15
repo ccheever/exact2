@@ -1,4 +1,4 @@
-// r5-composer: ref pickers past their first page, adapted from T3 Code (MIT; see
+// Ref pickers past their first page, adapted from T3 Code (MIT; see
 // LICENSE-T3): state/queries.ts usePaginatedBranches (pages of VCS_REF_LIST_LIMIT
 // refs by cursor, merged by name, the last page's cursor, the largest total) and
 // BranchPicker.tsx maybeFetchNextBranchPage (a scroll toward the end within
@@ -7,7 +7,7 @@
 import { arr, num, obj, str, type Obj } from './domain';
 
 export const REF_PAGE = 100;
-// r6-polish: `loadingMore` is BranchPicker's isFetchingNextPage, shown for one answer before the page is read.
+// `loadingMore` is BranchPicker's isFetchingNextPage, shown for one answer before the page is read.
 export type RefPages = { refs: Obj[]; total: number; nextCursor: number | null; ends: number; loadingMore?: boolean };
 
 /** How many qualifying scrolls the list `name` has reported. */
@@ -32,7 +32,7 @@ export function mergePage(pages: RefPages, result: Obj): RefPages {
 /**
  * Loads the next page when the list was scrolled toward its end since the last
  * look and the server named a next cursor. Each scroll signal loads at most one page.
- * r6-polish: the first look only marks the page as loading (an answer shows its
+ * The first look only marks the page as loading (an answer shows its
  * status when it returns, so "Loading more refs..." needs an answer of its own);
  * the root's shell clock asks again while `pageWanted` holds, and that look reads it.
  */

@@ -1,5 +1,5 @@
 // The read-only bar that stands in for the composer on a provider-native
-// subagent thread (lane composer-controls), adapted from T3 Code (MIT); see
+// subagent thread, adapted from T3 Code (MIT); see
 // LICENSE-T3. Sources: chat/ProviderSubagentBar.tsx, ChatView.tsx
 // (showProviderSubagentBar, parentThreadLink), packages/client-runtime/src/state/
 // threadExecution.ts (deriveProviderSubagentStatus, formatModelSelectionEffort,

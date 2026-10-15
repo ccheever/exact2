@@ -1,4 +1,4 @@
-// Lane r5-panels: the Files surface preferences the reference keeps in
+// The Files surface preferences the reference keeps in
 // localStorage (MIT reference, see LICENSE-T3: components/files/FilePreviewPanel.tsx
 // FILE_EXPLORER_STORAGE_KEY "t3code.fileExplorerOpen" (default true),
 // RENDER_MARKDOWN_STORAGE_KEY "t3code.renderMarkdown" (default false),
@@ -9,7 +9,7 @@
 import { obj, type Obj } from './domain';
 import { adoptRightPanels } from './r10-device-panels';
 
-// Lane r10-device: RENDER_BROWSER_FILE_STORAGE_KEY "t3code.renderBrowserFile" (default true), HTML pages.
+// RENDER_BROWSER_FILE_STORAGE_KEY "t3code.renderBrowserFile" (default true), HTML pages.
 export type FilesPrefs = { explorer: boolean; renderMarkdown: boolean; renderTable: boolean; renderBrowserFile?: boolean };
 type Holder = { local: object };
 
@@ -30,5 +30,5 @@ export function adoptFilesPrefs(next: object, saved: Obj): void {
   if (typeof value.renderTable === 'boolean') prefs.renderTable = value.renderTable;
   if (typeof value.renderBrowserFile === 'boolean') prefs.renderBrowserFile = value.renderBrowserFile;
   (next as { files?: FilesPrefs }).files = prefs;
-  adoptRightPanels(next, saved); // lane r10-device: the right panels, read with the Files preferences
+  adoptRightPanels(next, saved); // the right panels, read with the Files preferences
 }

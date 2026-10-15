@@ -4,7 +4,7 @@ import Foundation
 import SceneKit
 import CoreImage
 
-/// Lane r9-device: the iPhone Duo's hinged 3D viewer (MIT reference, see LICENSE-T3:
+/// The iPhone Duo's hinged 3D viewer (MIT reference, see LICENSE-T3:
 /// apps/web/src/components/device/DeviceDuoViewport.tsx; packages/client-runtime/src/device/
 /// duoViewer.ts createDuoViewer, duoScene.ts createDuoScene) in SceneKit where the reference uses
 /// three.js. The connected server's own `iphone-duo` model (never bundled) has two hinge groups

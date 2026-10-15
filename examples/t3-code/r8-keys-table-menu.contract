@@ -3,7 +3,7 @@ use TableMenuItem from "./markdown.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
 
-// Lane r8-keys: a Markdown table's Copy menu (ChatMarkdown.tsx MenuPopup align="end",
+// A Markdown table's Copy menu (ChatMarkdown.tsx MenuPopup align="end",
 // MIT, see LICENSE-T3) drawn at the window's top layer, as Base UI portals it: over the
 // provider banner and every sheet. As a modal menu it takes the window: a press outside
 // closes it and reaches nothing behind, and Escape closes it. The trigger keeps its open
@@ -16,7 +16,7 @@ shape TableMenuView
   triggerY: number
   markdown: string
   csv: string
-  // fix-keyboard-focus: 1 when ↓ opened the menu (its first item takes the focus), -1 for ↑ (the last), 0 for none.
+  // 1 when ↓ opened the menu (its first item takes the focus), -1 for ↑ (the last), 0 for none.
   keyed: number
 
 component R8TableMenu
@@ -24,7 +24,7 @@ component R8TableMenu
     menu: TableMenuView
     dark: bool
     local: action
-  // Escape gives the focus back to the table's Copy button (fix-keyboard-focus).
+  // Escape gives the focus back to the table's Copy button.
   action closeMenu
     local("table-menu-close", menu.id, "")
     focus(`table-copy-${menu.id}`)

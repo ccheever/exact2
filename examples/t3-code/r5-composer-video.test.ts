@@ -1,4 +1,4 @@
-// r5-composer: a shelf video's first-frame size survives a relaunch (saved with the draft's file entry).
+// A shelf video's first-frame size survives a relaunch (saved with the draft's file entry).
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import { composerVideoSnapshot, rememberVideoFrame, videoOp } from './r4-composer-attachments';

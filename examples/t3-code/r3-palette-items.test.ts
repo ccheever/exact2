@@ -1,4 +1,4 @@
-// Round-3 palette lane: New thread in... (projectThreadItems at f90b77d) and
+// New thread in... (projectThreadItems at f90b77d) and
 // pullRequest.copyNumber dispatch from the open pull request detail panel.
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './client';
@@ -28,7 +28,7 @@ function client(scratch = ''): T3Client {
 }
 
 describe('New thread in...', () => {
-  // shell-sidebar-palette-keys (SH-3): the desktop build numbers the picks by thread.jump.N (isDesktop).
+  // The desktop build numbers the picks by thread.jump.N (isDesktop).
   test('the current project first, then by activity; thread.jump.N numbers the picks', () => {
     const rows = commandView(client(), { page: 'new-thread-in', query: '', now: NOW, scheme: 'dark', matches: new Map(), matchQuery: '', searching: false }).rows;
     expect(rows.map(entry => entry.title)).toEqual(['Parity fixture', 'Single checkout two', 'Scratch']);

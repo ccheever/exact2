@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// The agent's native input to a page in a window (browser-surface part 5; X1 path B): `NSEvent` mouse and key
+/// The agent's native input to a page in a window (#100: the clone's own WKWebView): `NSEvent` mouse and key
 /// events, trusted in the page, in place of CDP's `Input.dispatchMouseEvent` and the guest's `sendInputEvent`
 /// (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts `performAutomationClick`,
 /// `performAutomationPress`; apps/web/src/components/preview/previewClickFocus.ts). The events go to the page's

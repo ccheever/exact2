@@ -1,10 +1,10 @@
-// browser-surface part 2: the Browser tab's navigation aids (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// The Browser tab's navigation aids (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/components/preview/{PreviewView,PreviewEmptyState,PreviewRecentUrlCard,PreviewLocalServerCard,
 // PreviewMoreMenu,ZoomIndicator}.tsx, openDiscoveredPort.ts; apps/web/src/browser/{HostedBrowserWebview,
 // BrowserDeviceToolbar,useBrowserViewportResize}.tsx; apps/web/src/routes/_chat.tsx and ChatView.tsx
 // `preview.toggle`/`togglePreviewPanel`; packages/shared/src/keybindings.ts `previewFocus`).
 //
-// The data module's half of part 2: the empty state's Recently used (at most 8, from browser-history.ts) and
+// The data module's half: the empty state's Recently used (at most 8, from browser-history.ts) and
 // Local servers (browser-targets.ts), every visit recorded and titled; zoom and appearance (the module's
 // `browserSet`: WebKit's `pageZoom` and the web view's `appearance`, which pages read as
 // `prefers-color-scheme`); the viewport (`preview.resize`, serialized per tab by browser-viewport.ts) with the
@@ -199,7 +199,7 @@ export async function navigationLocal(client: T3Client, native: Native, surface:
     case 'zoom-reset': await nativeSet(client, native, runtimeId, { zoom: 1 }); return '';
     case 'color-scheme': if (['system', 'light', 'dark'].includes(value)) await nativeSet(client, native, runtimeId, { colorScheme: value }); return '';
     case 'device-toolbar': {
-      // handleToggleDeviceToolbar: a fixed viewport goes back to fill; fill opens at the configured default (part 4's
+      // handleToggleDeviceToolbar: a fixed viewport goes back to fill; fill opens at the configured default (its
       // Settings › Integrations › Browser row), else the panel's framed area.
       if (viewport._tag !== 'fill') { await commitViewport(client, native, ref, tabId, runtimeId, FILL_PREVIEW_VIEWPORT); return ''; }
       const [width = 0, height = 0] = numbers(value);

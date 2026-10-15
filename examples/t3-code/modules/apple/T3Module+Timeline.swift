@@ -10,7 +10,7 @@ extension T3Module {
         if request["op"] as? String == "mermaidRender" { DispatchQueue.main.async { [weak self] in self?.mermaid.perform(request) { reply.send($0) } }; return }
         if request["op"] as? String == "timelineRelease" { DispatchQueue.main.async { [weak self] in self?.turns.cancel(); reply.send(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": [:]]) }; return }
         if request["op"] as? String == "timelineJump" { DispatchQueue.main.async { [weak self] in self?.turns.jump(request) { reply.send($0) } }; return }
-        if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift, lane r4-timeline).
+        if request["op"] as? String == "imageAccent" { return T3ImageAccent.perform(request) { reply.send($0) } } // Image chip accents (T3ImageAccent.swift).
         next()
     }
 }

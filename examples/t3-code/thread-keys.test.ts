@@ -1,4 +1,4 @@
-// Task thread-commands-and-keys: "Delete the worktree too?" (useThreadActions deleteThread)
+// "Delete the worktree too?" (useThreadActions deleteThread)
 // and the key commands (ChatView.tsx window keydown, Sidebar.tsx traversal), T3 Code 1e2ecbd975.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';

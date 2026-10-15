@@ -3,7 +3,7 @@ import SceneKit
 import XCTest
 import Network
 
-// Lane r11-device: the 3D phone on its first open under a loaded main thread. A live iOS feed
+// The 3D phone on its first open under a loaded main thread. A live iOS feed
 // (serve-sim's AVCC body at 60 fps over the loopback hub in hub.swift) keeps H.264, and so the 3D
 // phone, through main-thread stalls that hand the decoder a burst of samples at once; a decoder
 // that really falls behind still takes the reference's MJPEG fallback.
@@ -42,7 +42,7 @@ final class R11DeviceTests: XCTestCase {
         return hub
     }
 
-    /// Round 10's matrix (ios-3d-light-1280) and round 8's outlier: the phone fell back to flat on
+    /// In live drives the phone fell back to flat on
     /// its first open. Building the phone's scene, and any busy pass after it, stalls the main
     /// thread; the samples that arrived meanwhile reach the decoder together, over the soft queue,
     /// and the feed took MJPEG ("3D requires the H.264 stream"). It must stay on H.264 and in 3D.

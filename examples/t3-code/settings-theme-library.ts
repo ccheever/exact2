@@ -2,7 +2,7 @@
 // T3_CHAT_THEME, GROVE_THEME, OCEAN_THEME, EMBER_THEME, IRIS_THEME: `colors` for light and `variants.dark`), every
 // THEME_COLOR_ROLES value converted from OKLCH to hex by settings-themes.ts toHex. The theme editor seeds a copy or a
 // theme created from one of them with these (ThemeEditorPanel's sourceTheme colours), so its Advanced roles show the
-// source's own colours (settings-appearance-and-skill-chip, desktop audit S1-5). The app's painting keeps its own
+// source's own colours. The app's painting keeps its own
 // palette table (settings-appearance.ts).
 
 const ROLES = (

@@ -1,10 +1,10 @@
-// followups-1012 FU-1: a queued message's grip drag starts fresh each time, as the reference's does:
+// A queued message's grip drag starts fresh each time, as the reference's does:
 // QueuedRunsControl.tsx (T3 Code 1e2ecbd975, MIT, see LICENSE-T3) sets a new `dragState` ({ runId, insertIndex: null })
 // on each dragstart and takes the insertion index from the row under the pointer as it is (`onDragOver`).
 //
 // This runs QueuedControl's own `drag` action and derives from composer-controls.contract with Contract's action
 // semantics (contract-action-fixture.ts), over the client's own snapshot and drop (composer-controls-queue.ts
-// `queuedDrop`). Main's `analyze-read-after-assign` (LLP 1116.003 D6; adopt-main-fixes-r10's list) found the old body
+// `queuedDrop`). Main's `analyze-read-after-assign` (LLP 1116.003 D6) found the old body
 // adding a move to the `dragDy` its start branch had just reset: a drag after an earlier one started at that drag's
 // offset, so its insertion line and its drop were shifted by it.
 import { describe, expect, test } from 'bun:test';

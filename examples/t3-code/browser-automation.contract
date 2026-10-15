@@ -1,4 +1,4 @@
-// browser-surface part 5: a Browser tab's audio button (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+// A Browser tab's audio button (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 // apps/web/src/components/RightPanelTabs.tsx, the tab's Volume2 / VolumeOff MorphIcon button and its tooltip).
 // It shows while the page makes sound (`audio` "audible"), or makes sound muted ("muted"); a press toggles Mute
 // (`surface-toggle-mute`, browser-automation-tabs.ts), as the tab menu's Mute / Unmute row does.

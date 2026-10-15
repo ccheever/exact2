@@ -54,15 +54,15 @@ component TimelineRow
     attachments: AttachmentUrl[]
     scheme: string
     diffScheme: string
-    // r4-composer: the end reservation under the composer overlay (r4-composer-overlay.ts).
+    // The end reservation under the composer overlay (r4-composer-overlay.ts).
     tail: number
-    // r8-pointer D9/D10: the chat column owns the row hover (ChatColumn rowHover/partHover): an
+    // The chat column owns the row hover (ChatColumn rowHover/partHover): an
     // answer and the changed-files card attached under it share message.hoverKey, so hovering
     // the answer's text reveals the actions drawn under the card, as the reference's one row does.
     hovered: bool
     part: string
     hoverPart: action
-    // timeline-and-window-hooks KW-12a: a user turn's box entering or leaving the transcript (ChatColumn turnSeen).
+    // A user turn's box entering or leaving the transcript (ChatColumn turnSeen).
     seen: action
   view
     column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
@@ -122,7 +122,7 @@ component UserRow
   action toggleBody
     expanded = not expanded
   view
-    // KW-12a: the minimap's turn on screen (MessagesTimeline's inView: a strictly positive overlap). Threshold 0
+    // The minimap's turn on screen (MessagesTimeline's inView: a strictly positive overlap). Threshold 0
     // reports edge contact too, and nothing more as the overlap grows, so the port is taken 1px in on each edge:
     // a box only touching it is off screen, and one overlapping is reported as it enters.
     column id=`turn-${message.id}` intersect=seen(message.id) intersect-margin="-1px 0px" width="100%" align-items="flex-end" gap="0.25rem"
@@ -311,12 +311,12 @@ component TimelineContent
     command: action
     now: number
     scheme: string
-    // media-actions: the answer's signed media URLs.
+    // The answer's signed media URLs.
     attachments: AttachmentUrl[]
   view
     column width="100%"
       if message.kind == "assistant"
-        // r5-composer: the answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
+        // The answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
         column hatch="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
           for document in documents.filter((doc) => doc.id == message.id) key=document.id
             AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source=message.id, urls=attachments)
@@ -410,7 +410,7 @@ component WorkGroupHeader
   props
     message: Message
     local: action
-  // r8-pointer D10: one keyed hover for the row and its time, so hovering the time keeps it shown.
+  // One keyed hover for the row and its time, so hovering the time keeps it shown.
   state over = ""
   action hover(id: string, value: bool)
     over = value ? id : (over == id ? "" : over)
@@ -436,7 +436,7 @@ shape EntryExtra
 // compact row (expandedContentHeight). Each row reports its own extra from its element resize
 // event; only an open row counts, so a shut row taller than a compact line (a provider error's
 // detail, a retry) adds nothing, as the reference sums `expandedEntries` only. Contract has no list
-// sum: `opened` keeps the running total as the reports come (timeline-work-rows TH-4).
+// sum: `opened` keeps the running total as the reports come.
 component WorkEntries
   inject
     rem: number

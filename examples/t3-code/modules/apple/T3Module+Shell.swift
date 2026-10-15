@@ -1,4 +1,4 @@
-// T3Module's desktop-shell ops (task desktop-shell-details; T3Module.swift routes them): the
+// T3Module's desktop-shell ops (T3Module.swift routes them): the
 // project icon picker's "Open in Finder" (T3Menus.pickProjectFavicon), and the page's window
 // facts for the activity reporter (`activityFacts`: exactPage() visibilityState and hasFocus,
 // exact2 #219; shell-notify.ts reportWindowFacts).

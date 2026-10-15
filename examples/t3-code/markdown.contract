@@ -8,7 +8,7 @@ use Icon from "./icons.contract"
 use MorphMaximize, MorphCopyCheck from "./shell-morph.contract"
 use CitePart, CiteOffer, citePart, citeEndKey, citeLineRight, citeLineBottom, citeAxis, citeSize, citeOfferFor from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
-use hoverTipAtFrame from "./hover-layer.contract" // pr-links-previews-and-routing: a pull request link's card
+use hoverTipAtFrame from "./hover-layer.contract" // a pull request link's card
 use kmArrow from "./menu-keys.contract"
 use heldModifiers from "./press-modifiers.contract"
 shape ChatRun
@@ -114,7 +114,7 @@ shape MermaidDiagram
   items: MermaidItem[]
 
 // pierre-light / pierre-dark, the reference's Shiki themes, by token class.
-// shiki-residuals: a class ends in "+i" where the pierre theme sets italic (r12-render-highlight.ts).
+// A class ends in "+i" where the pierre theme sets italic (r12-render-highlight.ts).
 fn synColor(cls: string): string = synInk(cls.endsWith("+i") ? cls.slice(0, -2) : cls)
 fn synSlant(cls: string): string = cls.endsWith("+i") ? "italic" : "normal"
 fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].includes(cls) ? (cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : "light-dark(#d5901c, #ffab16)") : ["param", "pyparam", "flag", "interp", "bold", "str", "esc", "num"].includes(cls) ? (cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : "light-dark(#1ca1c7, #68cdf2)") : ["nul", "op", "builtin", "punct", "com", "key", "tag", "heading", "attr"].includes(cls) ? (cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : "light-dark(#18a46c, #60d199)") : ["regex", "deco"].includes(cls) ? (cls == "regex" ? "light-dark(#17a5af, #64d1db)" : "light-dark(#1a85d4, #69b1ff)") : "light-dark(#0a0a0a, #fafafa)"
@@ -122,7 +122,7 @@ fn synInk(cls: string): string = ["kw", "decl", "type", "fn", "var", "const"].in
 shape TranscriptMarkdown
   documents: ChatDocument[]
 // renderFileMarkdown's message record (id, kind, a title it ignores, the text): kind "file" (Files' rendered file) lets
-// task checkboxes write; kind "attachment" (a sent attachment's preview, audit-wave-followups-3 FW-2) has no folder.
+// task checkboxes write; kind "attachment" (a sent attachment's preview) has no folder.
 shape MarkdownSource
   id: string
   kind: string
@@ -154,23 +154,23 @@ shape MarkdownEnv
   runCommands: string[]
 fn noUrls(): AttachmentUrl[] = []
 // diff-review (Cite): an answer's text as the reference reads it (readAssistantText: each block's
-// displayed text, a line break between blocks), and where a block starts in it. diff-cite-popover DC-2: a code block's
+// displayed text, a line break between blocks), and where a block starts in it. A code block's
 // header reads its language when no file icon stands for it (MarkdownCodeBlockTitleContent), a line before the code.
 fn citeCodeLabel(b: ChatBlock, code: CodeHighlight[]): string = b.kind == "code" and code.filter((hl) => hl.code == b.text and hl.icon != "").length == 0 ? b.href : ""
 fn citeBlockText(b: ChatBlock, code: CodeHighlight[]): string = b.kind == "code" ? (citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n${b.text}` : b.text) : b.runs.map((r) => r.text).join("")
 fn citeStream(blocks: ChatBlock[], code: CodeHighlight[]): string = blocks.map((b) => citeBlockText(b, code)).join("\n")
 fn citeOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string): number = blocks.map((b) => b.id).indexOf(blockId) <= 0 ? 0 : blocks.map((b) => citeBlockText(b, code)).slice(0, blocks.map((b) => b.id).indexOf(blockId)).join("\n").length + 1
-// Where a selectable text starts in its block (diff-cite-popover DC-2): a code block's code after its label's line, a word
+// Where a selectable text starts in its block: a code block's code after its label's line, a word
 // or code span of a block laid out word by word (FlowRuns) after the runs before it; a whole block's text at its start.
 fn citeRunOffset(blocks: ChatBlock[], code: CodeHighlight[], blockId: string, runId: string): number = runId == "" ? 0 : runId == "code" ? blocks.filter((b) => b.id == blockId).map((b) => citeCodeLabel(b, code) != "" ? `${citeCodeLabel(b, code)}\n` : "").join("").length : blocks.filter((b) => b.id == blockId).map((b) => b.runs.slice(0, max(0, b.runs.map((r) => r.id).indexOf(runId))).map((r) => r.text).join("")).join("").length
 fn noChips(): ChipView[] = []
-// diff-cite-popover DC-1: where run `id` starts in its block's text (the runs before it), and where token `id` starts in
+// Where run `id` starts in its block's text (the runs before it), and where token `id` starts in
 // its code; with the cited text's [start, end) in the same offsets (`ms`, `me`; -1 when nothing is marked there).
 fn runAt(runs: ChatRun[], id: string): number = runs.slice(0, max(0, runs.map((r) => r.id).indexOf(id))).map((r) => r.text).join("").length
 fn tokenAt(tokens: CodeToken[], id: string): number = tokens.slice(0, max(0, tokens.map((t) => t.id).indexOf(id))).map((t) => t.text).join("").length
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
-// G4-05: occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
+// Occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
 fn galleryImage(href: string, chips: ChipView[]): bool = chips.filter((chip) => chip.kind == "media" and chip.href == href and chip.size == "image" and chip.icon != "blocked").length > 0
 fn markdownGalleryIds(blocks: ChatBlock[], chips: ChipView[]): string[] = blocks.map((block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : (block.flow and not ["code", "table", "table-row", "rule"].includes(block.kind) ? block.runs.filter((run) => run.kind == "media" and galleryImage(run.href, chips)).map((run) => `${block.id}-${run.id}`).join("\n") : "")).join("\n").split("\n").filter((id) => id != "")
 
@@ -187,12 +187,12 @@ component ChatMarkdown
 // diagrams, painted for the colour scheme.
 component AnswerMarkdown
   inject
-    // diff-cite-popover DC-1: the open citation comment's answer (its bare message id) and quote, and the quote's start in
+    // The open citation comment's answer (its bare message id) and quote, and the quote's start in
     // this answer's text stream when Cite measured it (-1: the quote's first place), from the window.
     citeMessage: string
     citeQuote: string
     citeAt: number
-    // cite-selection-anchor: the window's Cite (diff-cite.contract CiteAction): the answer whose selection it offers while it
+    // The window's Cite (diff-cite.contract CiteAction): the answer whose selection it offers while it
     // shows, the offer and its withdrawal; and the window's press handlers, which a press on this answer reaches through this
     // answer's own (the innermost node hearing a pointer holds it).
     citeOffered: string
@@ -214,13 +214,13 @@ component AnswerMarkdown
     env: MarkdownEnv
     // diff-review (Cite): the assistant message id ("" for no Cite).
     source: string
-    // media-actions: signed URLs for the answer's host-path media (timeline-attachments.ts).
+    // Signed URLs for the answer's host-path media (timeline-attachments.ts).
     urls: AttachmentUrl[]
   // The selected part of each text of the answer, in the message's text stream (AssistantSelectionToolbar): a prose
-  // block's, and (diff-cite-popover DC-2) each word or code span of a block laid out word by word and a code block's code.
+  // block's, and each word or code span of a block laid out word by word and a code block's code.
   // `block` is the text's id suffix (`cite-<source>-<block>`): the block, the block and its run, or the block and "code".
   state parts = [CitePart(block="", start=0, end=0, lx=0, ly=0, lw=-1, lh=0)].filter((p) => p.end > 0)
-  // cite-selection-anchor (observeSelectionActions): a primary button is down in this answer (Cite waits for its release),
+  // observeSelectionActions: a primary button is down in this answer (Cite waits for its release),
   // and the selection changed while it was.
   state held = false
   state moved = false
@@ -262,7 +262,7 @@ component AnswerMarkdown
   action doubled
     if source != ""
       citeHold()
-  // G4-03a (AssistantSelectionToolbar.tsx:87-107): a plain Tab while this answer's Cite shows, enabled, and does not hold
+  // AssistantSelectionToolbar.tsx:87-107: a plain Tab while this answer's Cite shows, enabled, and does not hold
   // the focus (it is the window's, outside this box) focuses Cite; Escape hides it and keeps the selection.
   action keys(k: string, e: KeyboardEvent)
     if k == "Tab" and not e.shiftKey and not e.altKey and not e.ctrlKey and not e.metaKey and source != "" and citeOffered == source and citeSize(parts, citeStream(document.blocks, code)) <= 8000
@@ -369,7 +369,7 @@ component DiagramBlocks
     urls: AttachmentUrl[]
     source: string
     cite: action
-    // diff-cite-popover DC-1: the cited text's [start, end) in the answer's text stream (-1: none), each block's share.
+    // The cited text's [start, end) in the answer's text stream (-1: none), each block's share.
     markStart: number
     markEnd: number
   derive galleryIds = markdownGalleryIds(document.blocks, env.chips)
@@ -405,7 +405,7 @@ component BlockBody
     // diff-review (Cite): a prose block's selection reports to the answer (`source` "" outside answers).
     source: string
     cite: action
-    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none).
+    // The cited text in this block's offsets while its comment is open (-1: none).
     ms: number
     me: number
   view
@@ -440,7 +440,7 @@ component BlockBody
     if block.kind == "table"
       MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     if block.kind == "image"
-      // media-actions: an image line draws through its media chip (media-views.ts markdownMediaChips).
+      // An image line draws through its media chip (media-views.ts markdownMediaChips).
       if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
         for chip in chips.filter((c) => c.kind == "media" and c.href == block.href) key=chip.id
           MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
@@ -459,7 +459,7 @@ component BlockBody
       text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id, "") font-size="0.875rem" line-height="1.421875rem" color=prose
         ChatRuns(runs=block.runs, size=14, weight=400, ms=ms, me=me)
 
-// markdown-links-and-files-preview PA-3: GFM's task checkbox in place of the list marker (`li.task-list-item`:
+// GFM's task checkbox in place of the list marker (`li.task-list-item`:
 // list-style none, the checkbox in the 1.25rem gutter with 0.35em after it), as Electron draws an `input` checkbox on
 // macOS (13pt, 12pt tall with a 1pt shade, white or the accent blue with a white tick). In a file preview
 // (taskOffset >= 0) a press toggles the task and saves the file (RenderedMarkdownSurface onTaskListChange,
@@ -494,7 +494,7 @@ component TaskBox
 
 // Inline runs in one text node (a chip's href is how its ChipView finds it, not a destination). Every link with a
 // destination is the anchor's: its press is the link's (`linkOpen`: a web link follows "Open links in", a mailto, irc or
-// xmpp link opens nothing, a fragment leaves for the new-thread draft; reply-links-reference-behavior RL-4, RL-5) and its
+// xmpp link opens nothing, a fragment leaves for the new-thread draft) and its
 // right-click the anchor's onContextMenu (external-link-menu.ts); an emptied anchor is link-coloured text with neither.
 component ChatRuns
   inject
@@ -504,7 +504,7 @@ component ChatRuns
     runs: ChatRun[]
     size: number
     weight: number
-    // diff-cite-popover DC-1: the cited text in these runs' offsets (-1: none).
+    // The cited text in these runs' offsets (-1: none).
     ms: number
     me: number
   view
@@ -525,7 +525,7 @@ component ChatRuns
             text font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
-// diff-cite-popover DC-1: the cited text's highlight while its comment is open (AssistantCitationSource.tsx
+// The cited text's highlight while its comment is open (AssistantCitationSource.tsx
 // observeAssistantCitationCommentSource: `::highlight(t3-assistant-citation-comment)`, the primary at 45%), within one
 // piece of text that starts at `at` in its block: the piece before, the marked part, the piece after.
 component MarkedText
@@ -542,10 +542,10 @@ component MarkedText
       text value.slice(a, b) background-color="light-dark(#1b4ed873, #346bf173)"
       text value.slice(b, value.length)
 
-// browser-surface part 5: an http(s) link follows "Open links in" (its press); any other scheme stays the shell's.
+// An http(s) link follows "Open links in" (its press); any other scheme stays the shell's.
 fn webLink(href: string): bool = href.startsWith("http://") or href.startsWith("https://")
-// A link whose click does something on every word: a web link opens, a fragment leaves for the new-thread draft
-// (reply-links-reference-behavior RL-4); a mailto, irc or xmpp link's click opens nothing, word or not.
+// A link whose click does something on every word: a web link opens, a fragment leaves for the new-thread draft;
+// a mailto, irc or xmpp link's click opens nothing, word or not.
 fn pressLink(href: string): bool = webLink(href) or href.startsWith("#")
 // A run of a link that is not a pull request link (a pull request link's words are each a link of their own, PrLinkRun).
 fn linkRun(run: ChatRun, chips: ChipView[]): bool = (run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length == 0
@@ -565,12 +565,12 @@ component FlowRuns
     chips: ChipView[]
     urls: AttachmentUrl[]
     local: action
-    // diff-cite-popover DC-2: each word and code span reports its part of a selection to the answer (Cite), as the
+    // Each word and code span reports its part of a selection to the answer (Cite), as the
     // reference's text nodes of one block are one stream (`source` "" outside answers).
     source: string
     blockId: string
     cite: action
-    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none).
+    // The cited text in this block's offsets while its comment is open (-1: none).
     ms: number
     me: number
   view
@@ -581,9 +581,9 @@ component FlowRuns
         // `label` is the same), so a reader meets one link with its URL, not words. A press anywhere
         // opens it. Only a web link leads with its favicon and has the app's menu (ChatMarkdown's faviconHost); a mailto,
         // irc or xmpp link's press opens nothing, as the desktop shell's window-open handler opens none of them, and a
-        // fragment's leaves for the new-thread draft (Electron's hash router; reply-links RL-1, reply-links-reference-
-        // behavior RL-4; browser-links.ts openLinkFromUi); their menu is the shell's, at the click or, for the ContextMenu
-        // key, at the focused link (RL-6; external-link-menu.ts). A code span is part of its link (RL-3: `.chat-markdown
+        // fragment's leaves for the new-thread draft (Electron's hash router;
+        // browser-links.ts openLinkFromUi); their menu is the shell's, at the click or, for the ContextMenu
+        // key, at the focused link (external-link-menu.ts). A code span is part of its link (`.chat-markdown
         // code` inside the `<a>`, after the favicon).
         if run.kind == "link-start" and linkRun(run, chips)
           link href=run.href press=linkOpen("link", run.href) contextmenu=linkMenu(run.href) aria-label=run.label cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=0 align-items="flex-start"
@@ -617,14 +617,14 @@ component FlowRuns
             ContextChipBox(run=run)
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind == "break"
           box width="100%" height=0 flex-shrink=0
-        // media-signed-urls-and-attachment-markdown MD-1: an image inside a line of text (ChatMarkdownImage, not
+        // An image inside a line of text (ChatMarkdownImage, not
         // standalone), or the only content of its paragraph, list item or quote (standalone: its `icon`), through its
         // media chip (media-views.ts markdownInlineImages); a surface with no media chips (a pull request's text) keeps
         // its alt text.
         if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
             MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
-        // pr-links-previews-and-routing: a pull request link in a pull request's text (its chip names the card's target).
+        // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
             PrLinkRun(run=run, chip=chip, local=local, size=size, weight=(run.weight > weight ? run.weight : weight))
@@ -638,7 +638,7 @@ component FlowRuns
             text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
 
-// A pull request link in a pull request's text (pr-links-previews-and-routing; ChatMarkdown's anchor with
+// A pull request link in a pull request's text (ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
 // (pages-pr-links.ts openLink: the panel for a pull request, the browser for anything else or with a modifier
 // held). A web link keeps its favicon (the globe); a `#N` autolink has none, and a commit's is monospace.
@@ -734,7 +734,7 @@ component ResolvedChip
     row height="1.421875rem" flex-shrink=0 align-items="center" padding-left=1 padding-right=1 position="relative"
       if chip.kind == "link"
         CodeTip(label=chip.tip, side="top", offset=21)
-          // r4-surfaces: a file link opens in the Files surface (rightPanelStore.openFile).
+          // A file link opens in the Files surface (rightPanelStore.openFile).
           button press=local("surface-file", chip.tip, "") contextmenu=local("surface-files-link-menu", chip.tip, "") aria-label=chip.tip padding=0 border-width=0 background-color="#00000000" testId=`chip-open-${run.id}`
             FileChipFace(run=run, label=run.text, icon=run.icon)
       if chip.kind == "mention"
@@ -806,8 +806,8 @@ component AttachmentChipBody
   action hover(over: bool)
     hovered = over
   view
-    // r5-panels: a sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
-    // lane r6-media: a sent video's chip opens it in the media dialog (onExpandVideo).
+    // A sent file attachment opens its preview beside the thread (ChatView openFileAttachment).
+    // A sent video's chip opens it in the media dialog (onExpandVideo).
     if chip.kind == "image" or (chip.kind == "thread" or chip.kind == "citation" or chip.kind == "file" or chip.kind == "video") and chip.target != ""
       button press=local((chip.kind == "image" or chip.kind == "video" ? "image-open" : chip.kind == "file" ? "surface-r5-attachment" : chip.kind == "citation" ? "chip-citation" : "chip-thread"), chip.target, (chip.kind == "image" or chip.kind == "file" or chip.kind == "video" ? chip.owner : chip.detail)) hover=hover aria-label=(chip.kind == "image" ? chip.tip : chip.kind == "file" or chip.kind == "video" ? `${chip.kind == "video" ? "Video" : "File"} attachment, ${chip.label}, ${chip.size}` : chip.kind == "citation" ? `View cited assistant text: ${chip.label}` : `Thread, ${chip.label}`) testId=`context-chip-${run.id}` height="1.0625rem" max-width="22.5rem" padding=0 padding-left="0.375rem" padding-right="0.375rem" gap="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-radius="0.375rem" border-width=1 border-style="solid" border-color=chipBorder(chipFamily(chip.kind)) background-color=`${chipAccent(chipFamily(chip.kind))}${hovered ? "2b" : "1c"}` id=`context-chip-${run.id}`
         ChipFace(chip=chip, urls=urls)
@@ -871,10 +871,10 @@ component CodeBlock
     codeFont: string
     codeSize: number
     wrapDefault: bool
-    // diff-cite-popover DC-2: the code reports its part of a selection to the answer (Cite; `source` "" outside answers).
+    // The code reports its part of a selection to the answer (Cite; `source` "" outside answers).
     source: string
     cite: action
-    // diff-cite-popover DC-1: the cited text in this block's offsets while its comment is open (-1: none); the code starts
+    // The cited text in this block's offsets while its comment is open (-1: none); the code starts
     // after its header's language line (citeRunOffset), at `codeAt`.
     ms: number
     me: number
@@ -1024,7 +1024,7 @@ component MermaidSvg
         else
           path d=item.d transform=item.transform fill=`light-dark(${item.fill}, ${item.fillDark})` stroke=`light-dark(${item.stroke}, ${item.strokeDark})` stroke-width=item.width stroke-dasharray=item.dash stroke-linecap=item.cap stroke-linejoin=item.join
 
-// MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (X18, chat-markdown-media-and-code): the check from a copy until
+// MarkdownCodeBlock's copy button: MorphIcon Copy ↔ Check (#123): the check from a copy until
 // the root clears it 1.2 s later (codeCopyDone, app.contract), both ways on morphicons' spring (shell-morph.contract).
 component CopyCodeButton
   inject
@@ -1047,7 +1047,7 @@ component CopyCodeButton
 // wrap across the column (Settings → Word wrap decides the start). A cell's
 // 24rem max-width only caps what it asks of the column: Chrome's table layout
 // ignores max-width on a td, so spare room still widens the column. The footer's Copy menu copies the
-// table as Markdown or CSV; a copy morphs its icon to a check and back after 1.2s (X18, MorphCopyCheck).
+// table as Markdown or CSV; a copy morphs its icon to a check and back after 1.2s (#123, MorphCopyCheck).
 component MarkdownTable
   props
     block: ChatBlock
@@ -1073,7 +1073,7 @@ component MarkdownTable
         Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
           TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
         Tip(label="Copy table", side="top", align="end", offset=28)
-          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // lane r8-keys: its popup is the window's (r8-keys-table-menu.contract)
+          TableCopyButton(press=local("table-menu", block.id, `${block.markdown}\t${block.csv}`), pressFirst=local("table-menu", block.id, `keys:first\t${block.markdown}\t${block.csv}`), pressLast=local("table-menu", block.id, `keys:last\t${block.markdown}\t${block.csv}`), copied=copied, open=false, testId=`table-copy-${block.id}`) // its popup is the window's (r8-keys-table-menu.contract)
 
 // A th or td: 7.2/12 padding (8.8 in the header), the column's sizing cell
 // drawn invisibly beneath so every row's cell takes the column's width. The
@@ -1161,7 +1161,7 @@ component TableCopyButton
   state hovered = false
   action hover(over: bool)
     hovered = over
-  // fix-keyboard-focus: the Copy menu opens from the data module; the button lets go of the focus and the
+  // The Copy menu opens from the data module; the button lets go of the focus and the
   // menu's popup takes it as it mounts (`autofocus`, menu-keys.contract). ↓ and ↑ open it too: the menu
   // mounts at the window, past this tree, so the request itself carries the end (`menu.keyed`).
   action openMenu

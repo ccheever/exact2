@@ -3,7 +3,7 @@ import AppKit
 import PDFKit
 import WebKit
 
-/// Lane r6-media: the attachment preview's PDF and HTML bodies (MIT reference, see
+/// The attachment preview's PDF and HTML bodies (MIT reference, see
 /// LICENSE-T3: components/files/BrowserDocumentFrame.tsx). Hook `t3-media` on the body's
 /// box, with `data-media-kind` ("pdf" or "html"), `data-media-url` (the signed inline asset
 /// URL the surface minted) and `data-media-name`.
@@ -14,7 +14,7 @@ import WebKit
 ///   work inside it.
 /// - HTML: the reference runs the page in `<iframe sandbox="allow-scripts allow-forms
 ///   allow-popups allow-modals">` at its signed asset URL, an opaque origin that cannot reach
-///   the app's session or storage. Lane r12-render: here the same element does it. The web
+///   the app's session or storage. Here the same element does it. The web
 ///   view's document is a script-free wrapper at the server's origin whose only content is
 ///   that iframe, so WebKit applies the frame's own sandbox, and the page is fetched from the
 ///   asset URL with the server's own headers (`Content-Security-Policy: sandbox allow-scripts

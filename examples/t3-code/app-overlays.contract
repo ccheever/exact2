@@ -29,9 +29,9 @@ use R4PublishDialog from "./r4-git-publish.contract"
 use CommandPalette from "./palette.contract"
 use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
-use ResetCreditDialog from "./usage-bars.contract" // usage-reset-and-feedback
+use ResetCreditDialog from "./usage-bars.contract"
 use R8TableMenu from "./r8-keys-table-menu.contract"
-use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
+use R9CheckoutDialog from "./r9-connect.contract"
 use PrDetailView from "./pages-pr-detail.contract"
 use PrActionLayers from "./pages-pr-actions.contract"
 use FocusGuard from "./dialog-trap.contract"
@@ -104,7 +104,7 @@ component WelcomeLayer
     welcomeSetup: action
     providerUi: action
     welcomeFinish: action
-    // managed-codex-chatgpt: the Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
+    // The Codex rows' setup commands (providerOp's setup: queue) and that queue's pending.
     providerOp: action
     setupBusy: bool
   // The wizard's help disclosure (moved from app.contract: only this layer reads or writes it).
@@ -185,8 +185,8 @@ component WindowOverlays
     if detailsSheet
       ThreadDetailsPanel(details=details, density=detailsDensity, right=13, below=0, maxHeight=(viewport.height - 104), editorsOpen=detailsEditors, act=detailsAct, local=chatLocal, still=viewport.prefersReducedMotion)
     R4GitLayers(details=details, windowHeight=viewport.height, act=detailsAct, local=chatLocal)
-    R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // lane r6-pr: the Merge AlertDialog
-    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // pr-header-actions-and-stacks: the panel's confirmations
+    R6PrLayers(details=details, scheme=scheme, act=detailsAct, local=chatLocal) // the Merge AlertDialog
+    PrActionLayers(actions=prDetail.actions, ref=prDetail.ref, dark=(scheme == "dark"), act=prAct, local=chatLocal) // the panel's confirmations
     // The git card's dialogs (Publish, Commit, and the default-branch confirm a commit can lead to) give the focus back
     // to the quick action or the options menu's trigger, whichever opened the first (dialog-trap.contract DialogFinalFocus).
     DialogFinalFocus(open=(details.ready and details.git.dialog == "commit"), owner="git-commit-dialog")
@@ -194,7 +194,7 @@ component WindowOverlays
     DialogFinalFocus(open=(details.ready and details.git.dialog == "publish"), owner="git-publish-dialog")
     if details.ready and details.git.dialog == "publish"
       R4PublishDialog(git=details.git, cwd=details.cwd, act=detailsAct, local=chatLocal)
-    // lane r9-connect: the branch pickers' PullRequestThreadDialog (r9-connect.contract).
+    // The branch pickers' PullRequestThreadDialog (r9-connect.contract).
     DialogFinalFocus(open=shell.prCheckout.open, owner="pr-checkout-dialog")
     if shell.prCheckout.open
       R9CheckoutDialog(checkout=shell.prCheckout, viewportWidth=viewport.width, viewportHeight=viewport.height, dark=(scheme == "dark"), local=chatLocal, command=command)
@@ -209,7 +209,7 @@ component WindowOverlays
     DialogFinalFocus(open=(data.diagramPreview.length > 0), owner="diagram-preview")
     for diagram in data.diagramPreview key=diagram.id
       DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=scheme, local=chatLocal)
-    // r4-composer: a shelf video's expanded preview (r4-composer.contract).
+    // A shelf video's expanded preview (r4-composer.contract).
     DialogFinalFocus(open=(data.composerVideoPreview.length > 0), owner="video-preview")
     for video in data.composerVideoPreview key=video.id
       VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
@@ -219,11 +219,11 @@ component WindowOverlays
     DialogFinalFocus(open=shell.panel.deviceSetup, owner="device-setup")
     if shell.panel.deviceSetup
       R4DeviceSetup(device=shell.panel.device, scheme=scheme, viewportHeight=viewport.height, local=chatLocal, command=command)
-    // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
+    // requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     DialogFinalFocus(open=(data.serverUpdate.confirmTitle != ""), owner="server-update-confirm")
     if data.serverUpdate.confirmTitle != ""
       AppConfirm(confirmLabel="Confirm", title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, confirmId="server-update-confirm", cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
-    // usage-reset-and-feedback: the /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
+    // The /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
     DialogFinalFocus(open=(data.composer.resetConfirm != ""), owner="reset-credit-dialog")
     if data.composer.resetConfirm != ""
       ResetCreditDialog(prefix="cclocal:usage", target=data.composer.resetConfirm, busy=commandPending, command=command)
@@ -231,6 +231,6 @@ component WindowOverlays
     if confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, confirmId="app-confirm", confirmLabel=(confirmOp == "cc:branch-restore-confirmed" ? "Switch branch" : "Confirm"), cancel=confirmUi(false), confirm=confirmUi(true))
     ToastStack(toasts=shell.toasts, width=min(22.5 * rem, viewport.width - (viewport.width >= 640 ? 4 : 2) * rem), top=(52 + (viewport.width >= 640 ? 2 : 1) * rem), right=((viewport.width >= 640 ? 2 : 1) * rem), expanded=toastHover, still=viewport.prefersReducedMotion, hover=toastHovering, act=toastAct)
-    // lane r8-keys: a Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
+    // A Markdown table's Copy menu over every layer (r8-keys-table-menu.contract).
     for menu in data.tableMenu key=menu.id
       R8TableMenu(menu=menu, dark=(scheme == "dark"), local=chatLocal)

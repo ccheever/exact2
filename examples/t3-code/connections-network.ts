@@ -7,11 +7,12 @@
 //    (`localNetworkFacts`: interfaces, the cached `tailscale status`, the HTTPS probe). The native
 //    side answers at once from its caches and refreshes in the background, announcing `t3.local`;
 //    until the first complete read the rows say "Loading…", afterwards the last one stays.
-//  - A changed setting persists before returning a relaunch request for Contract (decision U4).
+//  - A changed setting persists before returning a relaunch request for Contract.
 //  - Dialogs open on `connectionRemove` (`network:on:<serial>` …) and close when their serial moves:
 //    network access after any outcome (the reference closes it and shows the error in the row),
 //    Tailscale and Create link only after success (they stay open with a toast on failure).
-//  - Expiry labels tick each second while the section shows (the root's clock, X19).
+//  - Expiry labels tick each second while the section shows (the root's clock,
+//    issues/closed/20261009-typescript-failure-parity.md).
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import type { AdvertisedEndpoint } from './advertised-endpoint';
@@ -106,7 +107,7 @@ export const networkUi = { exposureError: '', accessError: '', networkSerial: 0,
  * The section with nothing to draw (the page closed, or this client cannot manage it), its dialogs' serials kept. A
  * dialog is open while the root's `connectionRemove` names its serial and the root keeps that value after the dialog
  * closed, so a view with the serials back at 0 (any other Settings page) would open the closed dialog again: the
- * reference closes "Enable network access?" after any outcome for good (network-routes-followups NR-2).
+ * reference closes "Enable network access?" after any outcome for good.
  */
 export function closedNetworkView(): NetworkView {
   return { ...emptyNetworkView(), networkSerial: networkUi.networkSerial, tailscaleSerial: networkUi.tailscaleSerial, createSerial: networkUi.createSerial, settled: networkUi.settled };
@@ -237,7 +238,7 @@ export function decodeInterfaces(value: unknown): NetworkInterfaces {
   return result;
 }
 
-/** The exposure part of desktop-settings.json (decision U7): read from the status, written by the native side. */
+/** The exposure part of desktop-settings.json: read from the status, written by the native side. */
 const exposureOf = (settings: DesktopSettingsFacts): ExposureSettings => ({ serverExposureMode: settings.serverExposureMode, tailscaleServeEnabled: settings.tailscaleServeEnabled, tailscaleServePort: settings.tailscaleServePort });
 const makeExposure = () => new DesktopServerExposure({
   settings: {
@@ -319,7 +320,7 @@ export const NETWORK_OPS = ['network-access', 'tailscale-serve', 'endpoint-defau
 const none: ConnectionResult = { status: null, generation: -1 };
 const messageOf = (error: unknown, fallback: string) => (error instanceof Error && error.message ? error.message : fallback);
 /**
- * What the reference's renderer reads when a desktop bridge call rejects (audit-wave-followups-2 FV-5): Electron's
+ * What the reference's renderer reads when a desktop bridge call rejects: Electron's
  * `ipcRenderer.invoke` wraps the main process's `error.toString()` (the tagged error's name, then its message) in its
  * own Error, so Settings › Connections shows "Error invoking remote method 'desktop:set-server-exposure-mode':
  * DesktopServerExposureModePersistenceError: Failed to persist …" in its toast and row.

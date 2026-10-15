@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// Lane r11-upstream (95edeb753b): a draft row's context menu as T3Sidebar builds it
+// Upstream T3 Code 95edeb753b: a draft row's context menu as T3Sidebar builds it
 // from the client's template (r11-upstream-drafts.ts draftMenuItems through
 // nativeTemplate, the shape r11-upstream.test.ts pins): Copy ▸ Path / Branch,
 // Project settings, a separator, then the destructive Discard draft with the trash glyph.

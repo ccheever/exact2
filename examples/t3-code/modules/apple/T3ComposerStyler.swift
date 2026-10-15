@@ -30,7 +30,7 @@ final class T3ComposerStyler {
     var skills: [String: String] = [:] { didSet { if oldValue != skills { restyle() } } }
     /// Where an image chip's draft image lives (T3ComposerImageChip.swift).
     var imageDirectory: URL?
-    /// The chips' hover details (T3ComposerChipTips.swift, lane r4-timeline).
+    /// The chips' hover details (T3ComposerChipTips.swift).
     private(set) lazy var tips = T3ComposerChipTips(styler: self)
     /// A skill chip's press and its details popover (T3ComposerChipPress.swift).
     private(set) lazy var press = T3ComposerChipPress(styler: self)
@@ -50,7 +50,7 @@ final class T3ComposerStyler {
     private(set) var marks: [Mark] = []
     private(set) var tasks: [Task] = []
     private var styled: String?
-    /// The text the chips, marks and hidden runs describe (composer-chips-accessibility: the accessibility projection's source).
+    /// The text the chips, marks and hidden runs describe (the accessibility projection's source).
     var styledText: String? { styled }
     private var styling = false
     /// The prompt font and ink Exact authored. NSTextView reports the first
@@ -292,7 +292,7 @@ final class T3ComposerStyler {
         let label = labelWidth(chip, font: font)
         let suffix = chipSuffix(chip)
         var extra = suffix.isEmpty ? 0 : size * 0.33 + ceil((suffix as NSString).size(withAttributes: [.font: suffixFont(font)]).width * 10) / 10
-        // diff-cite-popover DC-1: a citation ends with its comment button (ContextChipAction: the chip's 0.33em gap, ml-[0.17em], size-[1.17em]).
+        // A citation ends with its comment button (ContextChipAction: the chip's 0.33em gap, ml-[0.17em], size-[1.17em]).
         if chip.kind == "citation" { extra += size * (0.33 + 0.17 + 1.17) }
         return 2 + size * 0.5 * 2 + size * 1.17 + size * 0.33 + ceil(label * 10) / 10 + extra
     }
@@ -328,7 +328,7 @@ final class T3ComposerStyler {
     func skillChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { $0.kind == "skill" && chipRect($0)?.contains(point) == true }
     }
-    /// composer-chips-accessibility G1-8: a chip whose press opens its details (ContextChipPopover's trigger): a skill, or a
+    /// A chip whose press opens its details (ContextChipPopover's trigger): a skill, or a
     /// terminal excerpt that holds text (TerminalContextInlineChip; an expired one is a plain shell).
     func popoverChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { isPopoverTrigger($0) && chipRect($0)?.contains(point) == true }
@@ -384,7 +384,7 @@ final class T3ComposerStyler {
         guard let value = contextPath(chip).flatMap({ contexts[$0] }) else { return "" }
         return value.components(separatedBy: "\t").dropFirst(2).joined(separator: "\t")
     }
-    /// composer-chips-accessibility: a context reference the draft holds no record for (composerContextPresentation's
+    /// A context reference the draft holds no record for (composerContextPresentation's
     /// fallback, UnresolvedContextChip: CircleDashedIcon, the neutral chip dashed, "Unavailable context, <label>").
     func chipMissing(_ chip: T3ComposerChip) -> Bool {
         chip.kind == "context" && (contextPath(chip).map { contexts[$0] == nil } ?? true)
@@ -757,7 +757,7 @@ final class T3ComposerUnderlay: NSView {
         let clip = NSMutableParagraphStyle(); clip.lineBreakMode = chip.kind == "citation" ? .byTruncatingTail : .byClipping
         label.draw(in: NSRect(x: x, y: rect.midY - labelSize.height / 2, width: labelEnd - x + 1, height: labelSize.height),
                    withAttributes: [.font: labelFont, .foregroundColor: ink, .paragraphStyle: clip])
-        // diff-cite-popover DC-1: the comment button's pencil (PencilIcon at 0.85em in the 1.17em ContextChipAction), in the chip's ink.
+        // The comment button's pencil (PencilIcon at 0.85em in the 1.17em ContextChipAction), in the chip's ink.
         if chip.kind == "citation" {
             let pencil = size * 0.85, box = size * 1.17, midX = rect.maxX - 1 - size * 0.5 - box / 2
             T3ComposerIcons.draw("pencil", in: NSRect(x: midX - pencil / 2, y: rect.midY - pencil / 2, width: pencil, height: pencil), color: ink, dark: dark)
@@ -788,7 +788,7 @@ final class T3ComposerUnderlay: NSView {
     /// dark border] from oklch(0.62 C H) mixed as the reference's tokens do.
     static let palette: [String: [String]] = [
         "thread": ["#2a3f40", "#c9e2df", "#009c961c", "#a6cccb", "#21a7a161"],
-        // composer-chips-accessibility: ContextChip's default kind (an unresolved reference): border-border/70, bg-accent/40.
+        // ContextChip's default kind (an unresolved reference): border-border/70, bg-accent/40.
         "neutral": ["#27272a", "#f5f5f5", "#f4f4f566", "#e4e4e7b3", "#ffffff0f"],
         "mention": ["#2c3e45", "#cbe0e6", "#0096af1c", "#a9cad5", "#39a1b861"],
         "file": ["#2b3d4b", "#cadfed", "#0090cd1c", "#a8c8e0", "#389cd361"],
@@ -801,10 +801,10 @@ final class T3ComposerUnderlay: NSView {
         "pr-closed": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
         "citation": ["#2f3b4f", "#ceddf4", "#4684e51c", "#aec5e9", "#5a91e961"],
         "terminal": ["#2c3f39", "#cbe2d6", "#009f6e1c", "#a9cdbd", "#3ba97d61"],
-        // browser-surface part 3: an Annotate chip (ContextChip "preview-annotation", oklch(0.62 0.134 70); the timeline's context-element inks).
+        // An Annotate chip (ContextChip "preview-annotation", oklch(0.62 0.134 70); the timeline's context-element inks).
         "preview-annotation": ["#44382c", "#e9d9c7", "#b875011c", "#d7bfa6", "#b8750161"],
         "image": ["#4b3337", "#f2d3d4", "#d556651c", "#e4b6b9", "#db697461"],
-        // r4-composer: an attached video's file chip (ContextChip kind "video", oklch(0.62 0.16 48)).
+        // An attached video's file chip (ContextChip kind "video", oklch(0.62 0.16 48)).
         "video": ["#4a352e", "#f0d6c8", "#d062171c", "#e1baa7", "#d7733b61"],
     ]
 }

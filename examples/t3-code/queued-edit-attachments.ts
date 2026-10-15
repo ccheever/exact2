@@ -1,5 +1,5 @@
-// Editing a queued message together with its attachments (task
-// composer-fidelity, G12a), adapted from T3 Code 1e2ecbd975 (MIT); see
+// Editing a queued message together with its attachments,
+// adapted from T3 Code 1e2ecbd975 (MIT); see
 // LICENSE-T3. Sources: apps/web/src/components/chat/queuedMessageEdit.ts
 // (prepareQueuedEditAttachments, recoverQueuedMessageEdit), ChatView.tsx
 // (beginEditingQueuedRun, removeEditingQueuedAttachment, the queued-edit save

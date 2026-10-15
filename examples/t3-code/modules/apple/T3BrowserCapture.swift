@@ -2,8 +2,8 @@
 import AppKit
 import WebKit
 
-/// browser-surface part 3 (capture): a tab's artifacts, held pages, the separate preview window and downloads (X1
-/// path B). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`,
+/// Capture: a tab's artifacts, held pages, the separate preview window and downloads (#100: the clone's own
+/// WKWebView). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975: apps/desktop/src/preview/Manager.ts (`artifactSiteSlug`,
 /// `captureScreenshot`, `saveRecording`, `resolveArtifactPath`, `revealArtifact`, `copyArtifactToClipboard`,
 /// `installDownloadHandler`, `openPictureInPicture`, `fitPictureInPictureContentSize`, the PICTURE_IN_PICTURE_* and
 /// RECORDING_ARM_GRACE_MS constants), apps/desktop/src/app/DesktopEnvironment.ts (`browserArtifactsDir`) and
@@ -12,7 +12,7 @@ import WebKit
 /// - Artifacts live where the reference keeps them, `<T3 home>/userdata/browser-artifacts`, the embedded server's own
 ///   state directory, so its Storage cleanup ("Browser artifacts", `browserArtifactsAfterDays`) prunes them. A build that
 ///   runs no local server keeps them in its data root.
-/// - Frames come from `WKWebView.takeSnapshot` (the frame-source decision of 2026-10-09: no Screen Recording permission,
+/// - Frames come from `WKWebView.takeSnapshot` (no Screen Recording permission,
 ///   the page's own pixels). A page in no window is throttled to about one frame a second, so a page a recording or the
 ///   separate window needs while no view shows it is held in an offscreen host window (T3BrowserParking), as the
 ///   reference keeps a hidden surface painting while its activity is held.

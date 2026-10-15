@@ -1,4 +1,4 @@
-// Lane settings-a: General → About's update button and Update track.
+// General → About's update button and Update track.
 import { describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import { applyCoreSetting, generalSections, resolveScope, serverContext } from './settings-core';
@@ -50,7 +50,7 @@ describe('about: updates over the delivery facts', () => {
   });
 });
 
-// The reference with no update feed (blocked-desktop-update-controls, option a): handleUpdateChannelChange calls
+// The reference with no update feed: handleUpdateChannelChange calls
 // setUpdateChannel, which saves the choice (DesktopAppSettings.setUpdateChannel) and checks nothing.
 describe('about: the Update track with no feed', () => {
   const desktopNative = (fail = '') => {
@@ -108,7 +108,7 @@ describe('about: the no-feed "Check for updates" control', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   test('it is disabled, labelled, and in all three footers with its side-top tooltip', async () => {
     const pill = (await source('sidebar-icons.contract')).split('\ncomponent SidebarUpdatePill\n')[1]!;
-    expect(pill).toContain('button aria-disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId'); // round 12: aria-disabled, as the reference's (X70)
+    expect(pill).toContain('button aria-disabled=true aria-label="Check for updates" cursor="not-allowed" testId=testId'); // aria-disabled, as the reference's (issues/closed/20261010-aria-disabled-focusable-control.md)
     expect(pill).toContain('opacity=0.6');
     expect(pill).not.toContain('press=');
     for (const file of ['sidebar.contract', 'legacy-sidebar.contract']) {

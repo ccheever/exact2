@@ -1,4 +1,4 @@
-// Lane settings-b: the accent picker's starting point (lib/color.ts hexToHsv),
+// The accent picker's starting point (lib/color.ts hexToHsv),
 // FALLBACK_ACCENT_COLOR when the instance has no accent yet.
 export const FALLBACK_ACCENT_COLOR = '#2563eb';
 export function hexToHsv(hex: string): { h: number; s: number; v: number } {

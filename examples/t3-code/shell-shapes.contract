@@ -5,7 +5,7 @@ use R4GitCard from "./r4-git-shapes.contract"
 use AutomationsView from "./thread-automations.contract"
 use R4Panel from "./r4-surfaces-shapes.contract"
 use R5PrRows from "./r5-panels-shapes.contract"
-use R9Checkout from "./r9-connect-shapes.contract" // lane r9-connect
+use R9Checkout from "./r9-connect-shapes.contract"
 
 shape ShellToast
   id: number
@@ -33,7 +33,7 @@ shape ShellToast
   details: ShellToastDetail[]
   expandLabel: string
   collapseLabel: string
-  extraLabel: string // browser-surface part 3: ThreadToastData.additionalActions (one), and each button's "Copied!" state
+  extraLabel: string // ThreadToastData.additionalActions (one), and each button's "Copied!" state
   extraOp: string
   extraId: string
   extraValue: string
@@ -95,7 +95,7 @@ shape ShellView
   keyRightPanel: string
   keyThreadPanel: string
   keyTerminal: string
-  terminalAvailable: bool // terminal-drawer: an active server thread with a project
+  terminalAvailable: bool // an active server thread with a project
   terminalOpen: bool
   keyNewThread: string
   keyNewThreadLocal: string
@@ -108,20 +108,20 @@ shape ShellView
   notifications: string
   // r4-surfaces-panel.ts: the right panel's tabs and its Files / Linked pull requests / Device surfaces.
   panel: R4Panel
-  // lane r9-connect: the branch picker's PullRequestThreadDialog (r9-connect-checkout.ts).
+  // The branch picker's PullRequestThreadDialog (r9-connect-checkout.ts).
   prCheckout: R9Checkout
-  highlightPending: bool // shiki-residuals: a Files / attachment code text waits for its Shiki tokens
+  highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
 shape CardScript
   id: string
   label: string
   icon: string
 shape ShellDetails
   ready: bool
-  // server-update-banner: the version-differ card (ThreadDetailsPanel versionMismatch), "" when hidden.
+  // The version-differ card (ThreadDetailsPanel versionMismatch), "" when hidden.
   versionClient: string
   versionServer: string
   versionLabel: string
-  // r6-polish: the project script row (r6-polish-scripts.ts): the primary script and every script for its menu.
+  // The project script row (r6-polish-scripts.ts): the primary script and every script for its menu.
   scriptName: string
   scriptIcon: string
   scripts: CardScript[]
@@ -169,9 +169,9 @@ shape ShellDetails
   mergeSourceId: string
   mergeLabel: string
   mergeHint: string
-  // lane r5-panels: the pull request rows under the branch (r5-panels-pr.ts).
+  // The pull request rows under the branch (r5-panels-pr.ts).
   prRows: R5PrRows
   // ThreadAutomationsPanel (thread-automations.ts): the thread's bound scheduled tasks.
   automations: AutomationsView
-  // lane r4-git: the branch picker, Git actions and their dialogs (r4-git-card.ts).
+  // The branch picker, Git actions and their dialogs (r4-git-card.ts).
   git: R4GitCard

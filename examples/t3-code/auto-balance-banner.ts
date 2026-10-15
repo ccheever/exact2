@@ -4,7 +4,7 @@
 // ServerUpdateAction). It reuses server-update.ts: the per-environment job table is the update
 // store, `updateEnvironment` the single-flight start, `announceServerUpdates` the result toasts.
 // Port changes: the popover's rows are data (`machines`) the composer notice draws; a
-// desktop-app batch asks through the confirm dialog server-update-banner added (su:confirm runs
+// desktop-app batch asks through the server update banner's confirm dialog (su:confirm runs
 // the held batch); the dismissed notices are the persisted dismissal store (the reference's
 // component state only keeps a remount key, `dismissals` here).
 import { obj, str, type Obj } from './domain';

@@ -1,10 +1,10 @@
-// network-routes-followups (2026-10-11, the user's decision: match the reference T3 Code 1e2ecbd975; MIT, see LICENSE-T3).
-// NR-1: a learned route's write goes to its own environment's transport, which checks it at once with the token it
+// Matching the reference, T3 Code 1e2ecbd975 (MIT, see LICENSE-T3).
+// A learned route's write goes to its own environment's transport, which checks it at once with the token it
 // borrows (supervisor.ts learnRoutesFrom → requestBetterRouteCheck), and one environment's failed write leaves the others
 // to learn; the walk and the switch are the AppKit tests
 // `testALearnedPlainHttpLanRouteConnectsWithTheTokenItBorrows` and `testALearnedRouteAboveTheOneInUseTakesOverAtOnce`
 // (macos/tests/transport/routes.swift).
-// NR-2: after a Network access change failed (or any of the section's dialogs closed), no other Settings page opens
+// After a Network access change failed (or any of the section's dialogs closed), no other Settings page opens
 // that dialog again (ConnectionsSettings.tsx closes it for good): the page's closed view keeps the dialogs' serials, checked
 // by running NetworkDialogs' own open rules from the contract over the views the pages answer.
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -38,7 +38,7 @@ const ready = () => parseLocalBackendStatus({ state: 'ready', enabled: true, por
 const LAN = { en0: [{ address: '192.168.1.20', family: 'IPv4', internal: false }], lo0: [{ address: '127.0.0.1', family: 'IPv4', internal: true }] };
 const facts = { ok: true, generation: 1, value: { interfaces: LAN, lanHostOverride: '', httpsEndpointUrls: [], tailscale: { read: true, magicDnsName: null, tailnetIpv4Addresses: [] },
   probe: { url: '', read: true, reachable: false } } };
-/** desktop-settings.json in a read-only directory, as the audit's lane had it. */
+/** desktop-settings.json in a read-only directory. */
 const readOnlySettings = (request: Obj) => request.op === 'localNetworkFacts' ? facts
   : request.op === 'desktopSettingsSet' ? { ok: false, generation: 1, error: { kind: 'DesktopSettings', message: 'Failed to persist desktop server exposure mode network-accessible.' } } : undefined;
 
@@ -65,7 +65,7 @@ const dialogRules = (() => {
 /** The dialogs NetworkDialogs draws for this `connectionRemove` over this view. */
 const openDialogs = (remove: string, net: NetworkView) => dialogRules.filter(rule => rule.open(remove, net)).map(rule => rule.dialog);
 
-describe('NR-2: a closed network access dialog stays closed on every Settings page', () => {
+describe('a closed network access dialog stays closed on every Settings page', () => {
   it('the view opens each dialog on its own name and serial, and the old closed page (serials 0) opened it again', () => {
     const at = { ...emptyNetworkView(), networkSerial: 2, tailscaleSerial: 3, createSerial: 4 };
     expect(dialogRules.map(rule => rule.dialog)).toEqual(['NetworkAccessDialog', 'TailscaleDisableDialog', 'TailscaleSetupDialog', 'CreatePairingDialog', 'PairingRevealDialog']);
@@ -129,7 +129,7 @@ describe('NR-2: a closed network access dialog stays closed on every Settings pa
   });
 });
 
-describe('NR-1: a learned route is written to its own environment’s transport', () => {
+describe('a learned route is written to its own environment’s transport', () => {
   const A = 'http://100.81.1.2:16503', LAN_ROUTE = 'http://192.168.1.10:16503';
   const route = (origin: string) => ({ id: origin, origin, kind: '', learned: false, credential: origin });
   function store(saved: Obj[], stopped = '') {

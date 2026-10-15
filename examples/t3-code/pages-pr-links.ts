@@ -1,4 +1,4 @@
-// Pull requests and threads (pr-links-previews-and-routing, C9/C10): the detail panel's linked-thread count
+// Pull requests and threads: the detail panel's linked-thread count
 // (`pullRequests.linkedThreads`, read again every 10 s and on the server's refresh announcements), the More
 // menu's Link / Unlink item and its thread picker, the palette of linked threads, the back arrow beside a
 // thread, and the hover card and click of a pull request link in the panel's text. Sources: T3 Code (MIT,
@@ -156,7 +156,7 @@ function chatLink(client: T3Client, href: string): { context: LinkContext; envir
   return thread ? { context, environment, thread } : null;
 }
 /** ChatMarkdown's linkedThreadPullRequestFor / resolveThreadPullRequest: Unlink where the open thread links the pull request,
- *  Link where it could (shell-context-menu, external-link-menu.ts). */
+ *  Link where it could (external-link-menu.ts). */
 export function chatLinkThreadAction(client: T3Client, href: string): 'link-to-thread' | 'unlink-from-thread' | undefined {
   const link = chatLink(client, href);
   if (!link || parseChangeRequestUrl(href) === null) return undefined;
@@ -312,7 +312,7 @@ export function forgetPreviews(client: object): void { previews.delete(client); 
  * thread's surface; on the page, the page's selection (answered as `pr-select:<ref>`).
  */
 export async function openLink(client: T3Client, native: Native, page: boolean, value: string, openSurface: (url: string, target: string) => Promise<void>): Promise<string> {
-  // The fourth line: the click's own modifiers (markdown.contract PrLinkRun `open`; contract-keys-and-menu-bar).
+  // The fourth line: the click's own modifiers (markdown.contract PrLinkRun `open`).
   const [kind = '', target = '', href = '', held = ''] = value.split('\n');
   const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
   if (held) return browser(href);

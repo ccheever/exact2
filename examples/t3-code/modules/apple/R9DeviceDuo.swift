@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import simd
 
-/// Lane r9-device: the iPhone Duo's device-hub protocol (MIT reference, see LICENSE-T3:
+/// The iPhone Duo's device-hub protocol (MIT reference, see LICENSE-T3:
 /// packages/client-runtime/src/device/stream.ts screenConfigSchema / controlReplySchema,
 /// duoControl.ts createDuoControl / createDuoPinch, duoScene.ts duoRawPoint / duoFrameMatches /
 /// duoDisplayKey, duoSnap.ts duoViewSnaps, deviceViewSnap.ts nearestDeviceView). serve-sim's screen

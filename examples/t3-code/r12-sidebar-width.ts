@@ -1,4 +1,4 @@
-// Lane r12-sidebar: the thread sidebar's minimum width as the reference derives it
+// The thread sidebar's minimum width as the reference derives it
 // (threadSidebarWidth.ts resolveThreadSidebarMinimumWidth, SidebarChrome.tsx
 // SidebarBrandWidthProbe, AppSidebarLayout.tsx; f870c419fc, MIT, see LICENSE-T3):
 // max(13 × 16 px, ceil(the brand probe's width)), so "T3 Code" never clips. The

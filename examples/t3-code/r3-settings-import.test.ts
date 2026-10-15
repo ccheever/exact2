@@ -1,4 +1,4 @@
-// Lane r3-settings: VS Code theme import accent/input derivation (upstream 2b8bb0c188,
+// VS Code theme import accent/input derivation (upstream 2b8bb0c188,
 // vscodeThemeImport.test.ts "imported themes keep switches and focus rings visible").
 import { describe, expect, test } from 'bun:test';
 import { convertVsCodeTheme } from './settings-appearance-import';

@@ -1,4 +1,4 @@
-// The Pull Requests page's row extras (pr-handoffs-and-quick-actions): the Shift quick actions
+// The Pull Requests page's row extras: the Shift quick actions
 // (PullRequestSpeedActions: Reopen, Close + Ready for review, Close + Merge, shown while Shift alone is
 // held), the checks popover (PullRequestChecksPopover on a listing row: the rollup's headline, then the
 // checks behind it read when it opens) and the stack popover (PullRequestStackPopover: "n/m", the

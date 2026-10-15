@@ -1,4 +1,4 @@
-// The first-run "Set up T3 Code" wizard (lane "pages"), measured against the
+// The first-run "Set up T3 Code" wizard, measured against the
 // served reference /welcome at 1280×840: the T3 wordmark, the three-stage
 // progress list, Connect (computers, Add a computer with the pairing form),
 // Agents (each computer's Codex and Claude readiness) and Projects (Claude
@@ -304,7 +304,7 @@ component WelcomeDisclosure
         text detail font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" flex-shrink=0
       PgIcon(name=(open ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#71717b, #818181)")
 
-// CommandBlock: "$ command" in mono with its copy button: MorphIcon Copy ↔ Check (X18, chat-markdown-media-and-code), the
+// CommandBlock: "$ command" in mono with its copy button: MorphIcon Copy ↔ Check (#123), the
 // check from a copy until the root clears it 1.5 s later (useCopyToClipboard's timeout; welcomeCopyDone, app.contract).
 component WelcomeCommand
   inject

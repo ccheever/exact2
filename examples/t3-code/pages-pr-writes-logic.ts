@@ -1,4 +1,4 @@
-// The pull request writes' pure rules (lane "pages"; pr-writing-and-metadata), ported with their
+// The pull request writes' pure rules, ported with their
 // names from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3), apps/web/src/components/pullRequest/:
 // - pullRequestEditing.logic.ts: canEditPullRequestChangeRequest, canEditPullRequestComment (sameLogin);
 // - pullRequestReactions.logic.ts: PULL_REQUEST_REACTION_ORDER, pullRequestReactionEmoji/Name/Tooltip,

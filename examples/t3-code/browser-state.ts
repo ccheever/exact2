@@ -1,4 +1,4 @@
-// browser-surface: per-thread preview state (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
+// Per-thread preview state (T3 Code 1e2ecbd975, MIT, see LICENSE-T3:
 // apps/web/src/previewStateStore.ts; apps/web/src/browser/previewRuntimeTabId.ts;
 // packages/contracts/src/preview.ts `PreviewNavStatus`, `PreviewSessionSnapshot`). A Browser tab is a
 // server preview session (`preview.open`, keyed by thread and tab); this store keeps each thread's

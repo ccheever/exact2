@@ -1,4 +1,4 @@
-// media-actions: MediaActions.tsx / OpenMediaLink.tsx / mediaContent.ts behaviour (T3 Code
+// MediaActions.tsx / OpenMediaLink.tsx / mediaContent.ts behaviour (T3 Code
 // 1e2ecbd975, MIT; see LICENSE-T3) as media-actions.ts and media-views.ts port it.
 import { describe, expect, test } from 'bun:test';
 import { decodeMediaSource, encodeMediaSource, mediaFailureTitle, mediaFileName, mediaMenuItems, mediaTooltip, openMediaLink, resolveProtocolRelativeMediaUrl, showMediaMenu, type MediaActionSource } from './media-actions';
@@ -186,7 +186,7 @@ describe('media views', () => {
       source: { name: 'Logo', reference: { kind: 'file', path: '/repo/screens/logo.png', relativePath: 'screens/logo.png' }, openFile: 'screens/logo.png', asset: { resource: { _tag: 'media-file', path: '/repo/screens/logo.png' } } } });
     expect(markdownMedia('', '//cdn.example/a.mp4', '', '/repo')).toMatchObject({ access: 'direct', kind: 'video', key: 'https://cdn.example/a.mp4', source: { name: 'video', reference: { kind: 'url', url: '//cdn.example/a.mp4' } } });
     expect(markdownMedia('Home', '~/a.png', 't3-file:~/a.png', '/repo')).toMatchObject({ access: 'blocked', source: null });
-    // media-signed-urls-and-attachment-markdown: the image line's chip, then the same image's as a media run (markdownInlineImages).
+    // The image line's chip, then the same image's as a media run (markdownInlineImages).
     expect(markdownMediaChips('![Logo](screens/logo.png)\n![Logo](screens/logo.png)', '/repo').filter(chip => !chip.href.startsWith('t3-image:'))).toEqual([{ href: 't3-file:screens/logo.png', kind: 'media', label: 'Logo', size: 'image', tip: '/repo/screens/logo.png',
       detail: encodeMediaSource(markdownMedia('Logo', 'screens/logo.png', '', '/repo').source!), icon: 'environment', target: 'media:/repo/screens/logo.png' }]);
   });

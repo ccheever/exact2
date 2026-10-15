@@ -2,7 +2,7 @@ import AppKit
 import XCTest
 
 // Compile with the production native-module facade, its generated app keys,
-// T3WindowChrome.swift and T3Menus.swift (see README, palette lane). Real AppKit
+// T3WindowChrome.swift and T3Menus.swift (see README). Real AppKit
 // menus, windows and key events; the quit timers run on an injected clock.
 let exactModule: ExactModule.Type = ExactModule.self
 
@@ -380,7 +380,7 @@ final class MenuTests: XCTestCase {
         let h = Harness()
         XCTAssertTrue(h.hold.handle(keyEvent(.keyDown, "q", 12)))
         XCTAssertFalse(h.hold.handle(keyEvent(.keyDown, "w", 13)))
-        // Korean 2-Set types ㅂ on Q's key: the quit shortcut still holds (X15).
+        // Korean 2-Set types ㅂ on Q's key: the quit shortcut still holds (#110).
         let korean = Harness()
         XCTAssertTrue(korean.hold.handle(keyEvent(.keyDown, "ㅂ", 12)))
         XCTAssertEqual(korean.notifications, [HOLD_DOWN])
@@ -424,7 +424,7 @@ final class MenuTests: XCTestCase {
         T3Menus().pickProjectFavicon(startingAt: root.path, importsRoot: imports) { picked = .some($0) }
         XCTAssertEqual(picked.flatMap { $0 }.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }, imports.appendingPathComponent("icon.png").resolvingSymlinksInPath().path)
     }
-    /// timeline-and-window-hooks KW-12c: full screen is Contract's `exactViewport().displayMode`, so the
+    /// Full screen is Contract's `exactViewport().displayMode`, so the
     /// window chrome publishes only the Mac's locale; it still owns the title row and the traffic lights.
     func testWindowChromeStatusIsTheLocaleAndKeepsTheTitleRow() {
         _ = NSApplication.shared
@@ -500,7 +500,7 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
     }
     /// The host's Edit and Help since LLP 1115 D8 (DevMenuMac.swift): Xcode's template, which DesktopApplicationMenu.ts's
-    /// Edit lacks, and a Help menu with the help-book item (adopt-main-fixes-r7).
+    /// Edit lacks, and a Help menu with the help-book item.
     func testTheHostTemplateEditAndHelpShowOnlyTheReferenceItems() {
         _ = NSApplication.shared
         let bar = NSMenu(), edit = NSMenu(title: "Edit"), command = ShortcutHost()
@@ -582,7 +582,7 @@ final class MenuTests: XCTestCase {
         menus.menuNeedsUpdate(app)
         XCTAssertEqual(titles(), expected)
         XCTAssertTrue(app.delegate === menus)
-        XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the reference bar has no Go menu (lane r8-keys)")
+        XCTAssertEqual(bar.items.map(\.title), ["T3 Code", "File", "Edit", "View", "Window", "Help"], "the reference bar has no Go menu")
         let help = bar.items.last!.submenu!
         XCTAssertEqual(help.items.map(\.title), ["Check for Updates..."])
         XCTAssertTrue(NSApp.helpMenu === help)

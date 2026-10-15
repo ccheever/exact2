@@ -1,4 +1,4 @@
-// code-highlighting-languages: the language a file name picks, as the reference's @pierre/diffs
+// The language a file name picks, as the reference's @pierre/diffs
 // 1.3.0-beta.10 (Apache-2.0; dist/utils/getFiletypeFromFileName.js, EXTENSION_TO_FILE_FORMAT, 345
 // entries) picks it: a whole name (Dockerfile, CMakeLists.txt), a compound extension (component.ts,
 // blade.php) or a simple one. Each value is a Shiki 4.2 language id or alias (1c is bsl's), so

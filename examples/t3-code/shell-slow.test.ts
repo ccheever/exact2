@@ -1,4 +1,4 @@
-// The client's side of "Some requests are slow" (lane r13-slow, round-12 F4): each request is timed from the
+// The client's side of "Some requests are slow": each request is timed from the
 // moment it was sent and ends with its own reply; the requests of an environment that was switched off,
 // disconnected or replaced end with it (the reference ends a request when its session closes).
 import { describe, expect, test } from 'bun:test';

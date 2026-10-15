@@ -1,4 +1,4 @@
-// legacy-sidebar: ports of T3 Code 1e2ecbd975's threadSort.test.ts, the Sidebar.logic.test.ts
+// Ports of T3 Code 1e2ecbd975's threadSort.test.ts, the Sidebar.logic.test.ts
 // cases for the functions the legacy sidebar uses, environmentGrouping.test.ts's grouping
 // cases, and the legacy sidebar's own projection and gestures (MIT, see LICENSE-T3).
 import { describe, expect, test } from 'bun:test';
@@ -162,7 +162,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
     expect(two[0]).toMatchObject({ id: 'rename:submenu', label: 'Rename' });
     expect(two[0]!.children!.map(item => item.label)).toEqual(['/a', 'Studio — /b']);
     expect(two[2]!.children![1]).not.toHaveProperty('disabled');
-    // legacy-sidebar-full LS-6: a background member's rows act on its own environment, none disabled.
+    // A background member's rows act on its own environment, none disabled.
     expect(two[4]!.children![1]).toMatchObject({ id: 'delete:r:/b', destructive: true });
     expect(two.flatMap(item => item.children ?? [item]).some(item => item.disabled)).toBe(false);
   });

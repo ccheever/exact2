@@ -1,4 +1,4 @@
-// Appearance: colour scheme tiles and the theme library (lane settings-core).
+// Appearance: colour scheme tiles and the theme library.
 // Reference ThemeSettings.tsx ThemeLibrary, ThemeWireframe.tsx, ThemePreviewCircles.tsx.
 use CoreIcon, CorePaintIcon from "./settings-core.contract"
 use CorePalette from "./settings-core.contract"
@@ -23,7 +23,7 @@ component AppearanceLibrary
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
     column width="100%" gap="0.75rem" id="appearance" testId="settings-section-appearance"
-      // settings-headings: ThemeSettings.tsx's SettingsSection "Colors & themes" (hideTitle: an sr-only `<h2>`) and its
+      // ThemeSettings.tsx's SettingsSection "Colors & themes" (hideTitle: an sr-only `<h2>`) and its
       // two `<h3>`s.
       SettingsSrHeading(title="Colors & themes", level=2)
       text "Color scheme" font-size="0.875rem" font-weight=400 line-height="1.25rem" color=pal.heading padding-left="1rem" padding-right="1rem" role="heading" aria-level=3 id="paint-AppearanceLibrary-1" data-paint="text" data-pick="text"

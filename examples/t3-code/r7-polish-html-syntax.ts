@@ -1,4 +1,4 @@
-// Lane r7-polish: HTML source as the reference colours it. Every source surface (the attachment's
+// HTML source as the reference colours it. Every source surface (the attachment's
 // HTML source, a Files preview, a diff, a chat code block) is @pierre/diffs over Shiki with the
 // pierre-light / pierre-dark themes (ReadOnlySourcePreview.tsx: resolveDiffThemeName), and Shiki's
 // html grammar embeds the css grammar in <style> and the javascript grammar in <script> and in
@@ -98,7 +98,7 @@ export function htmlTokens(text: string, script: Script): Token[] {
         index = attributes(tokens, text, index + opener.length + name.length, script, attrs, opener === '<?' ? '?>' : '>');
         const element = name.toLowerCase();
         if (opener === '<' && (element === 'script' || element === 'style') && text[index - 1] === '>' && text[index - 2] !== '/') {
-          // Lane r9-device: the body ends where Shiki's grammar ends it (r9-device-html-end.ts).
+          // The body ends where Shiki's grammar ends it (r9-device-html-end.ts).
           const js = element === 'script' && JS_TYPES.test(attrs.get('type') ?? '');
           const end = element === 'style' ? styleBodyEnd(text, index) : js ? scriptBodyEnd(text, index) : bareScriptEnd(text, index);
           const body = text.slice(index, end);

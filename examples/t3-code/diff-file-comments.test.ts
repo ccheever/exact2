@@ -21,7 +21,7 @@ function harness() {
 describe('file preview comments', () => {
   test('a comment on lines 3-5 becomes the "README.md L3 to L5" chip with the file excerpt, and its card sits under line 5', async () => {
     const { client, native, calls } = harness();
-    // A drag over the numbers 3 → 5 (files-gutter-parity FG-2): the release opens the draft (onLineSelectionEnd).
+    // A drag over the numbers 3 → 5: the release opens the draft (onLineSelectionEnd).
     await fileComment(client, native, 'drag', 'README.md', '3', readme);
     await fileComment(client, native, 'to', 'README.md', 'fl:5:README.md', readme);
     expect(fileCommentLines(client, 'README.md', readme, lines(readme), false).filter(line => line.selected).map(line => line.line)).toEqual([3, 4, 5]);

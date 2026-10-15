@@ -1,4 +1,4 @@
-// Lane r10-connect: Add Environment's Host field takes a full pairing URL and fills both fields
+// Add Environment's Host field takes a full pairing URL and fills both fields
 // (ConnectionsSettings.tsx handleSavedBackendHostChange → parsePairingUrlFields, T3 Code MIT, see
 // LICENSE-T3): a hosted pairing link (`?host=…` with a token) gives its host, any other URL with a
 // token gives its origin; the token is the pairing code. `source` is the text this answer is for,

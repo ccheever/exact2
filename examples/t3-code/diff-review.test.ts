@@ -191,7 +191,7 @@ describe('the "+" pinned to a selection (placeUtilityFromSelection; the review o
   });
 });
 
-describe('what sits under a selected line is painted selected (Pierre\'s renderSelection; diff-gutter-visuals)', () => {
+describe('what sits under a selected line is painted selected (Pierre\'s renderSelection)', () => {
   test('the draft under its range, and a saved comment once its line is selected again', async () => {
     const { client, command, calls } = harness(false);
     await command('diff'); await command('diffreview', 'reveal', 'a.ts');
@@ -220,7 +220,7 @@ describe('Cite', () => {
     const { parseAssistantCitationHref } = await import('./diff-citations');
     expect(parseAssistantCitationHref(href)).toEqual({ version: 1, environmentId: 'env', threadId: 't1', messageId: 'message:provider:codex:native-item:a1',
       text: 'answer.\nSecond', start: 23, end: 37, prefix: 'First paragraph of the ', suffix: ' block with more words.' });
-    // diff-cite-popover DC-1: then its comment opens under the cited text's last part (ChatComposer citeAssistantText).
+    // Then its comment opens under the cited text's last part (ChatComposer citeAssistantText).
     const open = calls.filter(call => call.op === 'editorCiteOpen');
     expect(open).toEqual([{ op: 'editorCiteOpen', href, source: [412, 180.5, 540, 22] }]);
     expect(calls.indexOf(open[0]!)).toBeGreaterThan(calls.indexOf(insert));

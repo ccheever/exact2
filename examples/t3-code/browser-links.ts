@@ -1,4 +1,4 @@
-// browser-surface part 5: where a link opens, the "Open links in" setting (MIT reference, see LICENSE-T3, T3 Code
+// Where a link opens, the "Open links in" setting (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975: apps/web/src/browser/browserLinkTarget.ts, useOpenLink.ts, openFileInPreview.ts `openUrlInPreview`;
 // apps/web/src/components/preview/openTerminalLinkInPreview.ts; components/ChatMarkdown.tsx's anchor;
 // components/settings/IntegrationsSettings.tsx `BrowserLinkTargetSetting`).
@@ -53,7 +53,7 @@ export function resolveLinkTargetPreference(client: T3Client): BrowserLinkTarget
 /** Whether the in-app target exists: a thread to open beside, on this macOS client (isPreviewSupportedInRuntime). */
 export const canOpenLinksInApp = (hasThread: boolean, native: Native | null | undefined): boolean => hasThread && !!native?.available;
 
-/** browserDefaultOpenViewport / browserDefaultOpenProfileId: what a new tab opens with (part 4, `resolveBrowserOpenDefaults`). */
+/** browserDefaultOpenViewport / browserDefaultOpenProfileId: what a new tab opens with (`resolveBrowserOpenDefaults`). */
 export type BrowserDefaults = { viewport: PreviewViewportSetting; profileId: string };
 
 /** rightPanelStore.openBrowser for a thread that may not be the shown one. */
@@ -112,11 +112,11 @@ export async function openLink(client: T3Client, native: Native, url: string, op
  *  a button that opens a URL ("button": check details, the published repository; no modifier), or a web search
  *  result in the work-log inspector ("external": the system browser). */
 export async function openLinkFromUi(client: T3Client, native: Native, pressed: string, url: string): Promise<string> {
-  // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen; contract-keys-and-menu-bar).
+  // `kind|meta+shift`: the press's own modifiers (app-window.contract linkOpen).
   const bar = pressed.indexOf('|'), kind = bar < 0 ? pressed : pressed.slice(0, bar), held = bar < 0 ? [] : pressed.slice(bar + 1).split('+').filter(Boolean);
   if (!url) return '';
   if (kind === 'link' && url.startsWith('#')) return openFragmentLink(client, native, held);
-  // reply-links RL-1: ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
+  // ChatMarkdown leaves a mailto, irc or xmpp link's click to the desktop shell, whose window-open
   // handler opens only http(s) and remote-editor links (DesktopWindow.ts, parseSafeExternalUrl): nothing opens.
   if (kind === 'link' && !isWebUrl(url)) return '';
   const event = kind === 'link' ? { metaKey: held.includes('meta'), ctrlKey: held.includes('control') } : NO_MODIFIER;
@@ -133,7 +133,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
   return '';
 }
 
-/** A Markdown `#fragment` link's click (reply-links-reference-behavior RL-4; ChatMarkdown `handleMarkdownFragmentClick`):
+/** A Markdown `#fragment` link's click (ChatMarkdown `handleMarkdownFragmentClick`):
  *  it scrolls to an element with that id where the page has one (a GFM footnote or a raw-HTML id, neither of which the
  *  clone draws); with none the click goes on and sets the page's hash, which Electron's hash router (main.tsx
  *  `createHashHistory`) reads as the index route, whose IndexDraftLanding opens the draft of the most recently active

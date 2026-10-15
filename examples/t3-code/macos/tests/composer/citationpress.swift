@@ -1,7 +1,7 @@
 import AppKit
 import XCTest
 
-// diff-cite-popover DC-1: an assistant citation chip in the composer (T3 Code 1e2ecbd975 AssistantCitationChip.tsx,
+// An assistant citation chip in the composer (T3 Code 1e2ecbd975 AssistantCitationChip.tsx,
 // ComposerPromptEditorTiptap.tsx ComposerCitationNodeView, ContextChip.tsx). Its label is the comment, else the quote,
 // whitespace as one space, 64 UTF-16 units at most (`max-w-[16em]` truncates it where drawn); it ends with a comment
 // button "Add comment to citation" / "Edit citation comment" (ContextChipAction) whose press opens the comment's popover
@@ -288,7 +288,7 @@ final class ComposerCitationTests: XCTestCase {
 
     func testTheCommentButtonIsAnAccessibilityButton() {
         let fixture = CitationFixture("See " + link(quoteHref) + " and " + link(commentHref) + " ")
-        // composer-chips-accessibility DCP-Gv: each citation is AssistantCitationChip's source link and its comment trigger.
+        // Each citation is AssistantCitationChip's source link and its comment trigger.
         let all = fixture.press.accessibilityElements
         XCTAssertEqual(all.map { $0.accessibilityLabel() ?? "" }, ["View cited assistant text: parser keeps parsePatch pure, so a quote", "Add comment to citation",
                                                                    "View cited assistant text: Check the pure claim", "Edit citation comment"])

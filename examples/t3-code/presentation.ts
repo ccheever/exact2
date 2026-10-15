@@ -16,27 +16,27 @@ import { requestPresentation } from './requests';
 import { threadErrorView } from './timeline-errors';
 import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
-import { composerSelection } from './composer-provider-selection'; // composer-provider-state-and-details: CO-6
+import { composerSelection } from './composer-provider-selection';
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog, withJumpLabels } from './model-catalog';
-import { effectiveShortcut } from './r4-polish-shortcuts'; // model-picker-parity CO-1: the rows' ⌘1–⌘9
+import { effectiveShortcut } from './r4-polish-shortcuts'; // the rows' ⌘1–⌘9
 import { ariaChord } from './keyboard-dispatch';
 import { shortcutInput } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { terminalOpen } from './terminal-drawer-view';
-import { settingsPickerCatalog } from './settings-model-picker'; // settings-model-picker: General's model rows
+import { settingsPickerCatalog } from './settings-model-picker'; // General's model rows
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
-import { alertClip } from './r6-polish-measure'; // r6-polish
-import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
-import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'; // lane r12-sidebar
-import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
-import { serverUpdateView } from './server-update-notices'; // server-update-banner
-import { composerOwner } from './auto-balance-owner'; // auto-balance
-import { providerBanner } from './provider-status-message'; // provider-sign-in-and-install: the banner and its setup button
-import { feedbackUploading, withFeedbackRows } from './composer-feedback'; // usage-reset-and-feedback: Codex /feedback
+import { alertClip } from './r6-polish-measure';
+import { tableMenuSnapshot } from './r8-keys-table-menu';
+import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width';
+import { adoptHostLocale } from './timestamp-format'; // the Mac's locale, from the status presentation (T3Locale.swift)
+import { serverUpdateView } from './server-update-notices';
+import { composerOwner } from './auto-balance-owner';
+import { providerBanner } from './provider-status-message'; // the banner and its setup button
+import { feedbackUploading, withFeedbackRows } from './composer-feedback'; // Codex /feedback
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -98,7 +98,7 @@ export function transcriptPresentation(client: T3Client): Message[] { return wit
 /** `displayMode`: Contract's `exactViewport().displayMode` (app.contract passes it with the snapshot request). */
 export function snapshot(client: T3Client, now = 0, displayMode = '') {
   adoptHostLocale(client.presentation.systemLocale);
-  const fullScreen = displayMode === 'fullscreen'; // timeline-and-window-hooks KW-12c: the viewport's display mode, not a native fact
+  const fullScreen = displayMode === 'fullscreen'; // the viewport's display mode, not a native fact
   const project = client.shell.projects.find(project => project.id === client.projectId);
   const providers = arr(client.config.providers);
   const provider = providers.find(provider => provider.instanceId === client.providerId);
@@ -127,7 +127,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
   return {
     revision: client.revision, telemetry: client.telemetryRevision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
-    status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // auto-balance: a moved draft keeps its owner
+    status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
     sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,
@@ -136,7 +136,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     // The header title keyed by its text: a reused one-line text keeps drawing the previous title clipped to the new width.
     threadHeading: [str(obj(client.projection.thread).title, 'New thread')].map(title => ({ id: title, label: title })), draft: client.draft, snapshotDrafts: snapshotDraftTiles(client), snapshotOwner: client.snapshotOwner,
     settled: section(obj(client.projection.thread)) === 'settled', ...projectIdentity(str(project?.title)),
-    running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // timeline-work-rows TH-6: AgentElapsed ticks
+    running: !!run, subagentsLive: transcript.some(message => (message.activities ?? []).some(activity => (activity.startedMs ?? 0) > 0)), // AgentElapsed ticks
     canSend: client.writable && !pending && !client.busy && modelReady && !!client.projectId && !projectCloneBlock(client) && !feedbackUploading(client), // a cloning project waits (project-clones-live.ts)
     canStop: client.writable && !pending && !client.busy && !!run,
     providerId: client.providerId, modelId: client.modelId, modelLabel: currentModel ? triggerModelName(currentModel) : selectedModel || 'Choose model',
@@ -151,12 +151,12 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
-    threadLoading: !!client.threadId && !client.thread, // audit-wave-followups FU-1: the empty timeline's placeholder waits for the detail
+    threadLoading: !!client.threadId && !client.thread, // the empty timeline's placeholder waits for the detail
     diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: diffNotGit(client) || client.diffError === NOT_GIT_REPO ? '' : client.diffError,
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
-    legacy: legacySidebarSnapshot(client, now, { projectIdentity }), // legacy-sidebar
+    legacy: legacySidebarSnapshot(client, now, { projectIdentity }),
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
@@ -167,8 +167,8 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     composer: composerSnapshot(client, now),
     serverUpdate: serverUpdateView(client), // server-update-notices.ts: the offline timers' episodes, the details dot, the update confirmation
     look: look(client),
-    ...tableMenuSnapshot(client), // lane r8-keys: a table's Copy popup over every layer
-    highlightPending: highlightPending(), // shiki-residuals: last, after every code text above asked for its tokens
+    ...tableMenuSnapshot(client), // a table's Copy popup over every layer
+    highlightPending: highlightPending(), // last, after every code text above asked for its tokens
   };
 }
 

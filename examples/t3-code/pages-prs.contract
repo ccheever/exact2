@@ -1,11 +1,11 @@
-// The Pull Requests page (lane "pages"), measured against the served reference
+// The Pull Requests page, measured against the served reference
 // at 1280×840: the page header, the search and list controls (Sort, Filters
 // with its submenus, the provider filter, Refresh), the grouped rows and the
 // empty states. The detail panel is pages-pr-detail.contract. Sources: T3 Code
 // (MIT, see LICENSE-T3) routes/_chat.pull-requests.tsx,
 // components/pullRequest/{PullRequestRow,PullRequestListRow,
 // PullRequestListFilters,pullRequestPresentation,pullRequestIcons}.tsx.
-use PrListFooter from "./pages-pr-links.contract" // pr-links-previews-and-routing
+use PrListFooter from "./pages-pr-links.contract"
 use FieldPlaceholder from "./field-placeholder.contract"
 use Icon from "./icons.contract"
 use PgIcon from "./pages-icons.contract"
@@ -55,7 +55,7 @@ shape PrRow
   host: string
   linkMenu: string
   linkOpenLabel: string // the number's menu's Open on <host> (context-menus.ts openOnHostLabel)
-  // pr-handoffs-and-quick-actions: the Shift quick actions, the stack trigger and the checks popover's headline.
+  // The Shift quick actions, the stack trigger and the checks popover's headline.
   speed: PrSpeedAction[]
   speedPending: bool
   stackLabel: string
@@ -83,7 +83,7 @@ shape PrProject
 shape PrAuthor
   key: string
   login: string
-  // The actor's display name, which "Search authors" also matches (usage-and-pr-pages PG-6).
+  // The actor's display name, which "Search authors" also matches.
   name: string
   avatar: string
   initial: string
@@ -103,7 +103,7 @@ shape PrNote
   text: string
 shape PrListView
   available: bool
-  // r4-timeline: Appearance → Diff colors for the +/- counts (PullRequestDiffStat).
+  // Appearance → Diff colors for the +/- counts (PullRequestDiffStat).
   diffScheme: string
   loading: bool
   hasProjects: bool
@@ -151,13 +151,13 @@ shape PrListView
   speedMode: bool
   checksPopover: PrChecksPopover
   stackPopover: PrStackPopover
-  // pr-links-previews-and-routing: the list footer and a failed read over the rows shown.
+  // The list footer and a failed read over the rows shown.
   footer: string
   footerText: string
   loadDisabled: bool
   listError: string
 
-// PullRequestAuthorFilter's list (usage-and-pr-pages PG-6): the chosen author first, then every other whose login or name
+// PullRequestAuthorFilter's list: the chosen author first, then every other whose login or name
 // holds the trimmed, lower-cased search, at most 10 in all.
 fn prAuthorMatches(person: PrAuthor, needle: string): bool = needle == "" or person.login.toLowerCase().includes(needle) or person.name.toLowerCase().includes(needle)
 fn prVisibleAuthors(authors: PrAuthor[], query: string): PrAuthor[] = authors.filter((person) => person.selected).concat(authors.filter((person) => not person.selected and prAuthorMatches(person, query.trim().toLowerCase()))).slice(0, 10)
@@ -177,7 +177,7 @@ component PrList
   inject
     rem: number
   props
-    // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
+    // --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
     page: PrListView
     scheme: string
@@ -194,9 +194,9 @@ component PrList
     select: action
     reload: action
     addProject: action
-    // pr-handoffs-and-quick-actions: a row's quick action runs as the panel's actions do (prAct).
+    // A row's quick action runs as the panel's actions do (prAct).
     act: action
-    // usage-and-pr-pages PG-7: the page Escape leaves (useEscapeToGoBack), back to the page before it.
+    // The page Escape leaves (useEscapeToGoBack), back to the page before it.
     back: action
   // The right-clicked number's link ("<provider> <url>") and its Open on <host> label: its `contextmenu` runs before
   // the host shows the page's one `pr-link-menu` popover (PrLinkMenu).
@@ -222,7 +222,7 @@ component PrList
         text "Pull Requests" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 line-clamp=1
       scroll flex=1 min-height=0 width="100%" testId="pull-requests-scroll"
         column width="100%" min-height="100%" padding-left="1.875rem" padding-right="1.875rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1rem"
-          // r5-shell: the reference wraps the controls in a 35pt block (34pt row + 1pt).
+          // The reference wraps the controls in a 35pt block (34pt row + 1pt).
           row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" padding-bottom=1 box-sizing="border-box"
             row height="2.125rem" flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : "0px") min-width=0 box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
               PgIcon(name="search", size=16, color="light-dark(#27272a, #f5f5f5)")
@@ -246,7 +246,7 @@ component PrList
                 column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box"
                   for note in page.errors key=note.key
                     text note.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-              // pr-links-previews-and-routing: Load more pull requests (the cursors), its spinner, the cap; a failed read over the rows.
+              // Load more pull requests (the cursors), its spinner, the cap; a failed read over the rows.
               PrListFooter(footer=page.footer, footerText=page.footerText, loadDisabled=page.loadDisabled, listError=page.listError, control=control, reload=reload)
           else
             if page.empty != ""
@@ -275,10 +275,10 @@ component PrToolButton
       if badge != ""
         text badge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
-// useEscapeToGoBack (usage-and-pr-pages PG-7): an Escape nothing else took blurs the focus and goes back to the page
+// useEscapeToGoBack: an Escape nothing else took blurs the focus and goes back to the page
 // before. Exact hears an `aria-keyshortcuts` button before any `key` handler, so the page's own owners of Escape keep it
 // from Back: a menu or popover is `aria-modal` while it shows (only shortcuts inside a shown modal are heard; its open
-// state has no event, X66), and a pull request editor's field holds it while it has the focus (`held`, PrPanel), as the
+// state has no event, issues/closed/20261009-popover-action-commands.md), and a pull request editor's field holds it while it has the focus (`held`, PrPanel), as the
 // reference's onKeyDown hears it only from the focused field.
 component PrPageBack
   props
@@ -294,7 +294,7 @@ component PrPageBack
 
 // The popup every list menu shares (MenuPopup: dropdown glass, rounded-lg). The glass blurs what is under it, which the
 // macOS presenter cannot, so it sits on the popover colour itself, or a toast or the list reads through it (as the
-// pull request Code tab's menus; usage-and-pr-pages, with the Usage page's menus).
+// pull request Code tab's menus and the Usage page's menus).
 component PrMenuBox
   props
     scheme: string
@@ -344,7 +344,7 @@ component PrSortMenu
     page: PrListView
     scheme: string
     control: action
-  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract).
+  // The menu's keyboard (menu-keys.contract).
   derive menuItems = [KmItem(id="pr-sort-ready", label="Merge readiness"), KmItem(id="pr-sort-blocked", label="Blocked on me"), KmItem(id="pr-sort-updated", label="Recently updated"), KmItem(id="pr-sort-newest", label="Newest shown"), KmItem(id="pr-sort-oldest", label="Oldest shown"), KmItem(id="pr-sort-largest", label="Largest shown"), KmItem(id="pr-sort-smallest", label="Smallest shown")]
   action triggerKey(k: string, e: KeyboardEvent)
     if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
@@ -433,7 +433,7 @@ component PrFiltersMenu
     scheme: string
     control: action
   state sub = ""
-  // "Search authors" (PG-6): the Author submenu's search, kept while the Filters menu is open (the reference's state
+  // "Search authors": the Author submenu's search, kept while the Filters menu is open (the reference's state
   // lives in the Filters popup) and cleared as it opens again, by a press, Enter or Space (`openMenu`) or ↓ or ↑
   // (`triggerKey`): the reference's popup mounts afresh each time.
   state authorQuery = ""
@@ -453,7 +453,7 @@ component PrFiltersMenu
     authorQuery = ""
   action searchAuthors(text: string)
     authorQuery = text
-  // fix-keyboard-focus: the menu's keyboard (menu-keys.contract), and its submenus' (MenuSubTrigger):
+  // The menu's keyboard (menu-keys.contract), and its submenus' (MenuSubTrigger):
   // → , Enter or Space on a row opens its submenu with the focus on the submenu's first row, ← closes it
   // and gives the focus back to the row.
   state subKeyed = 0
@@ -478,7 +478,7 @@ component PrFiltersMenu
       subKeyed = subKeyed + 1
       focus("pr-filters-sub-keys")
     else if not e.metaKey and not e.ctrlKey and not e.altKey
-      // FW-3: ↓, ↑, Home, End and a letter go on from the row that has the focus, however it got it (a press, the
+      // ↓, ↑, Home, End and a letter go on from the row that has the focus, however it got it (a press, the
       // Escape that closed its submenu), as Base UI's list navigation does from its highlighted row: the popup's
       // Continue from this submenu trigger after a press or the Escape that returned to it.
       match kmTarget(filterItems, `pr-filter-${name}`, k)
@@ -492,7 +492,7 @@ component PrFiltersMenu
       preventDefault()
       focus(`pr-filter-${sub}`)
       sub = ""
-  // audit-wave-followups-3 FW-3: Escape while a submenu is open closes only the submenu, from its rows, its search
+  // Escape while a submenu is open closes only the submenu, from its rows, its search
   // field or the Filters rows (Base UI: a menu with an open child leaves Escape to the child, closeParentOnEsc false).
   // Prevented, it never reaches the popover's own Escape. The focus goes back to the submenu's row, as the submenu's
   // FloatingFocusManager returns it to its trigger, unless the pointer left that row after the submenu opened (into
@@ -558,7 +558,7 @@ component PrSubTrigger
     open: bool
     press: action
     keys: action
-    // FW-3: the pointer left the row (PrFiltersMenu `rowLeft`).
+    // The pointer left the row (PrFiltersMenu `rowLeft`).
     leave: action
     testId: string
   state lit = false
@@ -585,11 +585,11 @@ component PrFilterSub
   props
     page: PrListView
     sub: string
-    // The Author submenu's visible authors and its search (PrFiltersMenu, PG-6).
+    // The Author submenu's visible authors and its search (PrFiltersMenu).
     authors: PrAuthor[]
     authorQuery: string
     searchAuthors: action
-    // FW-3: Escape in the field closes the submenu (PrFiltersMenu `closeSub`).
+    // Escape in the field closes the submenu (PrFiltersMenu `closeSub`).
     searchEscape: action
     control: action
   // The search field's keys are its own (the reference stops their propagation), but for ↓, which moves to the first
@@ -640,7 +640,7 @@ component PrFilterSub
           row width="100%" height="1.875rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
             PgIcon(name="search", size=14, color="light-dark(#71717b, #818181)")
             input id="pr-author-search" value=authorQuery input=searchAuthors key=searchKey placeholder="Search authors" class=FieldPlaceholder aria-label="Search authors" autocorrect="off" spellcheck="false" testId="pr-author-search" flex=1 min-width=0 height="1rem" padding=0 border-width=0 background-color="#00000000" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
-        // audit-wave-followups-3 FW-4: PullRequestAuthorFilter's radio items carry no MenuRadioItemIndicator, so the chosen
+        // PullRequestAuthorFilter's radio items carry no MenuRadioItemIndicator, so the chosen
         // row (Anyone while no author is chosen) is only tinted (data-checked:bg-foreground/[0.08]), never ticked.
         PrMenuItem(keysId="pr-filters-sub-keys", menuId="pr-filters-menu", icon="layers", label="Anyone", detail="", selected=(page.author == ""), tick=false, disabled=false, press=control("author", page.author), testId="pr-author-anyone")
         for person in authors key=person.key
@@ -653,7 +653,7 @@ component PrFilterSub
         if page.labelFacets.length == 0
           text "No labels in this view" padding="0.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" opacity=0.64
 
-// An author's MenuRadioItem: avatar, login, merges loaded; chosen, it is tinted, with no tick (FW-4, as Anyone).
+// An author's MenuRadioItem: avatar, login, merges loaded; chosen, it is tinted, with no tick (as Anyone).
 component PrAuthorItem
   props
     // The KeyMenu popup the row hands the focus to as the pointer leaves it holding the focus (menu-keys.contract).
@@ -714,11 +714,12 @@ component PrAvatar
 // PullRequestRow: the lifecycle glyph (with the conflict badge on its corner),
 // "#n title" with the checks and review glyphs, the stack and the diff stat, then
 // author, repository, labels and the age under it; the Shift quick actions after
-// it (pr-handoffs-and-quick-actions). The selection button lies under the lines,
+// it. The selection button lies under the lines,
 // which let the pointer through but for the number (its right-click menu), the
 // checks and the stack indicators, so those are not presses of the row (the
 // reference's spans with stopPropagation inside the row's button). PULL_REQUEST_ROW_CLASS's
-// `text-left` stays on the lines (an overflowing title kept its start on macOS, X57).
+// `text-left` stays on the lines (an overflowing title kept its start on macOS,
+// issues/closed/20261009-apple-overflow-line-alignment.md).
 component PrRowButton
   props
     row: PrRow
@@ -810,7 +811,7 @@ component PrGhostRow
 // PullRequestListEmptyState and PullRequestsUnavailableState: r5-shell-prs.contract.
 
 // pullRequestLinkContextMenu (PullRequestRow, PullRequestDetailPanel openNumberContextMenu; context-menus.ts): Copy link, then
-// Open on <host>, as a context popover (contract-keys-and-menu-bar X292; it was T3ContextMenu's NSMenu). The host presents it
+// Open on <host>, as a context popover (#292; it was T3ContextMenu's NSMenu). The host presents it
 // as a native menu at the pointer, or at the focused node's centre from the ContextMenu key; the agent paints it. A row runs
 // context-menu-actions.ts pullRequestLinkPick through `pick` (`<choice>\n<provider> <url>`): the copy or the host's page,
 // each with its failure toast.

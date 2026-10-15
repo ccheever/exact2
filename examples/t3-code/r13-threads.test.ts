@@ -1,4 +1,4 @@
-// Lane r13-threads: the non-Git composer strip (T5) and a No project draft switching machine (T1).
+// The non-Git composer strip and a No project draft switching machine.
 // Ported from T3 Code (MIT, see LICENSE-T3): apps/web/src/components/BranchToolbar.logic.test.ts
 // (shouldShowEnvironmentIndicator, shouldShowComposerContextStrip; original names) and
 // packages/client-runtime/src/state/projectCommands.test.ts (openScratch; the store is this

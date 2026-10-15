@@ -1,4 +1,4 @@
-// The floating composer over a pull request (lane "pages"; pr-writing-and-metadata), measured
+// The floating composer over a pull request, measured
 // against T3 Code 1e2ecbd975 (MIT, see LICENSE-T3) components/pullRequest/PullRequestComposer.tsx,
 // PullRequestCommentForm.tsx and PullRequestReviewForm.tsx: one round button at the panel's
 // bottom right (its label carries the pending line-comment count, the badge beside the icon is
@@ -120,7 +120,7 @@ component PrdComposer
       for closeKey in [writes.closeSerial] key=closeKey
         // PopoverPopup side="top" align="end" sideOffset=8 width="lg": its right edge over the trigger's, 8 pt above,
         // flipping near an edge.
-        // aria-modal: while it shows, its Escape closes it, not the Pull Requests page (usage-and-pr-pages PG-7).
+        // aria-modal: while it shows, its Escape closes it, not the Pull Requests page.
         row id=popId popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" position-area="top span-left" margin-bottom="0.5rem" testId=`${scope}-composer-layer`
           column width="24rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="dialog" aria-label="Pull request composer" testId="pull-request-composer"
             row width="100%" margin-bottom="0.75rem" align-items="center" justify-content="space-between" gap="0.5rem"

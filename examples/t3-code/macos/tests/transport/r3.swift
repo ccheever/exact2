@@ -92,7 +92,7 @@ final class R3Socket: @unchecked Sendable {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         target.send(content: data, contentContext: NWConnection.ContentContext(identifier: "frame", metadata: [metadata]), isComplete: true, completion: .idempotent)
     }
-    /// Every frame the client sent with this `_tag` (terminal-drawer: the attach streams' Acks).
+    /// Every frame the client sent with this `_tag` (the terminal attach streams' Acks).
     func frames(tagged tag: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == tag } }
     func requests(_ method: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == "Request" && $0["tag"] as? String == method } }
     var connectionCount: Int { lock.lock(); defer { lock.unlock() }; return connections.count }
@@ -107,7 +107,7 @@ final class R3Socket: @unchecked Sendable {
     deinit { listener.cancel(); dropAll() }
 }
 
-// Lane r3-protocol: the reconnect policy and same-session stream retries
+// The reconnect policy and same-session stream retries
 // (T3Transport.swift). The read gate's cases left with T3ReadGate.swift (exact2 #183).
 final class R3TransportTests: XCTestCase {
     private final class Topics: @unchecked Sendable {
@@ -280,7 +280,7 @@ final class R3TransportTests: XCTestCase {
         XCTAssertFalse(values(fourth).contains { $0["_retryDue"] as? Bool == true })
     }
 
-    // usage-reset-and-feedback (composer-replies.ts): a request with `deliver` answers its id at once,
+    // composer-replies.ts: a request with `deliver` answers its id at once,
     // and its reply (or typed failure) joins the inbox under that key, so no answer waits on it.
     func testADeliveredRequestAnswersAtOnceAndFilesItsReplyInTheInbox() throws {
         let socket = try R3Socket()

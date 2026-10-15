@@ -1,4 +1,4 @@
-// Lane r11-upstream: the upstream commits f90b77d809..f870c419fc that change
+// The upstream commits f90b77d809..f870c419fc that change
 // the client. 1826fb55cc (sweep a row action), 95edeb753b (draft context menu,
 // discard behind Undo) and 737993303d (retry a failed workspace preparation).
 import { describe, expect, test } from 'bun:test';

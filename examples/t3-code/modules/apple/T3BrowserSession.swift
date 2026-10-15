@@ -2,8 +2,7 @@
 import AppKit
 import WebKit
 
-/// One Browser tab's page (browser-surface part 1; X1 path B, a `WKWebView` in the clone's module, user
-/// decision 2026-10-08). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// One Browser tab's page (#100: a `WKWebView` in the clone's module). MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/Manager.ts (`computeNavStatus`, `failed`, `navigate`, `refresh`, `hardReload`,
 /// `setWindowOpenHandler`, `previewWindowOpenAction`), BrowserSession.ts (the permission set, the native user
 /// agent), apps/web/src/browser/webviewCrashRecovery.ts and HostedBrowserWebview.tsx (`recoverGuest`).
@@ -223,13 +222,13 @@ final class T3BrowserSession: NSObject, WKNavigationDelegate, WKUIDelegate {
             refused.append(navigationAction.request.url?.absoluteString ?? "")
             return decisionHandler(.cancel)
         }
-        if navigationAction.shouldPerformDownload { return decisionHandler(.download) } // an `<a download>` (part 3)
+        if navigationAction.shouldPerformDownload { return decisionHandler(.download) } // an `<a download>`
         decisionHandler(.allow)
     }
     static let mainFrameSchemes: Set<String> = ["http", "https", "about", "data", "blob"]
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
-        // A response the page cannot show, or one sent as an attachment, downloads (Chromium's will-download; part 3).
+        // A response the page cannot show, or one sent as an attachment, downloads (Chromium's will-download).
         let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
         if !navigationResponse.canShowMIMEType || disposition.hasPrefix("attachment") { return decisionHandler(.download) }
         decisionHandler(.allow)

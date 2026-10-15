@@ -1,4 +1,4 @@
-// Integrations → Device hosts (lane settings-a). Reference DeviceHostsSettings.tsx,
+// Integrations → Device hosts. Reference DeviceHostsSettings.tsx,
 // DeviceHostEditor.tsx, deviceHostsSettings.logic.ts, deviceHostConnectionChecks.ts
 // and DeviceToolVersions.tsx. Hosts are the environment's `deviceHosts` setting;
 // a connection check is `device.testHost`, a failed host's retry is

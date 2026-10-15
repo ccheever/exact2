@@ -1,9 +1,9 @@
-// browser-surface part 5: the previewAutomation hosts, one per connected environment (MIT reference, see LICENSE-T3,
+// The previewAutomation hosts, one per connected environment (MIT reference, see LICENSE-T3,
 // T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewAutomationHosts.tsx, usePreviewSession.ts,
 // previewAutomationRequestConsumer.ts; packages/contracts/src/rpc.ts `previewAutomation.connect`, `.respond`,
 // `.focusHost`, `subscribePreviewEvents`).
 //
-// The streams are the Swift transport's subscriptions (X21: until #126's runner-owned streams), drained by
+// The streams are the Swift transport's subscriptions (until #126's runner-owned streams), drained by
 // client.ts into `previewStreamEvent`: a request joins this client's queue, a preview event updates the thread's
 // preview store (an agent-opened or agent-navigated tab appears). `automationPrepare` (browserPrepare, every shell
 // answer) subscribes, hands each queued request's plan (browser-automation-plan.ts) to the module once
@@ -156,7 +156,7 @@ export function readPreviewEvent(value: unknown): PreviewEvent | null {
   return type === 'closed' ? { ...base, type } : null;
 }
 
-/** rightPanelStore.openBrowser for the request's thread (the floating preview is part 3's; the panel shows it). */
+/** rightPanelStore.openBrowser for the request's thread (the floating preview is browser-capture.ts's; the panel shows it). */
 function present(client: T3Client, ref: ScopedThreadRef, tabId: string): void {
   const store = surfaceStore(client), key = `${ref.environmentId}:${ref.threadId}`;
   let state = store.panels.get(key);

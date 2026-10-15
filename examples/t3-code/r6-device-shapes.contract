@@ -1,5 +1,5 @@
-// Lane r6-media: the Device surface's opened device, workspace and floating player
-// (r6-media-device.ts). Its one import (lane r7-device) has none, so the surfaces' shapes can use
+// The Device surface's opened device, workspace and floating player
+// (r6-media-device.ts). Its one import (r7-device-shapes.contract) has none, so the surfaces' shapes can use
 // it without a cycle.
 use R7DevDeviceWorkspace from "./r7-device-shapes.contract"
 use R9DevFolding from "./r9-device-shapes.contract"

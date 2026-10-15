@@ -15,7 +15,7 @@ use ProviderSetupView from "./providers-setup.contract"
 use ProviderAccountRow from "./providers-setup.contract"
 use ProviderAntigravitySetup from "./providers-setup.contract"
 use RedactedText from "./redacted-text.contract"
-use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract" // provider-settings-upkeep
+use ProviderAdvisory, ProviderUpdateAll, ProviderUpkeep from "./providers-upkeep.contract"
 use ProviderVersionAdvisory, ProviderUpdatesAllButton, ProviderUrlAuth, AcpManagement, CustomModelEditor from "./providers-upkeep.contract"
 use CodexRuntimeFields from "./codex-setup.contract"
 use CodexSetupRow from "./codex-setup.contract"
@@ -156,7 +156,7 @@ component ProvidersPanel
     op: action
     accent: action
     ui: action
-    // settings-escape-and-nav: the "Models" block whose "Add custom model" field is open (the window holds it, so
+    // The "Models" block whose "Add custom model" field is open (the window holds it, so
     // Settings' Back knows whether that field is there to own Escape).
     modelAdding: string
   state healthDraft = ""
@@ -339,7 +339,7 @@ component ProviderEditor
                 for variable in editor.variables key=variable.rowKey
                   ProviderVariableRow(variable=variable, instance=editor.id, writable=writable, op=op)
                 text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-          // provider-settings-upkeep: AcpSessionManagementSection, inside the Environment section.
+          // AcpSessionManagementSection, inside the Environment section.
           for acp in editor.upkeep.acp key=acp.key
             AcpManagement(acp=acp, wide=rowWide, op=op, ui=ui)
       if editor.known
@@ -378,7 +378,7 @@ component ProviderNameRow
                 text editor.statusLabel font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #818181)"
               if editor.statusDetail != ""
                 text editor.statusDetail font-size="0.75rem" line-height="1rem" min-width=0 flex-shrink=1 color="light-dark(#71717b, #818181)"
-            // provider-settings-upkeep: an ACP agent's browser authentication request (ProviderInstanceCard.tsx:994-1011).
+            // An ACP agent's browser authentication request (ProviderInstanceCard.tsx:994-1011).
             for auth in editor.upkeep.urlAuth key=auth.key
               ProviderUrlAuth(auth=auth, instanceId=editor.id, op=op)
           row gap="0.5rem" align-items="center" justify-content="flex-end" width=(rowWide ? "auto" : "100%") opacity=(writable ? 1 : 0.5)
@@ -471,7 +471,7 @@ component ProviderModels
     busy: bool
     writable: bool
     op: action
-    // settings-escape-and-nav: isAdding is the window's, held by this block's key (`ui("model-adding", blockKey)`):
+    // isAdding is the window's, held by this block's key (`ui("model-adding", blockKey)`):
     // a successful add or remove gives the block a new key, so the field closes as handleAdd's setIsAdding(false)
     // does, and the window knows whether the field is there. The slug field tells the window when it has the focus
     // (`ui("slug-focus", …)`): only then does it own Escape (its onKeyDown cancelAdd), and Back gives Escape up.

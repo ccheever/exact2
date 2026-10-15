@@ -202,7 +202,7 @@ describe('the panel reads (PullRequestDetailPanel queries)', () => {
   });
 
   test('a focus read counts from the focus, not from the last minute tick (app.contract windowReturned)', async () => {
-    // pr-list-live-refresh: the panel took `page.hasFocus` with the clock of the last minute tick, so a window
+    // The panel took `page.hasFocus` with the clock of the last minute tick, so a window
     // focused again within that minute saw no time pass and read nothing. The window's return now reads the clock.
     const { calls, settle } = fixture({ 'pullRequests.detail': () => detail(), 'pullRequests.activity': () => conversation() });
     await settle();

@@ -1,4 +1,4 @@
-// General → About → Mobile app (lane r3-settings; upstream f1dcd93931
+// General → About → Mobile app (upstream f1dcd93931
 // NightlyMobileBeta.tsx NightlyMobileBetaRow): `sm` outline iPhone and Android
 // buttons, each opening an end-aligned popover with the beta links as QR codes
 // (QRCodeSvg size 128, level M, margin 1, on a white rounded pad) and an `xs`

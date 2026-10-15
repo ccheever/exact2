@@ -148,7 +148,7 @@ describe('a launch opens the primary', () => {
 });
 
 describe('the fleet keeps the primary in the background', () => {
-  test('a saved focus leaves the primary to the fleet, connected with the memory bearer; a saved duplicate is removed (U6)', async () => {
+  test('a saved focus leaves the primary to the fleet, connected with the memory bearer; a saved duplicate is removed', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const duplicate = { origin: 'http://127.0.0.1:16999', environmentId: 'env-local', label: 'Paired before', enabled: true };
     const native = new Fake([remote, duplicate], { status: () => ({ state: 'disconnected', origin: '', environmentId: '', message: '' }) });
@@ -162,7 +162,7 @@ describe('the fleet keeps the primary in the background', () => {
     expect(await dropPrimaryDuplicates(native, [duplicate], new LocalPrimary())).toEqual({ origins: [], focusDropped: false });
   });
 
-  test('a duplicate\'s GitHub sharing trust goes first, as installPlatformRegistration; a failed write keeps the entry (U6)', async () => {
+  test('a duplicate\'s GitHub sharing trust goes first, as installPlatformRegistration; a failed write keeps the entry', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const duplicate = { origin: 'http://192.168.1.20:3773', environmentId: 'env-local', label: 'Paired before', enabled: true };
     const trust = { githubRouting: { [JSON.stringify(['env-local', 'http://192.168.1.20:3773/'])]: 'read', [JSON.stringify(['env-box', 'https://box.example.com/'])]: 'read-write',
@@ -181,7 +181,7 @@ describe('the fleet keeps the primary in the background', () => {
     expect(native.calls.filter(call => call.op === 'forgetEnvironment')).toEqual([{ op: 'forgetEnvironment', origin: 'http://192.168.1.20:3773', environmentId: 'env-local' }]);
   });
 
-  test('a window focused on a duplicate moves to the primary when it is dropped (the reference replaces the entry in place, U6)', async () => {
+  test('a window focused on a duplicate moves to the primary when it is dropped (the reference replaces the entry in place)', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const duplicate = { origin: 'http://192.168.1.20:3773', environmentId: 'env-local', label: 'Paired before', enabled: true };
     const native = new Fake([duplicate], { forgetEnvironment: () => ({ state: 'disconnected', origin: '', environmentId: '', forgotFocus: true }) });
@@ -199,7 +199,7 @@ describe('the fleet keeps the primary in the background', () => {
     expect(native.calls.filter(call => call.op === 'connect' && !call.fleet)).toEqual([{ op: 'connect', origin: 'http://127.0.0.1:16437', primary: true }]);
   });
 
-  test('pairing this machine\'s own server saves nothing: the primary id goes with the pairing and no route is placed (U6)', async () => {
+  test('pairing this machine\'s own server saves nothing: the primary id goes with the pairing and no route is placed', async () => {
     primaryAt('http://127.0.0.1:16437', 'env-local');
     const client = switchClient(true);
     const native = new Fake([], { pairEnvironment: request => ({ origin: String(request.origin), environmentId: 'env-local', label: 'Lane Mac', primary: request.primaryEnvironmentId === 'env-local' }) });

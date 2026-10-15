@@ -1,11 +1,11 @@
 #if os(macOS)
 import AppKit
 
-/// Lane r10-connect (MIT reference, see LICENSE-T3):
+/// MIT reference, see LICENSE-T3:
 /// - Wake (`r10Wake`): the shell resource reads again now, so a command's state is drawn while
 ///   the command still waits (the pull request dialog's "Resolving pull request..." during its
 ///   450 ms debounce, r10-connect-timing.ts); `t3.pr` wakes the pull request panel's resource for
-///   the read that follows the ghost it just showed (pr-conversation-and-refresh).
+///   the read that follows the ghost it just showed.
 /// (Select on open moved to Contract: PullRequestThreadDialog's field and the device tab's rename field
 /// call `focus` then `setSelectionRange` as they are first laid out, dialog-trap.contract FieldOpenSelect.)
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
@@ -20,7 +20,7 @@ import AppKit
 ///   shortcut). So the event is still re-issued with that letter, and each of them matches it
 ///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
 ///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
-///   not a per-route one: what contract-keys-and-menu-bar (X15) retired is the surface launcher's
+///   not a per-route one: what was retired (#110) is the surface launcher's
 ///   own re-post of its letters (R8KeysLauncher), now declared shortcuts matched by the physical
 ///   key. Composition keeps its own keys (the composer ends it first, R9Input.swift).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which

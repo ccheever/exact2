@@ -72,7 +72,7 @@ describe('the card script row (ProjectScriptsControl, panel)', () => {
 describe('Markdown source colour', () => {
   test('list markers take the heading ink; bold and code spans after them keep theirs', () => {
     expect(highlight('- one\n  * two\n3. **three** `x`', 'md')).toEqual([
-      // lane r12-render: Shiki's markdown grammar (r12-render-highlight.ts); 'tag' and 'flag' paint as 'heading' and 'bold' did,
+      // Shiki's markdown grammar (r12-render-highlight.ts); 'tag' and 'flag' paint as 'heading' and 'bold' did,
       // and a code span's backticks are punctuation (#636363) around its green text.
       { text: '-', cls: 'tag' }, { text: ' one\n  ', cls: '' }, { text: '*', cls: 'tag' }, { text: ' two\n', cls: '' },
       { text: '3.', cls: 'tag' }, { text: ' ', cls: '' }, { text: '**three**', cls: 'flag' }, { text: ' ', cls: '' }, { text: '`', cls: 'punct' }, { text: 'x', cls: 'str' }, { text: '`', cls: 'punct' }]);

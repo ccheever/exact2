@@ -17,7 +17,7 @@ use kmOpenTarget from "./menu-keys.contract"
 // a new draft in its project; a server thread's title opens the thread action
 // menu (TitleMenu) and renames inline on double-click; right-click opens the
 // same menu (a draft offers Project settings). The controls sit 13pt from the
-// edge: thread details, terminal drawer (terminal-drawer: ⌘J's toggle) and right panel;
+// edge: thread details, terminal drawer (⌘J's toggle) and right panel;
 // with the right panel open only the details toggle stays in this header.
 component ChatHeader
   inject
@@ -36,7 +36,7 @@ component ChatHeader
     details: action
     title: action
   state hovered = ""
-  // fix-keyboard-focus: the thread menu takes the focus as it opens (the native menu the desktop shows
+  // The thread menu takes the focus as it opens (the native menu the desktop shows
   // does): its popup, its first item when Enter, Space or ↓ opened it, its last from ↑ (menu-keys.contract).
   state titleEnd = ""
   action hover(id: string, over: bool)
@@ -86,7 +86,7 @@ component ChatHeader
                 TipBubble(label=data.threadTitle, side="bottom", align="center", offset=26, inset=0, shown=(hovered == "title" and not menuOpen))
           else
             box id="thread-title" position="relative" min-width="2.5rem" flex=1 display="flex" flex-direction="row" align-items="center" hover=hover("draft-title")
-              // r8-pointer D15: keyed by the title, as the server thread's is: a reused one-line text keeps drawing the old string.
+              // Keyed by the title, as the server thread's is: a reused one-line text keeps drawing the old string.
               for heading in data.threadHeading key=heading.id
                 text heading.label role="heading" aria-level=2 font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
               // Its own hover id: the server title's, left set when that button unmounted under the pointer, never opens this one.
@@ -124,7 +124,7 @@ component AlertStack
     command: action
     openSetup: action
   view
-    // r6-polish: hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (r6-polish-measure.ts alertClip).
+    // Hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (r6-polish-measure.ts alertClip).
     column position="absolute" top="3.25rem" left=0 right=0 align-items="center" z-index=10 pointer-events="none" hatch="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
       if data.providerBannerKey != "" and data.providerBannerKey != dismissed
         column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:provider"
@@ -189,7 +189,7 @@ component ScrollToEnd
     jump: action
     // The chat lane's end inset (a docked workspace card): the pill centres in the lane.
     inset: number
-    // r4-composer: the composer overlay's clearance above the transcript's foot (r4-composer-overlay.ts).
+    // The composer overlay's clearance above the transcript's foot (r4-composer-overlay.ts).
     lift: number
   view
     row position="absolute" left=`calc(50% - ${64 + inset / 2}px)` width="8rem" bottom=(0.375 * rem + lift) justify-content="center"

@@ -1,4 +1,4 @@
-// The Usage page (lane "pages"): server.getUsageSummary merged and presented
+// The Usage page: server.getUsageSummary merged and presented
 // as the reference UsagePage does. Sources: T3 Code (MIT, see LICENSE-T3)
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx and
@@ -12,7 +12,7 @@ import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
 import { contractVersionOf, environmentStatuses, forgetSummaries, isSelected, phaseText, prepareUsage, usageState, type EnvironmentUsageStatus } from './usage-environments';
 import { cursorRows, emptyPooled, poolBarWidth, pooledView } from './usage-pooled-view';
-import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
+import { usesChatGptSharing } from './chatgpt-plan';
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -24,8 +24,8 @@ const group = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 /**
  * usageFormat.ts CURRENCY (`Intl.NumberFormat` en-US USD, two fraction digits). ICU rounds the number's shortest
  * decimal digits half away from zero (`halfExpand`), so 0.825 is $0.83 where `toFixed` rounds the binary value
- * (0.8249…) down. Hermes's Apple `Intl` rounded half to even ($0.82) until main #447 (X72) gave the Apple prelude
- * ICU's rounding; the clone formatted USD itself until then (adopt-main-fixes-r10 RT-3).
+ * (0.8249…) down. Hermes's Apple `Intl` rounded half to even ($0.82) until main #447 gave the Apple prelude
+ * ICU's rounding; the clone formatted USD itself until then.
  */
 let currency: Intl.NumberFormat | undefined; // made at the first amount, not as the module loads
 export function formatUsd(value: number): string {
@@ -321,7 +321,7 @@ type UsageInput = { open: boolean; metric: string; windowDays: number; breakdown
 export async function usagePage(client: T3Client, native: Native | null | undefined, storage: Files | null, input: UsageInput) {
   const page = await usageView(client, native, storage, input);
   // The environment menu sizes to its widest row (Model prices included), as MenuPopup does.
-  // r5-composer: both menus size from measured texts (r5-composer-menus.ts checkMenu; probes drawn by the page).
+  // Both menus size from measured texts (r5-composer-menus.ts checkMenu; probes drawn by the page).
   const environments = checkMenu(client.presentation, [{ label: 'All environments', status: '' }, ...page.environments.map(row => ({ label: row.label, status: row.status }))], ['Model prices']);
   const prices = checkMenu(client.presentation, [{ label: 'All environments', status: '' }, ...page.prices.targets.map(target => ({ label: target.label, status: target.unavailable }))]);
   page.menuWidth = environments.width; page.prices.menuWidth = prices.width;
@@ -372,7 +372,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, _s
   page.partial = answered.length > 0 && stillReporting > 0 ? 'Totals are partial while selected environments scan.' : '';
   if (answered.length === 0 && stillReporting > 0) return page; // the skeleton
   const environments = answered.map(status => ({ id: status.environmentId, label: status.label, summary: status.summary! }));
-  // managed-codex-chatgpt: a selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
+  // A selected environment shares a ChatGPT plan (UsagePage.tsx:543-548).
   page.chatgptShared = selected.some(status => arr(state.envs.find(env => env.id === status.environmentId)?.config?.providers).some(usesChatGptSharing));
   const merged = mergeUsage(environments);
   presentUsage(page, merged, state.window, { sources: environments.flatMap(environment => arr(environment.summary.sources)) });
@@ -491,7 +491,7 @@ export function shortcutGlyphs(shortcut: Obj): string {
 }
 /**
  * The usage page's chords from the server's resolved keybindings, evaluated with usagePageOpen; each carries
- * UsagePage's shortcutTitle (usage-and-pr-pages PG-4): the label and the chord, "Past 24h (⇧⌘1)". A command bound
+ * UsagePage's shortcutTitle: the label and the chord, "Past 24h (⇧⌘1)". A command bound
  * twice comes first with its effective (latest winning) binding, as findEffectiveShortcutForCommand picks it.
  */
 export function usageKeys(config: Obj, chord: (shortcut: Obj) => string): { id: string; chord: string; kind: string; value: string; days: number; label: string; title: string }[] {

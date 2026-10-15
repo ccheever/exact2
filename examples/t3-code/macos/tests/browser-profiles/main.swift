@@ -6,7 +6,7 @@ import SQLite3
 import WebKit
 import XCTest
 
-// browser-surface part 4 (profiles): the profile stores, Clear cookies / Clear cache, the cookie write into a profile's
+// The profile stores, Clear cookies / Clear cache, the cookie write into a profile's
 // store (T3BrowserSessions+Profiles.swift), and the import's module primitives (T3BrowserImportIO.swift): the
 // development build's fixture home, its confinement and TCC stand-in, the snapshot, SQLite, crypto and fcntl answers.
 // Ported reference tests (T3 Code 1e2ecbd975, MIT, see LICENSE-T3), under their own names:

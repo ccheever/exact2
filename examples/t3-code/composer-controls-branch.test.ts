@@ -83,7 +83,7 @@ describe('workspace strip details', () => {
   });
 });
 
-describe('G2-15: one Run on and Workspace keyboard order', () => {
+describe('one Run on and Workspace keyboard order', () => {
   const source = Bun.file(new URL('./composer-controls.contract', import.meta.url)).text();
   const item = (id: string, label: string) => ({ id, label });
   const primary = item('primary', 'This Mac'), remote = item('remote', 'Studio'), auto = item('auto', 'Auto balance');

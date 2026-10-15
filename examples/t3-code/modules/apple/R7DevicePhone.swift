@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import SceneKit
 
-/// Lane r7-device: DeviceStreamView's 3D phone (MIT reference, see LICENSE-T3:
+/// DeviceStreamView's 3D phone (MIT reference, see LICENSE-T3:
 /// apps/web/src/components/device/DevicePhoneViewport.tsx, deviceFrameLayout.ts, phoneTrackpad.ts;
 /// packages/client-runtime/src/device/phoneViewer.ts, phoneScene.ts, modelScene.ts,
 /// shapeProfile.ts, phoneInteraction.ts) in SceneKit where the reference uses three.js. The live
@@ -176,7 +176,7 @@ final class R7DevicePhoneView: NSView {
     private var profile: R7ShapeProfile
     private var orientationAngle = 0.0
     private var orientationTurn: (from: Double, to: Double, at: Double)?
-    // Lane r9-device: an Android foldable's hinged body (R9DeviceFold.swift R9FoldScene).
+    // An Android foldable's hinged body (R9DeviceFold.swift R9FoldScene).
     private(set) var fold: R9FoldScene?
     private var foldAngle: Double?
     private var foldTurn: (from: Double, to: Double, at: Double)?

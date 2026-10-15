@@ -1,7 +1,7 @@
-// audit-wave-followups-2: five differences the audit fix agents found outside their tasks (T3 Code 1e2ecbd975, MIT,
-// see LICENSE-T3). FV-1/FV-2 the scheduled task's base-branch picker (WorktreeBaseBranchPicker, usePaginatedBranches,
-// BranchPicker), FV-3 a one-palette theme (themePalette.ts resolveThemeAppearance, ThemeSettings.tsx Use and Create
-// theme), FV-4 the theme editor's submit label (ThemeEditorPanel.tsx), FV-5 the Connections failure text (Electron IPC).
+// Five differences from T3 Code 1e2ecbd975 (MIT,
+// see LICENSE-T3): the scheduled task's base-branch picker (WorktreeBaseBranchPicker, usePaginatedBranches,
+// BranchPicker), a one-palette theme (themePalette.ts resolveThemeAppearance, ThemeSettings.tsx Use and Create
+// theme), the theme editor's submit label (ThemeEditorPanel.tsx) and the Connections failure text (Electron IPC).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -26,7 +26,7 @@ const dir = new URL('./', import.meta.url);
 const source = (file: string) => Bun.file(new URL(file, dir)).text();
 const NOW = Date.parse('2026-10-10T12:00:00.000Z');
 
-// ── FV-1, FV-2: the base-branch picker ─────────────────────────────────────
+// ── The base-branch picker ─────────────────────────────────────
 const REFS = [{ name: 'trunk', current: true, isRemote: false }, ...Array.from({ length: 120 }, (_, index) => ({ name: `topic-${String(index + 1).padStart(3, '0')}`, isRemote: false })),
   { name: 'main', isDefault: true, isRemote: false }];
 /** GitVcsDriverCore listRefs over the 122 refs: the query lowercased and matched anywhere, pages of `limit` by cursor. */
@@ -60,17 +60,17 @@ function wakingNative() {
     later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
   return { module, wakes, watched };
 }
-const KEY = 'new'; // a new task's dialog key, whatever its environment (scheduled-tasks-followups ST-1)
+const KEY = 'new'; // a new task's dialog key, whatever its environment
 const picker = (query: string, ref = '', project = 'p1') => `key=${encodeURIComponent(KEY)}&project=${project}&ref=${encodeURIComponent(ref)}&query=${encodeURIComponent(query)}`;
 
-describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
-  test('FV-1: a ref\'s name starts at the left of its row (a button centres its text)', async () => {
+describe('the scheduled task\'s base-branch picker', () => {
+  test('a ref\'s name starts at the left of its row (a button centres its text)', async () => {
     const contract = await source('settings-scheduled.contract');
     const label = contract.split('\n').find(line => line.trimStart().startsWith('text ref.label ')) ?? '';
     expect(label).toContain('flex=1 min-width=0 line-clamp=1 text-align="left"');
   });
 
-  test('FV-2: the first 100 of 122 refs with "Showing 100 of 122 refs"; a scroll toward the end loads the rest', async () => {
+  test('the first 100 of 122 refs with "Showing 100 of 122 refs"; a scroll toward the end loads the rest', async () => {
     const { client, reads } = fakeClient();
     await watchLive(client, native);
     const open = async (taskBase = '') => (await scheduledPage(client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase)).branches[0]!;
@@ -94,7 +94,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect(reads.length).toBe(3);
   });
 
-  test('FV-2: the search is the server\'s (sanitized, any case), past the first page; clearing it shows the first page kept', async () => {
+  test('the search is the server\'s (sanitized, any case), past the first page; clearing it shows the first page kept', async () => {
     const { client, reads } = fakeClient();
     const { module, wakes, watched } = wakingNative();
     await watchLive(client, module);
@@ -122,7 +122,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect(pickerOf(picker('x'), 'env:task-9')).toBeNull();
   });
 
-  test('FV-2: a list shown again starts from its first page; another list\'s scrolls do not page it', async () => {
+  test('a list shown again starts from its first page; another list\'s scrolls do not page it', async () => {
     const { client, reads } = fakeClient([{ id: 'p1', title: 'many-refs', workspaceRoot: '/many' }, { id: 'p2', title: 'more-refs', workspaceRoot: '/more' }]);
     await watchLive(client, native);
     const open = async (taskBase = '') => (await scheduledPage(client, native, 'env', '', 'task', '', true, NOW, '', '', '', taskBase)).branches;
@@ -155,7 +155,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect([of(groups, 'p1').refs.length, of(groups, 'p1').status, reads.length - cleared]).toEqual([100, 'Showing 100 of 122 refs', 0]);
   });
 
-  test('FV-2: a failed page is the status line ("Failed to load refs." without a message) and "No refs found."', async () => {
+  test('a failed page is the status line ("Failed to load refs." without a message) and "No refs found."', async () => {
     const { client } = fakeClient();
     client.restAccess = () => ({ read: async () => { throw new Error(''); } }) as never;
     await watchLive(client, native);
@@ -163,7 +163,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect([group.refs.length, group.error, group.status]).toEqual([0, 'Failed to load refs.', 'Failed to load refs.']);
   });
 
-  test('FV-2: the picker sends its search to the root, and the search starts empty each time it opens or the project changes', async () => {
+  test('the picker sends its search to the root, and the search starts empty each time it opens or the project changes', async () => {
     const contract = await source('settings-scheduled.contract');
     expect(contract).toContain('      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))');
     expect(contract).toContain('button press=openRefs popovertarget="task-branch-menu"');
@@ -175,12 +175,12 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
   });
 });
 
-// ── FV-3: a one-palette theme ──────────────────────────────────────────────
+// ── A one-palette theme ──────────────────────────────────────────────
 const DUSK: CustomTheme = { id: 'dusk', label: 'Dusk', appearance: 'dark', light: null, dark: { canvas: '#101820', accent: '#44cc88', text: '#f0f0f0' } };
 const NOON: CustomTheme = { id: 'noon', label: 'Noon', appearance: 'light', light: { canvas: '#fff8e0', accent: '#cc6600' }, dark: null };
 const prefs = (themeLight: string, themeDark: string, theme = 't3-code') => ({ ...decodeClientPrefs({}), theme, themeLight, themeDark });
 
-describe('FV-3: a theme with one palette', () => {
+describe('a theme with one palette', () => {
   test('the appearance it lacks is the default theme\'s, not its own other palette', () => {
     expect(themeRoles('dusk', 'light', [DUSK]).canvas).toBe(themeRoles('t3-code', 'light').canvas);
     expect(themeRoles('dusk', 'dark', [DUSK]).canvas).toBe('#101820');
@@ -240,7 +240,7 @@ describe('FV-3: a theme with one palette', () => {
 
   test('Create theme starts from what is on screen: Dusk on Dark as the whole theme; the default on Light beside a Dusk half', () => {
     const client = { local: { deviceSettings: { appearanceMode: 'system' }, clientSettings: decodeClientPrefs({}), customThemes: [DUSK] } } as unknown as T3Client;
-    // The whole theme: the app resolves dark (FV-3), so the editor opens on Dark with Dusk's palette; its Light is the default.
+    // The whole theme: the app resolves dark, so the editor opens on Dark with Dusk's palette; its Light is the default.
     let view = editorView(syncDraft(client, 'create', '#1', { theme: 'dusk', themeLight: 'dusk', themeDark: 'dusk' }, 'dark'), [DUSK]);
     expect([view.appearance, view.rows[0]!.value]).toEqual(['dark', '#101820']);
     editDraft(client, 'appearance', 'light');
@@ -251,8 +251,8 @@ describe('FV-3: a theme with one palette', () => {
   });
 });
 
-// ── FV-4: the theme editor's submit label ──────────────────────────────────
-describe('FV-4: the theme editor\'s submit', () => {
+// ── The theme editor's submit label ──────────────────────────────────
+describe('the theme editor\'s submit', () => {
   test('Create theme; Add <appearance> palette for a name an installed theme has; Save changes; Merge into “<name>”', () => {
     const custom = [DUSK, NOON];
     expect(submitLabel({ name: '', editingId: '', appearance: 'light' }, custom)).toEqual({ label: 'Create theme', icon: 'paintbrush' });
@@ -290,8 +290,8 @@ describe('FV-4: the theme editor\'s submit', () => {
   });
 });
 
-// ── FV-5: Settings › Connections failures ──────────────────────────────────
-describe('FV-5: Network access and Tailscale HTTPS failures read as the reference\'s IPC rejection', () => {
+// ── Settings › Connections failures ──────────────────────────────────
+describe('Network access and Tailscale HTTPS failures read as the reference\'s IPC rejection', () => {
   beforeEach(() => resetNetwork());
   afterEach(() => { resetNetwork(); resetPrimary(); });
   const ready = () => parseLocalBackendStatus({ state: 'ready', enabled: true, port: 16101, httpBaseUrl: 'http://127.0.0.1:16101', wsBaseUrl: 'ws://127.0.0.1:16101', bearerReady: true, environmentId: 'env-local', label: 'Lane Mac' });

@@ -6,12 +6,12 @@ import { GRAMMAR_CHUNKS, GRAMMAR_INDEX, GRAMMAR_LANGUAGES } from './r12-render-g
 import { FILE_TYPES } from './r12-render-filetypes';
 
 /** tools/generate/gen-grammar.mjs LICENCE_HELD: the grammars left out for their licences (GPL-3.0, or none granted
- *  upstream; the coordinator's decision of 2026-10-12. The generator has its own pinned packages; the data is
+ *  upstream. The generator has its own pinned packages; the data is
  *  generated, not committed, and generate.test.ts checks what is on disk is what it makes). */
 const LICENCE_HELD = ['ada', 'dax', 'dream-maker', 'glsl', 'gnuplot', 'nginx', 'racket', 'tcl'];
 import { lineTokens } from './timeline-diff-syntax';
 
-// code-highlighting-languages: every language of the reference's Shiki 4.2 bundle has its grammar.
+// Every language of the reference's Shiki 4.2 bundle has its grammar.
 // Each expectation is the pierre-light / pierre-dark colour pair (and "+i" for italic) real Shiki 4.2
 // with the Oniguruma engine gives every non-blank character (tools/shiki-compare, the reference's pins).
 const PAIR_OF = Object.fromEntries(Object.entries(CLASS_OF_PAIR).map(([pair, cls]) => [cls, pair]));
@@ -32,11 +32,11 @@ const SHIKI: [string, string, string, string][] = [
   ["bird2 as Shiki paints it (MPL-2.0, back)", "bird2", "protocol bgp {\n  local as 65000;\n}", "p#d32a61/#ff678d r#d32a61/#ff678d o#d32a61/#ff678d t#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d o#d32a61/#ff678d l#d32a61/#ff678d b#a631be/#d568ea g#a631be/#d568ea p#a631be/#d568ea {#0a0a0a/#fafafa l#d32a61/#ff678d o#d32a61/#ff678d c#d32a61/#ff678d a#d32a61/#ff678d l#d32a61/#ff678d a#d32a61/#ff678d s#d32a61/#ff678d 6#1ca1c7/#68cdf2 5#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 0#1ca1c7/#68cdf2 ;#636363/#636363 }#636363/#636363"],
 ];
 
-// code-highlighting-languages: an app test may leave slicing on, and a language's first use then defers its tokens.
+// An app test may leave slicing on, and a language's first use then defers its tokens.
 beforeEach(() => resetHighlightSlicing());
 afterEach(() => resetHighlightSlicing());
 
-describe('the reference\'s whole language list (code-highlighting-languages)', () => {
+describe('the reference\'s whole language list', () => {
   test('Shiki 4.2\'s 235 languages and 97 aliases but the 8 held for their licences (tools/shiki-compare --list checks the names)', () => {
     const index = JSON.parse(GRAMMAR_INDEX) as { roots: Record<string, number>; aliases: Record<string, string>; chunks: unknown[] };
     // LICENCE_HELD (tools/generate/gen-grammar.mjs) leaves out eight languages, none with an alias.
@@ -113,7 +113,7 @@ describe('the reference\'s whole language list (code-highlighting-languages)', (
   });
 });
 
-describe('a grammar held for its licence is an empty grammar (code-highlighting-languages, 2026-10-12)', () => {
+describe('a grammar held for its licence is an empty grammar', () => {
   // Shiki 4.2 (Oniguruma) with each held grammar replaced by an empty grammar of its scope name (tools/shiki-compare does
   // the same): the rule that embeds glsl stays, and the GLSL inside paints plain.
   const EMBEDS: [string, string, string, string][] = [
@@ -188,7 +188,7 @@ describe('a long line under slicing always finishes (review: the per-line work l
   });
 });
 
-describe('grammars load when first used, and slow ones take more of a slice (code-highlighting-languages)', () => {
+describe('grammars load when first used, and slow ones take more of a slice', () => {
   test('a language\'s chunk is parsed on its first use, not before', () => {
     const before = loadedGrammarChunks();
     expect(before).toBeLessThan(253);

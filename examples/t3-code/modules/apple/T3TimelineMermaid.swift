@@ -330,7 +330,7 @@ final class T3TimelineMermaid: NSObject, WKNavigationDelegate {
       document.body.style.fontFamily = font;
       // WebKit tracks the system font (its 'trak' table) where the reference's Chrome does not, so its
       // labels measure ~0.4px a glyph narrower at 16px and every box with them; geometric precision
-      // measures untracked, as Chrome lays the reference's diagrams out (lane r4-timeline).
+      // measures untracked, as Chrome lays the reference's diagrams out.
       document.body.style.textRendering = 'geometricPrecision';
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, secure: SECURE, htmlLabels: false,
         flowchart: { htmlLabels: false }, theme: theme === 'dark' ? 'dark' : 'default', fontFamily: font });

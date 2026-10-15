@@ -31,7 +31,7 @@ final class ComposerIntentTests: XCTestCase {
         XCTAssertTrue(intent.take().isEmpty, "only Return records a key gesture")
         intent.record(key(.command, repeating: true), at: 31)
         XCTAssertTrue(intent.take().isEmpty, "a held Return does not record again")
-        // contract-keys-and-menu-bar: a click's modifiers ride with its own press (MouseEvent), so the module records no
+        // A click's modifiers ride with its own press (MouseEvent), so the module records no
         // pointer gesture; a click retires the Return gesture before it, so a later plain click never resolves a stale chord.
         intent.record(click(.command), at: 40)
         XCTAssertTrue(intent.take(at: 40).isEmpty, "a click is its press's, not a recorded gesture")
@@ -44,7 +44,7 @@ final class ComposerIntentTests: XCTestCase {
         intent.destroy()
     }
 
-    // r4-composer: ⌘↩ (a draft starts in the background) and ⌥⌘↩ (send and
+    // ⌘↩ (a draft starts in the background) and ⌥⌘↩ (send and
     // start a new thread) are not the editor's plain-Return send. They pass
     // through to the send button's aria-keyshortcuts (Meta+Enter, Meta+Alt+Enter),
     // and the gesture recorded on the way resolves the intent through the

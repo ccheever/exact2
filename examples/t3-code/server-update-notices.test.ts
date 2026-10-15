@@ -1,5 +1,5 @@
-// The composer's offline and server-version notices, the version card and their ops
-// (task server-update-banner). "environment reconnect warning grace" ports the cases of
+// The composer's offline and server-version notices, the version card and their ops.
+// "environment reconnect warning grace" ports the cases of
 // T3 Code's apps/web/src/components/ChatView.logic.test.ts (1e2ecbd975, MIT, see
 // LICENSE-T3) with their names; the timer itself is the root task app.contract runs.
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';

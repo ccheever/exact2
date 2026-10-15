@@ -6,7 +6,7 @@ import { closedView, commandView, threadJumpChords, type PaletteView } from './p
 import { addProjectView, isBrowseQuery } from './palette-add';
 import { contentSearchView, filePickerView } from './palette-files';
 import { linkPullRequestView, resetLinkDialog } from './palette-linkpr';
-import { linkedThreadItems, threadPickerView } from './pages-pr-links'; // pr-links-previews-and-routing
+import { linkedThreadItems, threadPickerView } from './pages-pr-links';
 
 const searches = new WeakMap<T3Client, { key: string; matches: Obj[] }>();
 /** useThreadSearch: orchestration.searchThreads for 2–200 characters, newest query only. */
@@ -48,7 +48,7 @@ async function paletteViewOf(client: T3Client, native: Native | null | undefined
   // picker, content search, Link pull request and the thread picker are other dialogs.
   const jumpKeys = threadJumpChords(client);
   if (isAddProjectPage(page) || (page === '' && isBrowseQuery(query))) return { ...await addProjectView(client, native, { page, query, highlighted }), jumpKeys };
-  // pr-links-previews-and-routing: the panel's thread picker, and the linked threads' search (the root page, opened on the pull request's URL).
+  // The panel's thread picker, and the linked threads' search (the root page, opened on the pull request's URL).
   if (page === 'pr-link-thread') return threadPickerView(client, query, false);
   const linkedThreads = linkedThreadItems(client, page, query), root = page.startsWith('pr-linked|') ? '' : page;
   const search = root === '' && !linkedThreads ? await threadMatches(client, native, query) : { matches: new Map<string, Obj>(), query: '' };

@@ -1,4 +1,4 @@
-// browser-surface part 4 (profiles): reading Chromium and Firefox cookie databases (MIT reference, see LICENSE-T3, T3 Code
+// Reading Chromium and Firefox cookie databases (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975: apps/desktop/src/preview/BrowserImport/{CookieDatabase,ChromiumKeys,ChromiumCookies,FirefoxCookies}.ts),
 // over the clone's ImportIO (browser-import-io.ts).
 //

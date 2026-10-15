@@ -1,4 +1,4 @@
-// Lane r3-sidebar: the round-3 sidebar ports (upstream c5a929e1ac woke dismiss
+// Sidebar ports (upstream c5a929e1ac woke dismiss
 // and Project order, f68e24fb41 commands-only background work) and the
 // integration fixes (hover keys, utility-page deselection, settled ink, glyphs).
 import { describe, expect, test } from 'bun:test';

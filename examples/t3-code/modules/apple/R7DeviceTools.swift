@@ -2,7 +2,7 @@
 import AppKit
 import Foundation
 
-/// Lane r7-device: the hub's read-only feeds the Tools drawer shows (MIT reference, see LICENSE-T3:
+/// The hub's read-only feeds the Tools drawer shows (MIT reference, see LICENSE-T3:
 /// apps/web/src/components/device/deviceHubApi.ts, DeviceStreamView.tsx's accessibility overlay,
 /// useDeviceControls.ts's foreground subscription, DeviceToolsPanel.tsx EventLogSection). Device
 /// changes go through `device.action` in TypeScript; nothing here writes to the device.

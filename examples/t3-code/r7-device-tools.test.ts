@@ -5,7 +5,7 @@ import type { T3Client } from './client';
 import type { Native } from './protocol';
 import type { Obj } from './domain';
 
-// Lane r7-device: DeviceStreamView's 3D / Flat, DeviceControlsRail's Android controls and
+// DeviceStreamView's 3D / Flat, DeviceControlsRail's Android controls and
 // DeviceToolsPanel, over HEAD's DeviceServiceState / DeviceDetail shapes (contracts/device.ts).
 const iphone = { hostId: 'local', id: 'SIM-1', platform: 'ios', name: 'iPad Pro 13-inch (M5)', version: 'iOS 26.0', booted: true, physical: false };
 const pixel = { hostId: 'local', id: 'emulator-5554', platform: 'android', name: 'Pixel 9', version: 'Android 16', booted: true, physical: false };
@@ -34,7 +34,7 @@ async function open(c: T3Client, device: Obj) {
   return state;
 }
 
-describe('device workspace completeness (lane r7-device)', () => {
+describe('device workspace completeness', () => {
   test('the rail: 3D by default once streaming H.264, Flat on request, the reason 3D is unavailable, the Magic Keyboard', async () => {
     const calls: Call[] = [], c = client(calls, { 'device.open': { hostId: 'local', deviceId: 'SIM-1' }, 'device.detail': detail('SIM-1', iosSettings) });
     const state = await open(c, iphone);

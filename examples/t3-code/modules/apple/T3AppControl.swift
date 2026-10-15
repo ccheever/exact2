@@ -522,7 +522,7 @@ final class T3AppControl {
     /// The window `activate` brings back (ElectronWindow's focusedMainOrFirst, restored when minimized): the main
     /// window, else the first document window on screen, else the first one in the Dock. Chosen by kind, not by
     /// `canBecomeMain`, which AppKit answers false for a window that is not visible: a minimized window was never a
-    /// candidate, stayed in the Dock, and its page never handled the request (fix-misc-batch, #298 bug 7).
+    /// candidate, stayed in the Dock, and its page never handled the request (#298 bug 7).
     static func activationTarget<Window: T3ActivationWindow>(main: Window?, windows: [Window]) -> Window? {
         if let main { return main }
         let documents = windows.filter(\.isActivationDocument)

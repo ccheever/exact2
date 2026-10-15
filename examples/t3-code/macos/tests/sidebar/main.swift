@@ -73,7 +73,7 @@ final class T3SidebarTests: XCTestCase {
         XCTAssertEqual(sidebar.status["sidebarJumpHints"] as? Bool, false)
     }
 
-    /// pr-handoffs-and-quick-actions: the Pull Requests page's quick actions show for ⇧ alone (not ⌘⇧,
+    /// The Pull Requests page's quick actions show for ⇧ alone (not ⌘⇧,
     /// ⌃⇧ or ⌥⇧), never while text is being edited, and go when the app resigns; each change is told
     /// to the status and to the page's resource, and `sidebarSpeedMode` answers it.
     func testSpeedModeIsShiftAloneOutsideText() {
@@ -124,8 +124,8 @@ final class T3SidebarTests: XCTestCase {
     }
 
     /// The delayed notification the provider pill and snooze refresh ask for; the click-modifier read is gone (a row
-    /// press carries its own MouseEvent since contract-keys-and-menu-bar: sidebar.test.ts "a row press carries its own
-    /// click modifiers" holds the r8-pointer D8 cases this suite had).
+    /// press carries its own MouseEvent: sidebar.test.ts "a row press carries its own
+    /// click modifiers" holds the cases this suite had).
     func testNotifyRequestsAndNoModifierRead() {
         var changes = 0
         let sidebar = T3Sidebar(agent: true) { _ in changes += 1 }

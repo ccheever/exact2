@@ -1,4 +1,4 @@
-// Lane "pages", round 3: the wizard after a failed pairing, CommandBlock's
+// The wizard after a failed pairing, CommandBlock's
 // Copy→Check, and the pull request viewer's not-found state (7bc161f869).
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { noPrimary, resetPrimary } from './local-primary-fixture';
@@ -53,7 +53,7 @@ test('a pull request link that names an issue reads as not found; other failures
   const notFound = new ClientError('Pull request operation detail failed: Could not resolve to a PullRequest with the number of 7.', 'PullRequestOperationError', false, { reason: 'not-found', detail: 'Could not resolve' });
   expect(isPullRequestNotFound(notFound)).toBe(true);
   expect(isPullRequestNotFound(new ClientError('x', 'PullRequestsUnavailableError', false, { reason: 'not-found' }))).toBe(false);
-  // The panel shows its ghost first and asks again (pr-conversation-and-refresh); the second answer reads.
+  // The panel shows its ghost first and asks again; the second answer reads.
   const once = async (client: T3Client) => { await pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); return pullRequestDetail(client, { available: true } as Native, { selected: selection, refresh: 1, now: 0 }); };
   const view = await once(prClient(notFound));
   expect([view.errorTitle, view.error, view.githubUrl, view.numberLabel]).toEqual(['Pull request #7 not found', "It may be an issue rather than a pull request, or this account can't see it.", 'https://github.com/ccheever/exact2/pull/7', '#7']);

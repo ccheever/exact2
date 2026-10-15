@@ -1,4 +1,4 @@
-// Keeping the pull request surfaces current (lane "pages"; MIT reference, see LICENSE-T3, T3 Code
+// Keeping the pull request surfaces current (MIT reference, see LICENSE-T3, T3 Code
 // 1e2ecbd975):
 // - packages/client-runtime/src/state/pullRequests.ts createPullRequestRefreshAtomFamily: one
 //   `pullRequests.subscribeRefreshes` stream (payload `{}`) per environment, held while any pull

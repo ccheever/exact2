@@ -1,4 +1,4 @@
-// browser-surface part 3 (capture): the chrome row's Annotate, Capture (Shift-click records) and Float preview
+// The chrome row's Annotate, Capture (Shift-click records) and Float preview
 // buttons, the More menu's separate window, their toasts and the floating player's browser source (MIT reference,
 // see LICENSE-T3, T3 Code 1e2ecbd975: apps/web/src/components/preview/PreviewView.tsx `handlePickElement`,
 // `handleCapture`, `handlePictureInPicture`, `handleNativePictureInPicture`; PreviewChromeRow.tsx;
@@ -116,13 +116,13 @@ class NativeRecorder implements RecordingRecorder {
   output(): RecordingBlob | null { return this.file; }
 }
 
-/** The recording defaults (contracts settings.ts names and defaults; their Settings rows are part 4's). */
+/** The recording defaults (contracts settings.ts names and defaults; their Settings rows are browser-defaults.ts's). */
 export function browserRecordingSettings(client: T3Client): { browserRecordingFrameRate: 30 | 60; browserRecordingShowKeyPresses: boolean; browserRecordingShowMousePresses: boolean } {
   const prefs = obj((client.local as unknown as { clientSettings?: Obj } | undefined)?.clientSettings);
   return { browserRecordingFrameRate: prefs.browserRecordingFrameRate === 60 ? 60 : 30, browserRecordingShowKeyPresses: prefs.browserRecordingShowKeyPresses === true,
     browserRecordingShowMousePresses: prefs.browserRecordingShowMousePresses === true };
 }
-/** browserDefaults.ts autoShowFloatingPreview (default on): whether an agent's preview floats (read by part 5). */
+/** browserDefaults.ts autoShowFloatingPreview (default on): whether an agent's preview floats (read by browser-automation.ts). */
 export function browserAutoShowFloatingPreview(client: T3Client): boolean {
   return obj((client.local as unknown as { clientSettings?: Obj } | undefined)?.clientSettings).browserAutoShowFloatingPreview !== false;
 }

@@ -12,9 +12,9 @@ import { HEURISTIC_MAX_CHARS, highlightDeferrals, shikiLanguage, shikiTokens } f
 
 type BaseCls = '' | 'kw' | 'decl' | 'type' | 'fn' | 'var' | 'const' | 'param' | 'pyparam' | 'str' | 'esc' | 'num' | 'nul'
   | 'op' | 'punct' | 'com' | 'key' | 'flag' | 'builtin' | 'interp' | 'heading' | 'bold' | 'tag' | 'attr'
-  | 'regex' // lane r10-device: a regular expression's plain characters (r10-device-html-regex.ts)
-  | 'deco'; // lane r12-render: a decorator (meta.decorator), the one pierre colour pair no other class had
-/** A class, with "+i" where the theme sets italic (shiki-residuals; markdown.contract synSlant). */
+  | 'regex' // a regular expression's plain characters (r10-device-html-regex.ts)
+  | 'deco'; // a decorator (meta.decorator), the one pierre colour pair no other class had
+/** A class, with "+i" where the theme sets italic (markdown.contract synSlant). */
 export type Cls = BaseCls | `${BaseCls}+i`;
 export interface Token { text: string; cls: Cls }
 
@@ -93,9 +93,9 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
   const keywords = lang === 'ts' ? TS_KEYWORDS : GENERIC_KEYWORDS, decl = lang === 'ts' ? TS_DECL : GENERIC_DECL;
   const literals = lang === 'ts' ? TS_LITERALS : GENERIC_LITERALS;
   let typeContext = false, paramDepth = -1, depth = 0, declaring = '';
-  // lane r10-device: an open ternary's bracket nesting; its `:` is keyword.operator.ternary (kw), as Shiki scopes it.
+  // An open ternary's bracket nesting; its `:` is keyword.operator.ternary (kw), as Shiki scopes it.
   let nest = 0; const ternaries: number[] = [];
-  // lane r11-misc: declaration lists, object-literal keys and import lines (r11-misc-ts-decl.ts).
+  // Declaration lists, object-literal keys and import lines (r11-misc-ts-decl.ts).
   const st = lang === 'ts' ? new TsStatements() : null;
   const lastText = () => { for (let at = tokens.length - 1; at >= 0; at--) { const token = tokens[at]!; if (token.text.trim() && token.cls !== 'com') return token.text.trimEnd(); } return ''; };
   let index = 0;
@@ -109,7 +109,7 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
       const end = text.indexOf('*/', index + 2); const stop = end < 0 ? text.length : end + 2;
       push(tokens, text.slice(index, stop), 'com'); index = stop; continue;
     }
-    if (rest === '`' && lang === 'ts') { index = template(tokens, text, index); continue; } // lane r7-polish
+    if (rest === '`' && lang === 'ts') { index = template(tokens, text, index); continue; }
     if (rest === '"' || rest === "'" || rest === '`') { index = quoted(tokens, text, index, rest); continue; }
     if (rest === '\n' && st) st.newline(lastText());
     if (/\s/.test(rest)) { push(tokens, rest, previousSignificant(tokens)?.cls === 'com' ? '' : tokens[tokens.length - 1]?.cls === 'punct' ? 'punct' : ''); index++; continue; }
@@ -126,7 +126,7 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
       else if (st && (binding = st.bindingName(lastText(), next))) cls = binding as Cls;
       else if (st && before?.cls === 'punct' && /(?:^|[^.])\.$/.test(before.text) && (keywords.has(word) || decl.has(word))) cls = next === '(' ? 'fn' : 'var'; // a member named like a keyword
       else if (word === 'this' || word === 'self' || lang === 'ts' && word === 'super') cls = 'const';
-      // lane r7-polish (Shiki's JS/TS scopes): a constructor is storage.type with parameters, an
+      // Shiki's JS/TS scopes: a constructor is storage.type with parameters, an
       // inherited class entity.other.inherited-class, an arrow function's lone parameter a parameter.
       else if (lang === 'ts' && word === 'constructor' && next === '(') { cls = 'decl'; declaring = 'params'; }
       else if (lang === 'ts' && /^(?:extends|implements)$/.test(before?.text.trim() ?? '') && !keywords.has(word)) cls = 'type';
@@ -135,7 +135,7 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
       else if (keywords.has(word)) cls = 'kw';
       else if (declaring === 'function' || declaring === 'fn' || declaring === 'func' || declaring === 'def' || declaring === 'fun' || next === '(' && !typeContext) cls = 'fn';
       else if (declaring === 'class' || declaring === 'interface' || declaring === 'type' || declaring === 'enum' || declaring === 'struct' || declaring === 'trait') cls = 'type';
-      else if (lang === 'ts' && (declaring === 'const' || declaring === 'let' || declaring === 'var') && ARROW_VALUE.test(text.slice(index + word.length))) cls = 'fn'; // lane r7-polish
+      else if (lang === 'ts' && (declaring === 'const' || declaring === 'let' || declaring === 'var') && ARROW_VALUE.test(text.slice(index + word.length))) cls = 'fn';
       else if (declaring === 'const' && (next === '=' || st)) cls = 'const';
       else if (typeContext || TS_TYPES.has(word) && lang === 'ts') cls = 'type';
       else if (paramDepth >= 0 && depth === paramDepth && (next === ':' || next === ',' || next === ')' || next === '=') && (!st || st.brackets[st.brackets.length - 1] === '(')) cls = 'param';
@@ -169,7 +169,7 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
       const previous = previousSignificant(tokens);
       const generic = lang === 'ts' && previous?.cls === 'type';
       if (generic && rest === '<') typeContext = true;
-      const angle = generic || typeContext || rest === '>' && !!st && st.angle > 0; // lane r11-misc: generic brackets
+      const angle = generic || typeContext || rest === '>' && !!st && st.angle > 0; // generic brackets
       if (st && angle) st.angle = Math.max(0, st.angle + (rest === '<' ? 1 : -1));
       push(tokens, rest, angle ? 'punct' : 'op'); index++; continue;
     }
@@ -199,7 +199,7 @@ function tsLike(text: string, lang: 'ts' | 'c' | 'css'): Token[] {
 }
 const ARROW_VALUE = /^\s*=\s*(?:async\s+)?(?:function\b|(?:\((?:[^()]|\([^()]*\))*\)|[A-Za-z_$][\w$]*)\s*(?::[^=;{}()]*)?=>)/;
 const ARROW_PARAMS = /^\((?:[^()]|\([^()]*\))*\)\s*(?::[^=;{}()]*)?=>/;
-/** lane r7-polish: a template literal as Shiki scopes it: backticks punctuation, `${…}` keyword-coloured around its expression. */
+/** A template literal as Shiki scopes it: backticks punctuation, `${…}` keyword-coloured around its expression. */
 function template(tokens: Token[], text: string, start: number): number {
   push(tokens, '`', 'punct');
   let index = start + 1, run = '';
@@ -352,7 +352,7 @@ function markdown(text: string): Token[] {
     if (/^#{1,6}\s/.test(line)) return [{ text: line, cls: 'heading' }];
     const tokens: Token[] = [];
     let cursor = 0;
-    // r6-polish: a list item's marker (punctuation.definition.list.begin) takes the heading ink in the pierre themes.
+    // A list item's marker (punctuation.definition.list.begin) takes the heading ink in the pierre themes.
     const marker = /^(\s*)([-*+]|\d+[.)])(?=\s)/.exec(line);
     if (marker) { push(tokens, marker[1]!, ''); push(tokens, marker[2]!, 'heading'); cursor = marker[0].length; }
     const start = cursor;
@@ -385,12 +385,12 @@ function yaml(text: string): Token[] {
  *  word or a path (shikiLanguage); with `maxLineLength`, longer lines paint plain (lineTokens, as @pierre/diffs). */
 export function highlight(text: string, language: string, maxLineLength = 0): Token[] {
   if (!text) return [];
-  // code-highlighting-languages: every language of the reference's Shiki bundle has its grammar here
+  // Every language of the reference's Shiki bundle has its grammar here
   // (r12-render-highlight.ts); one Shiki lacks paints as plain text, as the reference falls back to "text".
   if (!shikiLanguage(language)) return [{ text, cls: '' }];
   const shiki = shikiTokens(text, language, maxLineLength);
   if (shiki) return shiki;
-  // shiki-residuals: a text waiting for its Shiki tokens paints the heuristic colours meanwhile, and
+  // A text waiting for its Shiki tokens paints the heuristic colours meanwhile, and
   // plain text when it is long (the heuristic is slow there).
   if (text.length > HEURISTIC_MAX_CHARS) return [{ text, cls: '' }];
   switch (languageOf(language)) {
@@ -402,7 +402,7 @@ export function highlight(text: string, language: string, maxLineLength = 0): To
     case 'py': return python(text);
     case 'md': return markdown(text);
     case 'yaml': return yaml(text);
-    case 'html': return htmlTokens(text, script => tsLike(script, 'ts')); // lane r7-polish: Shiki's html grammar
+    case 'html': return htmlTokens(text, script => tsLike(script, 'ts')); // Shiki's html grammar
     default: return [{ text, cls: '' }];
   }
 }
@@ -424,7 +424,7 @@ export function messageCodeBlocks(markdownText: string): Highlighted[] {
     blocks.push({ id: String(blocks.length), code, icon: languageIconToken(language),
       tokens: tokens.map((token, index) => ({ id: String(index), text: token.text, cls: token.cls })) });
   }
-  // shiki-residuals: blocks still painted with the heuristic colours are asked again next time.
+  // Blocks still painted with the heuristic colours are asked again next time.
   if (highlightDeferrals !== deferrals) return blocks;
   if (cache.size > 200) cache.delete(cache.keys().next().value!);
   cache.set(markdownText, blocks);

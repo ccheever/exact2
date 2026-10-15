@@ -1,4 +1,4 @@
-// Settings pages read the connection's subscribed server config (settings-pages-subscribed-config, SC-1). Every
+// Settings pages read the connection's subscribed server config. Every
 // `data.revision` change (any t3.status/t3.events wake: a thread list change, a provider status) asks each open
 // settings page again, as app.contract keys them. Source control, Storage and Keybindings then sent server.getConfig
 // and server.getSettings (Keybindings getConfig) again; Archive re-read its archived shell snapshot; Diagnostics
@@ -27,7 +27,7 @@ const task = (id: string, title: string): Obj => ({ id, title, prompt: 'Check th
   schedule: { type: 'fixed_time', timeOfDay: '09:00' }, workspaceStrategy: { type: 'worktree', baseRef: 'main', startFromOrigin: true },
   modelSelection: { instanceId: 'codex-personal', model: 'model-a' }, runtimeMode: 'full-access', interactionMode: 'default', lastRunStatus: 'never', runCount: 0 });
 
-/** The lane server behind the fake transport, with the reads these pages make and the streams they open. */
+/** The server behind the fake transport, with the reads these pages make and the streams they open. */
 class PageServer extends Backend {
   woke = false;
   tasks: Obj[] = [task('task-1', 'Nightly check')];
@@ -162,7 +162,7 @@ describe('a change still reaches each page, without a read', () => {
     // The server sends subscribeResourceTelemetry's current sample at once; draining it moves data.telemetry and Exact asks
     // Diagnostics again, forgetting the opening answer. A reply that had reached the transport but not that answer is
     // dropped (executor_core.rs `forget`: a completed outcome is dropped undrained), and the next answer's shared read joins
-    // only a read still pending. Lane trace before this fix: getResourceTelemetryHistory sent again 13 ms after the first
+    // only a read still pending. A trace before this fix: getResourceTelemetryHistory sent again 13 ms after the first
     // reply ended. Here every call the opening answer makes after its subscribe has its reply dropped that way.
     const { server, clock, files, ask, wake } = await launched();
     let subscribed = false;

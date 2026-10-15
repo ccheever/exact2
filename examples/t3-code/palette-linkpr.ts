@@ -211,7 +211,7 @@ export async function linkPullRequest(client: T3Client, access: Access, storage:
   state.dirty = true;
   state.error = '';
   client.revision++;
-  // pr-links-previews-and-routing: the thread chosen (the panel's picker), else the window's.
+  // The thread chosen (the panel's picker), else the window's.
   const thread = client.shell.threads.find(candidate => candidate.id === threadId);
   if (!thread) { state.error = 'That thread is no longer available.'; return false; }
   const mode = linkMode(client.config), projects = client.shell.projects;

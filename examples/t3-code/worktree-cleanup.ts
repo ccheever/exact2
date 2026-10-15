@@ -1,4 +1,4 @@
-// Deleting a thread's worktree with it (task thread-commands-and-keys, G5),
+// Deleting a thread's worktree with it,
 // adapted from T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // apps/web/src/worktreeCleanup.ts (getOrphanedWorktreePathForThread and
 // formatWorktreePathForDisplay, unchanged), apps/web/src/hooks/useThreadActions.ts

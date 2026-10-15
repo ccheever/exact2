@@ -4,7 +4,7 @@
 // (or an explicit host). A network request with neither a LAN nor a Tailscale IPv4 is unavailable:
 // `setMode` refuses it, and at launch it falls back to local-only without losing the preference.
 // The settings are desktop-settings.json's `serverExposureMode`, `tailscaleServeEnabled` and
-// `tailscaleServePort` (decision U7: the original app's file; the native side reads and writes it,
+// `tailscaleServePort` (the original app's file; the native side reads and writes it,
 // T3DesktopSettings.swift). Facts come from the native module (interfaces, the MagicDNS name, the
 // HTTPS probe); connections-network.ts returns the relaunch decision to Contract.
 import { createAdvertisedEndpoint, type AdvertisedEndpoint, type AdvertisedEndpointProvider, type CreateAdvertisedEndpointInput } from './advertised-endpoint';

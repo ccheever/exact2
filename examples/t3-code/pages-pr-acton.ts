@@ -1,4 +1,4 @@
-// "Act on" (pr-links-previews-and-routing, C12): on the Pull Requests page, when more than one connected server holds
+// "Act on": on the Pull Requests page, when more than one connected server holds
 // the pull request's repository, the More and Check out menus offer which server a hand-off acts on; the chosen
 // server supplies the project, the checkout root and the thread (PullRequestDetailPanel.tsx pickableEnvironments,
 // actingScope, ActOnEnvironmentPicker, startAsk/startHandoff with `actingEnvironmentId`; T3 Code MIT, see LICENSE-T3).

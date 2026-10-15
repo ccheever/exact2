@@ -2,7 +2,7 @@
 import AppKit
 import WebKit
 
-/// browser-surface part 2: a Browser tab's zoom and appearance (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
+/// A Browser tab's zoom and appearance (MIT reference, see LICENSE-T3, T3 Code 1e2ecbd975:
 /// apps/desktop/src/preview/Manager.ts `applyZoom`, `normalizeZoomFactor`, `setColorScheme`, `applyColorScheme`;
 /// packages/contracts/src/preview.ts `PREVIEW_ZOOM_LEVELS`).
 ///

@@ -1,7 +1,7 @@
 import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
-import { RUNTIME_LOCALE, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
+import { RUNTIME_LOCALE, timestampFormatter } from './timestamp-format'; // the host's locale
 
 export interface SearchPart { id: string; text: string; hit: boolean }
 

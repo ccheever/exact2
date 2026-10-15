@@ -307,7 +307,7 @@ component ComposerEditorDock
 // ComposerCommandMenuLayer: the open drawer over the chat column, 22pt inside
 // the card's edges, its last 17pt (the seam) under the card. Nothing in the
 // transcript or the composer moves when it opens, and the banners stay under it.
-// r4-composer: app-main.contract paints it after the composer overlay (banners
+// app-main.contract paints it after the composer overlay (banners
 // and card together), so the layer ends at the card's top and clips its seam
 // (margin-bottom -17 inside overflow hidden), which the card covered before.
 // The layer carries the surface's backdrop blur: a blur sees its parent's
@@ -335,7 +335,7 @@ component ImageDraftTile
   props
     id: string
     name: string
-    // r4-composer: its chip is in the prompt, so Remove asks first (removeComposerImage).
+    // Its chip is in the prompt, so Remove asks first (removeComposerImage).
     referenced: bool
     disabled: bool
     remove: action

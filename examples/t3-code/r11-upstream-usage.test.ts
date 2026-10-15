@@ -1,4 +1,4 @@
-// Lane r11-upstream: upstream 0c81120137 (usage model shares and order follow the
+// Upstream 0c81120137 (usage model shares and order follow the
 // selected metric), the reference's usageBreakdown.test.ts and usageMerge.test.ts cases.
 import { expect, test } from 'bun:test';
 import './client'; // loads the module graph in its app order (pages-usage alone meets an import cycle)

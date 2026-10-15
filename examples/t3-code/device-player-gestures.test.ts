@@ -1,9 +1,9 @@
-// device-player-gestures (T3 Code 1e2ecbd975, MIT, see LICENSE-T3: ThreadPreviewMiniPlayer.tsx MiniPlayerShell's
+// T3 Code 1e2ecbd975 (MIT, see LICENSE-T3: ThreadPreviewMiniPlayer.tsx MiniPlayerShell's
 // beginGesture / handlePointerMove and its pill, chatCanvasLayout.ts, previewMiniPlayerLayout.ts). The floating device
 // player's gestures as a hand makes them: R6DeviceMiniPlayer's `pan` runs from r6-device.contract with the clock moving
 // between moves (contract-action-fixture.ts), and every gesture it sends goes to the canvas source (chat-canvas-view.ts).
-// DP-2: one serial per gesture, so a drag moves by the pointer's total once. DP-4a, DPC-3, DPC-4: the resizes from it.
-// DP-3: the pill's drag is a grab box behind its buttons. DP-10: the 840 × 620 cells.
+// One serial per gesture, so a drag moves by the pointer's total once, and the resizes from it.
+// The pill's drag is a grab box behind its buttons. The 840 × 620 cells.
 import { beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -58,7 +58,7 @@ async function gesture(direction: string, dx: number, dy: number, moves: number)
   return { sent: sent.slice(0, -1), held, after: await frame() };
 }
 
-describe('DP-2: a drag moves the player by the pointer\'s total, once', () => {
+describe('a drag moves the player by the pointer\'s total, once', () => {
   test('every move of one drag carries the serial of its first pan, and the totals add up', async () => {
     const { sent } = await gesture('move', -320, -160, 20);
     const parts = sent.map(value => value.split('|'));
@@ -76,12 +76,12 @@ describe('DP-2: a drag moves the player by the pointer\'s total, once', () => {
     expect(held).toEqual({ x: 672, y: 96, width: 240, height: 520 });
     expect(after).toEqual(held);
     expect(miniStoreOf(client).get('t1')).toMatchObject({ position: { x: 452, y: 96 }, lastInteraction: 'drag' });
-    // The padding drag after it (DP-3's +60, +200): x +60 and y to the bottom clamp, as the reference's 1024,296.
+    // The padding drag after it (+60, +200): x +60 and y to the bottom clamp, as the reference's 1024,296.
     expect((await gesture('move', 60, 200, 20)).after).toEqual({ x: 732, y: 256, width: 240, height: 520 });
   });
 });
 
-describe('DP-4a: the eight zones resize from the frame at the press', () => {
+describe('the eight zones resize from the frame at the press', () => {
   // The canvas pass after one resize of the total from `start` (MiniPlayerShell's handlePointerMove, then ChatCanvas).
   const once = (start: { x: number; y: number; width: number; height: number }, direction: BrowserViewportResizeDirection, dx: number, dy: number) => {
     const source = resolveDeviceMiniPlayerSourceSize('ios', null), container = { width: 1024, height: 788 };
@@ -112,7 +112,7 @@ describe('DP-4a: the eight zones resize from the frame at the press', () => {
   });
 });
 
-describe('DPC-3 and DPC-4: the docked details card while the top edge grows and shrinks the player', () => {
+describe('the docked details card while the top edge grows and shrinks the player', () => {
   // The card at the canvas's top right (732 + 256 = 988 in the window, 280 wide, 12 below the header): 229 pt of content
   // (231 with its borders); the workspace row and the resting Git group show only in `full` (compact = 231 − 64).
   const card = { ...frames, [DETAILS_FRAMES.content]: [988, 64, 280, 229], [DETAILS_FRAMES.fullTop]: [996, 72, 264, 32], [DETAILS_FRAMES.fullGit]: [996, 200, 264, 32] };
@@ -130,7 +130,7 @@ describe('DPC-3 and DPC-4: the docked details card while the top edge grows and 
     expect(await read()).toEqual([{ x: 755, y: 219, width: 257, height: 557 }, 'compact', false, true]);
     await gesture('north', 0, -32, 5);
     expect(await read()).toEqual([{ x: 740, y: 187, width: 272, height: 589 }, 'essential', false, true]);
-    // DPC-4: 37 more leaves the card under 160 pt: it becomes the header's popover. Opened, then 150 pt down: the
+    // 37 more leaves the card under 160 pt: it becomes the header's popover. Opened, then 150 pt down: the
     // popover's mode ends and the docked card is back in full (the top at 256 leaves it 244 pt).
     await gesture('north', 0, -37, 5);
     expect(await read()).toEqual([{ x: 723, y: 150, width: 289, height: 626 }, 'full', true, false]);
@@ -140,7 +140,7 @@ describe('DPC-3 and DPC-4: the docked details card while the top edge grows and 
   });
 });
 
-describe('DP-3: a press on a pill button starts no drag', () => {
+describe('a press on a pill button starts no drag', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   async function component(name: string): Promise<string[]> {
     const lines = (await source('r6-device.contract')).split('\n');
@@ -166,7 +166,7 @@ describe('DP-3: a press on a pill button starts no drag', () => {
   });
 });
 
-describe('DP-10: the player at 840 × 620', () => {
+describe('the player at 840 × 620', () => {
   // The sidebar is 208 at 840 wide: the canvas is 632 × 568.
   const small = { chat: [208, 0, 632, 620], overlay: [228, 451, 592, 165] };
   beforeEach(() => { client.presentation = { frames: small }; });

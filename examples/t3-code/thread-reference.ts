@@ -1,4 +1,4 @@
-// thread.copyReference (task thread-commands-and-keys, A14), adapted from
+// thread.copyReference, adapted from
 // T3 Code 1e2ecbd975 (MIT); see LICENSE-T3. Sources:
 // packages/shared/src/threadReference.ts (resolveThreadReferenceCopyTarget,
 // unchanged), packages/shared/src/threadPullRequests.ts

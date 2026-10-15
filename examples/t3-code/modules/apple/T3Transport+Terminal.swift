@@ -1,6 +1,6 @@
 import Foundation
 
-/// One `terminal.attach` stream on the transport (task terminal-drawer). Its chunks go to the
+/// One `terminal.attach` stream on the transport. Its chunks go to the
 /// native session (T3TerminalSessions.swift), never to the app's event inbox, and each chunk is
 /// acknowledged only after the session's buffer holds it: the server sends at most 8 chunks or 64 KiB
 /// ahead of the acknowledgements (T3 Code 1e2ecbd975 apps/server/src/terminal/OutputProtocol.ts), so a
