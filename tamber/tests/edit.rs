@@ -43,11 +43,14 @@ fn diff(a: &str, b: &str) -> (Vec<String>, Vec<String>) {
 fn round_trip(src: &str, op: Op) -> (Vec<String>, Vec<String>) {
     let vocab = vocab();
     let edited = apply(src, &op, &vocab).unwrap_or_else(|e| panic!("{op:?}: {e:?}"));
-    assert_eq!(
-        format(&edited.text).unwrap(),
-        edited.text,
-        "{op:?}: not in fmt's layout"
-    );
+    // A formatted design stays formatted.
+    if format(src).unwrap() == src {
+        assert_eq!(
+            format(&edited.text).unwrap(),
+            edited.text,
+            "{op:?}: not in fmt's layout"
+        );
+    }
     let back = apply_all(&edited.text, &edited.inverse, &vocab)
         .unwrap_or_else(|e| panic!("{op:?} undone: {e:?}"));
     assert_eq!(
@@ -259,5 +262,240 @@ fn an_edit_the_checker_refuses_or_naming_nothing_is_refused() {
         })[0]
             .id,
         "tamber-edit"
+    );
+}
+
+#[test]
+fn the_inverse_restores_any_design_byte_for_byte() {
+    // Unformatted, CRLF, comments inside, metadata quoted, a block created.
+    let src = "tamber t\r\naxes\r\n  tone =soft|hard\r\ntheme\r\n  ink=#ffffff   label=\"Ink here\"  // the ink\r\n  // about the hard side\r\n    when tone=hard: #eeeeee\r\n  z = #111111\r\n";
+    round_trip(src, Op::RemoveToken { name: "ink".into() });
+    round_trip(
+        src,
+        Op::UnsetTokenWhen {
+            name: "ink".into(),
+            when: conds(&[("tone", "hard")]),
+        },
+    );
+    round_trip(
+        src,
+        Op::SetToken {
+            name: "ink".into(),
+            when: vec![],
+            value: "#fefefe".into(),
+            at: None,
+            comment: None,
+        },
+    );
+    round_trip(
+        src,
+        Op::AddToken {
+            name: "after".into(),
+            kind: None,
+            value: "#000000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: None,
+            before: None,
+        },
+    );
+    round_trip(
+        "tamber t\n\n",
+        Op::AddToken {
+            name: "first".into(),
+            kind: None,
+            value: "#000000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: None,
+            before: None,
+        },
+    );
+    // A sequence: each inverse applies to the text the next one left.
+    let vocab = vocab();
+    let ops = [
+        Op::AddToken {
+            name: "a.b".into(),
+            kind: None,
+            value: "#000000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: None,
+            before: Some("z".into()),
+        },
+        Op::SetToken {
+            name: "a.b".into(),
+            when: conds(&[("tone", "hard")]),
+            value: "#010101".into(),
+            at: None,
+            comment: Some("// new".into()),
+        },
+        Op::RenameToken {
+            from: "a.b".into(),
+            to: "a.c".into(),
+        },
+    ];
+    let edited = apply_all(src, &ops, &vocab).unwrap();
+    assert_eq!(
+        apply_all(&edited.text, &edited.inverse, &vocab)
+            .unwrap()
+            .text,
+        src
+    );
+}
+
+#[test]
+fn a_rename_touches_only_names_and_a_field_writes_one_line() {
+    let src = "tamber t\n\naxes\n  tone = soft | hard\n\ntheme\n  fff = #000000\n  hard = #ffffff\n    when tone=hard: fff\n  ink = light-dark(#fff, fff)\n";
+    let vocab = vocab();
+    let renamed = apply(
+        src,
+        &Op::RenameToken {
+            from: "fff".into(),
+            to: "base".into(),
+        },
+        &vocab,
+    )
+    .unwrap()
+    .text;
+    assert!(
+        renamed.contains("light-dark(#fff, base)") && renamed.contains("  base = #000000"),
+        "{renamed}"
+    );
+    let renamed = apply(
+        src,
+        &Op::RenameToken {
+            from: "hard".into(),
+            to: "strong".into(),
+        },
+        &vocab,
+    )
+    .unwrap()
+    .text;
+    assert!(
+        renamed.contains("when tone=hard: fff") && renamed.contains("tone = soft | hard"),
+        "{renamed}"
+    );
+    let refused = |op: Op| apply(src, &op, &vocab).unwrap_err()[0].id;
+    assert_eq!(
+        refused(Op::SetToken {
+            name: "ink".into(),
+            when: vec![],
+            value: "#000\n  extra = #fff".into(),
+            at: None,
+            comment: None
+        }),
+        "tamber-edit"
+    );
+    assert_eq!(
+        refused(Op::AddAxisValue {
+            axis: "tone".into(),
+            value: "dim | oled".into(),
+            before: None
+        }),
+        "tamber-edit"
+    );
+    assert_eq!(
+        refused(Op::AddToken {
+            name: "x".into(),
+            kind: None,
+            value: "#000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: Some("not a comment".into()),
+            before: None
+        }),
+        "tamber-edit"
+    );
+    // A role override keeps its role's name.
+    let role = "tamber t\n\ntheme\n  -exact-label = #101010\n";
+    assert_eq!(
+        apply(
+            role,
+            &Op::RenameToken {
+                from: "-exact-label".into(),
+                to: "brand.ink".into()
+            },
+            &vocab
+        )
+        .unwrap_err()[0]
+            .id,
+        "tamber-edit"
+    );
+}
+
+#[test]
+fn a_token_added_last_goes_after_the_comments_inside_the_block() {
+    let src = "tamber t\n\naxes\n  tone = soft | hard\n\ntheme\n  ink = #ffffff\n// a note at the margin\n    when tone=hard: #eeeeee\n  // the end\n\nexports\n  ink\n";
+    let vocab = vocab();
+    let edited = apply(
+        src,
+        &Op::AddToken {
+            name: "last".into(),
+            kind: None,
+            value: "#000000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: None,
+            before: None,
+        },
+        &vocab,
+    )
+    .unwrap();
+    assert!(
+        edited
+            .text
+            .contains("    when tone=hard: #eeeeee\n  // the end\n  last = #000000\n"),
+        "{}",
+        edited.text
+    );
+    assert_eq!(
+        apply_all(&edited.text, &edited.inverse, &vocab)
+            .unwrap()
+            .text,
+        src
+    );
+}
+
+#[test]
+fn a_line_added_to_a_crlf_design_ends_as_its_lines_do() {
+    let src = "tamber t\r\n\r\ntheme\r\n  ink = #ffffff\r\n";
+    let edited = apply(
+        src,
+        &Op::AddToken {
+            name: "z".into(),
+            kind: None,
+            value: "#000000".into(),
+            meta: vec![],
+            whens: vec![],
+            comment: None,
+            before: None,
+        },
+        &vocab(),
+    )
+    .unwrap();
+    assert_eq!(
+        edited.text,
+        "tamber t\r\n\r\ntheme\r\n  ink = #ffffff\r\n  z = #000000\r\n"
+    );
+}
+
+#[test]
+fn a_rename_leaves_metadata_alone() {
+    let src =
+        "tamber t\n\ntheme\n  fixed = #000000\n  ink = #ffffff  scheme=fixed\n  edge = fixed\n";
+    let renamed = apply(
+        src,
+        &Op::RenameToken {
+            from: "fixed".into(),
+            to: "base".into(),
+        },
+        &vocab(),
+    )
+    .unwrap()
+    .text;
+    assert_eq!(
+        renamed,
+        "tamber t\n\ntheme\n  base = #000000\n  ink = #ffffff  scheme=fixed\n  edge = base\n"
     );
 }
