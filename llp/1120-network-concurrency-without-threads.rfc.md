@@ -678,3 +678,42 @@ LLP 1069.002's October 14 qualification. Those native image-service results
 neither stand in for the missing network/storage UI proof nor pass the LTE
 gate. Tuft still owns the measured rollout campaign, and the async default
 remains off. The broader stages and Draft status are unchanged.
+
+## Physical iPad follow-up, 2026-10-15
+
+The prepared signed Conduit and storage fixtures from Exact `a01c62241` were
+exercised on a physical iPad Pro 12.9-inch (5th generation, `iPad13,11`),
+iPadOS 27.2 (24B5089g), after normal Trust and Developer Mode setup. Their
+binary hashes match the retained October 14 build receipts; Conduit uses
+`EXACT_HTTP_ASYNC=1` and published V5 Hermes. These are source-attributed
+results for those prepared binaries, not a qualification of newer main.
+
+Both fixtures' first normal agent launches failed with `No route to host`.
+A subsequent bounded launch of each established the authenticated agent
+connection on the Mac's normal Wi-Fi IPv4 address. No permission sheet was
+observed in the captured screens. First-operation privacy/readiness timing
+remains a hypothesis; the cause was not established. The successful drives
+used the existing carrier without a host override, proxy, network change or
+source fix.
+
+Conduit loaded four articles and fifteen tags from its anonymous live API.
+A real hit-tested article tap opened the expected route and loaded its body
+and two comments, with no pending work at either checkpoint. The original
+15-operation drive then stopped at operation 8: `tap nav-home` was refused
+because a `UIView` covered the control's center at `(1080.93, 28.0)`. Return
+through that control and the later login route are unqualified. The refusal
+was preserved; hit testing was not bypassed. This older fixture's obstruction
+has not been reproduced on current main.
+
+The storage fixture passed its normal UI drive: two hit-tested button taps
+advanced both displayed and resource values from `0` to `1` to `2` through
+`fs.readFile` and `fs.atomicWriteFile` at `app:/data/count.json`. A separate
+launch with the same named isolated store read back `2`; every checkpoint
+had no pending work. This closes the prepared storage fixture's physical UI
+write/read and same-store restart gap. Compact assertions, original failures,
+raw trees/states, screenshots, device identity and binary hashes are retained
+in the `20261015-device-and-maintenance` run receipts. The storage witness covers atomic-file persistence, not SQLite.
+
+These results do not pass Tuft's measured LTE rollout gate or enable async
+by default. The broader stages and this RFC's Draft status remain unchanged;
+physical Android qualification remains pending an available device.
