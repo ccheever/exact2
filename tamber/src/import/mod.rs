@@ -443,3 +443,79 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
     }
     flush(&mut decls, out);
 }
+
+/// The design's own role overrides a changed value could split: one whose
+/// chain (any spelling) reaches a token the import sets or a role an offer
+/// in `offered` rebinds, and holds a `when` line anywhere, can fold to a
+/// different colour per tuple once accepted (LLP 1121 D5). Each is named,
+/// with no operations; one an offer rebinds, or one `offered` already
+/// names, is left out.
+pub(super) fn split_roles(
+    design: &Design,
+    roles: &[(String, bool)],
+    tokens: &[Mapped],
+    offered: &[Offer],
+) -> Vec<Offer> {
+    let key = |name: &str| crate::edit::role_key(roles, name);
+    let rebound = |k: &String| {
+        offered
+            .iter()
+            .any(|o| !o.ops.is_empty() && key(&o.role).as_ref() == Some(k))
+    };
+    let mut out = Vec::new();
+    for t in &design.tokens {
+        let Some(k) = key(&t.name.value) else {
+            continue;
+        };
+        if rebound(&k)
+            || offered
+                .iter()
+                .any(|o| o.ops.is_empty() && o.role == t.name.value)
+        {
+            continue;
+        }
+        let mut seen = Vec::new();
+        chain(&t.name.value, design, roles, &mut seen);
+        let reaches = seen.iter().any(|&i| {
+            let n = &design.tokens[i].name.value;
+            tokens.iter().any(|m| m.name == *n) || key(n).is_some_and(|k| rebound(&k))
+        }) || seen
+            .iter()
+            .flat_map(|&i| words_of(&design.tokens[i]))
+            .any(|w| tokens.iter().any(|m| m.name == w));
+        if reaches && seen.iter().any(|&i| !design.tokens[i].whens.is_empty()) {
+            out.push(Offer {
+                role: t.name.value.clone(),
+                token: t.value.value.clone(),
+                ops: Vec::new(),
+                note: Some(format!("the design's `{}` reaches a value this import changes and a `when` line: a role has one value (LLP 1121 D5), so the build may refuse it (`tamber-role-axis`) once accepted", t.name.value)),
+            });
+        }
+    }
+    out
+}
+
+/// The design's tokens `name` reaches, itself included, by their indices:
+/// through every value it and they name, under any spelling of a role.
+fn chain(name: &str, design: &Design, roles: &[(String, bool)], seen: &mut Vec<usize>) {
+    let Ok(i) = crate::edit::token_index(design, roles, name) else {
+        return;
+    };
+    if seen.contains(&i) {
+        return;
+    }
+    seen.push(i);
+    for w in words_of(&design.tokens[i]) {
+        chain(w, design, roles, seen);
+    }
+}
+
+/// The names a token's default and `when` values may hold.
+fn words_of(t: &crate::Token) -> impl Iterator<Item = &str> {
+    std::iter::once(t.value.value.as_str())
+        .chain(t.whens.iter().map(|w| w.value.value.as_str()))
+        .flat_map(|v| {
+            v.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
+                .filter(|w| !w.is_empty())
+        })
+}

@@ -441,6 +441,8 @@ fn offers(
             note: Some(format!("the design's `{}` {what}: a role has one value (LLP 1121 D5), so the build refuses it (`tamber-role-axis`) until it names one colour", t.name.value)),
         });
     }
+    let split = super::split_roles(design, &roles, tokens, &out);
+    out.extend(split);
     out
 }
 

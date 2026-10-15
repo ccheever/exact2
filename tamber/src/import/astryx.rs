@@ -21,7 +21,9 @@
 //!   leaves out), a colour each as written (often a `light-dark()`), go under
 //!   `local.*`.
 
-use super::{colour_literal, counted, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
+use super::{
+    colour_literal, counted, reconcile, split_roles, tamber_name, Import, Mapped, Offer, Unmapped,
+};
 use crate::edit::Op;
 use crate::{Design, Diagnostic, Vocab};
 use serde_json::Value;
@@ -318,5 +320,7 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
             note: None,
         });
     }
+    let named = split_roles(design, &roles, tokens, &out);
+    out.extend(named);
     out
 }

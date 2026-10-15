@@ -410,6 +410,21 @@ fn a_role_whose_token_varies_once_accepted_is_not_offered() {
         .contains("tamber-role-axis")));
 }
 
+/// A role chained to one shadcn rebinds, with its own `when` line, could
+/// split once accepted: it is named, with no operations.
+#[test]
+fn shadcn_names_a_design_role_chained_to_a_rebound_role() {
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  AccentColor = #111111\n  Canvas = AccentColor\n    when density=compact: #111111\n";
+    let css = ":root { --primary: #333333; }";
+    let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
+    let offers: Vec<(&str, bool)> = import
+        .offers
+        .iter()
+        .map(|o| (o.role.as_str(), o.ops.is_empty()))
+        .collect();
+    assert_eq!(offers, [("AccentColor", false), ("Canvas", true)]);
+}
+
 #[test]
 fn shadcn_references_fold_as_css_reads_them_and_restricted_rules_are_reported() {
     let css = r#"
@@ -1314,6 +1329,40 @@ fn astryx_offers_no_accent_role_over_a_token_the_design_varies() {
         .as_deref()
         .unwrap()
         .starts_with("not offered"));
+}
+
+/// A role that reaches a changed value and holds a `when` line could
+/// split once accepted, though Astryx adds no `when`: it is named, with no
+/// operations (the reviewers' two cases: a `when` that folds to today's
+/// default, and a role chained to the rebound accent).
+#[test]
+fn astryx_names_a_design_role_a_changed_value_could_split() {
+    use exact_tamber::import::astryx;
+    let json = r##"{"source": "test", "light": {"--color-accent": "#333333"}, "dark": {"--color-accent": "#333333"}}"##;
+    let names = |design: &str| -> Vec<(String, bool)> {
+        astryx::import(json, "astryx", &parse(design).unwrap(), &vocab())
+            .unwrap()
+            .offers
+            .iter()
+            .map(|o| (o.role.clone(), o.ops.is_empty()))
+            .collect()
+    };
+    let kept = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  astryx.accent = #111111\n    when density=compact: #111\n  Canvas = astryx.accent\n";
+    assert_eq!(
+        names(kept),
+        [
+            ("AccentColor".to_string(), true),
+            ("Canvas".to_string(), true)
+        ]
+    );
+    let chained = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  AccentColor = #111111\n  Canvas = AccentColor\n    when density=compact: #111111\n";
+    assert_eq!(
+        names(chained),
+        [
+            ("AccentColor".to_string(), false),
+            ("Canvas".to_string(), true)
+        ]
+    );
 }
 
 #[test]
