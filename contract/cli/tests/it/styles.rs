@@ -574,7 +574,7 @@ fn backdrop_saturation_is_admitted_alone_and_beside_blur() {
 fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refused_by_name() {
     // @ref LLP 1053 G5; LLP 1053.000 D1 — a dynamic value takes the same
     // grammar at run time as a literal at compile time.
-    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + toString(blur) + \"px) saturate(\" + toString(saturation) + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
+    let source = "component App\n  state blur = 8\n  state saturation = 1.14\n  view\n    main\n      box testId=\"glass\" backdrop-filter=\"blur(\" + blur.toString() + \"px) saturate(\" + saturation.toString() + \" )\"\n        text \"a\\tb\" testId=\"code\" white-space=\"pre\"\n      box testId=\"plain\" backdrop-filter=\"none\"\n";
     let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
@@ -1016,7 +1016,7 @@ component App
       box class=Panel left=20 top=80 width=200 height=200
         row testId="branch" gap=10
           box contextTarget="bubble" width=100 height=40
-          when shown
+          if shown
             box testId="side" width=40 height=40
               box testId="side-absolute" position="absolute" right=0 bottom=0 width=5 height=5
         box testId="trailing" width=70 height=20
@@ -1069,13 +1069,13 @@ fn repeated_context_branches_contain_descendants_in_every_instance() {
     for virtualized in ["", "virtualized=true"] {
         let source = format!(
             r#"component App
-  resource rows = rows() as shape list<string>
+  resource rows = rows() as shape string[]
   view
     column
       box id="bubble" height=10
       box position="absolute" width=200 height=200
         list height=100 {virtualized}
-          each x in rows key=x
+          for x in rows key=x
             box testId=`row-${{x}}` width=100 height=30
               box contextTarget="bubble" width=20 height=10
               box testId=`absolute-${{x}}` position="absolute" right=0 bottom=0 width=5 height=5

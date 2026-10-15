@@ -9,10 +9,22 @@ import { createInterface } from 'node:readline';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 let binary;
+const HELPER = 'EXACT_FILESYSTEM_HELPER';
+/** The helper this process runs, checked current: the bake names it to the Bun processes it spawns. */
+export const filesystemHelper = () => executable();
 function executable() {
   if (binary) return binary;
   const directory = resolve(root, 'target/exact-filesystem-tool');
   const suffix = process.platform === 'win32' ? '.exe' : '';
+  // A caller that checked the helper itself may name its captured copy in `EXACT_FILESYSTEM_HELPER`
+  // for the processes it spawns (the bake does, once per process, for its many Bun calls). The copy
+  // is taken after confirming it is this checkout's and still has the digest its name gives;
+  // anything else is checked here as usual
+  const inherited = process.env[HELPER];
+  if (inherited && dirname(inherited) === directory) {
+    const digest = new RegExp(`^exact-filesystem-([0-9a-f]{64})${suffix.replace('.', '\\.')}$`).exec(basename(inherited))?.[1];
+    if (digest && existsSync(inherited) && createHash('sha256').update(readFileSync(inherited)).digest('hex') === digest) return binary = inherited;
+  }
   const target = resolve(directory, `debug/exact-filesystem${suffix}`);
   // A separate tooling target also permits calls from an active app Cargo
   // build script: the helper has no compiler/app dependency and never waits
@@ -133,7 +145,9 @@ export async function filesystemLock(root, path, fn) {
   const rejectAll = (error) => { failure = error; for (const item of pending.splice(0)) item.reject(error); };
   child.on('error', rejectAll);
   child.stdin.on('error', rejectAll);
-  child.on('exit', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
+  // Fail what is pending only once its output is read: a reply written just before exiting (a held lock's refusal)
+  // answers its request, as the reader's does
+  child.on('close', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
   lines.on('line', (line) => {
     const item = pending.shift();
     if (!item) return;
@@ -227,3 +241,5 @@ export function removePrivateTree(path) {
     throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);
   }
 }
+
+if (import.meta.main && process.argv[2] === '--helper') process.stdout.write(filesystemHelper());

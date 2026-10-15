@@ -2,17 +2,7 @@
 use exact_kernel::{motion::motion_node, MonospaceMeasurer, NodeKey, PropId, TransformDragBinding};
 use exact_linux::Host;
 use exact_motion::{HoldEnd, Property, Value};
-use exact_runner::{DataError, DataSource, Event};
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
+use exact_runner::Event;
 const APP: &str = r#"component App
   state binding = "target"
   state x = 20
@@ -41,10 +31,10 @@ const APP: &str = r#"component App
         text "unbind"
       text `${count}` testId="count"
 "#;
-fn boot(source: &str) -> Host<Empty> {
+fn boot(source: &str) -> Host<()> {
     let (h, e) = Host::boot(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         Box::new(MonospaceMeasurer::default()),
         400.,
         500.,
@@ -53,13 +43,13 @@ fn boot(source: &str) -> Host<Empty> {
     assert!(e.is_none(), "{e:?}");
     h
 }
-fn key(h: &Host<Empty>, name: &str) -> NodeKey {
+fn key(h: &Host<()>, name: &str) -> NodeKey {
     h.kernel().find_by_test_id(name)[0]
 }
-fn binding(h: &Host<Empty>, name: &str) -> TransformDragBinding {
+fn binding(h: &Host<()>, name: &str) -> TransformDragBinding {
     h.transform_drag_binding(key(h, name)).unwrap()
 }
-fn count(h: &Host<Empty>) -> &str {
+fn count(h: &Host<()>) -> &str {
     h.kernel()
         .node_by_key(key(h, "count"))
         .unwrap()

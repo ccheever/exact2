@@ -87,7 +87,7 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
         text "x" color="#ff0000"
       column testId="pair"
         text "a"
-        when more
+        if more
           text "b"
       button appearance="none" testId="tall" height=48
         text "t"

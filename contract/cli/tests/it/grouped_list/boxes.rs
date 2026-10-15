@@ -145,7 +145,7 @@ fn full_width_native_buttons_keep_their_own_chrome_inside_the_cell() {
 #[test]
 fn system_separators_skip_hidden_and_last_rows_without_taking_layout_height() {
     let mut r = boot(
-        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"First\"\n    row display=\"none\" testId=\"hidden\"\n      text \"Hidden\"\n    when dark\n      row testId=\"b\"\n        text \"Last\"",
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"a\"\n      text \"First\"\n    row display=\"none\" testId=\"hidden\"\n      text \"Hidden\"\n    if dark\n      row testId=\"b\"\n        text \"Last\"",
     );
     let a = id(&r, "a");
     assert!(

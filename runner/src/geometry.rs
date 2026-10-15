@@ -731,10 +731,13 @@ fn kernel_hits(
         } else {
             rect[3] / f64::from(f.height)
         };
+        let Some(inherited) = inherited_hit_state(kernel, slot) else {
+            continue;
+        };
         walk.hits(
             slot,
             mul(shift(rect[0], rect[1]), [sx, 0.0, 0.0, sy, 0.0, 0.0]),
-            (PointerEvents::Auto, Visibility::Visible),
+            inherited,
             true,
             &mut hits,
         );
@@ -757,6 +760,45 @@ fn kernel_hits(
         }
     }
     hits
+}
+
+/// What an open top-layer box inherits for hit testing from its ancestors,
+/// whose clips and transforms it escapes but not their `inert` (HTML's inert
+/// subtrees), `pointer-events` or `visibility` (CSS inheritance follows the
+/// tree, not the top layer): none when an ancestor is inert, else the
+/// nearest ancestor's value of each, `auto` and `visible` above them all. A
+/// modal `dialog` escapes the inertness of what is above it, for itself and
+/// what opens inside it (HTML's modal dialogs); its own `inert` holds. Every
+/// `dialog` that is not a popover counts as modal without asking whether it
+/// is open: Exact opens a dialog only modally (`showModal`, `command="show-modal"`;
+/// `open` is refused), and the host stays the source of truth for what is
+/// open, which iOS does not report for a dialog's sheet. A popover open in a
+/// closed dialog so escapes too, though the dialog's subtree is hidden.
+fn inherited_hit_state(kernel: &Kernel, slot: u32) -> Option<(PointerEvents, Visibility)> {
+    let arena = kernel.arena();
+    let (mut pointer, mut visibility) = (None, None);
+    let dialog = |s: u32| {
+        let props = arena.props(s);
+        props.str(PropId::SemanticTag) == Some("dialog") && props.str(PropId::Popover).is_none()
+    };
+    let mut escaped = dialog(slot);
+    for p in std::iter::successors(arena.parent(slot), |&p| arena.parent(p)) {
+        if !escaped && arena.props(p).bool(PropId::Inert) == Some(true) {
+            return None;
+        }
+        escaped = escaped || dialog(p);
+        let style = arena.style(p);
+        if pointer.is_none() && style.mask.has(StyleId::PointerEvents) {
+            pointer = Some(style.pointer_events);
+        }
+        if visibility.is_none() && style.mask.has(StyleId::Visibility) {
+            visibility = Some(style.visibility);
+        }
+    }
+    Some((
+        pointer.unwrap_or(PointerEvents::Auto),
+        visibility.unwrap_or(Visibility::Visible),
+    ))
 }
 
 struct Point<'a> {

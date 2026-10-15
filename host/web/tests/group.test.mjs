@@ -10,11 +10,11 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 const page = `<!doctype html>
 <style>#exact-root .card { display: flex; gap: 6px; background: rgb(1, 2, 3); }</style>
@@ -116,12 +116,17 @@ check('a centre past a short port\'s edge scrolls toward that edge', async () =>
     const mouse = (type, x, y) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
     await mouse('mousePressed', g[0], g[1]);
     // Past the slop, then held still a few pixels lower, inside the port.
-    for (const dy of [4, 9, 12]) { await mouse('mouseMoved', g[0], g[1] + dy); await Bun.sleep(16); }
+    for (const dy of [4, 9, 12]) await mouse('mouseMoved', g[0], g[1] + dy);
+    await evaluate('new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)))');
     const ghost = await evaluate('(() => { const r = document.querySelector("[data-exact-ghost]")?.getBoundingClientRect(); const p = document.getElementById("port").getBoundingClientRect(); return r && [r.top + r.height / 2, p.bottom]; })()');
     expect(ghost).not.toBeNull();
     expect(ghost[0]).toBeGreaterThan(ghost[1]); // the centre is below the port
-    await Bun.sleep(300);
-    const scrolled = await evaluate('document.getElementById("port").scrollTop');
+    // The port's scroll position once a frame has scrolled it, or after 10 s
+    const scrolled = await evaluate(`new Promise(ok => {
+      const port = document.getElementById('port'), end = performance.now() + 10_000;
+      const check = () => port.scrollTop > 0 || performance.now() > end ? ok(port.scrollTop) : requestAnimationFrame(check);
+      check();
+    })`);
     await mouse('mouseReleased', g[0], g[1] + 12);
     expect(scrolled).toBeGreaterThan(0); // down, toward the centre's edge
   } finally {

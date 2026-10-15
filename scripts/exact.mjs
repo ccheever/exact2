@@ -69,10 +69,22 @@ export function hermesCrossTargets(os = process.platform, cpu = process.arch) {
   ];
 }
 
-/** The simulator bundles `setup` installs after the host's (device bundles are
- * fetched on demand: `host/apple/build.mjs --device` names the command). */
-export const hermesSetupTargets = (os = process.platform, cpu = process.arch) =>
-  hermesCrossTargets(os, cpu).map(entry => entry.target).filter(target => target !== 'aarch64-apple-ios');
+/** The cross bundles `setup` installs after the host's: the simulators', and
+ * the iOS device's wherever a device build can run (Xcode with the iphoneos
+ * SDK), so a device IPA's TypeScript finds it without a second command. */
+export const hermesSetupTargets = (os = process.platform, cpu = process.arch, device = iphoneosSdk(os)) =>
+  hermesCrossTargets(os, cpu).map(entry => entry.target).filter(target => device || target !== 'aarch64-apple-ios');
+
+/** Whether Xcode's iphoneos SDK is here: an iOS device build can run. The
+ * Xcode the Apple build selects (host/apple/devices.mjs `useXcode`: Xcode.app
+ * when xcode-select names the Command Line Tools) is the one asked. */
+function iphoneosSdk(os = process.platform) {
+  if (os !== 'darwin') return false;
+  const selected = spawnSync('xcode-select', ['-p'], {encoding: 'utf8'}).stdout?.trim() ?? '';
+  const xcode = '/Applications/Xcode.app/Contents/Developer';
+  const env = !process.env.DEVELOPER_DIR && selected.includes('CommandLineTools') && existsSync(xcode) ? {...process.env, DEVELOPER_DIR: xcode} : process.env;
+  return spawnSync('xcrun', ['--sdk', 'iphoneos', '--show-sdk-path'], {encoding: 'utf8', env}).status === 0;
+}
 
 // Locked always: the installer's own lock is committed, and a check must
 // neither rewrite it nor fetch crates (`--offline`); HERMES_LEAN_SYS_OFFLINE
@@ -395,9 +407,12 @@ export function setup({check = false} = {}) {
     run('cargo', hermesInstallerArguments(false));
     // Simulator bundles separately: a failed cross download must not undo the
     // host install every build needs; `setup --check` reports it on its own row.
-    const cross = hermesSetupTargets();
-    if (cross.length && spawnSync('cargo', hermesInstallerArguments(false, cross), {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment(process.env)}).status !== 0) {
-      console.error(`exact setup: the ${cross.join(', ')} Hermes bundles did not install; Apple simulator TypeScript builds will name the command`);
+    // Each its own run: the installer stops at its first failed target, so a
+    // device download that fails must not take the simulators' with it.
+    for (const target of hermesSetupTargets()) {
+      if (spawnSync('cargo', hermesInstallerArguments(false, [target]), {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment(process.env)}).status !== 0) {
+        console.error(`exact setup: the ${target} Hermes bundle did not install; Apple TypeScript builds for it will name the command`);
+      }
     }
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
@@ -582,6 +597,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                --assets declares game.assets
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
+  exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
+                               its tokens in one mode (eval --mode dark-style=dim),
+                               its IR, tamber.json (ir -o <file>), or its layout (fmt)
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -865,6 +883,8 @@ function main(argv) {
   if (verb === 'list') return list();
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
+  // An app's design on its own (LLP 1121 D2): the compiler's `tamber` verbs.
+  if (verb === 'tamber') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('tamber')), 0) : contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {

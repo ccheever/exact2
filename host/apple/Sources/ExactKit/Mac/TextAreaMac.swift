@@ -72,10 +72,23 @@ package final class TextArea: NSTextView {
         return ok
     }
 
+    package override func doCommand(by selector: Selector) {
+        let types = ["deleteBackward:": "deleteContentBackward", "deleteForward:": "deleteContentForward", "deleteWordBackward:": "deleteWordBackward", "deleteWordForward:": "deleteWordForward", "deleteToBeginningOfLine:": "deleteSoftLineBackward", "deleteToEndOfLine:": "deleteSoftLineForward", "deleteToBeginningOfParagraph:": "deleteHardLineBackward", "deleteToEndOfParagraph:": "deleteHardLineForward"]
+        if let type = types[NSStringFromSelector(selector)], let fields = owner?.presenter?.fieldSelections {
+            fields.withIntent(owner, type) { super.doCommand(by: selector) }
+        } else { super.doCommand(by: selector) }
+    }
+    package override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        guard let owner else { return true }
+        return owner.presenter?.fieldSelections.shouldEdit(owner, range: affectedCharRange, replacement: replacementString ?? "", marked: hasMarkedText()) ?? true
+    }
     /// AppKit posts no change while text is marked: the owner hears each one
     /// here, and a commit's steps as one (`settlingComposition`).
     package override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.withComposition(owner) { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
+        } else { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
         owner?.markedTextChanged(self)
     }
     package override func unmarkText() {
@@ -124,10 +137,16 @@ package final class TextArea: NSTextView {
     // NSTextView does not implement these responder actions. The Edit menu's
     // nil target must reach this editor's history, rather than NSWindow's.
     @objc package func undo(_ sender: Any?) {
-        if isEditable, !hasMarkedText(), undoManager?.canUndo == true { undoManager?.undo() }
+        if isEditable, !hasMarkedText(), undoManager?.canUndo == true {
+            if let fields = owner?.presenter?.fieldSelections { fields.history(owner, redo: false) { undoManager?.undo() } }
+            else { undoManager?.undo() }
+        }
     }
     @objc package func redo(_ sender: Any?) {
-        if isEditable, !hasMarkedText(), undoManager?.canRedo == true { undoManager?.redo() }
+        if isEditable, !hasMarkedText(), undoManager?.canRedo == true {
+            if let fields = owner?.presenter?.fieldSelections { fields.history(owner, redo: true) { undoManager?.redo() } }
+            else { undoManager?.redo() }
+        }
     }
     package override func validateMenuItem(_ item: NSMenuItem) -> Bool {
         if item.action == #selector(undo(_:)) { return isEditable && !hasMarkedText() && undoManager?.canUndo == true }
@@ -165,7 +184,7 @@ package final class TextArea: NSTextView {
             let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
             (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
-                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
+                .foregroundColor: placeholderColor ?? (owner?.isNativeTextControl == true ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3)),
             ])
         }
     }
@@ -292,7 +311,9 @@ extension NodeView {
         textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
         textAreaScroll?.focusRingType = native && !outlineNone ? .default : .none
         textAreaScroll?.drawsBackground = native
+        textAreaScroll?.backgroundColor = ThemeRoles.color("Field", or: .controlBackgroundColor)
         f.drawsBackground = native
+        f.backgroundColor = ThemeRoles.color("Field", or: .textBackgroundColor)
         f.focusRingType = outlineNone ? .none : native ? .default : .exterior
         restyleFieldFocus()
         f.textContainerInset = native ? FieldChromeCache.textareaInset(for: effectiveAppearance, scale: window?.backingScaleFactor ?? 1) : .zero
@@ -441,6 +462,31 @@ final class Field: NSTextField {
 /// `cut` or `paste` before it happens, for the node or an ancestor that
 /// hears one (#125).
 final class FieldEditor: NSTextView {
+    override func doCommand(by selector: Selector) {
+        let types = ["deleteBackward:": "deleteContentBackward", "deleteForward:": "deleteContentForward", "deleteWordBackward:": "deleteWordBackward", "deleteWordForward:": "deleteWordForward", "deleteToBeginningOfLine:": "deleteSoftLineBackward", "deleteToEndOfLine:": "deleteSoftLineForward", "deleteToBeginningOfParagraph:": "deleteHardLineBackward", "deleteToEndOfParagraph:": "deleteHardLineForward"]
+        if let type = types[NSStringFromSelector(selector)], let fields = owner?.presenter?.fieldSelections {
+            fields.withIntent(owner, type) { super.doCommand(by: selector) }
+        } else { super.doCommand(by: selector) }
+    }
+    @objc func undo(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), undoManager?.canUndo == true else { return }
+        if let fields = owner?.presenter?.fieldSelections { fields.history(owner, redo: false) { undoManager?.undo() } }
+        else { undoManager?.undo() }
+    }
+    @objc func redo(_ sender: Any?) {
+        guard isEditable, !hasMarkedText(), undoManager?.canRedo == true else { return }
+        if let fields = owner?.presenter?.fieldSelections { fields.history(owner, redo: true) { undoManager?.redo() } }
+        else { undoManager?.redo() }
+    }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let modifiers = event.modifierFlags.intersection([.command, .shift, .control, .option])
+        if window?.firstResponder === self, event.charactersIgnoringModifiers?.lowercased() == "z" {
+            if modifiers == .command { undo(nil); return true }
+            if modifiers == [.command, .shift] { redo(nil); return true }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     static func make() -> FieldEditor {
         let editor = FieldEditor(frame: .zero)
         editor.isFieldEditor = true
@@ -466,8 +512,15 @@ final class FieldEditor: NSTextView {
         if !text.isEmpty, filtered.isEmpty, !hasMarkedText() { return }
         super.insertText(filtered, replacementRange: replacementRange)
     }
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        guard super.shouldChangeText(in: affectedCharRange, replacementString: replacementString) else { return false }
+        guard let owner else { return true }
+        return owner.presenter?.fieldSelections.shouldEdit(owner, range: affectedCharRange, replacement: replacementString ?? "", marked: hasMarkedText()) ?? true
+    }
     override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
-        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        if let selections = owner?.presenter?.fieldSelections {
+            selections.withComposition(owner) { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
+        } else { super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange) }
         owner?.markedTextChanged(self)
     }
     override func unmarkText() {

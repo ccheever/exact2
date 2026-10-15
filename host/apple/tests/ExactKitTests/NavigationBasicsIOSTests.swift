@@ -659,6 +659,81 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(end.convert(end.bounds, to: chat.view).maxY, bottom - 12, accuracy: 0.5, "at its end, as UIKit insets it")
     }
 
+    private func bottomToolbar(_ nav: UINavigationController, _ route: RouteController, shown: Bool) {
+        route.toolbarItems = [UIBarButtonItem(title: "Action", style: .plain, target: nil, action: nil)]
+        nav.setToolbarHidden(!shown, animated: false)
+        nav.view.setNeedsLayout()
+        nav.view.layoutIfNeeded()
+        route.host?.reportCovers()
+    }
+
+    func testFullHeightPlainScrollOwnsTheNativeBottomInsetAndReachesItsEnd() throws {
+        // Hostless UIKit does not finish an animated tab selection.
+        let animations = UIView.areAnimationsEnabled
+        UIView.setAnimationsEnabled(false)
+        defer { UIView.setAnimationsEnabled(animations) }
+        let session = try fixture("bottom-plain-end")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        try tapNode(session, "tab-second")
+        until("Second selected") { tabs.selectedIndex == 1 }
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let route = try XCTUnwrap(nav.topViewController as? RouteController)
+        let list = try node(session, "list-second"), sv = try XCTUnwrap(list.scroll)
+        XCTAssertEqual(route.navigationItem.largeTitleDisplayMode, .always)
+        until("Second's scroller is displayed with its tall content") {
+            sv.window != nil && sv.bounds.height > 0 && sv.contentSize.height > sv.bounds.height + 100
+        }
+        UIView.setAnimationsEnabled(animations)
+        bottomToolbar(nav, route, shown: true)
+        until("the toolbar insets the physical scroller") {
+            sv.adjustedContentInset.bottom > self.window!.safeAreaInsets.bottom + 1
+        }
+        XCTAssertTrue(route.edgeScroll === list)
+        XCTAssertTrue(route.contentScrollView(for: .bottom) === sv)
+        XCTAssertEqual(list.convert(list.bounds, to: route.view).maxY, route.view.bounds.maxY, accuracy: 0.5)
+        var metrics: [Double]?
+        session.presenter.onScroll = { id, values in if id == list.id { metrics = values } }
+        list.handlers.insert("scroll")
+        list.pendingScrollTop = 100_000
+        list.applyPendingScroll()
+        until("the physical end and its scroll event have settled") {
+            metrics != nil && abs(sv.contentOffset.y - (sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)) < 0.5
+        }
+        let event = try XCTUnwrap(metrics), room = list.scrollPortInsets(sv)
+        XCTAssertEqual(event[5], Double(sv.bounds.height - room.top - room.bottom), accuracy: 0.5)
+        XCTAssertEqual(event[3] - event[1] - event[5], 0, accuracy: 0.5)
+        let end = sv.convert(CGPoint(x: 0, y: sv.contentSize.height), to: route.view).y
+        XCTAssertEqual(end, route.view.bounds.maxY - sv.adjustedContentInset.bottom, accuracy: 0.5)
+    }
+
+    func testPlainShortContentRefitsWhenTheToolbarChangesAndKeepsManualInsetRoom() throws {
+        let session = try fixture("bottom-plain-short")
+        let (_, nav, route) = try chat(session)
+        let list = try node(session, "list-chat"), sv = try XCTUnwrap(list.scroll)
+        try tapNode(session, "toggle-short-chat")
+        until("the tall content is gone") { !session.presenter.views.values.contains { $0.props["testId"] == "tall-chat" } }
+        bottomToolbar(nav, route, shown: true)
+        func automaticBottom() -> CGFloat { max(0, sv.adjustedContentInset.bottom - sv.contentInset.bottom) }
+        func fits() -> Bool {
+            abs(sv.contentSize.height + sv.adjustedContentInset.top + sv.adjustedContentInset.bottom - sv.bounds.height) < 0.5
+        }
+        until("short content fits above the toolbar") { automaticBottom() > self.window!.safeAreaInsets.bottom + 1 && fits() }
+        let shown = automaticBottom(), manual = sv.contentInset.bottom, height = sv.contentSize.height
+        let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+        sv.contentInset.bottom += 180 // the keyboard toolbar's manual inset basis
+        sv.layoutIfNeeded()
+        XCTAssertEqual(sv.contentInset.bottom, manual + 180, accuracy: 0.5)
+        XCTAssertEqual(sv.contentSize.height, height, accuracy: 0.5)
+        XCTAssertEqual(sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height, end + 180, accuracy: 0.5)
+        sv.contentInset.bottom = manual
+        bottomToolbar(nav, route, shown: false)
+        until("hiding the toolbar refits short content") { automaticBottom() < shown - 1 && fits() }
+        let hidden = automaticBottom()
+        bottomToolbar(nav, route, shown: true)
+        until("showing the toolbar refits short content") { automaticBottom() > hidden + 1 && fits() }
+        XCTAssertEqual(sv.contentInset.bottom, manual, accuracy: 0.5)
+    }
+
     /// A real interactive pop from Photo, driven by a percent-driven
     /// transition (UIKit's own coordinator, as a finger's edge swipe has):
     /// the bar comes in with Chat, goes back out on the cancel, and after a

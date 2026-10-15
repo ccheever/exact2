@@ -158,7 +158,7 @@ struct WindowHeader {
         if presenter.menus.toolbarPopover(of: button) != nil { return true }
         guard let name = button.props["popovertarget"],
               let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return false }
-        return presenter.alerts.plan(of: pop) != nil
+        return presenter.alerts.plan(of: pop, popover: true) != nil
     }
 
     /// Whether a toolbar item can show all of a button's face: a native
@@ -302,12 +302,26 @@ extension NavigationHost {
     /// pushed, so the bar's Back is its way back. Read from what the last
     /// batch showed (`selection`).
     var headerRoute: (root: NodeView, route: NodeView, pushed: Bool)? {
+        // A stack that splits: one of its two routes owns the window.
+        if let routes = splitHeaderRoutes { return (routes.root, routes.owner, routes.owner !== split.shown?.list) }
         guard let selection, let root = presenter.views[selection.root], selection.stack.indices.contains(selection.at) else { return nil }
         let stack = selection.stack[...selection.at].compactMap { presenter.views[$0] }
         guard stack.count == selection.at + 1,
               let base = NavigationRules.segments(presentations: stack.map { $0.props["navigationPresentation"] }).first,
               let route = stack[base].last else { return nil }
         return (root, route, base.count > 1)
+    }
+
+    /// @ref LLP 1115.002 D4, §5 Q10 — the two headers of a window that shows
+    /// a list beside its detail. One route owns the window: its heading is
+    /// the window's title and its whole header is the bar's. The other is
+    /// beside it: its heading stays the first line of its pane, and its
+    /// buttons are the bar's over its own column, after the separator that
+    /// follows the divider. Which is which is `SplitHost.listOwnsWindow`.
+    var splitHeaderRoutes: (root: NodeView, owner: NodeView, beside: NodeView?)? {
+        guard split.active, let shown = split.shown else { return nil }
+        guard let detail = shown.detail else { return (shown.root, shown.list, nil) }
+        return SplitHost.listOwnsWindow ? (shown.root, shown.list, detail) : (shown.root, detail, shown.list)
     }
 }
 #endif

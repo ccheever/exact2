@@ -45,13 +45,14 @@ function element(fields) {
   };
 }
 
+// The glue media.js imports at the first element, installed and flushed (`mediaPiece`), then two turns for what that flush started
 async function flushed() {
-  for (let i = 0; i < 40 && typeof globalThis.exact?.installMedia !== 'function'; i++) await new Promise((r) => setTimeout(r, 1));
+  await mediaPiece();
   await new Promise((r) => setTimeout(r, 0));
   await new Promise((r) => setTimeout(r, 0));
 }
 
-const { media } = await import(resolve(dir, 'media.js'));
+const { media, mediaPiece } = await import(resolve(dir, 'media.js'));
 
 test('a media element with no source does not hold inflight', async () => {
   const start = inflight.n;

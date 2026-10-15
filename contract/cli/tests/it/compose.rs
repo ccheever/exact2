@@ -81,7 +81,7 @@ fn a_provide_section_fills_an_inject_and_the_nearest_component_wins() {
 
 #[test]
 fn a_forwarded_slot_fill_checks_its_injected_provider_type() {
-    let source = "component App\n  provide\n    accent = 1\n  view\n    Shell()\n      Label()\ncomponent Shell\n  slot\n  view\n    Pass()\n      children\ncomponent Pass\n  slot\n  view\n    children\ncomponent Label\n  inject\n    accent: string\n  view\n    text toString(accent)\n";
+    let source = "component App\n  provide\n    accent = 1\n  view\n    Shell()\n      Label()\ncomponent Shell\n  slot\n  view\n    Pass()\n      children\ncomponent Pass\n  slot\n  view\n    children\ncomponent Label\n  inject\n    accent: string\n  view\n    text accent.toString()\n";
     let error = contract::compile(source).unwrap_err();
     assert_eq!(error.id, "type-provide", "{error}");
 }
@@ -152,12 +152,12 @@ fn a_misspelled_or_mistyped_prop_is_refused_where_it_is_written() {
 
 #[test]
 fn a_declaration_continued_on_an_indented_line_is_told_to_join_it() {
-    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape list<Task>\n    else empty()\n  view\n    text \"a\"\n";
+    let src = "shape Task\n  id: string\ncomponent App\n  resource tasks = loadTasks() as shape Task[]\n    else empty()\n  view\n    text \"a\"\n";
     let error = contract::compile(src).unwrap_err();
     assert_eq!(error.id, "syntax-expected-section");
     assert_eq!(
         error.message,
-        "`else …` is indented under the line above, and a declaration is one line: join them (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+        "`else …` is indented under the line above, and a declaration is one line: join them (like `resource tasks = loadTasks() as shape Task[] else empty()`)"
     );
     // An over-indented section is not a continuation: the plain message stands.
     let src = "component App\n  state n = 0\n    view\n      text \"a\"\n";
@@ -174,18 +174,14 @@ fn failed_names_why_a_mutation_is_not_its_argument() {
 }
 
 #[test]
-fn an_annotated_state_or_derive_is_told_its_type_is_inferred() {
+fn a_state_may_declare_its_type_and_a_derive_is_told_its_type_is_inferred() {
     let state = "shape Task\n  id: string\ncomponent App\n  state deleted: option<Task> = none\n  view\n    text \"a\"\n";
-    let error = contract::compile(state).unwrap_err();
-    assert_eq!(
-        (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected", "a state's type is inferred, so `state deleted` takes no `: type`: write `state deleted = …`; an empty start is `none` or `[]`, and the writes give it its type")
-    );
+    contract::compile(state).unwrap();
     let derive = "component App\n  derive n: number = 2\n  view\n    text \"a\"\n";
     let error = contract::compile(derive).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive's type is inferred, so `derive n` takes no `: type`: write `derive n = …`, which is its expression's"
+        "drop `: number`; a derive's type is its expression's"
     );
 }
 
@@ -202,31 +198,34 @@ fn an_html_label_names_the_text_and_the_field_name() {
 }
 
 #[test]
-fn a_view_if_and_a_state_as_name_the_contract_form() {
-    let view_if = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n      else\n        text \"b\"\n";
+fn a_view_when_and_a_state_as_name_the_contract_form() {
+    let view_if = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n      else\n        text \"b\"\n";
     let error = contract::compile(view_if).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-stray-keyword", "`if` is an action's statement: a view chooses with `when <condition>`, and an `else` after its block at the same indent")
+        (
+            "syntax-view-keyword",
+            "a view chooses with `if`: write `if <condition>`, and `else if` for `else when`"
+        )
     );
     let state_as =
         "component App\n  state draft = none as option<string>\n  view\n    text \"a\"\n";
     let error = contract::compile(state_as).unwrap_err();
     assert_eq!(
         (error.id.as_str(), error.message.as_str()),
-        ("syntax-expected-newline", "a state takes no `as`: its type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
+        ("syntax-expected-newline", "drop `as option<string>`; a state's type is inferred from its initializer and the writes to it (a `none` takes its type from a write such as `draft = some(…)`)")
     );
     let count_as = "component App\n  state n = 0 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(count_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a state takes no `as`: its type is inferred from its initializer and the writes to it"
+        "drop `as number`; a state's type is inferred from its initializer and the writes to it"
     );
     let derive_as = "component App\n  derive n = 2 as number\n  view\n    text \"a\"\n";
     let error = contract::compile(derive_as).unwrap_err();
     assert_eq!(
         error.message,
-        "a derive takes no `as`: its type is inferred from its expression"
+        "drop `as number`; a derive's type is inferred from its expression"
     );
 }
 
@@ -245,7 +244,7 @@ fn position_fixed_says_how_to_pin_a_box() {
 
 #[test]
 fn a_mutation_clause_out_of_order_names_the_order() {
-    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape list<Card>\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
+    let src = "shape Ack\n  ok: bool\nshape Card\n  id: string\n\ncomponent App\n  resource cards = board() as shape Card[]\n  mutation changed as shape Ack refreshes cards queue\n  view\n    text \"a\"\n";
     let error = contract::compile(src).unwrap_err();
     assert_eq!(error.id, "syntax-expected-newline", "{error}");
     assert!(
@@ -353,11 +352,11 @@ fn a_mistaken_section_word_names_the_section() {
 
 #[test]
 fn a_stray_else_and_a_body_on_the_next_line_say_where_they_go() {
-    let deep = "component App\n  state on = false\n  view\n    column\n      when on\n        text \"a\"\n        else\n          text \"b\"\n";
+    let deep = "component App\n  state on = false\n  view\n    column\n      if on\n        text \"a\"\n        else\n          text \"b\"\n";
     let error = contract::compile(deep).unwrap_err();
     assert!(
         error.message.ends_with(
-            "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+            "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
         ),
         "{error}"
     );

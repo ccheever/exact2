@@ -185,12 +185,13 @@ pub(super) fn measure(
 #[cfg(test)]
 mod tests {
     use super::*;
-    struct Host;
+    struct Host(usize);
     impl TextMeasurer for Host {
         fn measure(&mut self, _: &crate::TextMeasureRequest<'_>) -> TextMetrics {
             TextMetrics::default()
         }
         fn button_measure(&mut self, r: &ButtonMeasureRequest) -> Option<ButtonMeasure> {
+            self.0 += 1;
             Some(ButtonMeasure {
                 width: match r.width {
                     AxisOffer::Definite(w) => w,
@@ -238,12 +239,16 @@ mod tests {
             provisional: false,
             supported: true,
         };
-        let mut host = Host;
+        let mut host = Host(0);
         let mut request = record.request.clone();
         request
             .style
             .resolve_geometry(arena.env(), None, Frame::default());
-        record.answer(request, &mut host);
+        let first = record.answer(request.clone(), &mut host);
+        assert!(first.is_some());
+        assert_eq!(host.0, 1);
+        assert_eq!(record.answer(request, &mut host), first);
+        assert_eq!(host.0, 1, "an unchanged offer does not call the host again");
         let capacity = record.answers.capacity();
         for width in 1..=LEAF_OFFERS * 2 {
             let mut request = record.request.clone();

@@ -6,7 +6,7 @@
 **Severity:** P3
 **Author:** Daehyeon Mun (via the T3 Code clone)
 **Date:** 2026-10-12
-**Related:** #487 (X85, its Not done); `issues/closed/20261012-macos-control-click-contextmenu.md` (X85); review b5-b 3 (`940335753`); https://raw.githubusercontent.com/ccheever/exact2/fc0f37ce5527f8097e7b5df43a6d707539976294/fw/x85-control-click-contextmenu/x85-native-record.txt (the X85 review record: Chrome itself, the web target and macOS)
+**Related:** #487 (X85, its Not done); `issues/closed/20261012-macos-control-click-contextmenu.md` (X85); review b5-b 3 (`940335753`)
 
 ## Summary
 

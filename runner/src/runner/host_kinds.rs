@@ -15,7 +15,8 @@ impl Event {
     /// `contentRect` as `x,y,width,height`), 40 to 42 and 48 (a field's
     /// input, change, select and replacement input), 45 (intersect,
     /// `0|1,ratio`), 46 and 47 (focusin, focusout), 50 (toggle, oldState,newState)
-    /// or 51 (scrollend, none) from its UTF-8 payload.
+    /// 51 (scrollend, none), 52 (field selectionchange), or 53/54
+    /// (beforeinput/input metadata) from its UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
             // A key's down (6), up (43) or capture (44, #140): the chord, then its code
@@ -77,10 +78,13 @@ impl Event {
                 .ok_or("invalid resize rect"),
             // A text field's `input`, `change` and `select` with its
             // selection (x2apps codeedit #2).
-            40..=42 | 48 => Event::field_payload(kind, payload).ok_or("invalid field selection"),
+            40..=42 | 48 | 52 => {
+                Event::field_payload(kind, payload).ok_or("invalid field selection")
+            }
             // DOM's bubbling focusin (46) and focusout (47, #283; 45 is `intersect`):
             // the target's id and the relatedTarget's, if any.
             46 | 47 => Event::focus_payload(kind == 46, payload).ok_or("invalid focus event"),
+            53 | 54 => Event::edit_payload(kind, payload).ok_or("invalid input event"),
             50 => {
                 let (old, new) = payload.split_once(',').ok_or("invalid toggle event")?;
                 if ![old, new].iter().all(|s| matches!(*s, "open" | "closed")) {

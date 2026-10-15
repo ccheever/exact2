@@ -200,8 +200,13 @@ impl<D: DataSource> Presenter<D> {
             .roots()
             .first()
             .and_then(|root| kernel.node(*root))
-            .and_then(|n| n.style.background_color)
-            .map(|c| crate::paint::rgba(c.resolve(dark)))
+            .and_then(|n| {
+                // The root's own accent, as the painted root reads it.
+                let _accent = crate::paint::accent_scope(&n);
+                n.style
+                    .background_color
+                    .map(|c| crate::paint::rgba(c.resolve(dark)))
+            })
             .filter(|c| c[3] == 255);
         Chrome {
             frame: self

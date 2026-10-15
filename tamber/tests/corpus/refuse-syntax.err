@@ -1,0 +1,10 @@
+4:3: tamber-syntax: `under scheme=light`: an axis may be `under scheme=dark` only
+5:3: tamber-syntax: an axis and its values are identifiers
+8:3: tamber-syntax: a dial is `name: color|length|number = value [in low..high] [meta=…]`
+9:3: tamber-syntax: `noval` has no value: a dial is `name: color|length|number = value [in low..high] [meta=…]`
+10:3: tamber-syntax: `label=`: unknown escape `\q`
+13:3: tamber-syntax: a token is `name = value`
+15:5: tamber-syntax: a `when` is `when axis=value …: value`
+16:3: tamber-syntax: a `when` is indented under its token
+17:1: tamber-block: a second `theme` block: a design has one of each
+20:1: tamber-block: `palette`: a block is `axes`, `dials`, `theme`, `icons`, `exports` or `component`

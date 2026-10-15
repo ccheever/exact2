@@ -16,7 +16,7 @@ component App
     units = units == "C" ? "F" : "C"
     last = some(units)
   action push
-    recent = concat(recent, [tip])
+    recent = recent.concat([tip])
   action refuse
     tip = 99
     zero = 1 / zero

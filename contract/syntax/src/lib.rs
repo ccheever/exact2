@@ -6,8 +6,8 @@
 //! The grammar is indentation-structured. A file is a sequence of `shape` and
 //! `component` declarations; a component holds `props`, `state`, `derive`,
 //! `resource`, `action`, `task`, and `view` sections; a view is a tree of
-//! elements, component uses, and the three region constructs `when`/`else`,
-//! `each … in … key=…`, and `match … case some(x) / case none`. Expressions
+//! elements, component uses, and the three region constructs `if`/`else`,
+//! `for … in … key=…`, and `match … case some(x) / case none`. Expressions
 //! are closed: literals, template strings, names, member access, calls,
 //! arithmetic, comparison, boolean logic, the conditional operator, `some`,
 //! `none`, and inline `match`.
@@ -20,6 +20,7 @@
 
 pub mod ast;
 mod clock;
+mod colours;
 pub mod fmt;
 pub mod idioms;
 pub mod inline;
@@ -116,6 +117,9 @@ pub const HOST_COMMANDS: &[&str] = &[
     // sets the root size `rem` follows, over the host's; `"medium"` hands it
     // back. The runner's own; the web also sets it on the document.
     "setRootFontSize",
+    // @ref LLP 1121 D5 — `setMode("dark-style", "dim")`: the window's app
+    // modes, as `setScheme` is its scheme. The runner's own.
+    "setMode",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
@@ -164,3 +168,14 @@ pub const HOST_COMMANDS: &[&str] = &[
     "playSounds",
     "stopSounds",
 ];
+
+/// A written type as the author writes it: `Item[]`, `option<number>`.
+impl std::fmt::Display for TypeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
+            TypeExpr::List(t, _) => write!(f, "{t}[]"),
+        }
+    }
+}

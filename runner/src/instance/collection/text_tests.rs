@@ -123,3 +123,180 @@ fn logical_copy_omits_control_labels_in_unmounted_rows() {
     assert_eq!(h.snapshot().rows.len(), mounted, "copy mounts no rows");
     assert!(u.ops.is_empty());
 }
+
+/// Text the reader can neither see nor reach is no part of a list's copy,
+/// mounted rows or not, as Chrome and AppKit leave it out: a row's text
+/// under `visibility: hidden` (a hover card), here or above, unless it
+/// computes `visible` again, and `inert` text. Each still counts toward an
+/// endpoint's paragraph ordinal, as the host's paragraphs do.
+#[test]
+fn logical_copy_omits_hidden_and_inert_text() {
+    use exact_kernel::StyleId;
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let enabled = b.constant(&Value::Bool(true));
+    let root = b.node(
+        NodeType::List as u8,
+        None,
+        None,
+        0,
+        &[binding(
+            BindingKind::Prop,
+            PropId::Virtualized as u16,
+            enabled,
+        )],
+        &[],
+        None,
+    );
+    let subject = b.constant(&values(128));
+    let key = code(&mut b, |a| {
+        a.load_item(0);
+    });
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    let row = b.node(NodeType::View as u8, None, Some(arms[0]), 0, &[], &[], None);
+    let hidden = b.constant(&Value::str("hidden"));
+    let visible = b.constant(&Value::str("visible"));
+    let visibility = |v| binding(BindingKind::Style, StyleId::Visibility as u16, v);
+    let text = |b: &mut PlanBuilder, parent, order, value: &str, style: &[BindingsRow]| {
+        let value = b.constant(&Value::str(value));
+        let mut bindings = vec![binding(BindingKind::Prop, PropId::Text as u16, value)];
+        bindings.extend_from_slice(style);
+        b.node(
+            NodeType::Text as u8,
+            Some(parent),
+            Some(arms[0]),
+            order,
+            &bindings,
+            &[],
+            None,
+        );
+    };
+    let number = code(&mut b, |a| {
+        a.load_item(0).call(exact_plan::Stdlib::ToString);
+    });
+    b.node(
+        NodeType::Text as u8,
+        Some(row),
+        Some(arms[0]),
+        0,
+        &[binding(BindingKind::Prop, PropId::Text as u16, number)],
+        &[],
+        None,
+    );
+    text(&mut b, row, 1, "Card", &[visibility(hidden)]);
+    let card = b.node(
+        NodeType::View as u8,
+        Some(row),
+        Some(arms[0]),
+        2,
+        &[visibility(hidden)],
+        &[],
+        None,
+    );
+    text(&mut b, card, 0, "Again", &[visibility(visible)]);
+    text(&mut b, card, 1, "Gone", &[]);
+    let inert = b.constant(&Value::Bool(true));
+    let blocked = b.node(
+        NodeType::View as u8,
+        Some(row),
+        Some(arms[0]),
+        3,
+        &[binding(BindingKind::Prop, PropId::Inert as u16, inert)],
+        &[],
+        None,
+    );
+    text(&mut b, blocked, 0, "Inert", &[]);
+    let h = Harness::from_parts(b.finish().unwrap(), vec![]);
+    let view = h.snapshot().view;
+    let mounted = h.snapshot().rows.len();
+    assert!(mounted < 128);
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut ids = Ids::default();
+    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let rows = |range: std::ops::Range<usize>| {
+        range
+            .map(|i| format!("{i}\n\nAgain"))
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
+    for policy in [crate::ListTextPolicy::Web, crate::ListTextPolicy::MacOS] {
+        let copied = h.tree.list_text(&mut u, view, None, policy).unwrap();
+        assert_eq!(copied, rows(0..128), "{policy:?}");
+        // "Again" is each row's third paragraph: after the number and the card.
+        let at = |key, paragraph, offset| crate::ListTextPosition {
+            key,
+            paragraph,
+            offset,
+        };
+        let copied = h
+            .tree
+            .list_text(
+                &mut u,
+                view,
+                Some((at("n:1", 0, 0), at("n:127", 2, 3))),
+                policy,
+            )
+            .unwrap();
+        assert_eq!(
+            copied,
+            format!("{}\n\n127\n\nAga", rows(1..127)),
+            "{policy:?}"
+        );
+    }
+    assert_eq!(h.snapshot().rows.len(), mounted, "copy mounts no rows");
+    assert!(u.ops.is_empty());
+}
+
+#[test]
+fn logical_text_reads_unmounted_rows_and_wrappers_publish_their_place() {
+    let mut h = key_reuse_harness(false);
+    let mut items = key_reuse_items(&h);
+    for (i, item) in items.iter_mut().enumerate() {
+        *item = key_reuse_row(i as f64, &format!("row {i}"));
+    }
+    h.slots[0] = Value::list(items);
+    h.update().unwrap();
+    let view = h.snapshot().view;
+    let mounted = h.snapshot().rows.len();
+    assert!(mounted < 128, "most rows are not mounted");
+    let first = h.snapshot().rows[0].clone();
+    let wrapper = h.kernel.node(first.view).unwrap();
+    assert_eq!(wrapper.props.str(PropId::ListItemKey), Some("n:0"));
+    assert_eq!(
+        wrapper.props.get(PropId::AccessibilityPosInSet),
+        Some(&exact_kernel::PropValue::Int(1))
+    );
+    assert_eq!(
+        wrapper.props.get(PropId::AccessibilitySetSize),
+        Some(&exact_kernel::PropValue::Int(128))
+    );
+    assert_eq!(h.tree.list_index(view, "n:127"), Some(127));
+    assert_eq!(h.tree.list_index(view, "n:128"), None);
+    let sites = crate::instance::SiteIndex::new(&h.plan);
+    let mut ids = Ids::default();
+    let mut u = Update::new(env(&h.plan, &h.slots), &sites, &mut ids);
+    let all = h
+        .tree
+        .list_text(&mut u, view, None, crate::ListTextPolicy::Web)
+        .unwrap();
+    assert!(all.starts_with("row 0\n\nrow 1\n\n"), "{}", &all[..40]);
+    assert!(all.ends_with("row 127"));
+    let position = |key, offset| crate::ListTextPosition {
+        key,
+        paragraph: 0,
+        offset,
+    };
+    let range = h
+        .tree
+        .list_text(
+            &mut u,
+            view,
+            Some((position("n:126", 2), position("n:1", 3))),
+            crate::ListTextPolicy::Web,
+        )
+        .unwrap();
+    // UTF-16 offsets within the first and last paragraphs, in either order.
+    assert!(range.starts_with(" 1\n\nrow 2"), "{range}");
+    assert!(range.ends_with("row 125\n\nro"), "{range}");
+    assert!(u.ops.is_empty(), "reading commits nothing");
+    assert_eq!(h.snapshot().rows.len(), mounted);
+}

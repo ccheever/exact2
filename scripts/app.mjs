@@ -28,7 +28,7 @@ import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { LOOK_SETTING, SHELL_SOURCES } from '../host/web/look.mjs';
+import { SHELL_SOURCES } from '../host/web/look.mjs';
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
@@ -979,17 +979,24 @@ export function unitDepInfo(message, workspace, metadata) {
   const intermediate = file => metadata && under(metadata.target_directory, file)
       && (!under(metadata.build_directory, file) || metadata.target_directory.length > metadata.build_directory.length)
     ? resolve(metadata.build_directory, relative(metadata.target_directory, file)) : file;
+  const sameBytes = (product, file) => product === file || existsSync(product)
+    && statSync(product).size === statSync(file).size && readFileSync(product).equals(readFileSync(file));
   for (const file of message.filenames) {
     const stem = basename(file).replace(/\.[^.]+$/, '').replace(/^lib/, '');
     // Selected libraries are copied out of deps; Cargo's sibling summary .d
-    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit.
+    // omits env-dep rows. Read rustc's exact unit file, also on a cache hit,
+    // when the product beside it is the reported file's bytes: another
+    // toolchain building into this profile directory (the JS target's GPU
+    // crate on stable; the web nightly's units sit under build/) leaves a
+    // deps/<stem>.d for a unit this build did not produce.
     for (const candidate of [resolve(dirname(intermediate(file)), 'deps', stem + '.d'), resolve(dirname(intermediate(file)), stem + '.d')]) {
       if (!existsSync(candidate)) continue;
       const dep = readFileSync(candidate, 'utf8');
       const output = dep.slice(0, dep.indexOf(': '));
       // rustc leaves the single output path raw, but escapes dependency paths.
       if ((resolve(workspace, output) === candidate || compilerPaths('unit: ' + output, workspace).includes(candidate))
-          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))) return candidate;
+          && compilerPaths(dep, workspace).includes(resolve(message.target.src_path))
+          && sameBytes(resolve(dirname(candidate), basename(file)), file)) return candidate;
     }
   }
   // Cargo copies libraries and executables out of deps without reporting their
@@ -1182,10 +1189,10 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   }
   for (const entry of appleAssetCatalogs) add(resolve(app.dir, entry.path));
   const metadata={...(appleAssetCatalogs.length ? {appleAssetCatalogs} : {}),...(nativeResources.length ? {nativeResources} : {}),...nativeManifestMetadata(app.manifest, platform),delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
-  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{}),...(platform==='web'?LOOK_SETTING:{})}};
+  const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
-  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
+  const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')&&!p.endsWith('.dSYM')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
   hashes.save();
   return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(assetCatalogApp ? {assetCatalogApp} : {}),...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }

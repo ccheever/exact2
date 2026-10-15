@@ -202,10 +202,12 @@ formatting, or `contract fmt file.contract` to write it.
 ## Values and types
 
 Contract has closed types: `number`, `string`, `bool`, declared records,
-`option<T>`, and `list<T>`. Component interfaces can also use the bare type
+`option<T>`, and `T[]`. Component interfaces can also use the bare type
 `action`. There is no authored `any`, nullable field shorthand, or arbitrary
-JavaScript object. The compiler infers states and derives, but fields, component
-props, injections, and function signatures declare their types.
+JavaScript object. The compiler infers states and derives, and a state may
+declare its type (`state picked: option<Item> = none`); fields, component props,
+injections, and function signatures declare theirs. A list type is written as in
+TypeScript: `string[]`, `Item[]`, `option<number>[]`.
 
 ```contract
 shape Fields
@@ -247,7 +249,8 @@ derive caption = match selected {
 
 The `some` branch's binding exists only in that branch. Both arms are required.
 A state initialized to `none` needs enough information elsewhere, usually an
-action's assignment of `some(...)`, to infer the element type. Actions and the
+action's assignment of `some(...)`, to infer the element type, or a declared
+type (`state picked: option<Item> = none`). Actions and the
 view see that type, but derives are typed first: match such a state in the view,
 not in a derive. Similarly, `[]` needs an inferable list element type. A list
 literal such as `[1, 2]` holds its items, which share one type; a list the screen
@@ -262,7 +265,7 @@ reason to keep a second mutable copy of a filtered list or a display label.
 
 ```text
 state query = ""
-derive visible = filter(items, item => includes(item.title, query))
+derive visible = items.filter(item => item.title.includes(query))
 action search(value: string)
   query = value
 ```
@@ -328,7 +331,7 @@ nonzero number, list, or option is not implicitly true.
 ```text
 count > 0 and not loading
 selected != none
-length(items) > 0
+items.length > 0
 busy ? "Working…" : "Save"
 ```
 
@@ -351,9 +354,13 @@ do not capture component state (they can read `performanceNow()`). Pass values a
 are reserved against redefinition. See the grammar reference for the complete
 [standard-function list](contract-grammar.md#standard-functions-and-intrinsics).
 
-Use free functions rather than methods: `trim(title)`, `includes(title, query)`,
-`length(items)`, `first(items)`, and `at(items, -1)`. `first` and `at` return
-options; `at` counts a negative index from the end. There is no `items[0]` syntax.
+The web's string and array methods are written as methods, with their web names
+and meanings: `title.trim()`, `title.includes(query)`, `items.length`,
+`items.at(-1)`, `price.toFixed(2)`. The rest of the standard functions are called
+as functions: `first(items)`, `round(n)`, `formatNumber(n, "compact")`. Writing
+`trim(title)` is refused with the method form to write instead, and a method
+Contract lacks (`items.reduce(…)`) is refused. `first` and `at` return options;
+`at` counts a negative index from the end. There is no `items[0]` syntax.
 
 `map` and `filter` accept a callback with zero, one, or two parameters: the item
 and its zero-based index. The callback is a single expression, reads its lexical
@@ -361,12 +368,12 @@ environment, and returns a value. `filter` requires a boolean. `join` accepts a
 list of strings, numbers, or booleans and a string separator.
 
 ```text
-derive names = map(people, (person, i) => `${i + 1}. ${person.name}`)
-derive adults = filter(people, person => person.age >= 18)
-derive caption = join(names, ", ")
+derive names = people.map((person, i) => `${i + 1}. ${person.name}`)
+derive adults = people.filter(person => person.age >= 18)
+derive caption = names.join(", ")
 ```
 
-Callbacks can build records. They cannot return view nodes. Use `each` to build
+Callbacks can build records. They cannot return view nodes. Use `for` to build
 repeated UI, not `map`. General closures, reducers, sorting, and arbitrary list
 mutation belong in the data module when the supplied operations do not suffice.
 
@@ -384,18 +391,18 @@ Card(title="Heading", selected=selected)
 ```
 
 Positional values depend on the tag. Prefer a corpus example when using a new
-tag. The app's root view must be exactly one element: a `when`, `each`, or `match`
+tag. The app's root view must be exactly one element: an `if`, `for`, or `match`
 there is refused, so put a stable element around conditional or repeated content.
 A child component used inside an element may return a region or several nodes.
 
-`when` conditionally creates nodes:
+`if` conditionally creates nodes:
 
 ```text
 column
-  when pending(results)
+  if pending(results)
     text "Loading…"
   else
-    text `${length(results)} results`
+    text `${results.length} results`
 ```
 
 `match` renders an option's alternatives:
@@ -408,10 +415,10 @@ match selected
     text "Nothing selected"
 ```
 
-`each` repeats a subtree, with an optional index and a required stable key:
+`for` repeats a subtree, with an optional index and a required stable key:
 
 ```text
-each item, i in items key=item.id
+for item, i in items key=item.id
   row gap=8
     text `${i + 1}`
     ItemRow(item=item, open=open)
@@ -426,7 +433,7 @@ For long lists, use a bounded virtualized collection:
 
 ```text
 list virtualized=true height=500 estimated-item-height=64
-  each item in items key=item.id
+  for item in items key=item.id
     column padding=12
       text item.title
 ```
@@ -441,7 +448,7 @@ empty state), and `appearance="none"` on the list keeps rows that are yours, a
 transcript or a feed of cards. A list laid out sideways is a carousel and gets
 none of it.
 
-A virtualized list has exactly one direct `each`, whose body has one flow root.
+A virtualized list has exactly one direct `for`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
@@ -550,7 +557,7 @@ shape SaveResult
 component Items
   state query = ""
   state notice = ""
-  resource items = loadItems(query) as shape list<Item>
+  resource items = loadItems(query) as shape Item[]
   mutation saved as shape SaveResult refreshes items then afterSave
   action search(value: string)
     query = value
@@ -567,12 +574,12 @@ component Items
   view
     column gap=8 padding=16
       input value=query input=search testId="query"
-      when pending(items)
+      if pending(items)
         text "Loading…"
-      when failed(items)
+      if failed(items)
         button press=retry testId="retry"
           text "Try again"
-      each item in items key=item.id
+      for item in items key=item.id
         button press=save(item.id) testId=`item-${item.id}`
           text item.title
       text notice testId="notice"
@@ -605,7 +612,7 @@ shape Item
   id: string
 
 component Items
-  resource items = loadItems() as shape list<Item> else empty()
+  resource items = loadItems() as shape Item[] else empty()
   derive banner = match failure(items) { case some(f) => f.code == "offline" ? "You're offline" : "Couldn't load items", case none => "" }
   view
     text banner testId="banner"
@@ -702,14 +709,14 @@ shape Quote
 component ReadingList
   state draft = ""
   state notice = ""
-  resource books = books() as shape list<Book>
+  resource books = books() as shape Book[]
   resource quote = quote() as shape Quote else empty(text="…")
   mutation saved as shape Saved refreshes books then afterSave
   action edit(value: string)
     draft = value
   action add
-    if trim(draft) != ""
-      send saved = addBook(trim(draft))
+    if draft.trim() != ""
+      send saved = addBook(draft.trim())
       draft = ""
   action afterSave
     match saved
@@ -726,7 +733,7 @@ component ReadingList
         button press=add testId="add"
           text "Add"
       text notice testId="notice"
-      each book in books key=book.id
+      for book in books key=book.id
         text book.title testId=`book-${book.id}`
 ```
 
@@ -764,7 +771,7 @@ function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Pro
 }
 
 const sources: Sources = {
-  // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
+  // A read: SQLite rows to the declared `Book[]`. Integers arrive as
   // bigint, so convert them. At build (bake) time there is no storage: the
   // refusal's code is 'bake', and an empty list is the first frame's value.
   // The app asks again when it runs.
@@ -1019,13 +1026,13 @@ colours its placeholder (`color` alone, its alpha its own). A background, border
 browser; `appearance="none"` says so explicitly. A row on any conditional
 class or value arm counts. `appearance="auto"` asks for the native field and
 refuses those rows; `background-clip` and `background-attachment` are allowed.
-Appearance is a literal, from the class then your own attribute; use `when`
+Appearance is a literal, from the class then your own attribute; use `if`
 with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
 switch, the radio's `value` for `type="radio"`, a number for `type="range"`, and
-a `list<Picked>` for a file input. An action taking one more parameter also
+a `Picked[]` for a file input. An action taking one more parameter also
 hears the target as the event leaves it, an `InputEvent`: its `value` (a
 checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
 and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
@@ -1061,7 +1068,7 @@ JavaScript web target has no `openURL`, and Linux carries neither `focus` nor
 
 A file `input` with no `accept`, an empty `accept`, or `accept="*/*"` offers any
 file. A specific `accept` must be literal; types other than images and video
-must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
+must be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `Picked[]`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
 cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
@@ -1166,7 +1173,7 @@ title, an optional second `text` (a value) or a `column` of two texts (a
 subtitle), and an optional trailing accessory — a `forward-chevron` or
 `checkmark` image, a checkbox or switch `input`, or a `button` holding only
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
-and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `when`.
+and keeps its own views. A section written `background-color="transparent"` has no card: its rows sit on the list's background with no separators or corners, as a profile header does (LLP 1084 §6.2). That literal is the only `background-color` a section takes, and not beside a `class`; a section that gains and loses its card is two sections under `if`.
 
 ```text
 list appearance="auto" listStyle="inset-grouped" flex=1
@@ -1224,14 +1231,14 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=followLink width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 gap=8
           header
-            when e.name == "item"
+            if e.name == "item"
               button id="back" press=back testId=`back-${e.id}`
                 text "Back"
             text e.name role="heading" aria-level=1 testId=`route-${e.id}`
-          when e.name == "item"
+          if e.name == "item"
             text e.params.id
           button press=showItem testId=`open-${e.id}`
             text "Open item"
@@ -1330,8 +1337,8 @@ component Undo
     text toast testId="toast"
 ```
 
-The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
-`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+The timer exists while `toast != ""` holds, as an `if` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `for` row: a replaced toast
 gets its whole five seconds. Nothing runs when the gate changes, and an idle task
 keeps no host awake. The action runs at the deadline exactly, so it clears the
 toast without testing the time again. Gates and keys read state, never `performanceNow()`
@@ -1446,7 +1453,7 @@ component Responsive
   resource viewport = exactViewport() as shape Viewport
   view
     column
-      when viewport.width >= 900
+      if viewport.width >= 900
         text "Wide layout"
       else
         text "Compact layout"
@@ -1467,7 +1474,7 @@ component Finished
   resource page = exactPage() as shape Page
   view
     main
-      when page.hasFocus
+      if page.hasFocus
         text "Build finished" role="status"
 ```
 

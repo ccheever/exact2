@@ -193,6 +193,7 @@ fn auto_height_hidden_unsupported_and_nonabsolute_exclusions() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::Height),
+                written: false,
             },
             patch(3, &[(StyleId::Top, n(0.))]),
         ],
@@ -364,6 +365,7 @@ fn stretched_height_proof_survives_cache_hits_and_changed_parent_constraints() {
             Op::ClearStyle {
                 id: 2,
                 mask: StyleMask::of(StyleId::Height),
+                written: false,
             },
         ],
     )

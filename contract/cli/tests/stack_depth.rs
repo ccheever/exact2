@@ -20,7 +20,7 @@ fn nested_branch_source(branches: usize, kind: &str, wrapped: bool) -> String {
         if kind == "match" {
             source.push_str(&format!("{indent}match some(1)\n{indent}  case some(x)\n"));
         } else {
-            source.push_str(&format!("{indent}when true\n"));
+            source.push_str(&format!("{indent}if true\n"));
         }
     }
     source.push_str(&" ".repeat(base + branches * if kind == "match" { 4 } else { 2 }));

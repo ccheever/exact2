@@ -7,31 +7,28 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsIOSTests: XCTestCase {
-    // component Fieldless / view / column / box testId="fieldless" width=100 height=100 / hr testId="rule"
-    // Compiled fixture has no data/module dependencies: preparation must still
-    // supply a valid control environment even when no control is in the plan.
-    // Its `hr` is a hairline, which the display's scale resolves (LLP 1115.000
-    // D10.3). A plan carries the kernel schema's digest: compile it again when
-    // that moves (`contract build`, then base64).
-    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAAD91h+9C+HuvEOL3nN8v9tWGA1E2ggCJPIAAAAA//////////8JAAAABAAAAGZsZXgGAAAAY29sdW1uCQAAAGZpZWxkbGVzcwUAAABzb2xpZA8AAAAtZXhhY3QtaGFpcmxpbmUQAAAALWV4YWN0LXNlcGFyYXRvcgYAAABoaWRkZW4CAAAAaHIEAAAAcnVsZUIAAAAEKAIAAAAAKAIBAAAAKAICAAAAKAAAAAAAAABZQCgCAwAAACgCBAAAACgCBQAAACgCBgAAACgCBwAAACgCCAAAACgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAD//////////wAAAAAAAAAAAgAAAAAAAAAAAAAA/////wAAAAAA/////wAAAAACAAAAAwAAAAAAAAAAAAAA/////wAAAAAA/////wEAAAAFAAAABwAAAAAAAAAAAAAA/////wwAAAABHwACAAAABgAAAAABDgAIAAAABgAAAAAACwAOAAAABgAAAAEBAAAUAAAACgAAAAEBAQAUAAAACgAAAAEBWAAeAAAABgAAAAABKwAkAAAABgAAAAABSwAqAAAABgAAAAABIQAwAAAABgAAAAABIgAwAAAABgAAAAAAIQA2AAAABgAAAAAACwA8AAAABgAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")! }
+    // scripts/fixtures/fieldless.contract: no data or module, so preparation must still supply a
+    // valid control environment even when no control is in the plan; its `hr` is a hairline,
+    // which the display's scale resolves (LLP 1115.000 D10.3).
+    private func fieldlessPlan() throws -> Data { try fixturePlan("FIELDLESS") }
 
     func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
-        let app = ExactApp.shared
+        let app = ExactApp.shared, fieldless = try fieldlessPlan()
         let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
-        app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: AssetResolver(root: app.assetRoot)))
+        app.installInitial(ExactGeneration(plan: fieldless, assets: AssetResolver(root: app.assetRoot)))
         let session = app.makeSession(label: "selected-fieldless")
         session.presenter.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         defer {
             session.destroy()
             if let previous { app.installInitial(previous) }
             else {
-                app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: app.resolver, token: 1104))
+                app.installInitial(ExactGeneration(plan: fieldless, assets: app.resolver, token: 1104))
                 _ = app.fallBackFromInitial(reason: "test cleanup")
             }
         }
         XCTAssertNil(session.boot(size: CGSize(width: 400, height: 800)).error)
         XCTAssertTrue(session.presenter.views.values.contains { $0.props["testId"] == "fieldless" })
-        XCTAssertTrue(session.apply(fieldlessPlan))
+        XCTAssertTrue(session.apply(fieldless))
         XCTAssertTrue(session.presenter.views.values.contains { $0.props["testId"] == "fieldless" })
         XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
     }
@@ -42,9 +39,9 @@ final class NativeFieldsIOSTests: XCTestCase {
     /// that is never told stays at a whole point), and a drive's `prefer
     /// display-scale` moves it in the next batch.
     func testABootedSessionTellsItsDisplaysScaleAndAHairlineFollows() throws {
-        let app = ExactApp.shared
+        let app = ExactApp.shared, fieldless = try fieldlessPlan()
         let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
-        app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: AssetResolver(root: app.assetRoot)))
+        app.installInitial(ExactGeneration(plan: fieldless, assets: AssetResolver(root: app.assetRoot)))
         let session = app.makeSession(label: "display-scale")
         session.presenter.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         defer {
@@ -52,7 +49,7 @@ final class NativeFieldsIOSTests: XCTestCase {
             session.destroy()
             if let previous { app.installInitial(previous) }
             else {
-                app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: app.resolver, token: 1104))
+                app.installInitial(ExactGeneration(plan: fieldless, assets: app.resolver, token: 1104))
                 _ = app.fallBackFromInitial(reason: "test cleanup")
             }
         }

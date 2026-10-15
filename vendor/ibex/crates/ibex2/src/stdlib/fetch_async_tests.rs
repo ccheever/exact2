@@ -22,7 +22,7 @@ struct Scripted {
 }
 
 impl AsyncTransport for Scripted {
-    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
+    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Result<Exchange, HostError> {
         let calls = Arc::new(Mutex::new(Vec::new()));
         let (on, off) = (calls.clone(), calls.clone());
         self.started.lock().unwrap().push(Started {
@@ -33,10 +33,10 @@ impl AsyncTransport for Scripted {
         if let Some(hook) = self.on_start.lock().unwrap().take() {
             hook();
         }
-        Exchange::new(
+        Ok(Exchange::new(
             move || on.lock().unwrap().push("activate"),
             move || off.lock().unwrap().push("cancel"),
-        )
+        ))
     }
 }
 
@@ -63,7 +63,7 @@ struct Recorded {
     ended: AtomicUsize,
     metrics: Mutex<Vec<(String, HopMetrics)>>,
     /// Next hops held back, to start by hand.
-    held: Mutex<Option<Vec<Box<dyn FnOnce() + Send>>>>,
+    held: Mutex<Option<Vec<Job>>>,
     /// Run at a hop's end, as a caller's re-entrant abort would.
     on_end: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
@@ -620,10 +620,10 @@ struct Reentrant {
 }
 
 impl AsyncTransport for Reentrant {
-    fn start(&self, _request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
+    fn start(&self, _request: HopRequest, sink: Box<dyn Sink>) -> Result<Exchange, HostError> {
         *self.sink.lock().unwrap() = Some(sink);
         let held = self.sink.clone();
-        Exchange::new(
+        Ok(Exchange::new(
             || {},
             move || {
                 let sink = held.lock().unwrap().take();
@@ -631,7 +631,7 @@ impl AsyncTransport for Reentrant {
                     sink.end(cancel_error());
                 }
             },
-        )
+        ))
     }
 }
 
@@ -750,9 +750,18 @@ impl crate::stdlib::fetch::Transport for Answers {
 }
 
 fn adapter(body: &[u8], spawns: bool) -> BlockingAdapter {
-    let spawn: Spawn =
-        Arc::new(move |job| spawns && std::thread::Builder::new().spawn(job).is_ok());
-    BlockingAdapter::new(Arc::new(Answers(body.to_vec())), spawn)
+    struct Refuse;
+    impl WorkerService for Refuse {
+        fn reserve(&self) -> Result<Box<dyn ReservedWorker>, HostError> {
+            Err(HostError::Failed("HTTP worker capacity exhausted".into()))
+        }
+    }
+    let workers: Arc<dyn WorkerService> = if spawns {
+        Arc::new(BoundedWorkerPool::new(1, 2).unwrap())
+    } else {
+        Arc::new(Refuse)
+    };
+    BlockingAdapter::new(Arc::new(Answers(body.to_vec())), workers)
 }
 
 #[test]
@@ -780,7 +789,7 @@ fn a_blocking_transport_runs_as_an_asynchronous_one() {
 }
 
 #[test]
-fn an_adapter_with_no_thread_ends_the_exchange_at_once() {
+fn an_adapter_refusal_settles_without_an_accepted_exchange() {
     let events = Arc::new(Recorded::default());
     let abort = AbortController::new();
     FetchTask::start(
@@ -796,8 +805,8 @@ fn an_adapter_with_no_thread_ends_the_exchange_at_once() {
         .outcome()
         .unwrap_err()
         .to_string()
-        .contains("no thread"));
-    assert_eq!(events.ended.load(Ordering::SeqCst), 1);
+        .contains("capacity exhausted"));
+    assert_eq!(events.ended.load(Ordering::SeqCst), 0);
 }
 
 #[test]
@@ -822,4 +831,351 @@ fn an_adapters_declared_length_over_the_ceiling_is_refused() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     assert_eq!(events.outcome().unwrap_err(), over_limit(3));
+}
+
+#[test]
+fn reserved_capacity_refuses_without_callback_and_cancel_retires_without_activation() {
+    use std::sync::mpsc;
+    struct Observer(mpsc::Sender<(std::thread::ThreadId, Result<(), HostError>)>);
+    impl Sink for Observer {
+        fn head(&mut self, _: Head) -> Flow {
+            panic!("cancelled request reached transport")
+        }
+        fn data(&mut self, _: &[u8]) -> Flow {
+            panic!("cancelled request delivered bytes")
+        }
+        fn end(&mut self, result: Result<(), HostError>) {
+            self.0.send((std::thread::current().id(), result)).unwrap();
+        }
+    }
+    let workers = Arc::new(BoundedWorkerPool::new(1, 1).unwrap());
+    let transport = BlockingAdapter::new(Arc::new(Answers(vec![])), workers.clone());
+    let request = || HopRequest {
+        method: "GET".into(),
+        url: "https://a.example/".into(),
+        headers: Headers::new(),
+        body: None,
+        max_body: 16,
+        timeout: None,
+    };
+    let (tx, rx) = mpsc::channel();
+    let exchange = transport
+        .start(request(), Box::new(Observer(tx.clone())))
+        .unwrap();
+    assert!(transport.start(request(), Box::new(Observer(tx))).is_err());
+    assert!(rx.try_recv().is_err());
+    let caller = std::thread::current().id();
+    exchange.cancel(); // No activate call is needed for retirement.
+    exchange.cancel();
+    let (thread, result) = rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
+    assert_ne!(thread, caller, "no inline cancellation callback");
+    assert_eq!(result.unwrap_err(), aborted());
+    assert!(rx.try_recv().is_err());
+    assert!(workers.reserve().is_ok());
+}
+
+#[test]
+fn worker_guards_live_through_pool_retirement_and_job_panics() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    struct Guard(mpsc::Sender<std::thread::ThreadId>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.send(std::thread::current().id()).unwrap();
+        }
+    }
+    let (retired_tx, retired_rx) = mpsc::channel();
+    let pool = BoundedWorkerPool::with_worker_guards(vec![Guard(retired_tx)], 2).unwrap();
+    let pending = pool.reserve().unwrap();
+    let running = pool.reserve().unwrap();
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    running.dispatch(Box::new(move || {
+        started_tx.send(std::thread::current().id()).unwrap();
+        release_rx.recv().unwrap();
+        panic!("a panicking job must not release the worker guard");
+    }));
+    let worker = started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    drop(pool);
+    assert!(
+        retired_rx.try_recv().is_err(),
+        "running worker still owns its guard"
+    );
+    release_tx.send(()).unwrap();
+    let (drained_tx, drained_rx) = mpsc::channel();
+    pending.dispatch(Box::new(move || {
+        assert!(
+            retired_rx.try_recv().is_err(),
+            "guard outlives accepted jobs"
+        );
+        drained_tx.send(retired_rx).unwrap();
+    }));
+    let retired_rx = drained_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(
+        retired_rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        worker
+    );
+    assert_ne!(worker, std::thread::current().id());
+}
+
+#[test]
+fn idle_worker_guards_retire_on_the_workers() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    struct Guard(mpsc::Sender<std::thread::ThreadId>);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            self.0.send(std::thread::current().id()).unwrap();
+        }
+    }
+    let (tx, rx) = mpsc::channel();
+    let pool =
+        BoundedWorkerPool::with_worker_guards(vec![Guard(tx.clone()), Guard(tx)], 1).unwrap();
+    let pending = pool.reserve().unwrap();
+    drop(pool);
+    assert!(
+        rx.try_recv().is_err(),
+        "reservation retains both idle workers"
+    );
+    drop(pending);
+    let first = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let second = rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_ne!(first, second);
+    assert_ne!(first, std::thread::current().id());
+    assert_ne!(second, std::thread::current().id());
+}
+
+#[test]
+fn callback_can_overlap_activation_return_and_duplicate_end_is_ignored() {
+    struct Overlap;
+    impl AsyncTransport for Overlap {
+        fn start(&self, _: HopRequest, mut sink: Box<dyn Sink>) -> Result<Exchange, HostError> {
+            Ok(Exchange::new(
+                move || {
+                    // Transport activation waits for another context only in this
+                    // deterministic fixture, proving no return handshake is assumed.
+                    std::thread::spawn(move || {
+                        sink.head(head(200, &[], Some(1)));
+                        sink.data(b"x");
+                        sink.end(Ok(()));
+                        sink.end(Ok(()));
+                    })
+                    .join()
+                    .unwrap();
+                },
+                || {},
+            ))
+        }
+    }
+    let events = Arc::new(Recorded::default());
+    let task = FetchTask::start(
+        Arc::new(Overlap),
+        granted(&["a.example"]),
+        Request::get("https://a.example/"),
+        None,
+        AbortSignal::default(),
+        CAPS,
+        events.clone(),
+    );
+    assert_eq!(events.outcome().unwrap().body, b"x");
+    assert_eq!(events.ended.load(Ordering::SeqCst), 1);
+    task.abort();
+    assert!(events.outcome().is_ok());
+}
+
+#[test]
+fn completed_sink_for_late_metrics_does_not_retain_task_or_transport() {
+    let transport = Arc::new(Scripted::default());
+    let weak = Arc::downgrade(&transport);
+    let events = Arc::new(Recorded::default());
+    let task = FetchTask::start(
+        transport.clone(),
+        granted(&["a.example"]),
+        Request::get("https://a.example/"),
+        None,
+        AbortSignal::default(),
+        CAPS,
+        events.clone(),
+    );
+    let mut hop = transport.take(0);
+    hop.sink.head(head(200, &[], None));
+    hop.sink.end(Ok(()));
+    drop(task);
+    drop(transport);
+    assert!(
+        weak.upgrade().is_none(),
+        "late metrics must not retain the fetch"
+    );
+    hop.sink.metrics(HopMetrics::default());
+    assert_eq!(events.metrics.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn panicking_outcome_does_not_skip_cancellation_or_physical_retirement() {
+    struct Panicking(AtomicUsize);
+    impl FetchEvents for Panicking {
+        fn outcome(&self, _: Result<Collected, HostError>) {
+            panic!("consumer panic")
+        }
+        fn hop_ended(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let transport = Arc::new(Reentrant::default());
+    let events = Arc::new(Panicking(AtomicUsize::new(0)));
+    let task = FetchTask::start(
+        transport,
+        granted(&["a.example"]),
+        Request::get("https://a.example/"),
+        None,
+        AbortSignal::default(),
+        CAPS,
+        events.clone(),
+    );
+    task.abort();
+    assert_eq!(events.0.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn one_worker_and_one_pending_slot_can_follow_a_redirect() {
+    struct Redirect(std::sync::atomic::AtomicUsize);
+    impl crate::stdlib::fetch::Transport for Redirect {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &AbortSignal,
+        ) -> Result<crate::stdlib::fetch::StreamingResponse, HostError> {
+            let first = self.0.fetch_add(1, Ordering::SeqCst) == 0;
+            let mut headers = Headers::new();
+            if first {
+                headers.set("location", "/next");
+            }
+            Ok(crate::stdlib::fetch::Response {
+                status: if first { 302 } else { 200 },
+                status_text: String::new(),
+                headers,
+                body: b"ok".to_vec(),
+                url: request.url.clone(),
+                redirected: false,
+            }
+            .into_stream(request.body_limit(), signal.clone()))
+        }
+    }
+    let adapter = BlockingAdapter::new(
+        Arc::new(Redirect(AtomicUsize::new(0))),
+        Arc::new(BoundedWorkerPool::new(1, 1).unwrap()),
+    );
+    let events = Arc::new(Recorded::default());
+    FetchTask::start(
+        Arc::new(adapter),
+        granted(&["a.example"]),
+        Request::get("https://a.example/"),
+        None,
+        AbortSignal::default(),
+        CAPS,
+        events.clone(),
+    );
+    for _ in 0..500 {
+        if !events.none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(events.outcome().unwrap().body, b"ok");
+    assert_eq!(events.ended.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn unlimited_sentinels_are_refused_before_transport_admission() {
+    let mut request = Request::get("https://a.example/");
+    request.max_body = Some(usize::MAX);
+    let (transport, events, _) = start(request, None, &["a.example"]);
+    assert!(matches!(
+        events.outcome(),
+        Err(HostError::InvalidArgument(_))
+    ));
+    assert_eq!(transport.count(), 0);
+}
+
+#[test]
+fn blocking_and_async_share_the_redirect_and_grant_corpus() {
+    use crate::stdlib::fetch::{fetch, RedirectMode, Response, StreamingResponse, Transport};
+    struct Replay(Mutex<std::collections::VecDeque<Response>>);
+    impl Transport for Replay {
+        fn open(
+            &self,
+            request: &Request,
+            signal: &AbortSignal,
+        ) -> Result<StreamingResponse, HostError> {
+            let mut response = self.0.lock().unwrap().pop_front().unwrap();
+            response.url = request.url.clone();
+            Ok(response.into_stream(request.body_limit(), signal.clone()))
+        }
+    }
+    for (status, location, mode) in [
+        (302, "/next", RedirectMode::Follow),
+        (303, "/next", RedirectMode::Follow),
+        (307, "/next", RedirectMode::Follow),
+        (308, "/next", RedirectMode::Follow),
+        (302, "https://denied.example/", RedirectMode::Follow),
+        (302, "http://[", RedirectMode::Follow),
+        (302, "/next", RedirectMode::Manual),
+        (302, "/next", RedirectMode::Error),
+    ] {
+        let mut request = Request::get("https://a.example/");
+        request.method = "POST".into();
+        request.body = Some(b"upload".to_vec());
+        request.redirect = mode;
+        let mut redirect_headers = Headers::new();
+        redirect_headers.set("location", location);
+        let responses = vec![
+            Response {
+                status,
+                status_text: String::new(),
+                headers: redirect_headers,
+                body: b"redirect".to_vec(),
+                url: String::new(),
+                redirected: false,
+            },
+            Response {
+                status: 200,
+                status_text: String::new(),
+                headers: Headers::new(),
+                body: b"ok".to_vec(),
+                url: String::new(),
+                redirected: false,
+            },
+        ];
+        let blocking = fetch(
+            &Replay(Mutex::new(responses.clone().into())),
+            &granted(&["a.example"]),
+            request.clone(),
+        )
+        .map(|r| (r.status, r.url, r.body, r.redirected));
+        let (transport, events, _) = start(request, None, &["a.example"]);
+        for response in responses {
+            if transport.count() == 0 {
+                break;
+            }
+            let mut exchange = transport.take(0);
+            if exchange.sink.head(Head {
+                status: response.status,
+                headers: response.headers,
+                declared_length: None,
+            }) == Flow::Continue
+            {
+                exchange.sink.data(&response.body);
+                exchange.sink.end(Ok(()));
+            } else {
+                exchange.sink.end(cancel_error());
+            }
+        }
+        let asynchronous = events
+            .outcome()
+            .map(|r| (r.status, r.url, r.body, r.redirected));
+        assert_eq!(
+            blocking, asynchronous,
+            "status {status}, location {location}, mode {mode:?}"
+        );
+    }
 }

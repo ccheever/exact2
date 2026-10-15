@@ -5,7 +5,7 @@ component App
   state last = ""
   state field = ""
   state edits = 0
-  derive full = trim(`${first} ${last}`)
+  derive full = `${first} ${last}`.trim()
   action setFirst(v: string)
     first = v
     edits = edits + 1

@@ -33,13 +33,13 @@ const ROWS: &str = r#"shape Tag
   id: string
 shape Item
   id: string
-  tags: list<Tag>
+  tags: Tag[]
 
 component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
-      each it in items key=it.id
+      for it in items key=it.id
         Row(item=it)
 
 component Row
@@ -53,12 +53,12 @@ component Row
       button press=bump testId=`bump-${item.id}`
         text "bump"
       text `${n}` testId=`direct-${item.id}`
-      each t in item.tags key=t.id
+      for t in item.tags key=t.id
         column
           text `${n}` testId=`keyed-${t.id}`
           button press=bump testId=`inner-${t.id}`
             text "inner"
-      when n >= 0
+      if n >= 0
         text `${n}` testId=`arm-${item.id}`
       Count(n=n, id=item.id)
 

@@ -92,7 +92,7 @@ fn view_of(k: &Kernel, test_id: &str) -> u32 {
 
 fn main() {
     if std::env::args().any(|arg| arg == "--flow") {
-        flow_metrics();
+        flow_metrics(22);
         return;
     }
     // A native tool that boots the whole plan links every capability (LLP 1047 D7).
@@ -275,18 +275,18 @@ fn list_memory(count: usize, hold: bool, virtualized: bool) {
     let source = r#"shape Row
   id: number
 component App
-  resource rows = rows() as shape list<Row>
+  resource rows = rows() as shape Row[]
   view
     scroll height=844 width=390
       column
-        each row in rows key=row.id
+        for row in rows key=row.id
           text `${row.id}` testId=`row-${row.id}` height=24 flex-shrink=0
 "#;
     // Compile outside the measured interval; retain only the encoded input.
     // The decoded plan and source data below are counted separately once,
     // even when runner values share their storage through Rc.
     let source = if virtualized {
-        source.replace("scroll height=844 width=390\n      column\n        each row in rows key=row.id\n          text", "list virtualized=true estimated-item-height=24 height=844 width=390 overflow-x=\"hidden\"\n      each row in rows key=row.id\n        text")
+        source.replace("scroll height=844 width=390\n      column\n        for row in rows key=row.id\n          text", "list virtualized=true estimated-item-height=24 height=844 width=390 overflow-x=\"hidden\"\n      for row in rows key=row.id\n        text")
     } else {
         source.to_string()
     };
@@ -454,8 +454,8 @@ component App
   state count = 0
   state reverse = false
   state shown = true
-  resource rows = rows(reverse) as shape list<Row>
-  derive total = length(rows)
+  resource rows = rows(reverse) as shape Row[]
+  derive total = rows.length
   action bump
     count = count + 1
   action reorder
@@ -471,8 +471,8 @@ component App
       button press=topology testId="topology"
         text "topology"
       text `${total}`
-      when shown
-        each row in rows key=row.id
+      if shown
+        for row in rows key=row.id
           text `${row.id}` testId=`row-${row.id}`
 "#;
     let plan = contract::compile(source).unwrap();
@@ -886,7 +886,7 @@ component App
   state reverse = false
   state revision = 0
   state shown = true
-  resource rows = rows(reverse, revision) as shape list<Row>
+  resource rows = rows(reverse, revision) as shape Row[]
   action edit(value)
     draft = value
   action bump
@@ -900,9 +900,9 @@ component App
   view
     column height=844 width=390
       input value=draft change=edit height=24 flex-shrink=0
-      when shown
+      if shown
         list virtualized=VIRTUALIZED height=800 width=390
-          each row in rows key=row.id
+          for row in rows key=row.id
             Item(id=row.id, body=body)
 component Item
   props
@@ -1142,7 +1142,9 @@ fn flow_layout(kernel: &mut Kernel) -> exact_kernel::LayoutReceipt {
         .compute_layout(1, Offer::definite(800., 2000.))
         .unwrap()
 }
-fn flow_metrics() {
+/// The flow benchmark over `samples` timed samples a phase (the first discarded as warm-up),
+/// asserting each sample's passes, comparisons and frames.
+fn flow_metrics(samples_per_phase: usize) {
     use exact_kernel::{StyleId, StyleValue};
     let mut rows = Vec::new();
     for leaves in [8, 32] {
@@ -1153,7 +1155,7 @@ fn flow_metrics() {
             let mut comparison_counts = Vec::new();
             let mut measurements = Vec::new();
             // The first sample warms code/allocator pages and is discarded.
-            for sample in 0..22 {
+            for sample in 0..samples_per_phase {
                 let mut kernel = flow_page(leaves, phase != "plain_still", calls.clone());
                 if phase != "cold" {
                     flow_layout(&mut kernel);
@@ -1216,7 +1218,9 @@ fn flow_metrics() {
     println!("{{\"flow\":[{}]}}", rows.join(","));
 }
 
+// Every sample of a phase is the same deterministic work, so the test takes the warm-up and
+// one measured sample; the benchmark (`--flow`) takes 22 for its timings
 #[test]
 fn flow_metrics_exercises_serial_settlement_and_cached_layout() {
-    flow_metrics();
+    flow_metrics(2);
 }

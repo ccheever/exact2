@@ -5,12 +5,12 @@ shape Item
 
 component App
   state z = 0
-  resource items = items(z) as shape list<Item>
+  resource items = items(z) as shape Item[]
   action negate
     z = -z
   view
     column
-      text `${length(items)}` testId="n"
+      text `${items.length}` testId="n"
       button "negate" press=negate testId="negate"
 
 test "negate the argument"

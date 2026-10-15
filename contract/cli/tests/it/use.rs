@@ -231,7 +231,7 @@ fn two_files_of_the_same_names_load_together_and_each_reads_its_own() {
     .unwrap();
     std::fs::write(
         dir.join("app.contract"),
-        "use Button from \"./ui.contract\"\nshape Item\n  s: string\nfn clamp(x: number): number = x + 1\nstyle Pad\n  padding-top=20\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    column\n      Button()\n      Card()\ncomponent Card\n  view\n    column testId=\"app-card\" class=Pad width=clamp(1) animation=`pulse ${length(Item(s=\"x\").s)}s`\n",
+        "use Button from \"./ui.contract\"\nshape Item\n  s: string\nfn clamp(x: number): number = x + 1\nstyle Pad\n  padding-top=20\nkeyframes pulse\n  to opacity=1\ncomponent App\n  view\n    column\n      Button()\n      Card()\ncomponent Card\n  view\n    column testId=\"app-card\" class=Pad width=clamp(1) animation=`pulse ${Item(s=\"x\").s.length}s`\n",
     )
     .unwrap();
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();

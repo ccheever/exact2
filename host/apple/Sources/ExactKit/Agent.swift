@@ -425,7 +425,17 @@ public final class Agent {
     /// refuses them — it decides.
     func prefer(_ req: [String: Any]) -> [String: Any] {
         let media = req["media"] as? [String: String], page = req["page"] as? [String: Any], fold = req["fold"] as? [String: Any]
-        guard media != nil || page != nil || fold != nil else { return ["error": "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        let mode = req["mode"] as? [String: String]
+        guard media != nil || page != nil || fold != nil || mode != nil else { return ["error": "prefer needs media, page, fold or mode: {\"prefers-reduced-motion\": \"reduce\", …}"] }
+        // @ref LLP 1121 D13 — the mode group: checked before any fact is set,
+        // set after every other one in one commit; the scheme stays the system's.
+        var modes: [String: String]?
+        if let mode {
+            if mode.contains(where: { "\($0.key)\($0.value)".contains(where: { $0 == "," || $0 == "=" }) }) { return ["error": "prefer mode: an axis or value holds no `,` or `=`"] }
+            let checked = session.runtime.setModes(mode, check: true)
+            if let error = checked.error { return ["error": "prefer mode: \(error)"] }
+            modes = checked.modes
+        }
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
@@ -461,9 +471,9 @@ public final class Agent {
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
             case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
-            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
+            case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: facts.rootFontSize = Double(value)!
             // The display's scale as the kernel is told it (LLP 1115.000 D10.3): layout follows; the display draws at its own.
-            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: PageFacts.agentDisplayScale = Double(value)!
+            case ("display-scale", _) where (Double(value) ?? 0) > 0 && Float(Double(value)!).isFinite: PageFacts.agentDisplayScale = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
         }
@@ -479,6 +489,13 @@ public final class Agent {
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
+        if let mode {
+            // An empty group asks again: the other facts' commits may have run a `setMode`.
+            let batch = session.runtime.setModes(mode, check: mode.isEmpty)
+            if !mode.isEmpty { session.apply(batch) }
+            if let error = batch.error { return ["error": "prefer mode: \(error)"] }
+            modes = batch.modes
+        }
         var pageFacts: [String: Any] = ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                                        "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
                                        "has-focus": PageFacts.hasFocus(session.pageWindow), "root-font-size": PageFacts.rootFontSize,
@@ -488,7 +505,7 @@ public final class Agent {
         pageFacts["keyboard-navigation"] = KeyboardNavigation.on
         #endif
         let keyword = { (on: Bool) in on ? "reduce" : "no-preference" }
-        return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
+        var reply: [String: Any] = ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
                           "prefers-color-scheme": systemDark ? "dark" : "light",
@@ -497,6 +514,8 @@ public final class Agent {
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": pageFacts,
                 "fold": presenter.fold.env]
+        if let modes { reply["mode"] = modes }
+        return reply
     }
 
     /// The `fold` group: `posture` (`folded` | `continuous`), `cols` and

@@ -28,7 +28,7 @@ shape Row
   n: number
 
 shape Rows
-  items: list<Row>
+  items: Row[]
 
 // The map providers installed, for the "Open in…" chooser (LLP 1021): rows
 // from data, because only the run time knows what is installed.
@@ -38,7 +38,7 @@ shape Provider
   icon: string
 
 shape Providers
-  items: list<Provider>
+  items: Provider[]
 
 component NativeFixture
   state popoverValue = ""
@@ -183,7 +183,7 @@ component NativeFixture
   action onChange(v: string)
     events = events + "change:" + v + ";"
   action onHover(over: bool)
-    events = events + "hover:" + toString(over) + ";"
+    events = events + "hover:" + over.toString() + ";"
   action onFocus
     events = events + "focus;"
   action onBlur
@@ -193,7 +193,7 @@ component NativeFixture
   action onSubmit
     events = events + "submit;"
   action onMessage(m: string)
-    if includes(m, "props:")
+    if m.includes("props:")
       received = m
     else
       events = events + "message:" + m + ";"
@@ -278,9 +278,9 @@ component NativeFixture
   action openMenu
     nav = push(nav, "/menu")
   action moreMenu
-    menuItems = concat(menuItems, [length(menuItems)])
+    menuItems = menuItems.concat([menuItems.length])
   action fewerMenu
-    menuItems = slice(menuItems, 0, -1)
+    menuItems = menuItems.slice(0, -1)
   action toggleMenuLarge
     menuLarge = not menuLarge
   action openSheet
@@ -337,9 +337,9 @@ component NativeFixture
   view
     main data-mood=(composed > 0 ? "busy" : "calm") navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="navigation" width="100%" height="100%" display="flex" flex-direction=(tabsAtTop ? "column-reverse" : "column") background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
-            each e in t.stack key=e.id
+            for e in t.stack key=e.id
               // Second names no scroller: its `scroll` right after the header
               // is the bar's with nothing written (LLP 1115.000 D11.1), and
               // its large title collapses with it. The others name theirs.
@@ -347,15 +347,15 @@ component NativeFixture
                 // Photo is a full-bleed viewer that draws its own Close: it
                 // says it has no bar (`navigationBar="none"`, LLP 1115.000
                 // D5.2). Menu, a sheet's first route, has nothing to go back to.
-                when e.name != "photo" and e.name != "menu" and not tabsAtTop
+                if e.name != "photo" and e.name != "menu" and not tabsAtTop
                   header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
-                    when e.name == "detail" or e.name == "rows" or e.name == "chat"
+                    if e.name == "detail" or e.name == "rows" or e.name == "chat"
                       button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
                         image "symbol:back" width=20 height=20
-                    when e.name == "sheet"
+                    if e.name == "sheet"
                       button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
                         image "symbol:close" width=20 height=20
-                    when e.name == "home"
+                    if e.name == "home"
                       // A drawn face (LLP 1075.003 §9.6): a button whose one
                       // child is a filled box holding a text is an image item.
                       button press=compose aria-label="Profile" testId="badge-item" padding=0
@@ -376,35 +376,41 @@ component NativeFixture
                           text "Missed"
                     // A pressable group around the heading, with an avatar and
                     // a subtitle: the item's title, drawn, tapped (§9.10).
-                    when e.name == "chat"
+                    if e.name == "chat"
                       button press=pressTitle testId="title-group" display="flex" flex-direction="row" flex=1 align-items="center" gap=8
                         column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
                           text "CD" font-size=13 color="#166534"
                         column
                           text "Chat" role="heading" aria-level=2 testId="title-chat" font-weight=700 font-size=17
-                          when subtitle != "" and not muted
+                          if subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
-                          when muted
+                          if muted
                             row gap=3 align-items="center" testId="subtitle-glyphs" aria-label="Muted, disappearing messages after 1 week"
                               image "symbol:sf/bell.slash" width=12 height=12 object-fit="contain"
                               text "Muted" font-size=12 color="#6b7280"
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"
                               text "1w" font-size=12 color="#6b7280"
-                    when e.name != "chat"
+                    if e.name != "chat"
                       text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : e.name == "plain" ? "Plain" : e.name == "note" ? "Note" : "Second") role="heading" aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                     // The heading the header holds directly: the first text
                     // after it is the bar's subtitle; a second is not shown
                     // on iOS, which the agent says (LLP 1116 D2).
-                    when e.name == "plain"
+                    if e.name == "plain"
                       text "No Back control" testId="subtitle-plain" font-size=12 color="#6b7280"
                       text "Draft" testId="aside-plain" font-size=12 color="#6b7280"
                     button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                       image "symbol:compose" width=20 height=20
-                when e.name == "home"
+                if e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
                     button appearance="none" press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
-                when e.name == "home"
+                    // Rows that open a confirmation, with no handler or after one: it presents
+                    // once the menu has gone, from the bar item.
+                    button appearance="none" commandfor="clear-confirm" command="show-modal" role="menuitem" testId="bar-menu-clear" height=44 text-align="start"
+                      text "Clear count…"
+                    button appearance="none" press=refreshProviders popovertarget="open-in-sheet" popovertargetaction="show" role="menuitem" testId="bar-menu-open-in" height=44 text-align="start"
+                      text "Open in…"
+                if e.name == "home"
                   column testId="fixture" gap=8 padding=12
                     row gap=6 flex-wrap="wrap"
                       button press=detail testId="detail" padding=6 background-color="#e5e7eb"
@@ -435,7 +441,7 @@ component NativeFixture
                         text "Note"
                       column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                         head description="Badge"
-                    text ("composed " + toString(composed)) testId="composed"
+                    text ("composed " + composed.toString()) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
                         image "symbol:compose" width=20 height=20
@@ -467,7 +473,7 @@ component NativeFixture
                         text "Open in (sheet)"
                       text ("opened " + opened) testId="opened"
                     column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      each p in providerItems key=p.id
+                      for p in providerItems key=p.id
                         button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
                           image p.icon width=24 height=24
                           text p.name
@@ -477,7 +483,7 @@ component NativeFixture
                       button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
                         text "Cancel"
                     column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      each p in providerItems key=p.id
+                      for p in providerItems key=p.id
                         button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in-sheet" popovertargetaction="hide" testId=`open-in-sheet-${p.id}` height=44
                           text p.name
                       button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
@@ -487,7 +493,7 @@ component NativeFixture
                     // preview's press is the commit, popping into Detail.
                     button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
                       text "Peek at Detail" flex=1
-                      text ("peeks " + toString(peeks)) testId="peeks" font-size=12 color="#6b7280"
+                      text ("peeks " + peeks.toString()) testId="peeks" font-size=12 color="#6b7280"
                     column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
                       button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
                         text "Detail" font-weight=700 font-size=20
@@ -515,8 +521,8 @@ component NativeFixture
                         text "Grow content"
                       button appearance="none" press=sizing testId="sizing" padding=6
                         text "Toggle intrinsic size"
-                    text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
-                    when shown
+                    text ("count " + count.toString() + " · loads " + loads.toString()) testId="counts"
+                    if shown
                       exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
                     exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
                     exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
@@ -539,7 +545,7 @@ component NativeFixture
                         text "Inert on blur"
                       button testId="blur-wrapper" press=blurWrapper retainFocus=true
                         text "Blur wrapper"
-                    when shown
+                    if shown
                       column inert=inputInert display=(inputHidden ? "none" : "block")
                         button "Before input" testId="before-input"
                         exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
@@ -554,9 +560,9 @@ component NativeFixture
                       input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
                       exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
                       button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
-                when e.name == "rows"
+                if e.name == "rows"
                   HatchedRows(items=rowItems)
-                when e.name == "detail"
+                if e.name == "detail"
                   row gap=6 padding=12 flex-shrink=0
                     button press=breakOwnership testId="violate" padding=6 background-color="#e5e7eb"
                       text "Violate"
@@ -564,56 +570,56 @@ component NativeFixture
                       text "Scroll 80"
                     button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
                       text "Scroll 0"
-                when e.name == "detail"
+                if e.name == "detail"
                   row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0 flex-wrap="wrap"
                     input hatch="feed" data-feed=feedWith value=fed input=setFed testId="fed" aria-label="Fed" placeholder="Fed" width=90 padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
                     button press=feed testId="feed" padding=6 background-color="#e5e7eb"
                       text "Feed"
-                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? toString(hatchPresses) : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
-                      text ("Pressed " + toString(hatchPresses))
+                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? hatchPresses.toString() : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
+                      text ("Pressed " + hatchPresses.toString())
                     button press=arm testId="arm" padding=6 background-color="#e5e7eb"
                       text "Arm"
                     button press=loop testId="loop" padding=6 background-color="#e5e7eb"
                       text "Loop"
                     button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
                       text "Stop"
-                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    column hatch="clock" data-frames=frameCount.toString() data-run=(clocking ? "true" : "false") data-presses=clockPresses.toString() press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
                     button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
                       text "Clock"
                     button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
                       text "Halt"
-                when e.name == "detail"
+                if e.name == "detail"
                   row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0
                     row testId="post-row" press=openPost flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6 background-color="#f3f4f6"
                       column testId="post-card" press=openCard flex=1 height=24 background-color="#dbeafe"
                     row testId="post-actions" flex=1 padding-left=40 padding-right=40 padding-top=6 padding-bottom=6
                       column testId="post-like" press=like flex=1 height=24 background-color="#fee2e2"
-                when e.name == "detail"
+                if e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
-                      text ("composed " + toString(composed)) testId="composed-detail"
+                      text ("composed " + composed.toString()) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
                 // An "Open in…" at the foot of a card (LLP 1021 §5): its
                 // chooser above it, centred on it (`top span-all`), as a menu
                 // and as a sheet. Below the Detail screen's scroll, so it stays at
                 // the foot whatever the screen's height.
-                when e.name == "detail"
+                if e.name == "detail"
                   row testId="open-above-card" gap=6 padding=12 flex-shrink=0 justify-content="center"
                     button press=refreshProviders popovertarget="open-above" testId="open-above" padding=6 background-color="#e5e7eb"
                       text "Open in (above)"
                     button press=refreshProviders popovertarget="open-above-sheet" testId="open-above-sheet" padding=6 background-color="#e5e7eb"
                       text "Open in (sheet above)"
                     column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" margin-bottom=12 role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      each p in providerItems key=p.id
+                      for p in providerItems key=p.id
                         button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-above" popovertargetaction="hide" role="menuitemradio" testId=`open-above-${p.id}` height=44
                           text p.name
                     column id="open-above-sheet" popover="auto" position="absolute" position-area="top span-all" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
-                      each p in providerItems key=p.id
+                      for p in providerItems key=p.id
                         button press=openIn(p.id) popovertarget="open-above-sheet" popovertargetaction="hide" testId=`open-above-sheet-${p.id}` height=44
                           text p.name
                       button popovertarget="open-above-sheet" popovertargetaction="hide" testId="open-above-sheet-cancel" height=44
                         text "Cancel"
-                when e.name == "chat"
+                if e.name == "chat"
                   scroll id="list-chat" testId="list-chat" flex=1 min-height=0
                     column padding=12 gap=8 min-height="100%" box-sizing="border-box"
                       button press=openPhoto testId="photo" padding=6 background-color="#e5e7eb"
@@ -624,18 +630,18 @@ component NativeFixture
                         text "Muted"
                       button press=toggleShortChat testId="toggle-short-chat" padding=6 background-color="#e5e7eb"
                         text "Short"
-                      text ("title presses " + toString(titlePresses)) testId="title-presses"
-                      when not shortChat
+                      text ("title presses " + titlePresses.toString()) testId="title-presses"
+                      if not shortChat
                         column testId="tall-chat" height=1600 background-color="#f0fdf4"
                       text "End" testId="chat-end" margin-top="auto"
                 // Rows that may shrink (CSS's default), measured as asked for.
-                when e.name == "menu"
+                if e.name == "menu"
                   column testId="menu-rows" padding=16
                     button press=moreMenu testId="menu-more" height=44
                       text "More"
                     button press=fewerMenu testId="menu-fewer" height=44
                       text "Fewer"
-                    each i in menuItems key=i
+                    for i in menuItems key=i
                       row height=44
                         text `Row ${i}`
                     button id="back" press=back testId="menu-close" height=44
@@ -644,7 +650,7 @@ component NativeFixture
                       text "Close both"
                 // A sheet over a sheet: the menu pushed over Sheet presents
                 // from Sheet's controller, and closing it returns to Sheet.
-                when e.name == "sheet"
+                if e.name == "sheet"
                   column testId="sheet-body" padding=16
                     button press=openMenu testId="sheet-menu" height=44
                       text "Menu over the sheet"
@@ -654,14 +660,14 @@ component NativeFixture
                     // Back and the edge swipe pop it back to Sheet.
                     button press=detail testId="sheet-detail" height=44
                       text "Detail in the sheet"
-                when e.name == "plain" and focusPlain
+                if e.name == "plain" and focusPlain
                   input testId="plain-first" aria-label="First field" autofocus=true margin=12 height=32
                   input testId="plain-second" aria-label="Second field" autofocus=true margin=12 height=32
-                when e.name == "photo"
+                if e.name == "photo"
                   column testId="photo-view" flex=1 background-color="#000000" padding=12
                     button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
                       text "Close"
-                when e.name == "second" and secondPage == ""
+                if e.name == "second" and secondPage == ""
                   scroll id="list-second" testId="list-second" flex=1 min-height=0
                     column padding=12 gap=8
                       input appearance="none" value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
@@ -674,14 +680,14 @@ component NativeFixture
                       column testId="tall-second" height=1600 background-color="#eef2ff"
                       button press=showSecondPage("taller") testId="second-taller" padding=6 background-color="#e5e7eb"
                         text "Taller"
-                when e.name == "second" and secondPage == "taller"
+                if e.name == "second" and secondPage == "taller"
                   scroll id="list-second" testId="list-second-taller" flex=1 min-height=0
                     column padding=12 gap=8
                       text "Taller" testId="second-taller-top"
                       button press=showSecondPage("shorter") testId="second-shorter" padding=6 background-color="#e5e7eb"
                         text "Shorter"
                       column height=2400 background-color="#fef3c7"
-                when e.name == "second" and secondPage == "shorter"
+                if e.name == "second" and secondPage == "shorter"
                   scroll id="list-second" testId="list-second-shorter" flex=1 min-height=0
                     column padding=12 gap=8
                       text "Shorter" testId="second-shorter-top"
@@ -703,24 +709,24 @@ component NativeFixture
             text "pill" font-size=8
             box width=4 height=4 background-color="#ef4444"
           // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
-          when count > 0
+          if count > 0
             column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
-              text toString(count) font-size=10 color="#ffffff"
+              text count.toString() font-size=10 color="#ffffff"
       // A root toast after the tablist, positioned with no z-index: it
       // paints and takes touches over the routes, as later positioned
       // siblings do on the web (contract/corpus/tabs.contract; splitter
       // rough 3).
-      when toast != ""
+      if toast != ""
         button press=hush testId="root-toast" position="absolute" top=60 left=16 right=16 padding=12 background-color="#111827" border-radius=8
           text toast color="#ffffff"
-      when overlayShown
+      if overlayShown
         column testId="root-overlay" role="dialog" aria-label="Overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
           button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
             text "Close"
 
 component HatchedRows
   props
-    items: list<Row>
+    items: Row[]
   state reuse = false
   action toggleReuse
     reuse = not reuse
@@ -734,9 +740,9 @@ component HatchedRows
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
       list virtualized=true hatch="feed" width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
-        each r in items key=r.n
+        for r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
-            text ("Row " + toString(r.n))
+            text ("Row " + r.n.toString())
             button press=toggleReuse testId=`row-button-${r.n}`
               text "Toggle"

@@ -161,7 +161,7 @@ impl Directory {
         let file = open(self, leaf, FILE_READ_DATA, FILE_OPEN, false)?;
         let meta = file.metadata()?;
         if meta.is_dir() {
-            return Err(refuse("cannot read a directory (filesystem code EISDIR)"));
+            return Err(io::Error::new(io::ErrorKind::IsADirectory, "EISDIR"));
         }
         if !meta.is_file() {
             return Err(refuse("document must be a regular file"));

@@ -8,10 +8,10 @@ import { Cdp } from '../../scripts/agent.mjs';
 import { chromium } from '../../scripts/agent-launch.mjs';
 import { collectionBytes } from './collection-glue.js';
 import { motionBytes } from './motion-glue.js';
+import { need } from '../../scripts/coverage.mjs';
 
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const test = unavailable ? (name, ...args) => bunTest.skip(`${name} — ${unavailable}`, ...args) : bunTest;
+const test = need('chrome', unavailable, { test: bunTest });
 let server, child, cdp, evaluate, protocol, dir;
 beforeAll(async () => {
   if (unavailable) return;
@@ -69,7 +69,7 @@ function setup() {
 }
 
 test('the production page reset leaves native and appearance-none checkboxes border-box', async () => {
-  const look = await import('./look.mjs'), page = look.withLook(readFileSync(new URL('./index.html', import.meta.url), 'utf8'), look.DEFAULT_LOOK); // as a default build ships it
+  const look = await import('./look.mjs'), page = look.withLook(readFileSync(new URL('./index.html', import.meta.url), 'utf8')); // as a default build ships it
   const stylesheet = page.split('<style>')[1].split('</style>')[0];
   const result = await evaluate(`(() => {
     const style=document.createElement('style');style.textContent=${JSON.stringify(stylesheet)};document.head.append(style);
@@ -393,10 +393,11 @@ test('an authored jump on a list that is its own scrollport ends a smooth correc
   expect(result.reported).toBe(390); // the port, not the abandoned target (the list's padding is 10)
 });
 test('a mid-flight report after a flick carries no velocity', async () => {
-  const result=await evaluate(`(async () => {const f=fixture();
+  // The flick's samples are a frame apart on the fixture's clock, not the wall's: a velocity older than 150 ms reads 0
+  const result=await evaluate(`(async () => {globalThis.clock=1000;const f=fixture({now:()=>globalThis.clock});
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
     f.controller.commit([f.snapshot()]);f.flush();
-    for (const top of [40,90,140]) { f.port.scrollTo({top,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));await frames(1); }
+    for (const top of [40,90,140]) { globalThis.clock+=16;f.port.scrollTo({top,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));await frames(1); }
     f.flush();const flick=f.reports.at(-1).velocity;
     const seq=f.reports.at(-1).sequence;
     f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
@@ -622,7 +623,7 @@ test('activation retries unchanged geometry once and a continuing edge refusal b
   expect(result).toEqual({before:1,after:2,attempts:3,successes:1,errors:2,pending:0});
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
-  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
+  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await ${frames(2)}; f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await ${frames(1)}; f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await ${frames(2)}; f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
   expect(result.last.rowWidth).toBe(result.inner - 24);
   expect(result.last.rows[0].size).toBe(97);
   expect(result.idle).toBe(true);
@@ -1192,7 +1193,6 @@ test('Arrange terminal reservation survives grip replacement until explicit fini
   })()`);
   expect(result).toEqual({terminal:5,ended:0,wrapperLive:true,pending:0});
 });
-
 // Real DOM mapping, C0 rebasing and stacking; Common authority is tested in Rust.
 test('Arrange mapping uses signed list origin inside a bordered nested port', async()=>{
   const r=await evaluate(`(() => {const f=fixture();f.controller.commit([f.snapshot()]);f.flush();
@@ -1478,17 +1478,16 @@ function chromePage() {
 }
 const frames = n => `new Promise(r=>{let k=${n};const f=()=>--k?requestAnimationFrame(f):r();requestAnimationFrame(f);})`;
 async function wheel(deltaX, deltaY) {
-  const at = await evaluate(`(() => { const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  const at = await evaluate(`(() => { window.scrolled=new Promise(r=>{const t=setTimeout(r,10000);document.addEventListener('scrollend',()=>{clearTimeout(t);r();},{capture:true,once:true});}); const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
   await protocol('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY });
-  await evaluate(`new Promise(r=>setTimeout(r,400)).then(()=>${frames(3)})`);
-  return evaluate(`({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft})`);
+  return evaluate(`window.scrolled.then(()=>${frames(3)}).then(()=>({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft}))`);
 }
 test('Chrome: a phase-less tick over a row-only scroller goes by its components, never split', async () => {
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(0, 120)).toEqual({ outer: 120, strip: 0 });
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(60, 100)).toEqual({ outer: 0, strip: 60 });
-});
+}, 30_000); // hang bound: each wheel waits up to 10 s for its scroll to end
 test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inserted scroller resets to 0', async () => {
   const result = await evaluate(`(async () => { const {outer,strip}=(${chromePage})();
     strip.scrollLeft=1000; await ${frames(2)}; strip.children[0].style.width='380px'; await ${frames(2)}; const inline=strip.scrollLeft;

@@ -5,7 +5,7 @@ shape Item
 
 component App
   state page = 0
-  resource items = items(page % 2) as shape list<Item>
+  resource items = items(page % 2) as shape Item[]
   action flip
     page = page + 1
   task t mount
@@ -13,7 +13,7 @@ component App
   view
     column
       text `${page}` testId="page"
-      each it, i in items key=it.id
+      for it, i in items key=it.id
         Row(id=it.id, index=i)
 
 component Row

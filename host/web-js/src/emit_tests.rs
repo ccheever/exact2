@@ -2,6 +2,29 @@
 use exact_runner::{DataError, DataSource, Value};
 
 #[test]
+fn collection_edges_keep_the_compilers_refusal_for_a_plan_without_virtualization() {
+    for event in ["reachstart", "reachend"] {
+        let source = format!("component App\n  state disabled = false\n  action more\n    let n = 1\n  view\n    list virtualized=true height=200 {event}=more\n      for x in [1, 2] key=x\n        text `${{x}}`\n");
+        let mut plan = contract::compile(&source).unwrap();
+        crate::emit::emit(&plan, false, false).unwrap();
+        let disabled = plan.slots[0].init;
+        let binding = plan
+            .bindings
+            .iter_mut()
+            .find(|b| {
+                b.kind == exact_plan::BindingKind::Prop
+                    && b.id == exact_kernel::PropId::Virtualized as u16
+            })
+            .unwrap();
+        binding.expr = disabled;
+        let error = crate::emit::emit(&plan, false, false)
+            .err()
+            .expect("non-collection edge");
+        assert_eq!(error, contract::collection_edge_refusal(event));
+    }
+}
+
+#[test]
 fn an_app_file_iframe_keeps_its_source_for_the_file_loader() {
     let plan = contract::compile(
         "component App\n  view\n    iframe src=\"app:/data/doc.pdf\" sandbox=\"allow-scripts\"\n",
@@ -162,7 +185,7 @@ fn outline_none_is_a_fields_own_declaration() {
 fn a_modal_route_is_painted_by_its_class() {
     let app = |page: &str, sheet: &str| {
         let plan = contract::compile(&format!(
-            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      each e in stack(nav) key=e.id\n        when e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        when e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
+            "routes nav\n  home \"/\"\n    add \"/add\"\ncomponent App\n  view\n    main navigationKey=`${{top(nav).id}}` navigationBack=\"back\"\n      for e in stack(nav) key=e.id\n        if e.name == \"home\"\n          column navigationKey=`${{e.id}}` {page}\n            text \"Home\"\n        if e.name == \"add\"\n          column navigationKey=`${{e.id}}` navigationPresentation=\"modal\" {sheet}\n            text \"New\"\n"
         ))
         .unwrap();
         crate::emit::emit(&plan, false, false).unwrap().css
@@ -305,4 +328,56 @@ fn a_scrollend_handler_is_the_dom_event_on_a_scroll() {
     ).unwrap();
     let js = crate::emit::emit(&plan, false, false).unwrap().js;
     assert!(js.contains("\"scrollend\""), "{js}");
+}
+
+#[test]
+fn a_button_that_styles_its_own_disabled_state_carries_the_mark() {
+    let plan = contract::compile(
+        "component App\n  state busy = false\n  action go\n    busy = true\n  view\n    column\n      button press=go disabled=busy background-color=(busy ? \"#eee\" : \"#06f\") testId=\"own\"\n        text \"Save\"\n      button press=go disabled=busy testId=\"plain\"\n        text \"Save\"\n",
+    ).unwrap();
+    let js = crate::emit::emit(&plan, false, false).unwrap().js;
+    assert_eq!(js.matches("disabledstyled").count(), 1, "{js}");
+}
+
+#[test]
+fn static_authored_clears_keep_inline_css_over_platform_rules() {
+    let plan = contract::compile(
+        r##"component App
+  view
+    main navigationKey="/" color="#123456"
+      header color="inherit" testId="bar"
+        text "Title" role="heading" aria-level=1
+        button "Action" color="unset" testId="action"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color="unset"
+"##,
+    )
+    .unwrap();
+    let sites = crate::emit::Sites::new(&plan).unwrap();
+    let parts = crate::style::project(&plan, &sites, &mut Vec::new()).unwrap();
+    for name in ["bar", "action"] {
+        let part = parts
+            .iter()
+            .flatten()
+            .find(|part| part.props.get("data-testid").is_some_and(|id| id == name))
+            .unwrap();
+        assert!(part.css.contains("color:unset;"), "{}", part.css);
+    }
+    let placeholder = parts
+        .iter()
+        .flatten()
+        .find(|part| {
+            part.props
+                .get("data-testid")
+                .is_some_and(|id| id == "placeholder")
+        })
+        .unwrap();
+    assert!(
+        placeholder
+            .css
+            .contains("--exact-placeholder-color:initial;"),
+        "{}",
+        placeholder.css
+    );
 }

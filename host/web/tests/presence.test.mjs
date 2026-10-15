@@ -9,6 +9,7 @@ import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { comparePresence } from '../parity.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 test('the timeline comparator rejects missing ghosts, drift, and invalid recordings', () => {
   const node = { x: 10, y: 20, w: 100, h: 40, opacity: .5, exiting: true };
@@ -32,8 +33,7 @@ test('the timeline comparator rejects missing ghosts, drift, and invalid recordi
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 const glue = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
 const children = glue.slice(glue.indexOf('      case "children":'), glue.indexOf('      case "animate":'));
 const resize = glue.slice(glue.indexOf('const mediaChanged ='), glue.indexOf('\nvisualViewport?.'));

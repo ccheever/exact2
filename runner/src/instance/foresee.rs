@@ -3,14 +3,14 @@
 //! A host warms its caches (shaped text, mostly) for a screen a press is
 //! about to open: the press's action is evaluated, its writes are laid over
 //! the slots, and [`Tree::foresee`] walks the tree as an update would, but
-//! reads only. Where a `when`/`match` would show another arm, that arm is
+//! reads only. Where an `if`/`match` would show another arm, that arm is
 //! realized into the update's ops with ids of its own ([`Ids::after`]) and
 //! dropped; nothing is destroyed, no instance is kept, and the tree, its
 //! `seen` inputs and the runner's ids are as they were. The ops are for a
 //! scratch kernel, never the runner's.
 //!
 //! It is a guess, and may be short: derives are not settled over the
-//! writes, an `each` is walked as last keyed, a virtualized list is not
+//! writes, a `for` is walked as last keyed, a virtualized list is not
 //! entered. A miss costs what no warm costs.
 
 use super::region::init_owned;

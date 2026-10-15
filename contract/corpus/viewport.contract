@@ -7,7 +7,7 @@ component App
   derive wide = viewport.width >= 900
   view
     column testId="viewport"
-      when wide
+      if wide
         column role="tablist" aria-orientation="vertical" testId="rail"
           text "wide" testId="wide"
       else

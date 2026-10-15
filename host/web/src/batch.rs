@@ -326,6 +326,15 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"theme","css":…}`: the theme's `:root` rule (LLP 1095 D4), at
+    /// a boot whose plan has one.
+    pub fn theme(&mut self, css: &str) {
+        let mut s = String::from("{\"op\":\"theme\",\"css\":");
+        quote(css, &mut s);
+        s.push('}');
+        self.ops.push(s);
+    }
+
     /// `{"op":"style","id":…,"css":…}` — the whole `cssText`.
     pub fn style(&mut self, id: u32, css: &str) {
         let mut s = text!("{{\"op\":\"style\",\"id\":{},\"css\":", id);

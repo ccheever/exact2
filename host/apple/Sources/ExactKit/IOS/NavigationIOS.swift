@@ -95,7 +95,7 @@ final class RouteController: UIViewController {
         #else
         // A sheet's surface is the platform's (LLP 1115 D2): the route
         // paints its own background, if any, over it.
-        let system = UIColor.systemBackground
+        let system = UIColor.platformBackground
         #endif
         view.backgroundColor = modal ? system : UIColor { [weak self] traits in
             self?.backdrop(dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? system
@@ -138,7 +138,17 @@ final class RouteController: UIViewController {
 
 final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureRecognizerDelegate {
     unowned let presenter: Presenter
-    var primaryNavigation: UINavigationController?
+    /// The stack navigation follows: the selected tab's. A keyboard a swipe
+    /// put away belongs to the stack left behind. An app's tab container
+    /// shows a stack without UIKit's appearance callbacks, so no `willShow`
+    /// restarts the reveal of a push or pop still running on it.
+    var primaryNavigation: UINavigationController? {
+        didSet {
+            guard primaryNavigation !== oldValue else { return }
+            keyboardDropped = false
+            if changing { startRevealing() }
+        }
+    }
     private(set) var presentedNavigations: [UINavigationController] = []
     var modalNavigation: UINavigationController? { presentedNavigations.last }
     private var navigation: UINavigationController? { modalNavigation ?? primaryNavigation }
@@ -175,7 +185,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
-    private(set) var changing = false
     /// A context menu's commit pushes without the stack's animation: UIKit
     /// animates it (`.pop`, LLP 1021 §5.1). The selected route's key tells
     /// whether its press navigated.
@@ -213,9 +222,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var windowless = false, nativeMoved = false, settled = false
     /// Syncs asked for, for tests.
     private(set) var syncCalls = 0
-    private var interactiveSource: (node: NodeView, key: String)?
-    /// The stack's depth when the interactive pop began, source included.
-    private var interactiveDepth = 0
     /// The root key last journaled as matching no route, so a refusal is one
     /// line, not one per batch (LLP 1035.001 D6).
     private var refusedKey: String?
@@ -644,22 +650,22 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// pressed), `cancelled` (an interactive pop returned), `idle` (a
     /// programmatic change, or nothing yet) — for `state.navigation`.
     private var lastTransition = "idle"
-    private var interactiveTransition = false
-    /// A stack moving: Exact's own push or pop, or the person's swipe; and
-    /// (`started`) one begun by Exact or the finger, without the coordinator
-    /// a finished transition is still winding down in `didShow`.
+    /// Whether UIKit is pushing or popping the stack navigation follows: from
+    /// the transition's first frame through `didShow`, until the completion
+    /// `willShow` registers
+    var changing: Bool { navigation.map { pushOrPop(on: $0) != nil } ?? false }
+    /// A stack moving: navigation's push or pop, or any stack's controller
+    /// transition, a sheet's presentation included.
     var transitioning: Bool {
         // A rotation's or resize's coordinator moves no controller: not one.
-        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
+        changing || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
     }
-    var started: Bool { changing || interactiveTransition }
-    /// A back swipe began with the keyboard up and put it away (see willShow):
-    /// its hide is real, and the viewport follows it.
+    /// A back swipe began with the keyboard up and put it away
+    /// (`dropKeyboard`): its hide is real, and the viewport follows it.
     private var keyboardDropped = false
-    /// The editor a back swipe put away, focused again if the swipe cancels.
+    /// The editor a back swipe put away, until the swipe's transition
+    /// begins and takes it (`Swipe`)
     private weak var droppedEditor: UIView?
-    /// A cancelled swipe's editor is focused again as didShow settles.
-    private var restoresEditor = false
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -881,7 +887,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         // the editor the swipe put away comes back here.
         if !may, !changing, keyboardDropped {
             keyboardDropped = false
-            restoreDroppedEditor()
+            restoreEditor(droppedEditor)
+            droppedEditor = nil
         }
         return may
     }
@@ -889,41 +896,48 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// The editor a back swipe put away, focused again when the swipe does
     /// not leave its route — only if it is still this session's, on screen,
     /// and nothing has taken or been given the focus since.
-    private func restoreDroppedEditor() {
-        defer { droppedEditor = nil }
-        guard let editor = droppedEditor, editor.window != nil, editor.isDescendant(of: presenter.viewport),
+    private func restoreEditor(_ editor: UIView?) {
+        guard let editor, editor.window != nil, editor.isDescendant(of: presenter.viewport),
               FirstResponder.current == nil || FirstResponder.current === presenter.session?.view,
               !pendingSync, presenter.pendingFocusNode == nil else { return }
         _ = editor.becomeFirstResponder()
     }
 
+    /// UIKit's push or pop on `nav`, while it runs: its coordinator presents
+    /// nothing (a sheet's has a presentation style; a rotation's is not the
+    /// stack's) and moves the stack's top controller in or out. The top is
+    /// the destination until a cancelled swipe's rollback ends, then the
+    /// source again in its `didShow`.
+    private func pushOrPop(on nav: UINavigationController) -> UIViewControllerTransitionCoordinator? {
+        guard let transition = nav.transitionCoordinator, transition.presentationStyle == .none else { return nil }
+        let top = nav.topViewController
+        return transition.viewController(forKey: .to) === top || transition.viewController(forKey: .from) === top ? transition : nil
+    }
+
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {
         guard navigationController === navigation else { return }
-        // A presented owner's appearance also calls willShow, using its
-        // enclosing presentation coordinator. Only a transition to this route
-        // belongs to navigation and has a matching didShow completion.
-        // @ref LLP 1038 D6/D11; LLP 1035.001 D2 — cancellation calls
-        // willShow again for the source, although the coordinator's .to is
-        // still the pop destination. Keep that contact's source until didShow.
-        if interactiveTransition, interactiveSource != nil { return }
-        let transition = navigationController.transitionCoordinator
-        changing = animated && transition?.viewController(forKey: .to) === viewController
-        interactiveTransition = changing && transition?.initiallyInteractive == true
-        interactiveSource = nil
-        if interactiveTransition,
-           let source = navigationController.transitionCoordinator?.viewController(forKey: .from) as? RouteController {
-            interactiveSource = (source.node, source.key)
-            interactiveDepth = navigationController.viewControllers.count + 1
-        }
         // The route coming into view was out of the window while it was
         // covered, so no scroll asked for its text; paint what shows of it
         // as the transition starts, not when the reader next scrolls.
-        transition?.animate(alongsideTransition: { [weak self] _ in self?.presenter.paintVisibleText() })
+        navigationController.transitionCoordinator?.animate(alongsideTransition: { [weak self] _ in self?.presenter.paintVisibleText() })
+        // @ref LLP 1038 D6/D11; LLP 1035.001 D2 — a cancelled swipe calls
+        // willShow again for its source, in the transition already begun.
+        guard let transition = pushOrPop(on: navigationController), transition.viewController(forKey: .to) === viewController else { return }
+        // As the swipe begins: an update may remove its source's node while
+        // the finger is down
+        let swipe: Swipe? = transition.initiallyInteractive
+            ? (transition.viewController(forKey: .from) as? RouteController).map { ($0.node, $0.key, navigationController.viewControllers.count + 1, droppedEditor) }
+            : nil
+        droppedEditor = nil
+        transition.animate(alongsideTransition: nil) { [weak self, weak navigationController] context in
+            guard let self, let navigationController else { return }
+            transitionEnded(navigationController, swipe: swipe, cancelled: context.isCancelled)
+        }
         // That paints what shows as it starts. A swipe reveals the route a
         // strip at a time, and painting stopped there until the swipe ended
         // (a back swipe showed the list's top half, then its bottom half).
         // Paint each frame's newly revealed text until the transition is over.
-        if changing { startRevealing() }
+        startRevealing()
     }
 
     private func startRevealing() {
@@ -941,11 +955,25 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func navigationController(_ navigationController: UINavigationController, didShow viewController: UIViewController, animated: Bool) {
-        guard navigationController === navigation,
-              navigationController.topViewController === viewController else { return }
-        changing = false
-        nativeMoved = true
+        // An animated push or pop ends in its coordinator's completion
+        guard navigationController === navigation, navigationController.topViewController === viewController,
+              pushOrPop(on: navigationController) == nil else { return }
+        transitionEnded(navigationController, swipe: nil, cancelled: false)
+    }
+
+    /// An interactive pop as it began: its source, the stack's depth with
+    /// the source, and the editor it put away
+    typealias Swipe = (node: NodeView, key: String, depth: Int, editor: UIView?)
+
+    /// A push or pop of the stack navigation follows is over: the deferred
+    /// work runs and a Back UIKit performed reaches the router. One on a
+    /// stack navigation stopped following (another tab was selected, or
+    /// the stacks were reset) is not navigation's.
+    private func transitionEnded(_ navigationController: UINavigationController,
+                                 swipe: Swipe?, cancelled: Bool) {
+        guard navigationController === navigation, let viewController = navigationController.topViewController else { return }
         keyboardDropped = false
+        nativeMoved = true
         stopRevealing()
         defer {
             // Tree updates during UIKit's transition retain their latest
@@ -961,8 +989,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
             // After the owed sync above: the blur's own batch arrived during
-            // the swipe and left one.
-            if restoresEditor { restoresEditor = false; restoreDroppedEditor() } else { droppedEditor = nil }
+            // the swipe and left one. A cancelled swipe returns to the route
+            // it began on: so does the editor it put away, if it is still
+            // this session's and on screen.
+            if cancelled { restoreEditor(swipe?.editor) }
             recordPop(navigationController)
             #if os(iOS)
             presenter.syncScrollsToTop() // the route now on top owns the status-bar tap
@@ -973,11 +1003,6 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             // its tablist (§3.7).
             DispatchQueue.main.async { [weak self, weak navigationController] in
                 if let navigationController { self?.settleTablist(navigationController) }
-                // An animated transition's coordinator is still the stack's
-                // in `didShow`, where a large title's insets are not sampled
-                // (`reportCovers`): the route that arrived expanded has its
-                // expanded inset, CSS scrollTop 0, from this turn on.
-                self?.coversChanged()
             }
             // At rest: a large title's insets are sampled now (§9.10). A
             // stack's first screen was given its scroller before it had a
@@ -989,13 +1014,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             presenter.resolveStatusBar(settled: true)
             #endif
         }
-        let source = interactiveSource
-        interactiveSource = nil
-        let sourceKey = source.flatMap { presenter.views[$0.node.id] === $0.node ? $0.key : nil }
+        let sourceKey = swipe.flatMap { presenter.views[$0.node.id] === $0.node ? $0.key : nil }
         // Replaced in place while the finger was down: the source's node is gone and the app's
         // stack is as deep as it was when the swipe began.
-        let sourceReplaced = source != nil && sourceKey == nil
-            && selectedRouteCount == interactiveDepth
+        let sourceReplaced = swipe != nil && sourceKey == nil
+            && selectedRouteCount == swipe?.depth
         // UIKit's own back button (a shown bar, LLP 1075.003 §3.7) pops with
         // no gesture: the route the root names has left the native stack,
         // which Exact never does itself. It is a completed pop from that route.
@@ -1006,18 +1029,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let rootPresents = routeIDs.lazy.compactMap { self.presenter.views[$0] }
             .first { $0.props["navigationKey"] == rootKey }
             .map { ["modal", "fullscreen"].contains($0.props["navigationPresentation"] ?? "") } ?? false
-        let poppedByBar = source == nil && !rootPresents && !navigationController.viewControllers.contains { ($0 as? RouteController)?.key == rootKey }
+        let poppedByBar = swipe == nil && !rootPresents && !navigationController.viewControllers.contains { ($0 as? RouteController)?.key == rootKey }
         let dispatches = (viewController as? RouteController).map {
             NavigationRules.dispatchesBack(shownKey: $0.key, rootKey: rootKey,
                                            sourceKey: poppedByBar ? rootKey : sourceKey, sourceReplaced: sourceReplaced,
                                            modalActive: presenter.modals.inTransition)
         } ?? false
-        let cancelled = interactiveTransition && (viewController as? RouteController)?.node === source?.node
-        // A cancelled swipe returns to the route it began on: so does the
-        // editor it put away, if it is still this session's and on screen.
-        restoresEditor = cancelled
         lastTransition = dispatches ? "completed" : (cancelled ? "cancelled" : "idle")
-        interactiveTransition = false
         guard dispatches else { return }
         goBack()
     }
@@ -1052,10 +1070,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         refitForBars()
         controllers.removeAll()
         routeIDs = []
-        changing = false
         pendingSync = false
-        interactiveSource = nil
-        interactiveTransition = false
         keyboardDropped = false
         droppedEditor = nil
         lastTransition = "idle"

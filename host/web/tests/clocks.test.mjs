@@ -9,10 +9,12 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const check = existsSync(chrome) ? test : test.skip;
+const { executable: chrome, unavailable } = chromium();
+const check = need('chrome', unavailable);
 
 const page = `<style>@keyframes pulse { from { opacity: 0.4 } to { opacity: 1 } }</style>
 <div id="exact-root"></div>
@@ -69,9 +71,9 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     const [[lock], [engine], [free]] = await phases('lock', 'engine', 'free');
     expect(apart(lock, engine)).toBeLessThan(1);
     expect(apart(lock, free)).toBeGreaterThan(200); // no clock: CSS's own start
-    // A lone pulse on an idle clock starts at its first keyframe.
-    await evaluate(`add('alone', 'pulse 800ms infinite alternate', 'Other')`);
-    expect((await phase('alone'))[0]).toBeLessThan(100);
+    // A lone pulse on an idle clock starts at its first keyframe: now, read in the evaluation that adds it.
+    const [now, alone] = await evaluate(`(() => { const now = document.timeline.currentTime; add('alone', 'pulse 800ms infinite alternate', 'Other'); return [now, anim('alone').startTime]; })()`);
+    expect(apart(alone, now)).toBeLessThan(1);
 
     // The CSS play state still applies after `startTime` was set.
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'paused'; sync()`);

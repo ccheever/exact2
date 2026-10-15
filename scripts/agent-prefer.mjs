@@ -9,32 +9,34 @@ export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefer
 export const PREFERENCES = { 'display-mode': ['standalone', 'browser', 'fullscreen', 'minimal-ui', 'window-controls-overlay', 'picture-in-picture', 'tabbed'], 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'], 'color-gamut': ['srgb', 'p3', 'rec2020'], 'dynamic-range': ['standard', 'high'] }; // `prefer`'s CSS media features and values (the display's two: LLP 1100 D9)
 export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'can-open-files': ['true', 'false'], 'has-focus': ['true', 'false'], 'keyboard-navigation': ['true', 'false'], 'root-font-size': ['<px>'], 'display-scale': ['<device pixels a px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2; `has-focus`: #114; `keyboard-navigation`: the Mac's setting, whether Tab reaches every control, LLP 1115.000 D7.2, refused by name on the other hosts; `display-scale`: what a hairline is one device pixel of, LLP 1115.000 D10.3)
 export const FOLD_FACTS = { posture: ['folded', 'continuous'], segments: ['<cols>x<rows>'], gap: ['<points>'] }; // `prefer`'s fold group (LLP 1078 D7): a host without a fold splits its viewport evenly; one with a fold refuses
+export const MODE_FACT = { mode: ['<axis>=<value>'] }; // `prefer`'s mode group (LLP 1121 D5, D13): the app's own modes, `setMode` for each pin; `prefers-color-scheme` stays as it is
 
 /** The CLI's facts (`prefer <name> <value> …`) as the wire's three groups; an unknown fact or value is refused naming what is expected.
  * A fact answers to its near spellings (`color-scheme`, `colorScheme`, `reduced-motion` for the `prefers-` names): round 9, three builds. */
 export function preferGroups(facts) {
-  const media = {}, page = {}, fold = {};
-  const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS };
+  const media = {}, page = {}, fold = {}, mode = {};
+  const all = { ...PREFERENCES, ...PAGE_FACTS, ...FOLD_FACTS, ...MODE_FACT };
   const expected = () => Object.entries(all).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
   const norm = n => String(n).toLowerCase().replace(/[^a-z]/g, '').replace(/^prefers?/, '');
   for (const [given, value] of Object.entries(facts ?? {})) {
     const name = Object.keys(all).find(k => k === given || norm(k) === norm(given)) ?? given;
     if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
     else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
-    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number.isFinite(Number(value))) page[name] = Number(value);
+    else if ((name === 'root-font-size' || name === 'display-scale') && Number(value) > 0 && Number(value) <= 3.4028234663852886e38) page[name] = Number(value); // a size the kernel stores, as an f32
     else if (name === 'posture' && FOLD_FACTS.posture.includes(value)) fold.posture = value;
     else if (name === 'segments' && /^\d+x\d+$/.test(String(value))) { const [c, r] = String(value).split('x').map(Number); fold.cols = c; fold.rows = r; }
     else if (name === 'gap' && Number(value) >= 0 && Number.isFinite(Number(value))) fold.gap = Number(value);
+    else if (name === 'mode' && /^[\w.-]+=[\w.-]+([ ,]+[\w.-]+=[\w.-]+)*$/.test(String(value))) for (const pin of String(value).split(/[ ,]+/)) { const [axis, v] = pin.split('='); mode[axis] = v; }
     else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
   }
   if (fold.gap != null && fold.cols == null) throw new Error('prefer: gap needs segments <cols>x<rows>');
-  return { media, page, fold };
+  return { media, page, fold, mode };
 }
 
 /** The request a native host answers: `media` rides along when nothing else does (an empty request is refused there by name). */
-export function preferOp(media, page, fold) {
-  const groups = Object.keys(media).length || (!Object.keys(page).length && !Object.keys(fold).length) ? { media } : {};
-  return { op: 'prefer', ...groups, ...(Object.keys(page).length ? { page } : {}), ...(Object.keys(fold).length ? { fold } : {}) };
+export function preferOp(media, page, fold, mode = {}) {
+  const groups = Object.keys(media).length || (!Object.keys(page).length && !Object.keys(fold).length && !Object.keys(mode).length) ? { media } : {};
+  return { op: 'prefer', ...groups, ...(Object.keys(page).length ? { page } : {}), ...(Object.keys(fold).length ? { fold } : {}), ...(Object.keys(mode).length ? { mode } : {}) };
 }
 
 /** `prefer segments 2x1 gap 40` as CDP's display features: one vertical feature per column divider, one horizontal per row divider, each `gap` wide and centred where the even split puts it (the same split every host makes). */
@@ -51,7 +53,7 @@ export function displayFeatures(width, height, cols, rows, gap) {
  * The fold group (LLP 1078 D7): Chromium's own posture and display-feature overrides, so `navigator.devicePosture`, `window.viewport.segments`
  * and CSS's `env(viewport-segment-*)` all change — the parity oracle; a browser whose CDP lacks them gets the glue's substitute (the facts and
  * `layout.env`, not CSS). `emulated` is the carrier's media list, replaced in place. */
-export async function preferWeb({ media, page, fold = {}, emulated, call, evaluate, frame, ask, scale = 0 }) {
+export async function preferWeb({ media, page, fold = {}, mode = {}, emulated, call, evaluate, frame, ask, scale = 0 }) {
   if (media['display-mode'] != null) throw new Error(`Chrome prefer cannot emulate display-mode ${media['display-mode']}: use the browser's fullscreen controls`);
   // LLP 1115.000 D10.3: a browser's scale is fixed when it launches (`EXACT_SCALE=2 bun scripts/agent.mjs web …`: Chrome's own device scale factor). CDP's emulated one moves `devicePixelRatio` and the resolution queries but not the device pixel a border snaps to (Chrome 154: a 0.5px border stays 1px under it), so it is not offered as the scale.
   if (page['display-scale'] != null) { const now = await evaluate('devicePixelRatio'); if (Math.abs(now - page['display-scale']) > 0.01) throw new Error(`prefer: display-scale ${page['display-scale']}: a browser's scale is fixed when it launches, and this one's is ${now}; launch it at another with EXACT_SCALE=${page['display-scale']}`); }
@@ -77,8 +79,9 @@ export async function preferWeb({ media, page, fold = {}, emulated, call, evalua
     }
     await frame();
   }
-  const pageReply = Object.keys(page).length || foldRequest ? await ask({ op: 'prefer', ...(Object.keys(page).length ? { page } : {}), ...(foldRequest ? { fold: foldRequest } : {}) }) : null;
+  const hasMode = Object.keys(mode).length > 0;
+  const pageReply = Object.keys(page).length || foldRequest || hasMode ? await ask({ op: 'prefer', ...(Object.keys(page).length ? { page } : {}), ...(foldRequest ? { fold: foldRequest } : {}), ...(hasMode ? { mode } : {}) }) : null;
   if (pageReply?.error) throw new Error(pageReply.error);
   if (pageReply) await frame();
-  return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, values]) => [name, values.find(v => matchMedia('(' + name + ': ' + v + ')').matches) ?? values.at(-1)]))`), ...(pageReply ? { page: pageReply.page, fold: pageReply.fold } : {}) };
+  return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, values]) => [name, values.find(v => matchMedia('(' + name + ': ' + v + ')').matches) ?? values.at(-1)]))`), ...(pageReply ? { page: pageReply.page, fold: pageReply.fold, ...(hasMode ? { mode: pageReply.mode } : {}) } : {}) };
 }

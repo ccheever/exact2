@@ -168,9 +168,6 @@ impl DataSource for MarkdownStress {
     }
 
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
-        if source == "theme" && args.is_empty() {
-            return Ok(markdown_parse::theme::value());
-        }
         let args = DocumentArgs::read(source, args)?;
         if self.parsed.as_ref().is_none_or(|p| p.key != args.key) {
             self.parsed = Some(Parsed::build(args.key)?);

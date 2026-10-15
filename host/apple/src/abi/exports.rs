@@ -572,6 +572,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_time(epoch_at_zero, utc_offset); 0 }, |n| n)
         }
 
+        /// Where the viewer is (`locale NUL timeZone NUL seed` input) for the next boot or candidate, before it.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch_place(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_launch_place(len); 0 }, |n| n)
+        }
+
         /// The display preferences: bit 0 reduced motion, bit 1 reduced
         /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 dark.
         #[no_mangle]
@@ -605,6 +611,12 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_set_page(rt: u32, bits: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_page(bits), |n| n)
+        }
+
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5).
+        #[no_mangle]
+        pub extern "C" fn exact_set_mode(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.set_mode(len), |n| n)
         }
 
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
@@ -800,6 +812,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_root_tabs(rt: u32, view: u32) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.root_tabs(view), |n| n)
+        }
+
+        /// Whether a stack splits, by the runner's rule (LLP 1115.002 D4),
+        /// JSON; returns its length.
+        #[no_mangle]
+        pub extern "C" fn exact_stack_split(rt: u32, view: u32, retained: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.stack_split(view, retained), |n| n)
         }
 
         /// A command's data (`share`, LLP 1069.003; `saveFile`, LLP

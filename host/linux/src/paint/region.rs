@@ -251,6 +251,8 @@ impl Picture {
                 return Err("content mounted node limit".into());
             }
             let frame = publication.frames()[ordinal].frame;
+            // The node's accent for all it captures (its box, its image's tint).
+            let _accent = super::accent_scope(&node);
             let paint =
                 BoxPaint::capture(&node, scene.kernel, painter.dark, &painter.separator_groups);
             let geometry = paint.geometry(paint_rect(frame, (0., 0.)));

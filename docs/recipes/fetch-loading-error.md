@@ -10,7 +10,7 @@ routes nav
 shape Feed
   ok: bool
   error: string
-  posts: list<string>
+  posts: string[]
 
 component App
   resource feed = loadFeed() as shape Feed else empty(ok=true)
@@ -18,21 +18,21 @@ component App
     refresh feed
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="feed-list" position="absolute" inset=0
           header padding="8px 16px"
             text "Feed" role="heading" aria-level=1
-          scroll id="feed-list" refresh=reload refreshing=(pending(feed) and length(feed.posts) > 0) flex=1 min-height=0
-            when pending(feed) and length(feed.posts) == 0
+          scroll id="feed-list" refresh=reload refreshing=(pending(feed) and feed.posts.length > 0) flex=1 min-height=0
+            if pending(feed) and feed.posts.length == 0
               row justify-content="center" padding=40
                 progress aria-label="Loading"
-            else when not feed.ok
+            else if not feed.ok
               column align-items="center" gap=8 padding=32 testId="feed-error"
                 text feed.error color="-exact-secondary-label" text-align="center"
                 button press=reload testId="retry"
                   text "Try Again"
             else
-              each p in feed.posts key=p
+              for p in feed.posts key=p
                 text p padding="10px 16px"
 ```
 

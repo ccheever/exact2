@@ -37,7 +37,8 @@ pub(crate) use block::{apply as apply_block, publication_start, Blocks};
 pub use block::{BlockAxis, HostBlock};
 pub use cover::HostCover;
 pub(crate) use cover::{
-    apply as apply_cover, children_changed as cover_children_changed, published_extent,
+    added_padding as cover_padding, apply as apply_cover,
+    children_changed as cover_children_changed, published_extent,
 };
 pub use sticky::StickyConstraint;
 
@@ -129,7 +130,7 @@ impl<'a> NodeRef<'a> {
     /// The node whose own row supplies `id` here: this node when it sets the
     /// row; for a row the schema marks inherited, the nearest logical ancestor
     /// that does; `None` when the initial value applies (LLP 1035.000 D1).
-    /// Which rows are set stays in `style.mask`, and which of those the
+    /// Which rows have own values stays in `style.mask`, and which declarations the
     /// author wrote in `style.written`; this is where a computed value came
     /// from.
     pub fn source_of(&self, id: StyleId) -> Option<ViewId> {
@@ -138,17 +139,29 @@ impl<'a> NodeRef<'a> {
             .map(|s| self.arena.local_id(s))
     }
 
-    /// Whether the author wrote the value this node computes for `id`
-    /// (LLP 1115.000 D2): the row that supplies it ([`NodeRef::source_of`])
-    /// is one its author wrote, on this node or on the ancestor an inherited
-    /// row comes from. False for an initial value and for a row the compiler
-    /// implied. `style.written` is the node's own rows alone, which is what
-    /// a control asks (a colour it only inherits is not its own); this is
-    /// what a text asks, whose colour and font CSS takes from its box.
+    /// Whether an author declaration chooses this row, including an explicit
+    /// CSS clear that inherits or uses the initial value (LLP 1115.000 D2).
+    /// `style.written` is this node's declarations alone; an inherited row
+    /// can also be chosen by an ancestor. A platform start stops that walk.
     pub fn says(&self, id: StyleId) -> bool {
-        self.arena
-            .inherited_source(self.slot, id)
-            .is_some_and(|s| self.arena.style(s).written.has(id))
+        let mut current = Some(self.slot);
+        while let Some(slot) = current {
+            let own = self.arena.style(slot);
+            if own.written.has(id) {
+                return true;
+            }
+            if own.mask.has(id)
+                || !id.inherited()
+                || self
+                    .arena
+                    .style_starts(slot)
+                    .any(|start| start.mask.has(id))
+            {
+                return false;
+            }
+            current = self.arena.parent(slot);
+        }
+        false
     }
 
     /// CSS's computed value of a row: the own row; else, for an inherited

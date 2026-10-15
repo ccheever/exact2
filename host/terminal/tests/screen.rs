@@ -29,9 +29,9 @@ const APP: &str = r#"component App
     saved = draft
   view
     column
-      each e in [epoch] key=e
+      for e in [epoch] key=e
         column role="log"
-          when not retired
+          if not retired
             text `banner ${e}` id=`banner-${e}`
             text "line one" id=`a-${e}`
             text "line two" id=`b-${e}`
@@ -45,7 +45,7 @@ const APP: &str = r#"component App
         input value=draft input=write submit=save autofocus=true appearance="none" placeholder="type" testId="field"
       dialog id="d" closedby="any" testId="dialog"
         scroll max-height="3lh" testId="list"
-          each v in ["alpha", "beta", "gamma", "delta", "epsilon"] key=v
+          for v in ["alpha", "beta", "gamma", "delta", "epsilon"] key=v
             button press=pick(v) commandfor="d" command="close" text-align="start" testId=v
               text v
 "#;
@@ -71,7 +71,7 @@ fn an_image_can_appear_disappear_and_reappear_after_image_free_commits() {
         .write_image_data(&[20, 40, 60])
         .unwrap();
     let source = format!(
-        "component App\n  state shown = false\n  action show\n    shown = true\n  action hide\n    shown = false\n  view\n    column\n      text \"anchor\"\n      when shown\n        image \"{}\" width=\"2ch\" height=\"1lh\" testId=\"picture\"\n",
+        "component App\n  state shown = false\n  action show\n    shown = true\n  action hide\n    shown = false\n  view\n    column\n      text \"anchor\"\n      if shown\n        image \"{}\" width=\"2ch\" height=\"1lh\" testId=\"picture\"\n",
         path.display()
     );
     let plan = contract::compile_terminal(&source).unwrap();
@@ -129,7 +129,7 @@ fn retiring_a_large_tree_returns_slots_and_keeps_keys_and_frames_correct() {
         .collect::<Vec<_>>()
         .join(", ");
     let source = format!(
-        "component App\n  state filled = false\n  action fill\n    filled = true\n  action retire\n    filled = false\n  view\n    column\n      text \"anchor\" testId=\"anchor\"\n      when filled\n        each n in [{items}] key=n\n          text `row ${{n}}` testId=`row-${{n}}`\n"
+        "component App\n  state filled = false\n  action fill\n    filled = true\n  action retire\n    filled = false\n  view\n    column\n      text \"anchor\" testId=\"anchor\"\n      if filled\n        for n in [{items}] key=n\n          text `row ${{n}}` testId=`row-${{n}}`\n"
     );
     for mode in [Mode::Inline, Mode::Fullscreen] {
         let plan = contract::compile_terminal(&source).unwrap();
@@ -298,7 +298,7 @@ const GROWING: &str = r#"component App
   state busy = true
   state tick = 0
   action add
-    items = concat(items, [`item ${length(items)}`])
+    items = items.concat([`item ${items.length}`])
   action spin
     tick = tick + 1
   action settle
@@ -306,9 +306,9 @@ const GROWING: &str = r#"component App
   view
     column
       column role="log"
-        each it, i in items key=i
+        for it, i in items key=i
           text it id=`e${i}`
-        when busy
+        if busy
           text `working ${tick}` aria-busy=true id="tail"
       text "prompt"
 "#;
@@ -620,7 +620,7 @@ fn grouped_rules_survive_zero_borders_and_follow_the_last_visible_row() {
       section
         row press=toggle testId="first" border-bottom-color="#0000ff"
           text "First"
-        when show
+        if show
           row testId="last"
             text "Last"
 "##,

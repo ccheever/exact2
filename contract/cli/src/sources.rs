@@ -124,9 +124,52 @@ pub(crate) fn load(
         return Err(resolve(&loader.sources, all));
     }
     match loader.scope() {
-        Ok(file) => Ok((file, loader.sources)),
+        Ok(mut file) => {
+            file.design = design(path, &mut loader.sources).map_err(|e| vec![e])?;
+            Ok((file, loader.sources))
+        }
         Err(all) => Err(resolve(&loader.sources, all)),
     }
+}
+
+/// Where the app's design is (LLP 1121 D2): the file `app.json`'s
+/// `"tamber"` names, else `app.tamber` beside the app's `app.contract`.
+pub fn design_path(root: &Path) -> Option<PathBuf> {
+    let dir = root.parent()?;
+    let named = std::fs::read_to_string(dir.join("app.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|app| app.get("tamber")?.as_str().map(|p| dir.join(p)));
+    named.or_else(|| {
+        let beside = dir.join("app.tamber");
+        (root.file_name()? == "app.contract" && beside.is_file()).then_some(beside)
+    })
+}
+
+/// The app's design, read (LLP 1121 D2), and a source of its own, so a
+/// refusal in it names it.
+fn design(
+    root: &Path,
+    sources: &mut Sources,
+) -> Result<Option<contract_syntax::DesignSource>, CompileError> {
+    let Some(path) = design_path(root) else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(&path).map_err(|e| CompileError {
+        pass: "use",
+        id: "tamber-unreadable".into(),
+        message: format!("the app's design `{}`: {e}", path.display()),
+        span: Span::default(),
+        file: Some(path.clone().into()),
+        related: Box::new([]),
+    })?;
+    sources.paths.push(path.clone());
+    sources.origins.push(Origin::App);
+    Ok(Some(contract_syntax::DesignSource {
+        path: path.display().to_string(),
+        text,
+        source_id: (sources.paths.len() - 1) as u32,
+    }))
 }
 
 /// The `use` lines each file of the program rooted at `path` lacks (LLP
@@ -240,7 +283,7 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
         .into_iter()
         .map(|e| loader.sources.resolve(e))
         .collect();
-    let sources = loader
+    let mut sources: Vec<Source> = loader
         .sources
         .paths
         .iter()
@@ -250,6 +293,12 @@ pub(crate) fn graph(path: &Path, src: &str, app_root: &Path) -> SourceGraph {
             origin: origin.clone(),
         })
         .collect();
+    // The app's design is a source too: a capture copies it, a watcher
+    // watches it (LLP 1121 D2).
+    sources.extend(design_path(&root_key).map(|path| Source {
+        path,
+        origin: Origin::App,
+    }));
     SourceGraph {
         sources,
         packages: loader.sources.packages,
@@ -809,6 +858,10 @@ impl Loader<'_> {
             timelines: all!(timelines),
             // CSS `@color-profile`s are global by name too (LLP 1100 D3).
             color_profiles: all!(color_profiles),
+            // The app's theme is its root file's (LLP 1095 D4).
+            theme: files[0].theme.take(),
+            // The design is the app's, read beside its root (`design`).
+            design: None,
             fns: all!(fns),
             components: all!(components),
         }

@@ -47,6 +47,8 @@ final class AlertHost {
         /// A source element, whether an invoker or an explicit `source=`.
         let sourced: Bool
         let invoked: Bool
+        /// Shown for its `popover`, not by `show-modal`
+        let popover: Bool
         weak var window: NSWindow?
         let rows: [Row]
         /// Which row Return presses, when one does.
@@ -54,9 +56,9 @@ final class AlertHost {
         /// Ended by this host (a batch changed what it shows, `close(id)`, a
         /// reset), not by a button: nothing is pressed.
         var withdrawn = false
-        init(node: NodeView, source: NodeView?, invoked: Bool, window: NSWindow, rows: [Row], defaultRow: Int?) {
+        init(node: NodeView, source: NodeView?, invoked: Bool, popover: Bool, window: NSWindow, rows: [Row], defaultRow: Int?) {
             self.node = node; self.source = source; sourced = source != nil; self.window = window
-            self.invoked = invoked
+            self.invoked = invoked; self.popover = popover
             self.rows = rows; self.defaultRow = defaultRow
         }
     }
@@ -70,10 +72,10 @@ final class AlertHost {
     /// The sheet's window while an alert is up.
     var sheet: NSWindow? { presented?.alert.window }
     func isOpen(_ node: NodeView) -> Bool { presented?.node === node }
+    func isOpenAsPopover(_ node: NodeView) -> Bool { presented?.node === node && presented?.popover == true }
 
-    private func closes(_ row: NodeView, _ pop: NodeView) -> Bool {
-        if pop.props["popover"] != nil { return presenter?.menus.closes(row, pop) == true }
-        return row.props["commandfor"] == pop.props["id"] && row.props["command"] == "close"
+    private func closes(_ row: NodeView, _ pop: NodeView, popover: Bool) -> Bool {
+        presenter?.invocation(of: row)?.closes(pop, modally: !popover) ?? false
     }
     /// Live, enabled, not inert, and not hidden by the page, though the
     /// alertdialog itself is hidden in place while the alert presents it.
@@ -97,16 +99,16 @@ final class AlertHost {
     }
     /// The alert for `pop`, or nil for any shape but the alert's, which is
     /// presented as before.
-    func plan(of pop: NodeView) -> Plan? {
+    func plan(of pop: NodeView, popover: Bool) -> Plan? {
         guard let menus = presenter?.menus, pop.props["accessibilityRole"] == "alertdialog",
               pop.props["popover"] != nil || pop.props["semanticTag"] == "dialog" else { return nil }
         if pop.props["semanticTag"] == "dialog", pop.props["closedby"] == "any" { return nil }
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
-        let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
+        let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop, popover: popover) }
         let texts = children.filter { $0.kind == "text" }
         guard children.count == actions.count + cancels.count + texts.count, let cancel = cancels.first,
-              actions.allSatisfy({ closes($0, pop) }), actions.contains(where: { choosable($0, in: pop) }) else { return nil }
+              actions.allSatisfy({ closes($0, pop, popover: popover) }), actions.contains(where: { choosable($0, in: pop) }) else { return nil }
         let lines = texts.map(menus.title(of:)).filter { !$0.isEmpty }
         guard ConfirmationShape.isAlert(texts: lines.count, actions: actions.count, cancels: cancels.count) else { return nil }
         let nodes = actions + [cancel]
@@ -133,13 +135,13 @@ final class AlertHost {
     /// and its window can take a sheet; false leaves it to its other
     /// presentations.
     @discardableResult
-    func present(_ pop: NodeView, from source: NodeView?) -> Bool {
+    func present(_ pop: NodeView, from source: NodeView?, popover: Bool) -> Bool {
         // On the sheet of the dialog that is open, when one is: AppKit keeps
         // a second sheet on the page's window waiting behind the first.
         guard let presenter, presented == nil, presenter.menus.live(pop), let window = presenter.frontWindow,
-              window.attachedSheet == nil, let plan = plan(of: pop) else { return false }
+              window.attachedSheet == nil, let plan = plan(of: pop, popover: popover) else { return false }
         let menus = presenter.menus, rows = plan.rows
-        let owner = Presented(node: pop, source: source, invoked: source.map { menus.opens($0, pop) } ?? false,
+        let owner = Presented(node: pop, source: source, invoked: source.map { menus.opens($0, pop) } ?? false, popover: popover,
                               window: window, rows: rows, defaultRow: plan.defaultRow)
         owner.alert.messageText = plan.title
         owner.alert.informativeText = plan.message
@@ -195,12 +197,12 @@ final class AlertHost {
     /// and enablement as presented.
     func valid(_ owner: Presented) -> Bool {
         guard let presenter, let pop = owner.node, presenter.menus.live(pop), presenter.hosts(owner.window),
-              plan(of: pop) != nil else { return false }
+              plan(of: pop, popover: owner.popover) != nil else { return false }
         if owner.sourced {
             guard let source = owner.source, presenter.menus.invokes(source, pop, requiringTarget: owner.invoked) else { return false }
         }
         return owner.rows.allSatisfy { row in
-            guard let node = row.node, presenter.menus.live(node), node.isDescendant(of: pop), closes(node, pop),
+            guard let node = row.node, presenter.menus.live(node), node.isDescendant(of: pop), closes(node, pop, popover: owner.popover),
                   presenter.menus.title(of: node) == row.title else { return false }
             return (row.cancel ? !node.disabled : choosable(node, in: pop)) == row.enabled
         }

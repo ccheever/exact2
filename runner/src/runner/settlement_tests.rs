@@ -22,6 +22,7 @@ struct Data {
     ready: bool,
     bad_guard: bool,
     guard_writes: bool,
+    rows_writes: bool,
     write_on_parse: bool,
     read_store: bool,
     fail_parse: bool,
@@ -38,6 +39,7 @@ impl Data {
             ready: true,
             bad_guard: false,
             guard_writes: false,
+            rows_writes: false,
             write_on_parse: false,
             read_store: false,
             fail_parse: false,
@@ -65,7 +67,7 @@ impl DataSource for Data {
         if let (Some(e), "rows") = (&self.refuse, source) {
             return Err(e.clone());
         }
-        if self.guard_writes && source == "guard" {
+        if self.guard_writes && source == "guard" || self.rows_writes && source == "rows" {
             store.set("token", "guarded")?;
         }
         Ok(if source == "guard" {
@@ -649,4 +651,42 @@ fn a_stand_in_failed_at_activation_is_not_pending_after_another_pass() {
     assert!(r.data_ready().is_ok());
     assert!(r.failed_args[0].is_some());
     assert!(!r.pending_res[0] && !r.awaiting[0]);
+}
+
+/// Two sources that read the store and, as they answer, keep a value it
+/// already keeps: keeping it again is no store change, so neither makes the
+/// other stale, and settlement converges instead of refusing with `Cycle`.
+#[test]
+fn sources_that_keep_what_is_kept_settle() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let number = b.primitive(TypeKind::Number);
+    let boolean = b.primitive(TypeKind::Bool);
+    let item = b.record("Item", &[("value", number)]);
+    let list = b.list(item);
+    let rows = b.resource("rows", "rows", &[], list, None);
+    b.set_resource_reader(rows, true);
+    let guard = b.resource("guard", "guard", &[], boolean, None);
+    b.set_resource_reader(guard, true);
+    b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+    let mut data = Data::new(records(1));
+    data.read_store = true;
+    data.rows_writes = true;
+    data.guard_writes = true;
+    let mut r = Runner::boot(
+        b.finish().unwrap(),
+        data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .expect("settles");
+    assert_eq!(r.store.get("token"), Some("guarded"));
+    let writes = r.store.take_writes();
+    assert_eq!(
+        writes.len(),
+        1,
+        "the first keep writes, the second does not"
+    );
+    assert_eq!(writes[0].name, "token");
+    assert_eq!(writes[0].value.as_deref(), Some(&b"guarded"[..]));
 }

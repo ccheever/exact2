@@ -13,14 +13,14 @@ shape Note
 component Notes
   state query = ""
   state notes = [Note(id="1", title="Groceries"), Note(id="2", title="Ideas")]
-  derive shown = filter(notes, n => includes(toLowerCase(n.title), toLowerCase(trim(query))))
+  derive shown = notes.filter(n => n.title.toLowerCase().includes(query.trim().toLowerCase()))
   action search(v: string)
     query = v
   action remove(id: string)
-    notes = filter(notes, n => n.id != id)
+    notes = notes.filter(n => n.id != id)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute" inset=0
           header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
             text "Notes" role="heading" aria-level=1 flex=1
@@ -28,7 +28,7 @@ component Notes
               testId="search" width="100%"
           list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
-              each n in shown key=n.id
+              for n in shown key=n.id
                 scroll swipeContent=`row-${n.id}` swipeTrailing=`delete-${n.id}` padding-right=0
                   overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                   row id=`row-${n.id}` width="100%" flex-shrink=0 scroll-snap-align="start"

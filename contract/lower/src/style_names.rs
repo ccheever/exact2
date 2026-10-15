@@ -235,6 +235,11 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("scroll-padding-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingRight])),
     ("scroll-padding-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingBottom])),
     ("scroll-padding-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollPaddingLeft])),
+    ("scroll-margin", "css CSS Scroll Snap 1", AttrTarget::Styles(&[ StyleId::ScrollMarginTop, StyleId::ScrollMarginRight, StyleId::ScrollMarginBottom, StyleId::ScrollMarginLeft, ])),
+    ("scroll-margin-top", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginTop])),
+    ("scroll-margin-right", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginRight])),
+    ("scroll-margin-bottom", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginBottom])),
+    ("scroll-margin-left", "css CSS Scroll Snap 1", AttrTarget::Styles(&[StyleId::ScrollMarginLeft])),
     ("z-index", "css CSS 2", AttrTarget::Styles(&[StyleId::ZIndex])),
     ("order", "css CSS Display 3", AttrTarget::Styles(&[StyleId::Order])),
     ("transition", "css CSS Transitions 1", AttrTarget::Styles(&[StyleId::Transition])),
@@ -255,6 +260,8 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("backface-visibility", "css CSS Transforms 2", AttrTarget::Styles(&[StyleId::BackfaceVisibility])),
     // @ref LLP 1077 §5 — declared rows CSS has no name for.
     ("-exact-symbol-rendering", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolRendering])),
+    // @ref LLP 1121 D5 — a subtree's app modes, pinned.
+    ("-exact-mode", "exact LLP 1121", AttrTarget::Styles(&[StyleId::Mode])),
     ("-exact-symbol-palette", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolPalette])),
     ("-exact-symbol-value", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolValue])),
     ("-exact-symbol-effect", "exact LLP 1077", AttrTarget::Styles(&[StyleId::SymbolEffect])),

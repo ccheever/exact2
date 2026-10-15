@@ -201,6 +201,8 @@ fn twenty_replacement_waves_decode_distinct_sources_without_retaining_history() 
     }
     images.sync(&k, &[]);
     images.backend.session.trim();
+    // A metadata scan can still own a source after trim drops its last bitmap.
+    until(|| images.backend.sources() == 0);
     assert_eq!(images.backend.sources(), 0);
     assert!(images.loaded.is_empty());
     until(|| images.stats().resident_bytes == 0 && images.stats().reserved_bytes == 0);

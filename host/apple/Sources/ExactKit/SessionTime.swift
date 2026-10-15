@@ -40,13 +40,15 @@ extension ExactSession {
         let date = dateNow()
         apply(runtime.setTime(epochAtZero: date.epoch, utcOffset: date.offset))
     }
-    /// The date before each boot or candidate: the runner reads it from its
-    /// first settle, so an argument reading the zone's offset (a kept
-    /// answer's identity) is the real one, not zero (or a reload's stale
-    /// date) until `tellTime`. A running runner is not told.
+    /// The date and where the viewer is (locale, zone, seed) before each
+    /// boot or candidate: the runner reads them from its first settle, so
+    /// an argument reading the zone's offset or the locale (a kept answer's
+    /// identity) is the real one, not a default (or a reload's stale date)
+    /// until `tellTime`. A running runner is not told.
     func primeTime() {
         guard state != .destroyed else { return }
         let date = dateNow()
         runtime.setLaunchTime(epochAtZero: date.epoch, utcOffset: date.offset)
+        runtime.setLaunchPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed)
     }
 }

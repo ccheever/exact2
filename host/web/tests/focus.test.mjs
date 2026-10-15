@@ -159,11 +159,11 @@ test('bare fields restore keyboard focus and a disabled native field is the look
   const {readFileSync} = await import('node:fs');
   const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
   const {chromium} = await import('playwright-core');
-  const {DEFAULT_LOOK, withLook} = await import('../look.mjs');
+  const {withLook} = await import('../look.mjs');
   const browser = await chromium.launch({executablePath: browserPath().executable, headless: true});
   try {
     const page = await browser.newPage();
-    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1];
+    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
     for (const scheme of ['light', 'dark']) {
       await page.setContent(`<style>${css}#exact-root#exact-root{.c1{outline-style:none}}</style><div id="exact-root" style="color:red;color-scheme:${scheme}">
         <input id="bare"><textarea id="area"></textarea><textarea id="markdown" markup="markdown"></textarea>
@@ -205,13 +205,13 @@ for (const engine of ['chromium', 'firefox', 'webkit']) test(`${engine}: native 
   const {readFileSync} = await import('node:fs');
   const {chromium: browserPath} = await import('../../../scripts/agent-launch.mjs');
   const playwright = await import('playwright-core');
-  const {DEFAULT_LOOK, withLook} = await import('../look.mjs');
+  const {withLook} = await import('../look.mjs');
   const browser = await playwright[engine].launch({headless: true,
     ...(engine === 'chromium' ? {executablePath: browserPath().executable} : {})});
   try {
     const page = await browser.newPage();
     const reference = await browser.newPage();
-    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1];
+    const css = withLook(readFileSync(new URL('../index.html', import.meta.url), 'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
     const tab = engine === 'webkit' ? 'Alt+Tab' : 'Tab';
     const outline = (page, id) => page.$eval(`#${id}`, el => {
       const s = getComputedStyle(el);

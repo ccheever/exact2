@@ -67,8 +67,8 @@ component App
   state count = 0
   state draft = ""
   state disabled = false
-  resource initial = rows() as shape list<Row>
-  mutation changed as shape list<Row>
+  resource initial = rows() as shape Row[]
+  mutation changed as shape Row[]
   derive rows = match changed { case some(value) => value, case none => initial }
   action drop(item: string, before: option<string>)
     send changed = move(item, before)
@@ -81,7 +81,7 @@ component App
     box width="100%" height="100%"
       box position="absolute" left=20 top=40 width=300 height=184
         list id="items" testId="list" width="100%" height="100%" border-width=2 padding=0 virtualized=true reorderdrop=drop
-          each x in rows key=x.id
+          for x in rows key=x.id
             box testId=`row-${x.id}` height=x.height background-color=x.color
               box testId=`grip-${x.id}` width="100%" height="100%" reorderFor="items" touch-action="none" disabled=disabled
       button position="absolute" top=300 testId="disable" press=disable
@@ -433,7 +433,7 @@ fn typing_under_empty_when_arms_preserves_mapping_hold_and_exactly_one_drop() {
         .lines()
         .map(|line| format!("    {line}\n"))
         .collect::<String>();
-    let source = format!("{head}        when shown\n          when windowed\n{list}      button position=\"absolute\"{tail}");
+    let source = format!("{head}        if shown\n          if windowed\n{list}      button position=\"absolute\"{tail}");
     let mut p = boot_source(&source);
     let (wrapper, point) = recognize(&mut p);
     p.pointer_move(point.0, point.1 + 60., 20.).unwrap();
@@ -508,18 +508,18 @@ const CARDS: &str = r#"shape Card
   col: string
 component App
   state log = ""
-  resource columns = columns() as shape list<string>
-  resource initial = cards() as shape list<Card>
-  mutation changed as shape list<Card>
+  resource columns = columns() as shape string[]
+  resource initial = cards() as shape Card[]
+  mutation changed as shape Card[]
   derive cards = match changed { case some(value) => value, case none => initial }
   action dropCard(col: string, item: string, before: option<string>)
     log = `${item}>${col}@${match before { case some(k) => k, case none => "" }}`
     send changed = move(item, col, match before { case some(k) => k, case none => "" })
   view
     row gap=20
-      each col in columns key=col
+      for col in columns key=col
         list id=`col-${col}` testId=`list-${col}` virtualized=true reorderGroup="cards" reorderdrop=dropCard(col) width=150 height=200
-          each card in filter(cards, k => k.col == col) key=card.id
+          for card in cards.filter(k => k.col == col) key=card.id
             box testId=`grip-${card.id}` height=40 reorderFor=`col-${col}` touch-action="none"
               text card.id
 "#;

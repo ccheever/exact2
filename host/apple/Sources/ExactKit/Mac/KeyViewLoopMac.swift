@@ -96,8 +96,10 @@ extension Presenter {
                 if run.canBecomeKeyView { listed.append((run, run.tabOrder)) }
                 else if run.acceptsFirstResponder { starts.append((run, listed.count)) }
             }
-            // A table's rows are in its cells, not among the list's own subviews.
-            for child in tables.feeds[v.id]?.mounted ?? v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
+            // A table's rows are in its cells, not among the list's own subviews; a route in the detail's
+            // pane of a split is in that pane's view, and stands where it was written (LLP 1115.002 D4).
+            let own = v.container.subviews.compactMap { $0 as? NodeView }
+            for child in tables.feeds[v.id]?.mounted ?? navigation.split.authored(own, in: v.container) { walk(child) }
             for popover in menus.following(v) { walk(popover) }
         }
         for top in tops { walk(top) }

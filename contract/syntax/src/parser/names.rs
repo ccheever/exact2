@@ -8,14 +8,14 @@
 //! a section line, `refresh` before a name in a body) and a name everywhere
 //! else. A shape field, a named argument, a member after `.` and an
 //! attribute name can never head an expression, so they admit every word.
-//! A state's or derive's name takes no type annotation: its type is inferred
-//! (`type_annotation`).
+//! A state's name may declare its type (`state x: T = …`); a derive's takes
+//! none: its type is its expression's (`type_annotation`).
 
 use super::*;
 
 /// The words no binder may be.
 pub(super) const RESERVED: [&str; 16] = [
-    "when", "if", "else", "each", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
+    "when", "if", "else", "for", "in", "match", "case", "as", "fn", "and", "or", "not", "true",
     "false", "none", "some",
 ];
 
@@ -60,10 +60,10 @@ pub(super) fn section_hint(word: &str) -> String {
 }
 
 /// A view's `else` or `case` with nothing to belong to, and where it goes (authoring
-/// bench: an `else` indented one level under its `when`).
+/// bench: an `else` indented one level under its `if`).
 pub(super) fn stray(word: &str) -> String {
     let goes = if word == "else" {
-        "an `else` sits at its `when`'s indentation, on the line after the `when`'s block"
+        "an `else` sits at its `if`'s indentation, on the line after the `if`'s block"
     } else {
         "a `case` arm sits indented under its `match`"
     };
@@ -107,7 +107,7 @@ impl Parser {
         })
     }
 
-    /// A plain `else` ends its line. `else if` and `else when` are parsed by
+    /// A plain `else` ends its line. `else if` is parsed by
     /// the caller first: an `else` around one nested branch (the chess,
     /// kanban2 and spreadsheet diaries). The indented form under `else` is
     /// the same tree.
@@ -131,20 +131,17 @@ impl Parser {
 
     /// A TypeScript-style `: T` before a state's or derive's `=`, or `as T` after its
     /// initializer (`form` "as none" when that initializer is `none`; authoring bench):
-    /// its type is inferred.
+    /// its type is inferred. The refusal leads with the edit, `drop` and the type as
+    /// written (LLP 1116.014 D1).
     pub(super) fn type_annotation(&self, w: &str, name: &str, form: &str) -> R<()> {
         let state = w == "state";
+        // A state's `: T` is its declared type (LLP 1116.015 D2); a derive's is its expression's.
         if form == ":" && self.at_punct(":") {
-            let from = if state {
-                "; an empty start is `none` or `[]`, and the writes give it its type"
-            } else {
-                ", which is its expression's"
-            };
             return self.err(
                 "syntax-expected",
                 format!(
-                    "a {w}'s type is inferred, so `{w} {name}` takes no `: type`: \
-                     write `{w} {name} = …`{from}"
+                    "drop `: {}`; a derive's type is its expression's",
+                    self.written_type()
                 ),
             );
         }
@@ -159,10 +156,31 @@ impl Parser {
             };
             return self.err(
                 "syntax-expected-newline",
-                format!("a {w} takes no `as`: its type is inferred from {from}"),
+                format!(
+                    "drop `as {}`; a {w}'s type is inferred from {from}",
+                    self.written_type()
+                ),
             );
         }
         Ok(())
+    }
+
+    /// The type written after the `:` or `as` the parser stands at, as the author
+    /// wrote it: its tokens up to the `=`, a `persist` or the end of the line.
+    fn written_type(&self) -> String {
+        let mut text = String::new();
+        for t in &self.tokens[(self.pos + 1).min(self.tokens.len())..] {
+            match &t.kind {
+                TokenKind::Ident(w) if w == "persist" => break,
+                TokenKind::Ident(w) => text.push_str(w),
+                TokenKind::Punct("=") => break,
+                TokenKind::Punct(",") => text.push_str(", "),
+                TokenKind::Punct(p) => text.push_str(p),
+                TokenKind::Number(n) => text.push_str(&n.to_string()),
+                _ => break,
+            }
+        }
+        text
     }
 
     /// `persist` after a state's initializer (LLP 1116 D5): where it is

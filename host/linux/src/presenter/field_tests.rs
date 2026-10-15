@@ -5,15 +5,7 @@
 //! action's snap back, and an unbound group's own state.
 use super::field::{byte_at, delete, moved, replace};
 use super::*;
-use exact_runner::{DataError, FieldSelection, SelectionDirection, Value};
-
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
+use exact_runner::{FieldSelection, SelectionDirection, Value};
 
 const APP: &str = r#"component Forms
   state color = "red"
@@ -61,10 +53,10 @@ const APP: &str = r#"component Forms
       text `${body}|${caret}|${picked}` testId="field" height=20
 "#;
 
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
-        NoData,
+        &crate::test_plan(APP),
+        (),
         (400., 600.),
         1.,
         PathBuf::new(),
@@ -74,20 +66,20 @@ fn boot() -> Presenter<NoData> {
     assert!(error.is_none(), "{error:?}");
     p
 }
-fn id(p: &Presenter<NoData>, test_id: &str) -> ViewId {
+fn id(p: &Presenter<()>, test_id: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
-fn text(p: &Presenter<NoData>, test_id: &str) -> String {
+fn text(p: &Presenter<()>, test_id: &str) -> String {
     let k = p.host().kernel();
     let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
     node.props.str(PropId::Text).unwrap().to_string()
 }
-fn key(p: &mut Presenter<NoData>, target: ViewId, code: &str, name: &str) {
+fn key(p: &mut Presenter<()>, target: ViewId, code: &str, name: &str) {
     p.type_key(target, code, name, true, false).unwrap();
     p.type_key(target, code, name, false, false).unwrap();
 }
-fn painted(p: &mut Presenter<NoData>, test_id: &str) -> Vec<u8> {
+fn painted(p: &mut Presenter<()>, test_id: &str) -> Vec<u8> {
     let target = id(p, test_id);
     let (x, y, w, h) = p.rect_of(target).unwrap();
     let pixmap = p.frame();
@@ -165,7 +157,7 @@ fn a_fields_input_reports_its_selection_and_set_selection_range_sets_it() {
     // A command's selection on a field that has lost the focus: `select`
     // fires, and the focus stays on the button.
     p.tap(id(&p, "jump")).unwrap();
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "field"), "hello|5 5 none|hello 1-3 backward");
     assert_ne!(p.focus(), Some(editor));
     // The same selection again fires nothing.
@@ -180,7 +172,7 @@ fn a_fields_input_reports_its_selection_and_set_selection_range_sets_it() {
     assert_eq!(text(&p, "field"), "hxlo|2 2 none|hello 1-3 backward");
     // A collapse to where typing left the caret still fires, as Chrome's.
     p.tap(id(&p, "collapse")).unwrap();
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "field"), "hxlo|2 2 none|hxlo 2-2 none");
     // The person's extension fires `select`; a plain move does not.
     key(&mut p, editor, "ArrowRight", "ArrowRight");
@@ -197,7 +189,7 @@ fn a_fields_input_reports_its_selection_and_set_selection_range_sets_it() {
     assert_eq!(text(&p, "field"), "heyo|3 3 none|hxlo 1-3 backward");
     // A radio is no text field: refused, and nothing moves.
     p.tap(id(&p, "stray")).unwrap();
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert!(p
         .host()
         .runner()
@@ -284,8 +276,8 @@ fn set_range_text_command_preserves_selection_and_reports_one_input() {
       text `${body}|${count}|${caret}` testId="result"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        NoData,
+        &crate::test_plan(source),
+        (),
         (400., 600.),
         1.,
         PathBuf::new(),
@@ -295,7 +287,7 @@ fn set_range_text_command_preserves_selection_and_reports_one_input() {
     assert!(error.is_none());
     let button = id(&p, "replace");
     p.tap(button).unwrap();
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "result"), "aXYbc|1|1-5|insertReplacementText");
     assert_eq!(p.field_text(id(&p, "editor")), "aXYbc");
     assert_ne!(
@@ -395,8 +387,8 @@ fn range_replacement_url_sanitization_and_select_events_match_chrome() {
       text heard testId="heard"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        NoData,
+        &crate::test_plan(source),
+        (),
         (400., 600.),
         1.,
         PathBuf::new(),
@@ -422,7 +414,7 @@ fn range_replacement_url_sanitization_and_select_events_match_chrome() {
         Value::str("end"),
     ]);
     assert_eq!(text(&p, "log"), "input input ");
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "log"), "input input select ");
     p.set_range_text(&[
         Value::str("url"),
@@ -454,8 +446,8 @@ fn range_replacement_select_tasks_observe_both_commands() {
       text log testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        NoData,
+        &crate::test_plan(source),
+        (),
         (400., 600.),
         1.,
         PathBuf::new(),
@@ -465,6 +457,49 @@ fn range_replacement_select_tasks_observe_both_commands() {
     assert!(error.is_none());
     let button = id(&p, "replace");
     p.tap(button).unwrap();
-    p.run_commands(NoData::default);
+    p.run_commands(<()>::default);
     assert_eq!(text(&p, "log"), "input:A input:AB select:AB select:AB ");
+}
+
+#[test]
+fn beforeinput_cancels_paste_and_selectionchange_hears_a_caret_move() {
+    let source = r#"component App
+  state body = "abc"
+  state caret = 0
+  state kind = ""
+  action before(e: InputEvent)
+    kind = e.inputType
+    if e.inputType == "insertFromPaste"
+      preventDefault()
+  action input(v: string, e: InputEvent)
+    body = v
+    kind = e.inputType
+  action moved(e: InputEvent)
+    caret = e.selectionStart
+  view
+    column width=400 height=300
+      textarea value=body beforeinput=before input=input selectionchange=moved testId="editor"
+      text `${body}:${caret}:${kind}` testId="result"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &crate::test_plan(source),
+        (),
+        (400., 300.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let editor = id(&p, "editor");
+    p.press_field(editor);
+    p.field_key(editor, "ArrowLeft", 0.);
+    assert_eq!(text(&p, "result"), "abc:2:");
+    p.paste_field(editor, "PASTE", 0.);
+    assert_eq!(p.field_text(editor), "abc");
+    assert_eq!(text(&p, "result"), "abc:2:insertFromPaste");
+    p.field_key(editor, "x", 0.);
+    assert_eq!(text(&p, "result"), "abxc:3:insertText");
+    p.field_key(editor, "Backspace", 0.);
+    assert_eq!(text(&p, "result"), "abc:2:deleteContentBackward");
 }

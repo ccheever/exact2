@@ -22,9 +22,11 @@ are on it and the code exists. It is not a promise about anything not yet built.
 
 Intersection visibility host deviation (2026-10-12, LLP 1005 "Intersection
 visibility"): both web targets use the browser; AppKit, UIKit and Linux now
-share the runner's post-layout/post-scroll sampler. Native inline runs,
-presentation-time motion/sticky/fixed positions, rotated roots and SVG clip
-references remain unqualified. Percentage root margins follow measured Chrome
+share the runner's post-layout/post-scroll sampler. Sticky targets and their
+descendants use the kernel's sticky constraint at the reported scroll offset;
+rotated-root ratios have Chrome/runner coverage. Native inline runs,
+presentation-time motion, nested/transformed sticky constraints and SVG clip
+references remain unqualified. `position: fixed` is not a schema value. Percentage root margins follow measured Chrome
 behavior: height for top/bottom, width for left/right, diverging from the
 [W3C draft's width rule](https://w3c.github.io/IntersectionObserver/#dom-intersectionobserver-rootmargin).
 Windows and Android inherit the Linux path without carrier qualification;
@@ -1031,10 +1033,13 @@ class by comparing the EXNODE export before and after.
 
 The closed op list (revision 1): `CreateView`, `DestroyView` (**subtree** — the
 WS-I correction, from day one), `SetProp`, `ClearProp`, `SetStyle` (a **masked
-patch**: the mask of the rows it sets, the mask of those its author wrote, then
-each set row's value; the second mask since 2026-10-11, LLP 1115.000 D2, and a
-row marked written and not set is a typed rejection), `ClearStyle` (a mask),
-`SetChildren`, `AttachRoot`. There is no
+patch**: the mask of own values, the mask of authored declarations, then each
+present value; LLP 1115.000 D2). The patch affects the union of both masks. A
+written row without an own value is an explicit CSS clear: it removes the stored
+value and retains authored intent while resolving to inherited or initial value.
+`ClearStyle` takes a mask and a `written` boolean: true retains that intent;
+false removes both the own value and its authored declaration. `SetChildren`
+and `AttachRoot` complete the op list. There is no
 `ComputeLayout` op: layout is a host call (`Kernel::compute_layout`), because the
 host owns the frame clock. A root with `width: auto` fills the width it is
 offered — CSS's block rule, which Taffy does not apply to a root — and stays
@@ -1045,7 +1050,10 @@ style is re-derived on `AttachRoot`).
 **A containing block from the host** (LLP 1115.002 D8.2, 2026-10-12). A host
 that shows a subtree in a view of its own (a split's pane, a sheet) gives its
 root a containing block, `Kernel::set_host_block(view, Some(HostBlock { width,
-height }))`, each axis `Is` the size or `AtMost` a maximum. While it has one
+height }))`, each axis `Is` the size, `AtMost` a maximum, or `Fit` a limit for
+automatic sizing that an authored size or minimum may exceed. `Fit` keeps that
+length as the percentage basis and reports the resulting extent without clamping;
+it is the modal route's policy (LLP 1115.002 D7.4). While it has one
 the node is out of its parent's layout and is laid out by the same
 `compute_layout` call as a root is, in that block: the engine's root for its
 subtree, so a block that changes lays out that subtree alone. Its frames are

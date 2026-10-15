@@ -46,8 +46,8 @@ extension Presenter {
             if shown(v) { return (v, v.bounds) }
             var at: ShareAnchorView? = v.superview
             while let a = at, (a as? NodeView)?.props["popover"] == nil { at = a.superview }
-            if let name = (at as? NodeView)?.props["id"],
-               let invoker = carrying("popovertarget").first(where: { $0.props["popovertarget"] == name && shown($0) }) {
+            if let popover = at as? NodeView,
+               let invoker = (carrying("popovertarget") + carrying("commandfor")).first(where: { invocation(of: $0)?.target === popover && shown($0) }) {
                 return (invoker, invoker.bounds)
             }
         }

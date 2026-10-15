@@ -226,7 +226,7 @@ fn owners(bindings: Option<ibex2::host::Bindings>) -> Vec<Option<ibex2::host::Bi
 }
 
 impl Core {
-    #[allow(dead_code)] // the Linux host's; Apple's is `start_switched`
+    #[allow(dead_code)] // the tests'; the hosts' executors use `start_switched` or `start_on`
     pub(super) fn start(bindings: Option<ibex2::host::Bindings>, grants: &str, wake: Wake) -> Self {
         // Additional transports are constructed on their own threads, not
         // while the presenter is trying to publish its first frame.
@@ -239,14 +239,15 @@ impl Core {
     }
 
     /// [`Core::start`], or, switched on, the machine (LLP 1120): Apple's.
-    #[allow(dead_code)] // Apple's executor's; Linux's is `start`
+    #[allow(dead_code)] // Apple's executor's; Linux's and the render host's are `start_on`
     pub(super) fn start_switched(b: Option<ibex2::host::Bindings>, g: &str, w: Wake) -> Self {
         Self::with_owners(owners(b), g, w)
     }
 
     /// [`Core::start`] with every transport the other owners, scoped grants
-    /// and streams open made by `host` (the render host's, LLP 1048.000 D10).
-    #[allow(dead_code)] // only the render host's executor calls it
+    /// and streams open made by `host` (the Linux host's, and the render
+    /// host's, LLP 1048.000 D10).
+    #[allow(dead_code)] // the Linux and render hosts' executors call it
     pub(super) fn start_on(
         bindings: Option<ibex2::host::Bindings>,
         grants: &str,
@@ -417,7 +418,8 @@ impl Core {
             .request
             .timeout_refusal()
             .or(r.request.body_from_refusal())
-            .map_or_else(|| reservation(&r.request), Err);
+            .map_or_else(|| reservation(&r.request), Err)
+            .and_then(|charge| state.book.reserve_inline_copy(&r.request, charge));
         if self.disabled || !self.start_workers(&mut state) {
             return Err(("native executor worker limit reached", work));
         }
@@ -482,7 +484,7 @@ impl Core {
             };
             // A parked upload's outstanding charge counts as taken, so a
             // later request can't crowd it out (LLP 1120 §6 question 8).
-            let parked = state.book.parked(&state.jobs[lane]);
+            let parked = state.book.parked(lane, &state.jobs[lane]);
             if full || charge > BYTES[lane].saturating_sub(state.bytes[lane] + parked) {
                 return Err("native executor admission limit reached");
             }

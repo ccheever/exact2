@@ -231,6 +231,7 @@ impl<D: DataSource> Presenter<D> {
         let row = shape::row(kernel, &node, false);
         // The colour its author wrote on it wins (LLP 1115: author >
         // platform); one it only inherits leaves Material's.
+        let _accent = crate::paint::accent_scope(&node);
         let tint = (node.style.written.has(exact_kernel::StyleId::TextColor))
             .then(|| crate::paint::rgba(node.text_color().resolve(dark)));
         Some(Button {

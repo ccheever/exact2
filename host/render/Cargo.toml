@@ -24,7 +24,7 @@ exact-web-capabilities = { path = "../web-capabilities" }
 # `websocket`: the transport for an app's WebSockets (exactStream sockets); the
 # vendored v4 crate gates it behind a default feature (27275f3d4), which
 # default-features = false had turned off.
-ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket", "portable-http"] }
 serde_json = "1.0"
 # The server's ETags and surrogate keys.
 sha2 = "0.10"
@@ -33,6 +33,10 @@ brotli = "9"
 flate2 = "1"
 # SIGTERM drains the server (D10).
 libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+# `WSAPoll` keeps graceful closes event-driven across the full held-socket bound.
+windows-sys = { version = "0.61.2", features = ["Win32_Networking_WinSock"] }
 
 [features]
 # Integration tests only: a new executor waits for a native-worker slot

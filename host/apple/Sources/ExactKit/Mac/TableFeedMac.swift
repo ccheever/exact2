@@ -508,9 +508,24 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         if recount { told.removeAll(keepingCapacity: true); (agreed, differed) = (0, 0) }
         // A row selected before it was made is its item's from now on.
         if selectedKey == nil, selectedNode == nil, let row = row(at: table.selectedRow) { remember(row) }
-        // The selected item, wherever its row is now.
-        let selected = selectedKey.flatMap { key in next.first { $0.node.props["listItemKey"] == key }?.index }
-            ?? selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        // The selected item, by its mounted row or the runner's logical key index.
+        var disappeared = false
+        let selected: Int?
+        if let key = selectedKey {
+            if let mounted = next.first(where: { $0.node.props["listItemKey"] == key })?.index {
+                selected = mounted
+            } else if let lookup = presenter.onListIndex {
+                selected = lookup(id, key)
+                if selected == nil {
+                    selectedKey = nil
+                    disappeared = true
+                }
+            } else {
+                selected = nil
+            }
+        } else {
+            selected = selectedNode.flatMap { node in next.first { $0.node.id == node }?.index }
+        }
 
         syncing = true
         defer { syncing = false }
@@ -532,7 +547,11 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
             still { table.noteHeightOfRows(withIndexesChanged: changed) }
             noted += changed.count
         }
-        if let selected, table.selectedRow != selected { table.selectRowIndexes([selected], byExtendingSelection: false) }
+        if let selected, table.selectedRow != selected {
+            table.selectRowIndexes([selected], byExtendingSelection: false)
+        } else if disappeared, table.selectedRow >= 0 {
+            table.deselectAll(nil)
+        }
         // The run of mounted rows the port is in: the table keeps a view
         // for each of them. A list the runner does not window has every
         // row mounted, so the table keeps what AppKit keeps: what shows.
@@ -678,7 +697,7 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         let all = children?.filter { presenter?.views[$0.id] === $0 } ?? rows.map(\.node)
         all.forEach(keep)
         // In the document they are in their order, as the presenter keeps its own.
-        if kept { presenter?.collections.orderChildren(all, in: home) }
+        if kept { presenter?.orderChildren(all, in: home) }
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { count }
@@ -751,6 +770,25 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
         // arrow key reaches (measured, macOS 27.0). A stock table's action
         // is the mouse's alone, and so is every other row's press here.
         if let mounted, table.keying, navigates(mounted) { pressRow(row) }
+        // The person took the selection off its row (a Command-click): a
+        // split's pane then shows nothing (LLP 1115.002 D4, SplitMac.swift).
+        if row < 0 { presenter?.navigation.split.deselected(id) }
+    }
+    /// The split's word on the selection (SplitMac.swift): the row whose
+    /// press shows the detail beside the list is the selected one, and with
+    /// no detail none is. A row that is not mounted leaves what is selected.
+    /// True when the table shows it.
+    @discardableResult func show(selected press: UInt32?) -> Bool {
+        let index = press.flatMap { id in rows.first { pressing($0)?.id == id }?.index }
+        guard press == nil || index != nil else { return false }
+        let want = index.map { IndexSet(integer: $0) } ?? IndexSet()
+        guard table.selectedRowIndexes != want else { return true }
+        let was = syncing
+        syncing = true
+        defer { syncing = was }
+        table.selectRowIndexes(want, byExtendingSelection: false)
+        remember(index.flatMap { row(at: $0) })
+        return true
     }
     /// A click on a row, when the mouse comes up in it: the table's action.
     /// In a hand-built table on macOS 27.0, key window, nothing a delegate
@@ -819,6 +857,10 @@ final class TableFeed: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     @discardableResult
     func pressRow(_ row: Int) -> Bool {
         guard let pressing = self.row(at: row).flatMap(pressing), !pressing.disabled, !pressing.inert else { return false }
+        // The list of a split (SplitMac.swift): a route this press brings is this row's detail.
+        let split = presenter?.navigation.split
+        if split?.shown?.table == id { split?.pressing = pressing.id }
+        defer { split?.pressing = nil }
         presenter?.press(pressing.id)
         return true
     }

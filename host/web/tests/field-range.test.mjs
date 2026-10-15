@@ -6,23 +6,26 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 const page = `<button id="outside">Outside</button><div id="exact-root"></div>
 <script type="module">
   import { commands } from './commands.js';
   import { runFocusCommands, controlEvent, onSelection } from './navigation.js';
-  import { onValue, OnHooks } from './rt.js';
+  import { onValue, OnHooks, onSelectionChange } from './rt.js';
+  import * as rt from './rt.js';
+  window.rt = rt;
+  window.bindSelection = field => onSelectionChange(field, 'selectionchange', record => window.seen.push(record), (name, f) => field.addEventListener(name, f));
   import './files.js';
   window.fileHook = OnHooks.file;
   import { ht } from './hatches.js';
   window.bindInput = (target, field, seen) => target === 'js'
     ? onValue(field, 'input', (value, record) => seen.push([value, record[5]]), (name, f) => field.addEventListener(name, f))
-    : controlEvent(field, 'input', (name, f) => field.addEventListener(name, f), (kind) => seen.push([field.value, kind === 48 ? 'insertReplacementText' : '']));
+    : controlEvent(field, 'input', (name, f) => field.addEventListener(name, f), (kind, payload) => seen.push([field.value, kind === 48 ? 'insertReplacementText' : kind === 54 ? payload.split(',')[0] : '']));
   window.hatch = ht;
   window.logs = [];
   window.replace = (target, args) => target === 'js' ? commands(s => logs.push(s)).setRangeText(...args)
@@ -70,31 +73,45 @@ async function inChrome(test) {
 
 // Compare the production command with HTML's method. Only the admitted input event differs.
 check('setRangeText follows Chrome selection modes and emits one replacement input on both web targets', () => inChrome(async (evaluate) => {
-  for (const target of ['js', 'wasm']) for (const tag of ['input', 'textarea']) {
-    for (const args of [['[a.ts]'], ['@a.ts', 4, 9], ['[a.ts]', 4, 9], ['😀', 4, 9, 'select'], ['x', 0, 3, 'start'], ['x', 0, 3, 'end'], ['', 4, 9, 'preserve'], ['z', 100, 100], ['x', 0, 4, 'preserve'], ['a\nb', 4, 9]]) {
-      const result = await evaluate(`(async () => {
-        const root = document.getElementById('exact-root'); root.replaceChildren();
-        const field = document.createElement(${JSON.stringify(tag)}), oracle = document.createElement(${JSON.stringify(tag)});
-        field.id = 'editor'; root.append(field, oracle);
-        for (const e of [field, oracle]) { e.value = 'see @a.ts now'; e.setSelectionRange(4, 9, 'backward'); }
-        document.getElementById('outside').focus();
-        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
-        const seen = [], expected = [], input = [], before = [];
-        field.addEventListener('beforeinput', e => before.push(e.inputType));
-        for (const [e, events] of [[field, seen], [oracle, expected]]) for (const name of ['select', 'selectionchange']) e.addEventListener(name, () => events.push(name));
-        field.addEventListener('input', e => input.push([e.inputType, e.data, e.bubbles, e.cancelable, e.isTrusted, field.value]));
-        oracle.setRangeText(...${JSON.stringify(args)});
-        replace(${JSON.stringify(target)}, ['editor', ...${JSON.stringify(args)}]);
-        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
-        const state = e => [e.value, e.selectionStart, e.selectionEnd, e.selectionDirection];
-        return { actual: state(field), expected: state(oracle), seen, events: expected, input, before, focus: document.activeElement.id };
-      })()`);
-      expect(result.actual).toEqual(result.expected);
-      expect(result.seen).toEqual(result.events);
-      expect(result.input).toEqual([['insertReplacementText', args[0], true, false, false, result.actual[0]]]);
-      expect(result.focus).toBe('outside');
-      expect(result.before).toEqual([]);
+  const cases = ['js', 'wasm'].flatMap(target => ['input', 'textarea'].flatMap(tag =>
+    [['[a.ts]'], ['@a.ts', 4, 9], ['[a.ts]', 4, 9], ['😀', 4, 9, 'select'], ['x', 0, 3, 'start'], ['x', 0, 3, 'end'], ['', 4, 9, 'preserve'], ['z', 100, 100], ['x', 0, 4, 'preserve'], ['a\nb', 4, 9]]
+      .map(args => ({ target, tag, args }))));
+  // Each case has its own field and oracle, so all of them run at once and their frame waits overlap
+  const results = await evaluate(`(async () => {
+    const root = document.getElementById('exact-root'); root.replaceChildren();
+    const frames = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+    const cases = ${JSON.stringify(cases)}.map(({ target, tag, args }, i) => {
+      const field = document.createElement(tag), oracle = document.createElement(tag);
+      field.id = 'editor-' + i; root.append(field, oracle);
+      for (const e of [field, oracle]) { e.value = 'see @a.ts now'; e.setSelectionRange(4, 9, 'backward'); }
+      return { target, args, field, oracle };
+    });
+    document.getElementById('outside').focus();
+    await frames();
+    for (const c of cases) {
+      c.seen = []; c.expected = []; c.input = []; c.before = []; c.focused = false;
+      c.field.addEventListener('beforeinput', e => c.before.push(e.inputType));
+      c.field.addEventListener('focus', () => c.focused = true);
+      for (const [e, events] of [[c.field, c.seen], [c.oracle, c.expected]]) for (const name of ['select', 'selectionchange']) e.addEventListener(name, () => events.push(name));
+      c.field.addEventListener('input', e => c.input.push([e.inputType, e.data, e.bubbles, e.cancelable, e.isTrusted, c.field.value]));
+      c.oracle.setRangeText(...c.args);
+      replace(c.target, [c.field.id, ...c.args]);
     }
+    await frames();
+    const state = e => [e.value, e.selectionStart, e.selectionEnd, e.selectionDirection];
+    return cases.map(c => ({ actual: state(c.field), expected: state(c.oracle), seen: c.seen, events: c.expected, input: c.input, before: c.before, focused: c.focused }));
+  })()`);
+  for (const [i, result] of results.entries()) {
+    const { target, tag, args } = cases[i], at = `${target} ${tag} ${JSON.stringify(args)}`;
+    expect(result.actual, at).toEqual(result.expected);
+    expect(result.seen, at).toEqual(result.events);
+    expect(result.input, at).toEqual([['insertReplacementText', args[0], true, false, false, result.actual[0]]]);
+    expect(result.before, at).toEqual([]);
+    expect(result.focused, at).toBe(false);
+  }
+  expect(await evaluate('document.activeElement.id')).toBe('outside');
+  for (const target of ['js', 'wasm']) {
+    await evaluate(`(() => { const root = document.getElementById('exact-root'); root.replaceChildren(); const field = document.createElement('textarea'); field.id = 'editor'; field.value = 'see @a.ts now'; root.append(field); })()`);
     const refused = await evaluate(`(() => {
       const field = document.getElementById('editor'); let inputs = 0;
       field.addEventListener('input', () => inputs++);
@@ -162,7 +179,7 @@ check('web replacement input types include the hatch and browser correction even
       field.value = 'corrected'; field.dispatchEvent(new InputEvent('input', { inputType: 'insertReplacementText', bubbles: true }));
       field.value = 'typed'; field.dispatchEvent(new InputEvent('input', { inputType: 'insertText', bubbles: true }));
       return seen;
-    })()`)).toEqual([['x', 'insertReplacementText'], ['Palo', 'insertReplacementText'], ['corrected', 'insertReplacementText'], ['typed', '']]);
+    })()`)).toEqual([['x', 'insertReplacementText'], ['Palo', 'insertReplacementText'], ['corrected', 'insertReplacementText'], ['typed', 'insertText']]);
   }
 }), 30000);
 
@@ -214,7 +231,7 @@ check('file picker change supplies the complete InputEvent record', () => inChro
     fileHook(field, 'change', (files, e) => { record = e; branch = e[5] === ''; });
     field.dispatchEvent(new CustomEvent('exact-picked', { detail: 'app:/tmp/picked/a.txt\tfile.txt\ttext/plain\t1\t\t\t' }));
     return [record, branch];
-  })()`)).toEqual([['', false, 0, 0, 'none', ''], true]);
+  })()`)).toEqual([['', false, 0, 0, 'none', '', null, false, false], true]);
 }));
 
 check('text selection commands and rectangles match Chrome on both web targets', () => inChrome(async evaluate => {
@@ -316,3 +333,58 @@ check('text source ranges include breaks, inline ids, collapsed spaces and colum
     expect(result.logs).toEqual([]);
   }
 }), 30000);
+
+check('field selectionchange hears collapsed caret moves through the production binder', () => inChrome(async (evaluate, call) => {
+  await evaluate(`(() => {
+    const field = document.createElement('textarea'); field.value = 'see @a.ts now';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(4, 9);
+    window.seen = []; bindSelection(field);
+  })()`);
+  for (let i = 0; i < 2; i++) {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 });
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 });
+  }
+  const seen = await evaluate(`new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => ok(window.seen))))`);
+  expect(seen.at(-1)?.slice(0, 5)).toEqual(['see @a.ts now', false, 3, 3, 'none']);
+}));
+
+check('beforeinput can cancel a real insertion but cannot cancel composition', () => inChrome(async (evaluate, call) => {
+  expect(await evaluate('typeof rt.onBeforeInput')).toBe('function');
+  await evaluate(`(() => {
+    const field = document.createElement('textarea'); field.id = 'editing'; field.value = 'ab';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(1, 1);
+    window.seen = [];
+    rt.onBeforeInput(field, 'beforeinput', e => { seen.push(e); rt.Hosts.preventDefault(); }, (name, f) => field.addEventListener(name, f));
+  })()`);
+  await call('Input.insertText', { text: 'X' });
+  expect(await evaluate('document.getElementById("editing").value')).toBe('ab');
+  expect(await evaluate('seen[0].slice(5)')).toEqual(['insertText', 'X', true, false]);
+  expect(await evaluate(`(() => {
+    const event = new InputEvent('beforeinput', { inputType: 'insertCompositionText', data: 'あ', isComposing: true, cancelable: false });
+    document.getElementById('editing').dispatchEvent(event); return [event.defaultPrevented, seen.at(-1).slice(5)];
+  })()`)).toEqual([false, ['insertCompositionText', 'あ', false, true]]);
+}));
+
+check('Chrome paste cancellation and undo report their real input types', () => inChrome(async (evaluate, call) => {
+  const origin = await evaluate('location.origin');
+  await call('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
+  await evaluate(`(async () => {
+    const field = document.createElement('textarea'); field.id = 'history'; field.value = 'ab';
+    document.getElementById('exact-root').append(field); field.focus(); field.setSelectionRange(1, 1);
+    window.seen = [];
+    rt.onBeforeInput(field, 'beforeinput', e => { seen.push(['before', ...e.slice(5)]); if (e[5] === 'insertFromPaste') rt.Hosts.preventDefault(); }, (name, f) => field.addEventListener(name, f));
+    rt.onValue(field, 'input', (v, e) => seen.push(['input', ...e.slice(5)]), (name, f) => field.addEventListener(name, f));
+    await navigator.clipboard.writeText('PASTE');
+  })()`);
+  await call('Input.insertText', { text: 'X' });
+  await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'v', code: 'KeyV', modifiers: 4, commands: ['paste'] });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'v', code: 'KeyV' });
+  expect(await evaluate('document.getElementById("history").value')).toBe('aXb');
+  expect(await evaluate('seen.at(-1)')).toEqual(['before', 'insertFromPaste', 'PASTE', true, false]);
+  await call('Input.dispatchKeyEvent', { type: 'rawKeyDown', key: 'z', code: 'KeyZ', modifiers: 4, commands: ['undo'] });
+  await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'z', code: 'KeyZ' });
+  expect(await evaluate('document.getElementById("history").value')).toBe('ab');
+  expect(await evaluate('seen.slice(-2)')).toEqual([
+    ['before', 'historyUndo', null, true, false], ['input', 'historyUndo', null, false, false],
+  ]);
+}));

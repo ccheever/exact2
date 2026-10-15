@@ -34,8 +34,7 @@ T3 Code's Pull Requests page has a Filters menu with submenus (Author, State). W
 the pointer outside its row, Base UI leaves the focus on BODY. The clone matched that with `blur()` (FW-3, T3 PR
 #378). In a real-input session on macOS (realinput-1010c, RC-3) the user went Filters › Author, clicked in "Search
 authors" and pressed Escape, which closed Author. A second Escape left Filters open; only a click outside closed it
-(2 of 2). The reference closes Filters there. Image:
-[G-fw3-fw4-filters.png](https://raw.githubusercontent.com/ccheever/exact2/e8fabfeed724dce27c432773cd615219967a8fea/realinput-1010c/G-fw3-fw4-filters.png).
+(2 of 2). The reference closes Filters there.
 #378's agent drive passed, because its `type <row> key Escape` focused the row first.
 
 The clone works around it (T3 PR #399, task `20261010-realinput-1010c-fixes`). Instead of calling `blur()`, its
@@ -79,11 +78,6 @@ A drive that names a focusable target, such as `type drop key Escape`, focuses i
 | Same, web | Chrome 155.0.8059.39 (the agent's) | main `a10050516` | focus null after `blur()`; Escape closes the popover (the browser's own Popover API); focus stays null | (the reference) | image (left), record W |
 | Control: Open, Escape (focus on Open) | macOS | main `a10050516` | `navigation.popover` null: closed | — | image (right), record C1 |
 | Control: Open, Drop focus, `type drop key Escape` (the agent focuses Drop focus first) | macOS | main `a10050516` | closed; the focus returns to Open (node 3) | — | record C2 |
-
-![X73: Escape after blur() on the Exact web, on macOS, and the macOS control](https://raw.githubusercontent.com/ccheever/exact2/0eb074309d3ec59a43b7edf57adce9c52bfdb8de/fw-issues-20261010/x73-escape-after-blur-web-macos.png)
-
-Record (contract, commands, each step's focus and popover state):
-https://raw.githubusercontent.com/ccheever/exact2/0eb074309d3ec59a43b7edf57adce9c52bfdb8de/fw-issues-20261010/x73-record.txt
 
 The repro sends the agent's key events, not a keyboard's. The clone's RC-3 above is the real-key case. Not run: #327's
 head, iOS and Linux.

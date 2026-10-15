@@ -158,7 +158,7 @@ final class AddressedTapIOSTests: XCTestCase {
     func testTheTouchRunnersAimTakesTheSameRule() throws {
         let (_, agent, _) = rows()
         let plain = agent.aim(["id": 2, "aim": ["press": true]])
-        if (plain["error"] as? String)?.contains("foreground") == true { throw XCTSkip("the test host is in the background: a real touch's aim refuses it") }
+        if (plain["error"] as? String)?.contains("foreground") == true { throw missing("foreground", "the test host is in the background: a real touch's aim refuses it") }
         let aim = try XCTUnwrap(plain["aim"] as? [String: Any], "\(plain)")
         let at = try XCTUnwrap(aim["at"] as? [Double])
         XCTAssertFalse(CGRect(x: 100, y: 40, width: 200, height: 80).contains(CGPoint(x: at[0], y: at[1])), "beside the card: \(at)")

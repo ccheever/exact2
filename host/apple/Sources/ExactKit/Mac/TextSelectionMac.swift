@@ -126,10 +126,12 @@ package final class TextSelection {
         guard let presenter else { return [] }
         var result: [NodeView] = []
         let tops: [NSView] = [presenter.root] + presenter.dialogs.presented + presenter.menus.presented
-        for top in tops { texts(in: top) { if selectable($0) { result.append($0) } } }
+        // Which text is hidden or inert is asked each time: `inert` changes
+        // with a prop or a dialog, which leave this order as it is.
+        for top in tops { texts(in: top) { if $0.textSelectable { result.append($0) } } }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
-        return result
+        return result.filter(selectable)
     }
 
     /// The paragraphs under `view` in order, selectable or not, as the
@@ -207,7 +209,7 @@ package final class TextSelection {
     }
 
     func set(_ node: NodeView, _ selection: FieldSelection) {
-        guard selectable(node), !node.inert else { return }
+        guard selectable(node) else { return }
         leaving = nil; gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         list = nil; logicalAnchor = nil; logicalFocus = nil; allListText = false
         anchor = node; focus = node
@@ -281,7 +283,12 @@ package final class TextSelection {
         clear()
     }
 
-    private func selectable(_ node: NodeView) -> Bool { node.textSelectable }
+    /// Text takes part when the reader can select it (`textSelectable`),
+    /// see it and reach it. As in Chrome, text that computes `visibility:
+    /// hidden` (the stacked tab not shown, T3 F12-2) or is `inert` is
+    /// neither highlighted nor copied, by ⌘A or a drag; a `display: none`
+    /// subtree is `isHidden`, which `texts(in:)` leaves out.
+    private func selectable(_ node: NodeView) -> Bool { !node.cssVisibilityHidden && node.textSelectable && !node.inert }
     func begin(_ node: NodeView, event: NSEvent) {
         requested = nil
         guard selectable(node) else { clear(); return }
@@ -436,7 +443,7 @@ package final class TextSelection {
             guard let (owner, p) = position(node, offset: offset), owner === list else { return nil }
             return p.order
         }
-        _ = paragraphs
+        if ordered == nil { _ = paragraphs }
         return indices[node.id].map { (0, $0, offset) }
     }
 
@@ -581,7 +588,7 @@ package final class TextSelection {
     func selectAll() {
         requested = nil
         gesture += 1; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
-        let nodes = paragraphs.filter { !$0.inert }
+        let nodes = paragraphs
         if let first = nodes.first(where: { position($0, offset: 0) != nil }),
            let (owner, start) = position(first, offset: 0),
            let last = nodes.last(where: { $0.isDescendant(of: owner) }),
@@ -636,7 +643,7 @@ package final class TextSelection {
             return NSRange(location: lo, length: max(0, hi - lo))
         }
         guard anchor != nil && focus != nil else { return nil }
-        _ = paragraphs
+        if ordered == nil { _ = paragraphs }
         guard let anchor, let focus, let a = indices[anchor.id], let b = indices[focus.id],
               let n = indices[node.id], n >= min(a, b), n <= max(a, b) else { return nil }
         let forward = a < b || (a == b && anchorIndex <= focusIndex)

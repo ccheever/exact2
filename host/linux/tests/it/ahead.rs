@@ -1,21 +1,9 @@
 //! A press's screen is laid out ahead of its release: its text is shaped by
 //! then, and nothing shown, committed or kept by the runner has changed.
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{agent, DataError, DataSource};
+use exact_runner::agent;
 use std::path::PathBuf;
 use std::time::Duration;
-
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(
-        &mut self,
-        name: &str,
-        _: &[exact_runner::Value],
-    ) -> Result<exact_runner::Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 const APP: &str = r##"component App
   state shown = none
@@ -43,10 +31,10 @@ const APP: &str = r##"component App
           case none
 "##;
 
-fn boot() -> Presenter<Empty> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(APP).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -57,24 +45,24 @@ fn boot() -> Presenter<Empty> {
     p
 }
 
-fn frame(p: &Presenter<Empty>, name: &str) -> exact_kernel::Frame {
+fn frame(p: &Presenter<()>, name: &str) -> exact_kernel::Frame {
     let kernel = p.host().kernel();
     let key = kernel.find_by_test_id(name)[0];
     kernel.node_by_key(key).unwrap().frame
 }
 
-fn centre(p: &Presenter<Empty>, name: &str) -> (f32, f32) {
+fn centre(p: &Presenter<()>, name: &str) -> (f32, f32) {
     let f = frame(p, name);
     (f.x + f.width / 2., f.y + f.height / 2.)
 }
 
 /// (sources shaped, layout misses) so far.
-fn work(p: &Presenter<Empty>) -> (usize, usize) {
+fn work(p: &Presenter<()>) -> (usize, usize) {
     let text = p.text().borrow();
     (text.shape_calls, text.measures - text.hits)
 }
 
-fn seen(p: &Presenter<Empty>) -> (String, String, usize, u64) {
+fn seen(p: &Presenter<()>) -> (String, String, usize, u64) {
     let host = p.host();
     (
         agent::tree(host.runner()),
@@ -146,12 +134,12 @@ fn a_new_runtime_family_reshapes_text_opened_on_press_release() {
   view
     column
       button "Open" press=show testId="open" width=200 height=60
-      when open
+      if open
         text "The quick brown fox" font-family=family testId="sample"
 "#;
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(source).unwrap().encode(),
-        Empty,
+        (),
         (400., 500.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),

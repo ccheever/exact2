@@ -12,7 +12,7 @@ shape Card
   color: string
 
 component IntoView
-  resource cards = cards(2000) as shape list<Card>
+  resource cards = cards(2000) as shape Card[]
   state shown = ""
   action far
     shown = "far"
@@ -34,7 +34,7 @@ component IntoView
           text "missing"
         text shown testId="shown"
       list id="long" virtualized=true estimated-item-height=48 testId="long" flex=1 min-height=0 width="100%" overflow-x="hidden"
-        each c in cards key=c.id
+        for c in cards key=c.id
           row testId=`row-${c.n}` height=48 box-sizing="border-box" padding-left=12 align-items="center" gap=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
             column width=12 height=12 border-radius=6 background-color=c.color
             text c.label font-size=14

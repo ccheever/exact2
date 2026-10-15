@@ -26,6 +26,12 @@ use std::sync::{
     Arc,
 };
 
+// Web surfaces stay on the browser thread; native acquisition shares them with a worker.
+#[cfg(target_arch = "wasm32")]
+use std::rc::Rc as SurfaceRef;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc as SurfaceRef;
+
 pub use exact_plan::Value;
 pub use wgpu;
 
@@ -387,7 +393,7 @@ struct Instance {
     surface: Box<dyn Surface>,
     messages: Vec<String>,
     published: Option<String>,
-    presentation: Option<Arc<wgpu::Surface<'static>>>,
+    presentation: Option<SurfaceRef<wgpu::Surface<'static>>>,
     config: Option<wgpu::SurfaceConfiguration>,
     /// Buffers it renders into instead of a window ([`buffers`]).
     #[cfg(target_os = "android")]
@@ -702,7 +708,7 @@ impl Module {
         {
             inst.acquire = Default::default();
         }
-        inst.presentation = Some(Arc::new(target));
+        inst.presentation = Some(SurfaceRef::new(target));
         inst.config = Some(config);
         inst.surface.device_ready(features);
         inst.dirty = true;
@@ -788,7 +794,7 @@ impl Module {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
-            (Some(Arc::new(target)), Some(config))
+            (Some(SurfaceRef::new(target)), Some(config))
         });
         self.instances.insert(
             id,

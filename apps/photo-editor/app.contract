@@ -32,7 +32,7 @@ component PhotoEditor
       column flex-shrink=0 gap=10 padding=16 background-color="#1a1d24"
         text "Edit" font-size=12 font-weight=600 color="#9aa1ad"
         text edit testId="edit" aria-live="polite" font-size=15 font-variant-numeric="tabular-nums"
-        text ("Edited " + toString(edits) + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="#9aa1ad"
+        text ("Edited " + edits.toString() + (edits == 1 ? " time" : " times")) testId="edits" font-size=13 color="#9aa1ad"
         row gap=10
           button press=rotate testId="rotate" aria-label="Rotate the photo 90 degrees clockwise" padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 border-radius=8 background-color="#2d6cdf" color="#ffffff"
             text "Rotate 90°" font-size=15 font-weight=600

@@ -209,7 +209,8 @@ impl<D: DataSource> Presenter<D> {
         events.extend(incoming);
         let mut stage = 0;
         let mut stopped = false;
-        for (id, event) in events {
+        let mut detached = None;
+        for (id, event) in events.iter().cloned() {
             let next_stage = match event {
                 Event::Focusout { .. } => 1,
                 Event::Focus => 2,
@@ -223,8 +224,26 @@ impl<D: DataSource> Presenter<D> {
             if stopped {
                 continue;
             }
-            if self.host.kernel().node(id).is_some() {
+            let live = self.host.kernel().node(id).is_some();
+            let eligible = if stage == 1 {
+                detached
+                    .as_ref()
+                    .map_or(live, |path: &Vec<ViewId>| path.contains(&id))
+            } else {
+                live
+            };
+            if eligible {
                 error = error.or(self.host.dispatch_at(id, event, now_ms));
+                if stage == 0 && previous.is_some_and(|id| self.host.kernel().node(id).is_none()) {
+                    detached = Some(
+                        events
+                            .iter()
+                            .filter(|(_, event)| matches!(event, Event::Focusout { .. }))
+                            .take_while(|(id, _)| self.host.kernel().node(*id).is_none())
+                            .map(|(id, _)| *id)
+                            .collect(),
+                    );
+                }
                 dispatched = true;
                 let stop = self.take_focus_commands();
                 error = error.or(self.after_commit());

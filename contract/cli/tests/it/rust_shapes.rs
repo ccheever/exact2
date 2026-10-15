@@ -12,13 +12,13 @@ shape Post
   likeCount: number
   liked: bool
   author: Author
-  tags: list<string>
+  tags: string[]
   reply: option<Author>
 
 component App
-  resource posts = feed() as shape list<Post>
+  resource posts = feed() as shape Post[]
   view
-    text `${length(posts)}`
+    text `${posts.length}`
 "#;
 
 #[test]

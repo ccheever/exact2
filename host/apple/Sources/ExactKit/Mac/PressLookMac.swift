@@ -94,10 +94,12 @@ extension NodeView {
     var pressTinted: Bool { layer?.sublayers?.contains { $0.name == Self.washName } == true }
 
     /// A disabled custom pressable shows as a disabled control does, at half
-    /// its opacity, and takes no press (`mouseDown`). Written when the state
-    /// changes; the presented opacity is multiplied in as it arrives.
+    /// its opacity, and takes no press (`mouseDown`), unless its author
+    /// styles its own disabled state (`disabledStyled`, LLP 1115.000 D6).
+    /// Written when the state changes; the presented opacity is multiplied
+    /// in as it arrives.
     func syncDisabledLook() {
-        let dims = disabled && customPressable
+        let dims = disabled && customPressable && props["disabledStyled"] != "true"
         guard dims != disabledShown else { return }
         disabledShown = dims
         alphaValue = presentedAlpha * (dims ? Self.disabledOpacity : 1)
