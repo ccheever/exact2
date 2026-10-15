@@ -156,26 +156,26 @@ describe('split view\'s empty side is hatched', () => {
     expect(cell).not.toContain('#e4e4e4');
     expect(cell).toContain(`tone == "empty" ? "light-dark(${REFERENCE.buffer.gutter.join(', ')})" : "#00000000")`);
     expect(cell).toContain(`tone == "addition" ? diffInk(scheme, "add-row") : "light-dark(${REFERENCE.buffer.surface.join(', ')})")`);
-    expect(cell).toContain('if tone == "empty"\n        box position="absolute" left=((gutter - 2) * size / 13 + 2) top=0 right=0 bottom=0 overflow="hidden" pointer-events="none" aria-hidden=true');
-    expect(cell).toContain('rect x=0 y=0 width="100%" height="100%" fill="url(#diff-buffer-stripes)"');
-    expect(cell.match(new RegExp(`fill="light-dark\\(${REFERENCE.buffer.stripe.join(', ')}\\)"`, 'g'))).toHaveLength(2);
+    expect(cell).toContain('if tone == "empty"\n        box position="absolute" left=((gutter - 2) * size / 13 + 2) top=0 right=0 bottom=0 pointer-events="none" aria-hidden=true background-image="repeating-linear-gradient(135deg, ');
+    expect(cell).not.toContain('<svg');
+    expect(cell).not.toContain('diff-buffer-stripes');
+    expect(cell.match(new RegExp(`light-dark\\(${REFERENCE.buffer.stripe.join(', ')}\\)`, 'g'))).toHaveLength(1);
   });
   test('45° stripes rising to the right: the reference\'s share of the surface and phase, a period that divides the line', () => {
-    const pattern = /pattern id="diff-buffer-stripes" patternUnits="userSpaceOnUse" width=(\d+) height=(\d+)/.exec(cell);
-    expect(pattern).not.toBeNull();
-    const period = Number(pattern![1]);
-    expect(Number(pattern![2])).toBe(period);
-    expect(20 % period).toBe(0); // a row at a time: the next row starts where this one's stripes end
-    const polygons = [...cell.matchAll(/polygon points="([^"]+)"/g)].map(match => match[1]!.split(' ').map(pair => pair.split(',').map(Number) as [number, number]));
-    expect(polygons).toHaveLength(2);
-    // Each polygon is a band of constant x + y (a "/" stripe), the second the first one period on.
-    const sums = polygons.map(points => points.map(([x, y]) => x + y));
-    const bands = sums.map(values => [Math.min(...values), Math.max(...values)] as const);
-    for (const points of polygons) for (const [x, y] of points) expect([x >= 0 && x <= period, y >= 0 && y <= period]).toEqual([true, true]);
-    expect(bands[1]![0] - bands[0]![0]).toBe(period);
-    const width = bands[0]![1] - bands[0]![0];
-    expect(width / period).toBeCloseTo(REFERENCE.buffer.stripeWidth / REFERENCE.buffer.period, 5);
-    expect(((bands[0]![0] + bands[0]![1]) / 2) % period).toBeCloseTo(REFERENCE.buffer.phase % period, 5);
+    // At 135° the gradient's position is (x + y) / √2 from the box's top left, so a row's stripes start at its own top.
+    const hatch = /repeating-linear-gradient\(135deg, transparent 0 ([\d.]+)px, light-dark\([^)]+\) ([\d.]+)px ([\d.]+)px, transparent ([\d.]+)px ([\d.]+)px\)/.exec(cell);
+    expect(hatch).not.toBeNull();
+    const [from, to, end, again, period] = hatch!.slice(1).map(value => Number(value) * Math.SQRT2);
+    expect([to, again]).toEqual([from, end]);
+    const whole = Math.round(period!);
+    expect(period!).toBeCloseTo(whole, 2);
+    expect(20 % whole).toBe(0); // a row at a time: the next row starts where this one's stripes end
+    expect((end! - from!) / period!).toBeCloseTo(REFERENCE.buffer.stripeWidth / REFERENCE.buffer.period, 3);
+    expect(((from! + end!) / 2) % period!).toBeCloseTo(REFERENCE.buffer.phase % period!, 2);
+  });
+  test('the deletion bar\'s 1pt stripes are a repeating gradient on the bar itself', () => {
+    expect(cell).toContain('background-color=diffInk(scheme, "del-bar") background-image=`repeating-linear-gradient(to bottom, ${diffInk(scheme, "del")} 0 1px, transparent 1px 2px)`');
+    expect(cell).not.toContain('diff-deletion-stripes');
   });
 });
 
