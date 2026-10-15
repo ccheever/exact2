@@ -441,7 +441,11 @@ component App
     ] {
         assert!(contract::compile(&src.replace(good, bad)).is_err(), "{bad}");
     }
-    contract::compile(&src.replace("button \"Choose\" press=go", "column\n      text choice.value\n      text (choice.value == \"draft\" ? slice(choice.value, 0, 2) : choice.value + \"!\")\n      button \"Choose\" press=go")).unwrap();
+    contract::compile(&src.replace("button \"Choose\" press=go", "column\n      text choice.value\n      text (choice.value == \"draft\" ? choice.value.slice(0, 2) : choice.value + \"!\")\n      button \"Choose\" press=go")).unwrap();
+    let style_error =
+        contract::compile(&src.replace("button \"Choose\" press=go", "view opacity=choice.value"))
+            .unwrap_err();
+    assert_eq!(style_error.id, "lower-attr-type");
     let props = "component App\n  state value = \"draft\"\n  view\n    Child(value=VALUE)\ncomponent Child\n  props\n    value: enum<\"draft\", \"published\">\n  view\n    text value\n";
     contract::compile(&props.replace("VALUE", "\"draft\"")).unwrap();
     for value in ["\"missing\"", "value"] {
@@ -465,7 +469,7 @@ component App
 
 #[test]
 fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
-    let app = "component App\n  action pick(a: option<enum<\"a\", \"b\">>, b: list<enum<\"a\", \"b\">>)\n    focus(\"ok\")\n  action go\n    pick(some(\"a\"), [\"a\", \"b\"])\n  view\n    button \"Pick\" press=go\n";
+    let app = "component App\n  action pick(a: option<enum<\"a\", \"b\">>, b: enum<\"a\", \"b\">[])\n    focus(\"ok\")\n  action go\n    pick(some(\"a\"), [\"a\", \"b\"])\n  view\n    button \"Pick\" press=go\n";
     contract::compile(app).unwrap();
     for (good, bad) in [
         ("some(\"a\")", "some(\"bad\")"),

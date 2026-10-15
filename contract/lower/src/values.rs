@@ -823,22 +823,6 @@ fn style_value(
                     }
                 }
             }
-            // A number row with no text form refuses every string where it
-            // binds, as it refuses the literal; a browser would apply one
-            // (`opacity: 0.5`), so a host would disagree.
-            None if std::ptr::eq(value, &a.value)
-                && matches!(ty, Ty::String | Ty::Enum(_))
-                && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) =>
-            {
-                return err(
-                    "lower-attr-type",
-                    format!(
-                        "`{}` takes a number where it is computed; this expression is `string`, which no native host reads on this row while a browser would apply it: bind the number itself (`{}=n` for a number `n`, not `` `${{n}}` ``)",
-                        a.name, a.name
-                    ),
-                    span,
-                );
-            }
             None if std::ptr::eq(value, &a.value)
                 && !matches!(ty, Ty::Number | Ty::String | Ty::Enum(_) | Ty::Unknown) =>
             {
@@ -905,8 +889,7 @@ fn style_value(
     let metric = !a.written && crate::metrics::names(&a.value);
     if !metric && !rows.iter().any(|row| exact_kernel::style::takes_text(*row)) {
         let offending = computed_string_arm(&a.value, scope, shapes, rows, &[]).or_else(|| {
-            (matches!(ty, Ty::String) && !css_wide_branches(&a.value, rows))
-                .then_some(a.value.span())
+            (ty.is_string() && !css_wide_branches(&a.value, rows)).then_some(a.value.span())
         });
         if let Some(span) = offending {
             return err(
@@ -1005,7 +988,11 @@ fn computed_string_arm<'a>(
                     return result;
                 }
             }
-            matches!(contract_types::infer(e, scope, shapes), Ok(Ty::String)).then_some(e.span())
+            matches!(
+                contract_types::infer(e, scope, shapes),
+                Ok(Ty::String | Ty::Enum(_))
+            )
+            .then_some(e.span())
         }
         Expr::Typed(inner, _, _) => computed_string_arm(inner, scope, shapes, rows, bound),
         Expr::Str(s, _)
@@ -1016,7 +1003,7 @@ fn computed_string_arm<'a>(
             None
         }
         _ => match contract_types::infer(e, scope, shapes) {
-            Ok(Ty::String) => Some(e.span()),
+            Ok(Ty::String | Ty::Enum(_)) => Some(e.span()),
             Err(error) if error.id == "type-branches" => Some(error.span),
             _ => None,
         },

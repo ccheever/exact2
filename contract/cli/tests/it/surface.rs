@@ -425,7 +425,7 @@ fn finite_surface_defaults_include_nested_omitted_fields() {
     let source = r#"shape Nested
   one: enum<"a|b","n🥳">
   maybe: option<enum<"a|b","n🥳">>
-  many: list<enum<"a|b","n🥳">>
+  many: enum<"a|b","n🥳">[]
 shape State
   state: enum<"a|b","n🥳">
   nested: Nested
