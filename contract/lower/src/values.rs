@@ -1159,11 +1159,6 @@ pub(crate) fn check_prop_value(
             span,
         );
     }
-    if prop == PropId::NavigationScrollInsetTop
-        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "auto"))
-    {
-        return err("lower-attr-value", "`navigationScrollInsetTop` takes \"none\" (content starts under the iOS navigation bar) or \"auto\" (the platform's top inset)", span);
-    }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {
         return err("lower-attr-value", "`focusGuide` takes \"auto\"", span);
     }
