@@ -6,7 +6,7 @@
 // apps/design-tool/app.test.contract.
 import { expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -535,6 +535,67 @@ test('an agent\'s write arrives attributed within one poll, and held proposals a
     expect(now).not.toContain('#fefefe');
     expect(now).toContain('accent.fill = #2070f0');
     expect(now).toContain('oklch(0.71 0.1 warmth)');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('T1a: an import reviewed through the file picker, overrides off until ticked, every unmapped value listed, accepted as one transaction and undone in one step', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-import-'));
+  for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
+  const original = readFileSync(join(app, 'app.tamber'), 'utf8');
+  const fixtures = resolve(ROOT, 'tamber/tests/import');
+  const figma = readdirSync(join(fixtures, 'figma')).map(n => join(fixtures, 'figma', n));
+  const tool = await proxied(app);
+  try {
+    const replies = await drive(tool.url, `design-tool-import-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      // shadcn's default theme, picked as a person would.
+      'type import-kind shadcn', 'tap import-choose', `type @import-file ${join(fixtures, 'shadcn-neutral.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const review = states[0].resources.changes.held.find(h => h.importer === 'shadcn');
+    expect(review.counted).toBe('47 source values = 46 mapped + 1 reported');
+    expect(review.countOk).toBe(true);
+    expect(review.mapped).toHaveLength(23);
+    expect(review.mapped[0]).toMatchObject({ name: 'shadcn.background', modes: [{ label: 'default', light: 'oklch(1 0 0)', dark: 'oklch(0.145 0 0)' }] });
+    // Every override off until ticked, every unmapped value with its reason.
+    expect(review.offers.map(o => [o.role, o.on])).toEqual([['-exact-background', false], ['-exact-label', false], ['-exact-secondary-background', false], ['-exact-separator', false], ['AccentColor', false]]);
+    expect(states[0].slots.picked).toEqual([]);
+    expect(review.unmapped.map(u => u.name)).toEqual(['--radius', '--radius-sm', '--radius-md', '--radius-lg', '--radius-xl']);
+    expect(review.unmapped[0].why).toBe('kind pending (stage 6): length');
+    const id = review.proposal, next = id.replace(/-(\d+)$/, (_, n) => `-${Number(n) + 1}`);
+    // Tick AccentColor alone and accept: the server holds exactly those
+    // items, its offer kept on, and that is accepted as one transaction.
+    const more = await drive(tool.url, `design-tool-import-${process.pid}`, [
+      'clock data', 'clock +1', 'clock data',
+      `tap override-${id}-AccentColor`, `tap accept-${id}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${next}`, 'clock data', 'clock +1', 'clock data', 'state',
+      'tap undo', 'clock data', 'clock +1', 'clock data', 'state',
+      // Tailwind's default theme, and Figma's export (a file a mode).
+      'type import-kind tailwind', 'tap import-choose', `type @import-file ${join(fixtures, 'tailwind-theme.css')}`, 'clock data', 'clock +1', 'clock data', 'state',
+      'type import-kind dtcg', 'tap import-choose', `type @import-file ${figma.join('\n')}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ]);
+    const later = more.filter(r => r.resources);
+    expect(later[0].slots.written.note).toContain(`as ${next}`);
+    const kept = later[0].resources.changes.held.find(h => h.proposal === next);
+    expect(kept).toMatchObject({ importer: 'shadcn', replaces: id });
+    expect(kept.offers.map(o => [o.role, o.on])).toEqual([['AccentColor', true]]);
+    expect(later[1].slots.written.note).toBe(`Accepted ${next}.`);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['undo', true]]);
+    const written = tool.writes[1].after;
+    expect(written).toContain('AccentColor = shadcn.primary');
+    expect(written).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');
+    expect(written).not.toContain('-exact-background = shadcn.background');
+    // One step back: the bytes as they were.
+    expect(tool.writes[2].after).toBe(original);
+    const tailwind = later[3].resources.changes.held.find(h => h.importer === 'tailwind');
+    expect(tailwind.countOk).toBe(true);
+    expect(tailwind.mapped.length).toBeGreaterThan(200);
+    const dtcg = later[4].resources.changes.held.find(h => h.importer === 'dtcg');
+    expect(dtcg.counted).toBe('104 source values = 40 mapped + 64 reported');
+    expect(dtcg.unmapped).toHaveLength(64);
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

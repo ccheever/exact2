@@ -34,6 +34,15 @@ whose design the port serves.
   proposer, diff and items: Accept, Accept picked (some items) or Drop. A
   proposal accepted in part, or whose files moved since it was held, comes
   back recomputed on today's files, to be reviewed and accepted again.
+- Import a theme (T1a, LLP 1122 D11): pick a shadcn CSS file, a Tailwind v4
+  sheet or DTCG JSON (several files, a mode each) and the server's importer
+  holds it as a proposal. Its review lists the mapped tokens with each
+  mode's value and swatches (each in until unticked, its value editable
+  before accepting), the role overrides it offers (each off until ticked;
+  one it cannot offer says why), every value it did not map with the
+  reason, and the count: source values = mapped + reported. Accepting is
+  one transaction, and Undo one step. Astryx's import comes from its CLI
+  (`bun exact.mjs tamber import astryx …`) and is reviewed the same way.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
   server on a copy of `apps/theme-fixture`.

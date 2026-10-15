@@ -322,3 +322,30 @@ test "held proposals: each with its proposer, diff and items; accepted in part, 
   clock +1
   clock data
   expect tree has "no-proposals"
+
+test "an import's review: tokens in, overrides off until ticked with their notes, every unmapped value, the count; a token's value edited before accepting"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/hold" {"proposal": "imp", "client": "design-tool:Ada", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "add-token", "name": "shadcn.card", "value": "light-dark(#ffffff, #222222)"}}, {"index": 1, "op": {"op": "set-token", "name": "AccentColor", "value": "shadcn.primary"}}], "review": {"importer": "shadcn", "counted": {"source": 3, "mapped": 2, "reported": 1}, "tokens": 1, "unmapped": [{"block": ":root", "name": "--radius", "value": "0.5rem", "why": "kind pending (stage 6): length"}], "offers": [{"role": "AccentColor", "token": "shadcn.primary", "items": [1], "note": null}, {"role": "-exact-label", "token": "shadcn.foreground", "items": [], "note": "tamber-role-axis: it would vary by dark-style"}]}} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "held-title-imp" == "design-tool:Ada imports a shadcn theme"
+  expect text "held-count-imp" == "3 source values = 2 mapped + 1 reported"
+  expect tree has "take-imp-0"
+  expect tree has "override-imp-AccentColor"
+  expect text "unmapped-imp---radius" == "--radius = 0.5rem: kind pending (stage 6): length"
+  expect text "offer-note-imp--exact-label" == "tamber-role-axis: it would vary by dark-style"
+  expect tree missing "override-imp--exact-label"
+  expect state picked == []
+  type "mapped-value-imp-0" "light-dark(#fafafa, #222222)"
+  type "mapped-value-imp-0" key "Enter"
+  clock data
+  expect text "write-note" == "shadcn.card is light-dark(#fafafa, #222222) in the import, held again as held-1: review it and accept."
+  clock +1
+  clock data
+  expect tree missing "held-imp"
+  expect tree has "held-held-1"

@@ -12,7 +12,9 @@ export const appId = 'com.exact.design-tool';
 // The tool's own local URL: `tamber tool` serves it here, and a grant names
 // one origin and port.
 export const API = 'http://127.0.0.1:7740';
-export const grants = `net.fetch ${API}`;
+// And the files the person picks to import, which the host copies under
+// app:/tmp/picked/.
+export const grants = `net.fetch ${API}\nfs.read app:/tmp`;
 
 const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
 // A write's wait: longer than the server's own for a write (two minutes),
@@ -452,8 +454,47 @@ export const tintOf = (who: string) => TINTS[[...who].reduce((h, c) => (h * 31 +
 // Held proposals, as the last poll answer listed them (LLP 1122 D10).
 type Held = Result<'waitChanges'>['held'][number];
 let held: Held[] = [];
-// Each held proposal's operations, for redoing one accepted.
-let heldOps = new Map<string, unknown[]>();
+// Each held proposal's operations (for redoing one accepted, and editing an
+// import's before accepting it) and its review.
+let heldOps = new Map<string, any[]>();
+let heldReview = new Map<string, any>();
+/** A value's sides, light and dark, as swatches show them: `light-dark(a,
+ * b)` split at its top-level comma, else one value for both. */
+export function sides(v: string): [string, string] {
+  const m = /^light-dark\((.*)\)$/s.exec(v.trim());
+  if (!m) return [v.trim(), v.trim()];
+  let depth = 0;
+  for (let i = 0; i < m[1].length; i++) {
+    const c = m[1][i];
+    if (c === '(') depth++;
+    else if (c === ')') depth--;
+    else if (c === ',' && depth === 0) return [m[1].slice(0, i).trim(), m[1].slice(i + 1).trim()];
+  }
+  return [v.trim(), v.trim()];
+}
+/** An import's review (LLP 1122 D11) as the view lists it: the mapped
+ * tokens with their values per mode, the role overrides it offers, the
+ * values it could not map and why, and the count check. */
+function reviewOf(p: any) {
+  const r = p.review, none = { importer: '', mapped: [], offers: [], unmapped: [], counted: '', countOk: true };
+  if (!r?.importer) return none;
+  const ops: any[] = (p.ops ?? []).map((o: { op: unknown }) => o.op);
+  const mapped = ops.slice(0, Number(r.tokens ?? 0)).map((op, index) => {
+    const modes = [{ label: 'default', value: String(op.value ?? '') }, ...(op.whens ?? []).map((w: any) => ({ label: whenText(w.when ?? []), value: String(w.value ?? '') }))];
+    return { index, name: String(op.name ?? ''), modes: modes.map(m => ({ label: m.label, value: m.value, light: sides(m.value)[0], dark: sides(m.value)[1] })) };
+  });
+  const c = r.counted ?? {};
+  return {
+    importer: String(r.importer), mapped,
+    // Off until ticked; in a recomputed import, the ones it kept were
+    // ticked already, so they are on.
+    // An offer with no items is one the importer could not make (its note
+    // says why), or, in a recomputed import, one not chosen: that is left out.
+    offers: (r.offers ?? []).filter((o: any) => (o.items ?? []).length > 0 || (!p.replaces && o.note)).map((o: any) => ({ role: String(o.role), token: String(o.token ?? ''), items: (o.items ?? []).join(','), note: String(o.note ?? ''), on: !!p.replaces })),
+    unmapped: (r.unmapped ?? []).map((u: any) => ({ name: String(u.name), value: String(u.value ?? ''), why: String(u.why ?? ''), derived: u.block === '(derived)' })),
+    counted: `${c.source} source values = ${c.mapped} mapped + ${c.reported} reported`, countOk: c.source === c.mapped + c.reported,
+  };
+}
 /** An operation in plain words, as a held proposal lists its items. */
 const opText = (o: any): string =>
   o?.op === 'set-token' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
@@ -708,10 +749,12 @@ const sources: Sources = {
     // The open proposals, each with its proposer, diff and tokens; a
     // recomputed one says which it replaces, and is reviewed afresh.
     heldOps = new Map((r.proposals ?? []).map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
+    heldReview = new Map((r.proposals ?? []).map(p => [String(p.proposal), p.review]));
     held = (r.proposals ?? []).map(p => ({
       proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
       tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
       items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+      ...reviewOf(p),
     }));
     // Another run of the server (or another app's, on this port), or more
     // missed than it keeps: its sequence numbers start again, or the list
@@ -804,6 +847,51 @@ const sources: Sources = {
     // Accepted: written as its proposer's, and one step of this session's undo.
     if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops: (heldOps.get(proposal) ?? []) as Record<string, unknown>[], label: `the proposal ${proposal}` }); redoStack.length = 0; }
     return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
+  },
+  importFiles: async ([client, kind, paths, names], _store, storage) => {
+    // The picked files' text, sent with `import`: the server runs the
+    // importer and holds its proposal, with its review, for the inbox.
+    const list = paths.split('\n').filter(Boolean), called = names.split('\n');
+    if (!list.length) return { ok: false, error: 'Choose a file to import.', proposal: '', note: '' };
+    let texts: { name: string; text: string }[];
+    try {
+      texts = await Promise.all(list.map(async (path, i) => ({ name: called[i] || path.split('/').pop()!, text: new TextDecoder().decode(await storage.fs.readFile(path)) })));
+    } catch (e) {
+      if ((e as { code?: string }).code === 'bake') throw e;
+      return { ok: false, error: `The file could not be read (${(e as { code?: string }).code ?? 'failed'}).`, proposal: '', note: '' };
+    }
+    const body = texts.length === 1 ? { source: texts[0].text, name: texts[0].name } : { sources: texts };
+    const { error, reply } = await call('/__tamber', { method: 'import', client, kind, ...body }, 60000);
+    if (error) return { ok: false, error, proposal: '', note: '' };
+    const ok = reply.ok as { proposal: string | null; message?: string };
+    if (!ok.proposal) return { ok: true, error: '', proposal: '', note: ok.message ?? 'Nothing to propose.' };
+    return { ok: true, error: '', proposal: ok.proposal, note: `Held for review as ${ok.proposal}.` };
+  },
+  acceptImport: async ([client, proposal, picked]) => {
+    // The mapped tokens unless unticked, the role overrides only if ticked
+    // (LLP 1121 D1): all of it at once is the proposal accepted whole;
+    // anything less is recomputed as those items, to accept again.
+    const r = heldReview.get(proposal), ops = heldOps.get(proposal) ?? [];
+    const recomputed = !!held.find(h => h.proposal === proposal)?.replaces;
+    if (!r) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
+    // `picked`: the view's flipped items, `<proposal>:<i[,j]>` joined by `;`.
+    const flipped = new Set(picked.split(';').filter(x => x.startsWith(`${proposal}:`)).flatMap(x => x.slice(proposal.length + 1).split(',').map(Number)));
+    const tokens = Number(r.tokens ?? 0);
+    const items = ops.map((_, i) => i).filter(i => (i < tokens || recomputed ? !flipped.has(i) : flipped.has(i)));
+    if (!items.length) return { ...stacks(false, 'Nothing is chosen to import.', ''), note: '' };
+    return sources.acceptHeld([client, proposal, items.length === ops.length ? '' : items.join(',')], undefined as never, undefined as never, undefined as never);
+  },
+  editImport: async ([client, proposal, index, value]) => {
+    // A mapped token's value changed before accepting: the import held again
+    // with it, under the same review, and the old one dropped.
+    const r = heldReview.get(proposal), ops = (heldOps.get(proposal) ?? []).map(o => ({ ...o }));
+    if (!r || !ops[index]) return { ...stacks(false, `No held import \`${proposal}\`.`, ''), note: '' };
+    if (!value.trim()) return { ...stacks(false, 'Give it a value.', ''), note: '' };
+    ops[index].value = value.trim();
+    const held = await call('/__tamber', { method: 'propose', hold: true, client, ops, review: r }, WRITE_WAIT);
+    if (held.error) return { ...stacks(false, held.error, ''), note: '' };
+    await call('/__tamber', { method: 'drop', client, proposal });
+    return { ...stacks(true, '', 'edited'), note: `${ops[index].name} is ${value.trim()} in the import, held again as ${held.reply.ok.proposal}: review it and accept.` };
   },
   dropHeld: async ([client, proposal]) => {
     const { error } = await call('/__tamber', { method: 'drop', client, proposal });

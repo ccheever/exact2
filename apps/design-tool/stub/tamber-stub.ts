@@ -17,7 +17,7 @@ let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
 // Held proposals, as a test holds them (`/__stub/hold`).
-let held: Record<string, unknown>[] = [];
+let held: Record<string, unknown>[] = [], holds = 0;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
@@ -53,6 +53,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
       // tool's own flow (its edits are tested on a real server).
+      // Held: kept for the inbox, as the server keeps it.
+      if (request.method === 'propose' && request.hold) {
+        const id = `held-${++holds}`;
+        held.push({ proposal: id, client: request.client, diff: '', changed: [], ops: request.ops.map((op: unknown, index: number) => ({ index, op })), review: request.review });
+        return send({ ok: { proposal: id, client: request.client } });
+      }
       if (request.method === 'propose') return send({ ok: { files: FILES, class: 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit') return refuseCommit
@@ -99,6 +105,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       held = [];
+      holds = 0;
       save();
       return send({ ok: true });
     },
