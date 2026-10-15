@@ -483,7 +483,9 @@ impl<D: DataSource> Runner<D> {
             }
         }
         for m in asked.iter().chain(assigned.iter()) {
-            self.failed_mut[*m] = None;
+            if !failed_now.contains(m) {
+                self.failed_mut[*m] = None;
+            }
         }
         for m in &assigned {
             self.pending_mut[*m] = false;
@@ -562,7 +564,9 @@ impl<D: DataSource> Runner<D> {
             }
         }
         for m in asked.iter().chain(assigned.iter()) {
-            self.failed_mut[*m] = None;
+            if !failed_now.contains(m) {
+                self.failed_mut[*m] = None;
+            }
         }
         for m in &assigned {
             self.forget(Target::Mutation(*m));

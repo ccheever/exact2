@@ -534,7 +534,7 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
   const replies = [], asked = [];
   data.answer = (source, [value]) => {
     asked.push(value);
-    if (value === 'refuse') throw new Error('setTimeout() is unavailable in data sources');
+    if (value === 'refuse') throw Object.assign(new Error('no seats left'), { reason: 'FULL' });
     if (value === 'later') return { promise: new Promise(resolve => replies.push(resolve)) };
     return { v: value };
   };
@@ -547,15 +547,21 @@ for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synch
     send('later'); send('refuse');
     expect(edits()).toBe(2);
     if (queued) {
-      send('ok'); replies[0]('first');
+      replies[0]('first');
       for (let i = 0; i < 50 && m.ticket; i++) await new Promise(r => setTimeout(r, 10));
       advance(clock.now + 1);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e()]).toEqual([false, null]);
       expect([asked, slot(), m.wait.length]).toEqual([['later', 'refuse', 'ok'], 'ok', 0]);
     } else {
       expect(slot()).toBe(null);
       replies[0]('stale');
       await new Promise(r => setTimeout(r, 0));
       expect(slot()).toBe(null);
+      expect([m.f(), m.e()]).toEqual([true, ['FULL', 'no seats left', 'FULL']]);
+      send('ok');
+      expect([m.f(), m.e(), slot()]).toEqual([false, null, 'ok']);
     }
     expect(m.p()).toBe(false);
     expect(journal.some(line => line.includes('send refused-send failed:') && line.endsWith('it ends unsent'))).toBe(true);

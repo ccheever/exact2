@@ -69,6 +69,7 @@ component App
 struct Desk {
     later: bool,
     fail_parse: bool,
+    fail_now: bool,
     malformed: bool,
     fail_check: bool,
     asks: Vec<String>,
@@ -119,6 +120,11 @@ impl DataSource for Desk {
                 "https://desk.test/step1",
                 &op,
             ))),
+            "save" if self.fail_now => Err(DataError::Failed(
+                exact_runner::failure::FailureCode::Error,
+                "no seats left".into(),
+                "FULL".into(),
+            )),
             "save" if self.later => Ok(Answer::Later(Request::post_json(
                 "https://desk.test/save",
                 &op,
@@ -881,4 +887,39 @@ fn a_refused_queue_next_restores_the_previous_failure() {
     r.act("bump", vec![]).unwrap();
     r.advance(0.0).unwrap();
     assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+}
+
+#[test]
+fn immediate_mutation_refusals_expose_domain_failures_and_clear_on_retry() {
+    for queued in [false, true] {
+        let app = APP.replace("  derive last =", "  derive why = match failure(wrote) { case some(f) => f.code, case none => \"ok\" }\n  derive broken = failed(wrote)\n  derive last =");
+        let app = if queued {
+            app
+        } else {
+            app.replace(
+                "mutation wrote as shape Ack queue",
+                "mutation wrote as shape Ack",
+            )
+            .replace("    send wrote = save(\"b\")\n", "")
+            .replace("    send wrote = two(\"m\")\n", "")
+        };
+        let mut r = boot_with(
+            &app,
+            Desk {
+                fail_now: true,
+                ..Desk::default()
+            },
+        );
+        r.act("one", vec![Value::str("a")]).unwrap();
+        assert_eq!(r.derive("broken"), Some(&Value::Bool(true)));
+        assert_eq!(r.derive("why"), Some(&Value::str("FULL")));
+        assert_eq!(slot(&r, "log"), "");
+        assert!(!busy(&r));
+        r.data().fail_now = false;
+        r.act("one", vec![Value::str("b")]).unwrap();
+        assert_eq!(r.derive("broken"), Some(&Value::Bool(false)));
+        assert_eq!(r.derive("why"), Some(&Value::str("ok")));
+        r.advance(0.0).unwrap();
+        assert_eq!(slot(&r, "log"), " b");
+    }
 }

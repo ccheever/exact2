@@ -358,7 +358,12 @@ impl<D: DataSource> Runner<D> {
         for line in self.data.take_logs() {
             self.log(line);
         }
-        if let Err(DataError::Failed(_, why, _)) = &answer {
+        if let Err(DataError::Failed(code, why, reason)) = &answer {
+            self.failed_mut[m] = Some(crate::failure::Failure {
+                code: *code,
+                message: why.clone(),
+                reason: reason.clone(),
+            });
             self.log(super::lines::send_failed_now(&name(&self.plan), why));
             self.end_write(m, None);
             return Ok(Asked::Failed);
