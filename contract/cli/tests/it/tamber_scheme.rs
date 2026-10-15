@@ -56,7 +56,7 @@ fn an_unmarked_one_scheme_token_is_reported_once_at_its_declaration() {
     let (file, line, message) = &found[0];
     assert_eq!((file.as_str(), *line), ("app.tamber", 5), "{message}");
     assert!(
-        message.contains("`white_100` is one colour in every mode"),
+        message.contains("`white_100` is the same colour in light and dark"),
         "{message}"
     );
     assert!(
@@ -156,7 +156,9 @@ fn the_mark_holds_through_a_role_spelling_and_a_one_scheme_colour_inside_an_expr
     let found = one_scheme(&path);
     assert_eq!(found.len(), 1, "{found:?}");
     assert!(
-        found[0].2.contains("`Canvas` is one colour in every mode"),
+        found[0]
+            .2
+            .contains("`Canvas` is the same colour in light and dark"),
         "{found:?}"
     );
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -179,6 +181,49 @@ fn equal_sides_written_two_ways_are_one_colour_and_the_mark_is_said_once() {
     assert_eq!(
         contract::compile_path(&path).unwrap_err().id,
         "tamber-scheme-fixed"
+    );
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_token_is_judged_by_what_it_folds_to() {
+    // A pair over a one-colour token is two colours.
+    let path = app(
+        "pair-over",
+        "tamber t\n\ntheme\n  base = #ffffff\n  ink = light-dark(base, #000000)\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    assert_eq!(one_scheme(&path), Vec::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    // An expression over a fixed token and a literal is a colour of its own.
+    let path = app(
+        "mix-fixed",
+        "tamber t\n\ntheme\n  base = #ffffff  scheme=fixed\n  Canvas = color-mix(in srgb, base 50%, #000000)\n",
+        "component App\n  view\n    text \"a\"\n",
+    );
+    let found = one_scheme(&path);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0]
+            .2
+            .starts_with("`Canvas` is the same colour in light and dark"),
+        "{found:?}"
+    );
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn a_token_one_colour_in_some_modes_is_offered_the_pair_not_the_mark() {
+    let path = app(
+        "some",
+        "tamber t\n\naxes\n  dark-style = black | dim  under scheme=dark\n\ntheme\n  same.white = #ffffff\n    when dark-style=dim: light-dark(#ffffff, #eeeeee)\n",
+        "component App\n  view\n    text \"a\" color=\"same.white\"\n",
+    );
+    let found = one_scheme(&path);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].2.contains("in some app modes") && !found[0].2.contains("mark it"),
+        "{found:?}"
     );
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }

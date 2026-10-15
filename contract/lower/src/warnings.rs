@@ -129,7 +129,7 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
         &checked.file.fns,
         crate::theme::theme_decl(checked.file).as_ref(),
         &Tokens {
-            fixed: crate::theme::fixed_tokens(checked.file),
+            one: crate::theme::one_scheme_tokens(checked.file),
             design: checked.file.theme.is_none(),
         },
         &mut out,
@@ -139,8 +139,9 @@ pub fn warnings(checked: &Checked<'_>) -> Vec<LowerError> {
 
 /// What the one-scheme warning knows of the app's tokens (LLP 1121 D3).
 struct Tokens {
-    /// The design's tokens marked `scheme=fixed`.
-    fixed: Vec<String>,
+    /// The tokens one colour in light and dark, not marked `scheme=fixed`,
+    /// with that colour and whether in every tuple (`theme::one_scheme_tokens`).
+    one: Vec<(String, String, bool)>,
     /// The tokens are a design's (`app.tamber`), which can mark one, not an
     /// inline `theme`'s.
     design: bool,
@@ -920,8 +921,6 @@ struct Leaves<'a> {
     /// The theme's entries, by every spelling a row names them (LLP 1095
     /// D4): a name is the colour it stands for.
     theme: Vec<(String, &'a str)>,
-    /// The entries marked `scheme=fixed` (LLP 1121 D3).
-    fixed: &'a [String],
     /// The entries a row names: their colours are their declaration's to
     /// report, once, not each row's.
     named: std::cell::RefCell<Vec<String>>,
@@ -940,33 +939,6 @@ impl Leaves<'_> {
                         && name.eq_ignore_ascii_case(word)
             })
             .map(|(name, value)| (name.as_str(), *value))
-    }
-
-    /// The literal colours entry `name` stands for, through the entries its
-    /// value names (an alias, `card = "base"`, or one inside an expression),
-    /// a few steps; none from an entry marked `scheme=fixed`, in any of its
-    /// spellings.
-    fn entry_colours(&self, name: &str, out: &mut Vec<String>) {
-        self.entry_colours_at(name, 8, out);
-    }
-
-    fn entry_colours_at(&self, name: &str, depth: u32, out: &mut Vec<String>) {
-        let Some((name, value)) = self.entry_named(name) else {
-            return;
-        };
-        let bare = name.strip_prefix("-exact-").unwrap_or(name);
-        if self.fixed.iter().any(|f| f == name || f == bare) {
-            return;
-        }
-        literal_colours(value, out);
-        if depth == 0 {
-            return;
-        }
-        for word in value.split(|c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')') {
-            if !word.is_empty() && word != name {
-                self.entry_colours_at(word, depth - 1, out);
-            }
-        }
     }
 
     /// The literal colours `e` may be: its string leaves, through `?:`,
@@ -1102,8 +1074,17 @@ fn one_scheme(
         fns,
         derives: &root.derives,
         theme: spelled,
-        fixed: &tokens.fixed,
         named: Default::default(),
+    };
+    // A token's colour when it is one in light and dark, by any spelling.
+    let one = |name: &str| {
+        let bare = name.strip_prefix("-exact-").unwrap_or(name);
+        tokens
+            .one
+            .iter()
+            .find(|(n, ..)| n == name || n == bare)
+            .map(|(_, c, _)| vec![c.clone()])
+            .unwrap_or_default()
     };
     let mut sites = Vec::new();
     // An entry that replaces a role the page paints with no row naming it
@@ -1127,8 +1108,7 @@ fn one_scheme(
             Some("separator" | "opaque-separator") => Paints::Line,
             _ => continue,
         };
-        let mut colours = Vec::new();
-        leaves.entry_colours(&e.name, &mut colours);
+        let colours = one(&e.name);
         if !colours.is_empty() {
             // A declaration: the token's repair, the mark or a pair.
             sites.push(Site {
@@ -1185,8 +1165,7 @@ fn one_scheme(
         if !named.iter().any(|n| spellings.contains(n)) {
             continue;
         }
-        let mut colours = Vec::new();
-        leaves.entry_colours(&e.name, &mut colours);
+        let colours = one(&e.name);
         if !colours.is_empty() {
             sites.push(Site {
                 span: e.span,
@@ -1228,8 +1207,17 @@ fn one_scheme(
         false => "an inline `theme` cannot mark one deliberate: move it to `app.tamber` and mark it `scheme=fixed`",
     };
     let token = |s: &Site| {
+        // Marked only where it is one colour in every app mode.
+        let every = tokens.one.iter().any(|(n, _, all)| *all && (*n == s.name));
+        if !every {
+            return format!(
+                "`{}` is the same colour in light and dark in some app modes ({}): give it a `light-dark(light, dark)` pair in those (`scheme=fixed` is for a token one colour in every mode)",
+                s.name,
+                s.colours.iter().map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
+            );
+        }
         format!(
-            "`{}` is one colour in every mode ({}): give it a `light-dark(light, dark)` pair, or {mark}",
+            "`{}` is the same colour in light and dark ({}): give it a `light-dark(light, dark)` pair, or {mark}",
             s.name,
             s.colours.iter().take(3).map(|c| format!("`{c}`")).collect::<Vec<_>>().join(", ")
         )
@@ -1269,7 +1257,7 @@ fn one_scheme(
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} tokens are one colour in every mode: give each a `light-dark(light, dark)` pair, or {mark}",
+                "these {} tokens are the same colour in light and dark: give each a `light-dark(light, dark)` pair, or {mark}",
                 sites.len()
             ),
             span: first.span,
@@ -1280,9 +1268,14 @@ fn one_scheme(
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} {}colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
+                "these {} {}colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each{} or leave it unsaid. {why}",
                 sites.len(),
-                if sites.iter().any(|s| s.token) { "" } else { "literal " }
+                if sites.iter().any(|s| s.token) { "" } else { "literal " },
+                if sites.iter().any(|s| s.token) {
+                    " literal, give each token a `light-dark(light, dark)` pair or mark it `scheme=fixed`,"
+                } else {
+                    ""
+                }
             ),
             span: first.span,
         });

@@ -329,37 +329,7 @@ impl Lowerer<'_> {
             };
         }
         let theme = file.theme.as_ref()?;
-        let names: Vec<&str> = theme.entries.iter().map(|e| e.name.as_str()).collect();
-        let mut tokens = Vec::new();
-        for (i, entry) in theme.entries.iter().enumerate() {
-            let Expr::Str(text, _) = &entry.value else {
-                continue;
-            };
-            let text = text.trim();
-            // LLP 1095 D4's bare role (`"secondary-grouped-background"`), as
-            // the crate spells it, unless an entry is called that.
-            let value = match role_named(text) {
-                Some((_, row)) if !names.contains(&text) => row,
-                _ => text.to_string(),
-            };
-            let at = |value: String| tamber::At {
-                value,
-                line: i as u32 + 1,
-                col: 1,
-            };
-            tokens.push(tamber::Token {
-                name: at(entry.name.clone()),
-                kind: None,
-                value: at(value),
-                whens: Vec::new(),
-                meta: Vec::new(),
-            });
-        }
-        let design = tamber::Design {
-            name: "app".into(),
-            tokens,
-            ..Default::default()
-        };
+        let design = inline_design(theme);
         let spans = theme.entries.iter().map(|e| e.span).collect();
         Some((design, Origin::Inline(spans)))
     }
@@ -669,25 +639,100 @@ pub(crate) fn theme_decl(file: &File) -> Option<contract_syntax::ThemeDecl> {
     })
 }
 
-/// The design's tokens marked `scheme=fixed` (LLP 1121 D3): one colour in
-/// every scheme by design, which the one-scheme warning leaves alone. An
-/// inline `theme` marks none.
-pub(crate) fn fixed_tokens(file: &File) -> Vec<String> {
-    if file.theme.is_some() {
-        return Vec::new();
+/// The inline `theme` as the crate reads it: one token an entry, a bare
+/// role name (LLP 1095 D4's `"secondary-grouped-background"`) in the crate's
+/// spelling unless an entry is called that.
+fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
+    let names: Vec<&str> = theme.entries.iter().map(|e| e.name.as_str()).collect();
+    let mut tokens = Vec::new();
+    for (i, entry) in theme.entries.iter().enumerate() {
+        let Expr::Str(text, _) = &entry.value else {
+            continue;
+        };
+        let text = text.trim();
+        let value = match role_named(text) {
+            Some((_, row)) if !names.contains(&text) => row,
+            _ => text.to_string(),
+        };
+        let at = |value: String| tamber::At {
+            value,
+            line: i as u32 + 1,
+            col: 1,
+        };
+        tokens.push(tamber::Token {
+            name: at(entry.name.clone()),
+            kind: None,
+            value: at(value),
+            whens: Vec::new(),
+            meta: Vec::new(),
+        });
     }
-    let Some(design) = file
-        .design
-        .as_ref()
-        .and_then(|s| tamber::parse(&s.text).ok())
-    else {
+    tamber::Design {
+        name: "app".into(),
+        tokens,
+        ..Default::default()
+    }
+}
+
+/// The app's tokens that are one colour in light and dark in some app
+/// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
+/// declared with that colour's text and whether it is one colour in every
+/// tuple (only then may it be marked): what `lower-colour-one-scheme` reports
+/// at a token's declaration. Folded by the crate, so a `light-dark()` over a
+/// one-colour token is two colours and an expression is its result. A
+/// profile's colour (`color(--…)`) is the plan's, not judged here.
+pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
+    let mut design = match (&file.design, &file.theme) {
+        (None, Some(theme)) => inline_design(theme),
+        (Some(source), _) => match tamber::parse(&source.text) {
+            Ok(d) => d,
+            Err(_) => return Vec::new(),
+        },
+        (None, None) => return Vec::new(),
+    };
+    for t in &mut design.tokens {
+        if t.value.value.contains("color(--")
+            || t.whens.iter().any(|w| w.value.value.contains("color(--"))
+        {
+            t.value.value = "light-dark(#000000, #ffffff)".into();
+            t.whens.clear();
+        }
+    }
+    let Ok(folding) = tamber::check_design(design, &vocab()) else {
         return Vec::new();
     };
-    design
-        .tokens
+    // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
+    // `label`), by every name it answers to.
+    let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
+    // A name exactly; a role's spelling without case, as roles match.
+    let same = |a: &str, b: &str| a == b || role_named(a).is_some() && a.eq_ignore_ascii_case(b);
+    let mut fixed: Vec<String> = Vec::new();
+    loop {
+        let before = fixed.len();
+        for (t, declared) in &pairs {
+            let value = declared.value.value.trim();
+            let alias = fixed.iter().any(|f| same(f, value));
+            if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
+                fixed.push(declared.name.value.clone());
+                fixed.push(t.name.clone());
+            }
+        }
+        if fixed.len() == before {
+            break;
+        }
+    }
+    pairs
         .into_iter()
-        .filter(|t| t.meta.iter().any(|(k, v)| k == "scheme" && v == "fixed"))
-        .map(|t| t.name.value)
+        .filter(|(_, declared)| !fixed.contains(&declared.name.value))
+        .filter_map(|(t, declared)| {
+            // A transparent token paints nothing a scheme could change.
+            let one = t
+                .values
+                .iter()
+                .find(|v| matches!(v, tamber::Folded::One(h) if h.wide().alpha > 0.0))?;
+            let every = t.values.iter().all(|v| matches!(v, tamber::Folded::One(_)));
+            Some((declared.name.value.clone(), one.css(), every))
+        })
         .collect()
 }
 
