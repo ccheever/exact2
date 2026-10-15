@@ -87,8 +87,9 @@ async function inChrome(drive) {
 }
 
 const at = t => `document.querySelector('[data-testid="${t}"]')`;
-/** The field's text, what the app heard, and how many compositions began and ended in it. */
-const shown = (evaluate, t = 'low') => evaluate(`new Promise(ok => setTimeout(() => ok([${at(t)}.value, ${at('log')}.textContent, window.began, window.ended]), 30))`);
+/** The field's text, what the app heard, and how many compositions began and ended in it, read two frames and a task after
+ * the IME's event: when the page has rendered what it did. */
+const shown = (evaluate, t = 'low') => evaluate(`new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => ok([${at(t)}.value, ${at('log')}.textContent, window.began, window.ended])))))`);
 const mark = (call, text) => call('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
 async function focus(evaluate, call, t) {
   await call('Emulation.setFocusEmulationEnabled', { enabled: true });
