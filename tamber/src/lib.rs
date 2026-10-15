@@ -19,7 +19,7 @@ mod lex;
 mod syntax;
 
 pub use check::{Checked, MAX_TUPLES};
-pub use edit::{apply, apply_all, Edited, Op, WhenLine};
+pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
 pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;

@@ -3,7 +3,7 @@
 //! gives the bytes back; a refused edit says why.
 
 use common::vocab;
-use exact_tamber::{apply, apply_all, format, Op};
+use exact_tamber::{apply, apply_all, format, undo, Op};
 
 mod common;
 
@@ -51,7 +51,7 @@ fn round_trip(src: &str, op: Op) -> (Vec<String>, Vec<String>) {
             "{op:?}: not in fmt's layout"
         );
     }
-    let back = apply_all(&edited.text, &edited.inverse, &vocab)
+    let back = undo(&edited.text, &edited.inverse, &vocab)
         .unwrap_or_else(|e| panic!("{op:?} undone: {e:?}"));
     assert_eq!(
         back.text, src,
@@ -337,9 +337,7 @@ fn the_inverse_restores_any_design_byte_for_byte() {
     ];
     let edited = apply_all(src, &ops, &vocab).unwrap();
     assert_eq!(
-        apply_all(&edited.text, &edited.inverse, &vocab)
-            .unwrap()
-            .text,
+        undo(&edited.text, &edited.inverse, &vocab).unwrap().text,
         src
     );
 }
@@ -450,9 +448,7 @@ fn a_token_added_last_goes_after_the_comments_inside_the_block() {
         edited.text
     );
     assert_eq!(
-        apply_all(&edited.text, &edited.inverse, &vocab)
-            .unwrap()
-            .text,
+        undo(&edited.text, &edited.inverse, &vocab).unwrap().text,
         src
     );
 }
@@ -497,5 +493,128 @@ fn a_rename_leaves_metadata_alone() {
     assert_eq!(
         renamed,
         "tamber t\n\ntheme\n  base = #000000\n  ink = #ffffff  scheme=fixed\n  edge = base\n"
+    );
+}
+
+#[test]
+fn a_restore_is_an_inverse_and_a_value_carries_nothing_after_it() {
+    let src = "tamber t\n\ntheme\n  ink = #ffffff  scheme=fixed\n";
+    let vocab = vocab();
+    let restore = Op::Restore {
+        line: 1,
+        remove: 1,
+        lines: vec!["tamber u".into()],
+        newline: true,
+    };
+    assert_eq!(
+        apply(src, &restore, &vocab).unwrap_err()[0].id,
+        "tamber-edit"
+    );
+    let huge = Op::Restore {
+        line: u32::MAX,
+        remove: 3,
+        lines: vec![],
+        newline: true,
+    };
+    assert_eq!(undo(src, &[huge], &vocab).unwrap_err()[0].id, "tamber-edit");
+    for value in [
+        "light-dark(#000, #fff) //",
+        "#000000  scheme=fixed",
+        "#000 in 0..1",
+    ] {
+        let op = Op::SetToken {
+            name: "ink".into(),
+            when: vec![],
+            value: value.into(),
+            at: None,
+            comment: None,
+        };
+        assert_eq!(
+            apply(src, &op, &vocab).unwrap_err()[0].id,
+            "tamber-edit",
+            "{value}"
+        );
+    }
+    let op = Op::AddToken {
+        name: "x".into(),
+        kind: None,
+        value: "#000000".into(),
+        meta: vec!["label=\"x\" scheme=fixed".into()],
+        whens: vec![],
+        comment: None,
+        before: None,
+    };
+    assert_eq!(apply(src, &op, &vocab).unwrap_err()[0].id, "tamber-edit");
+    let quoted = Op::AddToken {
+        name: "x".into(),
+        kind: None,
+        value: "#000000".into(),
+        meta: vec!["label=\"two words\"".into()],
+        whens: vec![],
+        comment: None,
+        before: None,
+    };
+    apply(src, &quoted, &vocab).unwrap();
+}
+
+#[test]
+fn a_rename_that_would_fold_differently_is_refused_and_a_role_is_found_by_its_spelling() {
+    let vocab = vocab();
+    let src = "tamber t\n\ntheme\n  r = #ff0000\n  ink = rgb(from #123456 r g b)\n";
+    assert_eq!(
+        apply(
+            src,
+            &Op::RenameToken {
+                from: "r".into(),
+                to: "b".into()
+            },
+            &vocab
+        )
+        .unwrap_err()[0]
+            .id,
+        "tamber-edit"
+    );
+    // A role override, declared `label`, by the IR's `-exact-label`; never renamed, even in a design that does not check.
+    let role = "tamber t\n\ntheme\n  label = #101010\n";
+    apply(
+        role,
+        &Op::SetToken {
+            name: "-exact-label".into(),
+            when: vec![],
+            value: "#202020".into(),
+            at: None,
+            comment: None,
+        },
+        &vocab,
+    )
+    .unwrap();
+    let broken = "tamber t\n\ntheme\n  label = #101010\n  ink = missing\n";
+    assert_eq!(
+        apply(
+            broken,
+            &Op::RenameToken {
+                from: "label".into(),
+                to: "missing".into()
+            },
+            &vocab
+        )
+        .unwrap_err()[0]
+            .line,
+        4
+    );
+    // A token called `when` renames.
+    let when = "tamber t\n\ntheme\n  when = #000000\n  ink = when\n";
+    assert_eq!(
+        apply(
+            when,
+            &Op::RenameToken {
+                from: "when".into(),
+                to: "base".into()
+            },
+            &vocab
+        )
+        .unwrap()
+        .text,
+        "tamber t\n\ntheme\n  base = #000000\n  ink = base\n"
     );
 }

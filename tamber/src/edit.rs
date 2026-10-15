@@ -99,7 +99,9 @@ pub enum Op {
         value: String,
     },
     /// An inverse: lines `line` (1-based) to `line + remove - 1` replaced by
-    /// `lines`, as they were, and whether the text ends with a newline.
+    /// `lines`, as they were, and whether the text ends with a newline. Only
+    /// [`undo`] takes it, and a server takes it only as an inverse it issued
+    /// for the file as it is: [`apply`] refuses it.
     Restore {
         /// The first line replaced.
         line: u32,
@@ -126,25 +128,37 @@ pub fn apply(src: &str, op: &Op, vocab: &Vocab) -> Result<Edited, Vec<Diagnostic
     apply_all(src, std::slice::from_ref(op), vocab)
 }
 
+/// Apply an inverse an edit returned (its `restore`s) to the text that edit
+/// left, checked against `vocab`: the text before it, and its own inverse.
+pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
+    if inverse.iter().any(|op| !matches!(op, Op::Restore { .. })) {
+        return Err(refuse("an inverse is the restores an edit returned"));
+    }
+    run(src, inverse, vocab)
+}
+
 /// One edit, unchecked: the new text and the `restore` that undoes it.
 fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnostic>> {
     valid(op)?;
     let design = crate::parse(src)?;
     if let Op::RenameToken { from, .. } = op {
-        // A role override keeps its role's name, which rows spell three ways.
-        let role = crate::check_design(design.clone(), vocab)
-            .ok()
-            .and_then(|f| {
-                f.tokens
-                    .into_iter()
-                    .zip(&design.tokens)
-                    .find(|(_, t)| t.name.value == *from)
-            })
-            .is_some_and(|(c, _)| c.role.is_some());
-        if role {
-            return Err(refuse(format!(
-                "`{from}` overrides a role: a role keeps its name"
-            )));
+        // A role override keeps its role's name, which rows spell three ways:
+        // a name the schema's roles have, whether or not the design checks.
+        let bare = from.strip_prefix("-exact-").unwrap_or(from);
+        if vocab
+            .roles
+            .iter()
+            .any(|r| r.name.eq_ignore_ascii_case(bare))
+        {
+            let line = design
+                .tokens
+                .iter()
+                .find(|t| t.name.value == *from)
+                .map_or(1, |t| t.name.line);
+            return Err(refuse_at(
+                line,
+                format!("`{from}` overrides a role: a role keeps its name"),
+            ));
         }
     }
     let before = Doc::new(src);
@@ -158,6 +172,20 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
         .zip(b[prefix..].iter().rev())
         .take_while(|(x, y)| x == y)
         .count();
+    // A rename names, and folds nothing else differently: a word it changed
+    // that was no use (a channel, a colour space, a platform selector) would.
+    if let Op::RenameToken { .. } = op {
+        let folded = |text: &str| {
+            crate::check(text, vocab)
+                .ok()
+                .map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
+        };
+        if let Some(was) = folded(src) {
+            if folded(&doc.text()).is_some_and(|now| now != was) {
+                return Err(refuse("the rename would change what a value folds to (a word it reads that is no token): rename it by hand"));
+            }
+        }
+    }
     let undo = Op::Restore {
         line: prefix as u32 + 1,
         remove: (b.len() - prefix - suffix) as u32,
@@ -174,6 +202,22 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
     let one_line = |field: &str, v: &str| match v.contains(['\n', '\r']) {
         true => Err(refuse(format!("`{field}` is one line"))),
         false => Ok(()),
+    };
+    // A value is a value: no comment after it, no metadata or range clause,
+    // which the line keeps from before.
+    let value = |v: &str| {
+        one_line("value", v)?;
+        let words = lex::words(v.trim());
+        let clause = words.last().is_some_and(|(_, w)| {
+            w.split_once('=')
+                .is_some_and(|(k, x)| lex::is_ident(k) && !x.is_empty())
+        }) || words.iter().any(|(_, w)| *w == "in");
+        if lex::split_comment(v).1.is_some() || clause || v.trim().is_empty() {
+            return Err(refuse(format!(
+                "`{v}`: a value alone, with no comment, metadata or range after it"
+            )));
+        }
+        Ok(())
     };
     let name = |v: &str| match lex::is_name(v) || crate::syntax::role_spelling(v).is_some() {
         true => Ok(()),
@@ -198,24 +242,24 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         _ => Ok(()),
     };
     match op {
-        Op::SetDial { name: n, value } => ident(n).and_then(|_| one_line("value", value)),
+        Op::SetDial { name: n, value: v } => ident(n).and_then(|_| value(v)),
         Op::SetToken {
             name: n,
             when,
-            value,
+            value: v,
             comment: c,
             ..
         } => {
             name(n)?;
             conds(when)?;
             comment(c)?;
-            one_line("value", value)
+            value(v)
         }
         Op::UnsetTokenWhen { name: n, when } => name(n).and_then(|_| conds(when)),
         Op::AddToken {
             name: n,
             kind,
-            value,
+            value: v,
             meta,
             whens,
             comment: c,
@@ -225,21 +269,24 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             if let Some(k) = kind {
                 ident(k)?;
             }
-            one_line("value", value)?;
+            value(v)?;
             comment(c)?;
+            // One metadata word each: `name=value`, a quoted value whole.
             for m in meta {
-                if !m
-                    .split_once('=')
-                    .is_some_and(|(k, v)| lex::is_ident(k) && !v.is_empty())
-                    || m.contains([' ', '\n', '\r']) && !m.contains('"')
-                {
-                    return Err(refuse(format!("`{m}`: metadata is `name=value`")));
-                }
                 one_line("meta", m)?;
+                let one = lex::words(m).len() == 1;
+                let shaped = m.split_once('=').is_some_and(|(k, x)| {
+                    lex::is_ident(k)
+                        && !x.is_empty()
+                        && (!x.starts_with('"') || lex::unquote(x).is_ok())
+                });
+                if !one || !shaped || lex::split_comment(m).1.is_some() {
+                    return Err(refuse(format!("`{m}`: metadata is one `name=value`")));
+                }
             }
-            for (w, v, wc) in whens {
+            for (w, wv, wc) in whens {
                 conds(w)?;
-                one_line("value", v)?;
+                value(wv)?;
                 comment(wc)?;
             }
             before.as_deref().map_or(Ok(()), name)
@@ -266,6 +313,13 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
 /// Apply `ops` in order: a transaction's edits to one file. Its inverse is
 /// theirs, last first.
 pub fn apply_all(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
+    if ops.iter().any(|op| matches!(op, Op::Restore { .. })) {
+        return Err(refuse("a restore is an inverse: undo applies it"));
+    }
+    run(src, ops, vocab)
+}
+
+fn run(src: &str, ops: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diagnostic>> {
     let mut text = src.to_string();
     let mut inverse = Vec::new();
     for op in ops {
@@ -351,10 +405,11 @@ impl Doc {
                 newline,
             } => {
                 let start = (*line as usize).saturating_sub(1);
-                let end = start + *remove as usize;
-                if *line == 0 || end > self.lines.len() {
+                let end = start.checked_add(*remove as usize);
+                if *line == 0 || end.is_none_or(|e| e > self.lines.len()) {
                     return Err(refuse("a restore names lines the design does not have"));
                 }
+                let end = end.unwrap_or(start);
                 self.lines.splice(start..end, lines.iter().cloned());
                 self.newline = *newline;
                 Ok(Vec::new())
@@ -588,7 +643,10 @@ impl Doc {
                     // only (its conditions are axes); an export whole.
                     let code = body.trim_start();
                     let keep = match block.as_str() {
-                        "theme" if code.starts_with("when ") => {
+                        "theme"
+                            if code.starts_with("when ")
+                                && !code[4..].trim_start().starts_with('=') =>
+                        {
                             lex::split_top(body, ':').map_or(body.len(), |(c, _)| c.len() + 1)
                         }
                         _ => 0,
@@ -635,10 +693,9 @@ impl Doc {
                 }
                 let mut values = a.values.clone();
                 let at = match before {
-                    Some(b) => values
-                        .iter()
-                        .position(|v| v == b)
-                        .ok_or_else(|| refuse(format!("`{axis}` has no value `{b}`")))?,
+                    Some(b) => values.iter().position(|v| v == b).ok_or_else(|| {
+                        refuse_at(a.name.line, format!("`{axis}` has no value `{b}`"))
+                    })?,
                     None => values.len(),
                 };
                 values.insert(at, value.clone());
@@ -654,11 +711,9 @@ impl Doc {
                     .iter()
                     .find(|a| a.name.value == *axis)
                     .ok_or_else(|| refuse(format!("no axis `{axis}`")))?;
-                let at = a
-                    .values
-                    .iter()
-                    .position(|v| v == value)
-                    .ok_or_else(|| refuse(format!("`{axis}` has no value `{value}`")))?;
+                let at = a.values.iter().position(|v| v == value).ok_or_else(|| {
+                    refuse_at(a.name.line, format!("`{axis}` has no value `{value}`"))
+                })?;
                 let mut values = a.values.clone();
                 values.remove(at);
                 self.set_axis(a, &values);
@@ -712,11 +767,22 @@ fn line(indent: usize, code: &str, comment: Option<&str>) -> String {
     out
 }
 
+/// A token by its name as declared, or a role override by any spelling of
+/// its role (the IR names one `-exact-label` that a design declares
+/// `label`).
 fn token_index(design: &Design, name: &str) -> Result<usize, Vec<Diagnostic>> {
+    let bare = |n: &str| n.strip_prefix("-exact-").map(str::to_ascii_lowercase);
     design
         .tokens
         .iter()
         .position(|t| t.name.value == name)
+        .or_else(|| {
+            design.tokens.iter().position(|t| {
+                let (a, b) = (&t.name.value, name);
+                bare(a).is_some_and(|x| x == b.to_ascii_lowercase())
+                    || bare(b).is_some_and(|x| x == a.to_ascii_lowercase())
+            })
+        })
         .ok_or_else(|| refuse(format!("no token `{name}`")))
 }
 
