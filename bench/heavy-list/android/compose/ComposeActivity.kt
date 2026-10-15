@@ -77,6 +77,7 @@ class ComposeActivity : ComponentActivity() {
         images = HeavyImageLoader(this)
         harness = HeavyBenchHarness(this, "compose", created)
         val view = ComposeView(this).apply { setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed) }
+        view.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> images.viewport(v.width, v.height) }
         val enabled = HeavyOptions.boolean(intent, "BENCH_LIVE")
         val startIndex = HeavyOptions.int(intent, "BENCH_START_INDEX", 0).coerceIn(0, store.size - 1)
         view.setContent {

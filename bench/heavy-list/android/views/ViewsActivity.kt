@@ -25,6 +25,7 @@ class ViewsActivity : Activity() {
         val store = HeavyStore(HeavyData.load(assets))
         images = HeavyImageLoader(this)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.WHITE) }
+        root.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ -> images.viewport(v.width, v.height) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(dp(16f), dp(10f), dp(16f), dp(10f)) }
         top.addView(TextView(this).apply { text = "Heavy list"; textSize = 17f; includeFontPadding = false; setTextColor(Color.BLACK); typeface = Typeface.create(Typeface.DEFAULT, 600, false) },
             LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))

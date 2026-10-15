@@ -44,7 +44,7 @@ class HeavyImageLoader(context: Context) {
                     val scale = max(width.toDouble() / info.size.width, height.toDouble() / info.size.height)
                     val decodedWidth = ceil(info.size.width * scale).toInt().coerceAtLeast(width)
                     val decodedHeight = ceil(info.size.height * scale).toInt().coerceAtLeast(height)
-                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.allocator = ImageDecoder.ALLOCATOR_HARDWARE
                     decoder.setTargetSize(decodedWidth, decodedHeight)
                     val left = (decodedWidth - width) / 2
                     val top = (decodedHeight - height) / 2
@@ -60,6 +60,11 @@ class HeavyImageLoader(context: Context) {
         }
     }
 
+    fun viewport(width: Int, height: Int) {
+        val budget = (width.toDouble() * height * 4 * 8)
+            .coerceIn(32.0 * 1024 * 1024, 64.0 * 1024 * 1024).toInt()
+        synchronized(lock) { if (cache.maxSize() != budget) cache.resize(budget) }
+    }
     private fun submit(work: Work) {
         try { executor.execute(work) }
         catch (_: RejectedExecutionException) {
@@ -94,7 +99,7 @@ class HeavyImageLoader(context: Context) {
     fun diagnosticSnapshot(): JSONObject = synchronized(lock) {
         JSONObject().put("image_decodes", decoded.get()).put("image_failures", failures.get())
             .put("image_cache_bytes", cache.size()).put("image_pending", pending.size)
-            .put("image_cache_budget_bytes", 32 * 1024 * 1024).put("image_workers", 2)
+            .put("image_cache_budget_bytes", cache.maxSize()).put("image_workers", 2)
     }
     fun close() {
         synchronized(lock) {
