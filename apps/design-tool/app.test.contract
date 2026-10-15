@@ -1,0 +1,44 @@
+// The design tool against a stand-in Tamber server (stub/tamber-stub.ts, run
+// by `test` and `verify`); its drives against a real `tamber serve` are in
+// scripts/design-tool.test.mjs.
+
+test "it asks for the person's name once, then shows the server's hello"
+  expect tree has "ask-name"
+  expect disabled "save-name"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "person" == "design-tool:Ada"
+  expect text "app" == "/stub/theme-fixture"
+  expect text "protocol" == "tamber/1.1 · IR format 1"
+  expect tree has "file-app.tamber"
+  expect tree has "file-brand.tamber"
+  reload
+  expect text "person" == "design-tool:Ada"
+
+test "no server: a clear way to start one, and Try Again"
+  fail fetch "http://127.0.0.1:7740"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-server"
+  expect text "no-server-message" == "No design server answers at http://127.0.0.1:7740. Start one for your app with `bun exact.mjs tamber tool <app>`, then try again."
+  pass fetch "http://127.0.0.1:7740"
+  tap "reconnect"
+  clock data
+  expect tree has "hello"
+
+test "another client's write arrives on the long poll, attributed"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:codex"
+  request POST "/__stub/event" {"client": null, "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-2" == "brand.tamber · changed on disk"

@@ -1,0 +1,106 @@
+// The design tool (LLP 1122), T1: a `tamber/1` client over an app's design
+// files, served by the app's Tamber server at its own local URL
+// (`bun exact.mjs tamber tool <app>`). app.ts is the protocol client; this
+// view keeps no design state of its own: the files are the design.
+
+shape FileDigest
+  path: string
+  digest: string
+
+shape Hello
+  ok: bool
+  error: string
+  protocol: string
+  format: number
+  app: string
+  files: FileDigest[]
+
+shape Change
+  seq: number
+  kind: string
+  who: string
+  files: string[]
+  tokens: string[]
+
+shape Changes
+  ok: bool
+  error: string
+  answer: number
+  seq: number
+  epoch: string
+  missed: bool
+  recent: Change[]
+
+component DesignTool
+  // Who this person is, asked once: every write is `design-tool:<person>`.
+  state person = "" persist
+  state draftName = ""
+  // The long poll's place: the last sequence number seen, in which run, and
+  // one more ask per answer, so an answer with nothing new asks again.
+  state since = 0
+  state epoch = ""
+  state asks = 0
+  resource hello = loadHello() as shape Hello else empty(ok=true)
+  resource changes = waitChanges(since, epoch, asks) as shape Changes else empty(ok=true)
+  derive client = `design-tool:${person}`
+
+  // Each answer asks again: at once after one, after 3 s after a failure.
+  task follow when not pending(changes) and changes.ok key=changes.answer
+    after(1, advance)
+  task retry when not pending(changes) and not changes.ok key=changes.answer
+    after(3000, advance)
+
+  action advance
+    // Another run, or more missed than the server keeps: read it all again.
+    if changes.missed or not hello.ok
+      refresh hello
+    since = changes.seq
+    epoch = changes.epoch
+    asks = asks + 1
+  action reconnect
+    refresh hello
+    asks = asks + 1
+  action editName(v: string)
+    draftName = v
+  action saveName
+    if draftName.trim() != ""
+      person = draftName.trim()
+  action changeName
+    draftName = person
+    person = ""
+
+  view
+    main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
+      header display="flex" align-items="center" gap=12 padding="8px 16px"
+        text "Design tool" role="heading" aria-level=1 flex=1
+        if person != ""
+          button press=changeName testId="person"
+            text client
+      scroll id="content" flex=1 min-height=0 padding=16
+        if person == ""
+          column gap=8 max-width=420 testId="ask-name"
+            text "Your name" role="heading" aria-level=2
+            text "Every edit you make is written as yours, so others reading the history know who made it." color="-exact-secondary-label"
+            input value=draftName input=editName submit=saveName placeholder="Ada" aria-label="Your name" testId="name"
+            button press=saveName disabled=(draftName.trim() == "") buttonStyle="filled" testId="save-name"
+              text "Continue"
+        else if not hello.ok
+          column gap=8 max-width=520 testId="no-server"
+            text "No design server" role="heading" aria-level=2
+            text hello.error color="-exact-secondary-label" testId="no-server-message"
+            button press=reconnect buttonStyle="bordered" testId="reconnect"
+              text "Try Again"
+        else
+          column gap=16
+            column gap=4 testId="hello"
+              text hello.app role="heading" aria-level=2 testId="app"
+              text `${hello.protocol} · IR format ${hello.format}` color="-exact-secondary-label" testId="protocol"
+            column gap=4 testId="files"
+              for f in hello.files key=f.path
+                row gap=12
+                  text f.path flex=1 testId=`file-${f.path}`
+                  text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote"
+            column gap=4 testId="following"
+              text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
+              for c in changes.recent key=`${c.seq}`
+                text `${c.files.join(", ")} · ${c.who}` testId=`change-${c.seq}`

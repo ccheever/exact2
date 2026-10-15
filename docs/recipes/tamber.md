@@ -62,4 +62,5 @@ What to know:
   `/__tamber`. `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads;
   a `transaction` names its `client` and the file's digest, and writes a line.
   `{"method":"history"}` reads the design's git log as token edits, and
-  `revert` holds a past commit's inverse for review.
+  `revert` holds a past commit's inverse for review. `bun exact.mjs tamber
+  tool .` opens the design tool on it (LLP 1122).

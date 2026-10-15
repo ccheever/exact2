@@ -93,6 +93,34 @@ export function designPath(appDir) {
   return existsSync(path) ? path : null;
 }
 
+/** The design tool's files, to a local request only. */
+export function serveTool(req, res, url, access, toolDir = TOOL_DIST) {
+  if (!['GET', 'HEAD'].includes(req.method) || !access.local) return notFound(res);
+  if (url.pathname === '/__tamber/tool') { res.writeHead(308, { location: '/__tamber/tool/', 'cache-control': 'no-store' }); return res.end(); }
+  let rel;
+  try { rel = decodeURIComponent(url.pathname.slice('/__tamber/tool/'.length)); } catch { return notFound(res); }
+  // No dot segment (the build's own `.gen`, `.exact`), no way out.
+  if (rel.split('/').some(s => s.startsWith('.')) || /[\\\0]/.test(rel)) return notFound(res);
+  let file = resolve(toolDir, rel || 'index.html');
+  if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
+  try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
+  let bytes;
+  try {
+    // Through no link out of the build, nor to a dot file in it.
+    const root = realpathSync(toolDir), real = realpathSync(file);
+    if (!real.startsWith(root + sep) || relative(root, real).split(sep).some(s => s.startsWith('.'))) return notFound(res);
+    bytes = readFileSync(real);
+  } catch {
+    if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
+    return notFound(res);
+  }
+  const type = TOOL_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream';
+  // Its pages anchor their files at the root; here that is this path.
+  if (type.startsWith('text/html')) bytes = Buffer.from(bytes.toString('utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+  res.end(req.method === 'HEAD' ? undefined : bytes);
+}
+
 /** `contract tamber serve --stdio <app>`, through cargo as the dev loops run
  * the compiler, in a process group of its own so stopping it stops the
  * compiler cargo starts. */
@@ -262,36 +290,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     try { const v = JSON.parse(text); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
   };
 
-  /** The design tool's files, to a local request only. */
-  function tool(req, res, url, access) {
-    if (!['GET', 'HEAD'].includes(req.method) || !access.local) return notFound(res);
-    if (url.pathname === '/__tamber/tool') { res.writeHead(308, { location: '/__tamber/tool/', 'cache-control': 'no-store' }); return res.end(); }
-    let rel;
-    try { rel = decodeURIComponent(url.pathname.slice('/__tamber/tool/'.length)); } catch { return notFound(res); }
-    // No dot segment (the build's own `.gen`, `.exact`), no way out.
-    if (rel.split('/').some(s => s.startsWith('.')) || /[\\\0]/.test(rel)) return notFound(res);
-    let file = resolve(toolDir, rel || 'index.html');
-    if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
-    try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
-    let bytes;
-    try {
-      // Through no link out of the build, nor to a dot file in it.
-      const root = realpathSync(toolDir), real = realpathSync(file);
-      if (!real.startsWith(root + sep) || relative(root, real).split(sep).some(s => s.startsWith('.'))) return notFound(res);
-      bytes = readFileSync(real);
-    } catch {
-      if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
-      return notFound(res);
-    }
-    const type = TOOL_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream';
-    // Its pages anchor their files at the root; here that is this path.
-    if (type.startsWith('text/html')) bytes = Buffer.from(bytes.toString('utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
-    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
-    res.end(req.method === 'HEAD' ? undefined : bytes);
-  }
-
   async function handle(req, res, url, access) {
-    if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { tool(req, res, url, access); return true; }
+    if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access, toolDir); return true; }
     if (url.pathname === '/__tamber/token') {
       if (req.method !== 'GET' || !access.local) notFound(res);
       else json(res, 200, { token });
@@ -374,6 +374,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
+    // Which app this server is, so `tamber tool` can tell its own from another's.
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir } } : r));
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {
@@ -621,38 +623,148 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     });
   }
 
-  return { handle, close, ready, get token() { return token; } };
+  return { handle, close, ready, get token() { return token; }, get down() { return down; } };
+}
+
+/** The app directory an argument names (a directory, or a file in it). */
+const appOf = given => (/\.(contract|tamber)$/.test(given) ? dirname(given) : given);
+
+/** A listener on `host`:`port` behind the development gate, each request
+ * given to `handle(req, res, url, access)` (a false return is a not-found);
+ * stopped, with `stop()`'s own end, on a signal or when its launcher goes. */
+async function listen({ host, port, handle, stop }) {
+  const server = createServer();
+  await new Promise((ok, fail) => { server.once('error', fail); server.listen(port, host, ok); });
+  const origins = installBrowserOrigins({ host, port: server.address().port });
+  const gate = developmentGate(origins, server.address().port);
+  server.on('request', async (req, res) => {
+    const access = gate.check(req);
+    if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
+    let url; try { url = new URL(req.url, 'http://localhost'); } catch { notFound(res); return; }
+    if (!(await handle(req, res, url, access))) notFound(res);
+  });
+  const end = async () => { await stop(); server.close(); process.exit(0); };
+  process.on('SIGINT', end); process.on('SIGTERM', end); process.on('SIGHUP', end);
+  // Its launcher (bun exact.mjs) gone, even by SIGKILL: stop too.
+  const launcher = Number(process.env.EXACT_LAUNCHER_PID);
+  if (Number.isInteger(launcher) && launcher > 1) setInterval(() => { try { process.kill(launcher, 0); } catch (e) { if (e.code === 'ESRCH') end(); } }, 1000).unref();
+  return origins;
 }
 
 /** `bun exact.mjs tamber serve <app> [--port <n>] [--lan]`: the wire alone,
  * on loopback unless `--lan` (whose clients still cannot have the token). */
 export async function serveAlone(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
-  const given = resolve(argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port') ?? '.');
-  const dir = /\.(contract|tamber)$/.test(given) ? dirname(given) : given;
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--port') ?? '.'));
   if (!designPath(dir)) { console.error(`tamber serve: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
-  const lan = argv.includes('--lan');
-  const host = lan ? '0.0.0.0' : '127.0.0.1';
-  const server = createServer();
-  await new Promise((ok, fail) => { server.once('error', fail); server.listen(Number(at('--port') ?? 0), host, ok); });
-  const port = server.address().port;
-  const origins = installBrowserOrigins({ host, port });
-  const gate = developmentGate(origins, port);
   const tamber = tamberServer({ appDir: dir });
-  server.on('request', async (req, res) => {
-    const access = gate.check(req);
-    if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
-    let url; try { url = new URL(req.url, 'http://localhost'); } catch { notFound(res); return; }
-    if (!(await tamber.handle(req, res, url, access))) notFound(res);
-  });
-  const stop = async () => { await tamber.close(); server.close(); process.exit(0); };
-  process.on('SIGINT', stop); process.on('SIGTERM', stop); process.on('SIGHUP', stop);
-  // Its launcher (bun exact.mjs) gone, even by SIGKILL: stop too.
-  const launcher = Number(process.env.EXACT_LAUNCHER_PID);
-  if (Number.isInteger(launcher) && launcher > 1) setInterval(() => { try { process.kill(launcher, 0); } catch (e) { if (e.code === 'ESRCH') stop(); } }, 1000).unref();
+  const origins = await listen({ host: argv.includes('--lan') ? '0.0.0.0' : '127.0.0.1', port: Number(at('--port') ?? 0), handle: tamber.handle, stop: tamber.close });
   console.log(origins.map(o => `${o.origin}/__tamber`).join('\n'));
   console.log(`  (the design server for ${dir}; the token at GET /__tamber/token from this machine only; ctrl-c to stop)`);
   await new Promise(() => {});
+}
+
+/** The design tool's own local URL: its grants name this one origin
+ * (apps/design-tool/app.ts). */
+export const TOOL_ORIGIN = 'http://127.0.0.1:7740';
+
+/** The tool built into TOOL_DIST unless that build is current; the build's
+ * exit code. */
+async function buildTool() {
+  const { resolveApp } = await import('./app.mjs');
+  const { webChanges } = await import('./agent-launch.mjs');
+  const app = resolveApp('design-tool');
+  if (existsSync(resolve(TOOL_DIST, '.exact-build.json')) && !webChanges(TOOL_DIST, app).all.length) return 0;
+  console.log(`tamber tool: building the design tool into ${relative(process.cwd(), TOOL_DIST)}`);
+  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'design-tool'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_WEB_DIST: TOOL_DIST } });
+  return r.status ?? 1;
+}
+
+/** What answers at TOOL_ORIGIN now: null for nothing, else the app its
+ * design server serves (null when it gave none). */
+async function toolAnswers() {
+  try {
+    const got = await fetch(`${TOOL_ORIGIN}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
+    if (!got.ok) return { app: null };
+    const { token } = await got.json();
+    const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
+    return { app: hello.ok?.app ?? null };
+  } catch { return null; }
+}
+
+/** `bun exact.mjs tamber tool [<app>] [--via <dev loop url>] [--no-open]`
+ * (LLP 1122 D2): the design tool, built if stale, at its own local URL,
+ * TOOL_ORIGIN, served by the app's design server there: one started here,
+ * or, when the app's dev loop already holds the design (one writer per
+ * project), that loop's, reached through `--via`. A server already there
+ * for this app is used as it is. */
+export async function toolCommand(argv) {
+  const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
+  const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--via') ?? '.'));
+  if (!designPath(dir)) { console.error(`tamber tool: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
+  const built = await buildTool();
+  if (built) { console.error('tamber tool: the design tool did not build'); return built; }
+  const url = `${TOOL_ORIGIN}/__tamber/tool/`;
+  const open = () => { if (!argv.includes('--no-open') && process.platform === 'darwin') spawnSync('open', [url]); };
+  const there = await toolAnswers();
+  if (there) {
+    let same = false;
+    try { same = there.app !== null && realpathSync(there.app) === realpathSync(dir); } catch { /* gone */ }
+    if (!same) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves ${there.app ? `the design of ${there.app}` : 'something else'}; stop it first`); return 1; }
+    console.log(`${url}\n  (the design tool, on the design server already running for ${dir})`);
+    open();
+    return 0;
+  }
+  const port = Number(new URL(TOOL_ORIGIN).port);
+  const via = at('--via');
+  if (via) {
+    const target = new URL(via).origin;
+    if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
+    console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
+  } else {
+    const tamber = tamberServer({ appDir: dir });
+    if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: tamber.handle, stop: tamber.close })))) { await tamber.close(); return 1; }
+    await tamber.ready;
+    if (tamber.down) {
+      const held = /another tamber server/.test(tamber.down);
+      console.error(`tamber tool: ${tamber.down}${held ? `\n  the app's dev loop holds its design: run bun exact.mjs tamber tool ${dir} --via <its URL>` : ''}`);
+      await tamber.close();
+      return 1;
+    }
+    console.log(`${url}\n  (the design tool, on the design server for ${dir}; ctrl-c to stop)`);
+  }
+  open();
+  await new Promise(() => {});
+}
+
+/** `listening()`, false and said when the tool's port is another's. */
+async function listenOn(port, listening) {
+  try { await listening(); return true; } catch (e) {
+    if (e.code !== 'EADDRINUSE') throw e;
+    console.error(`tamber tool: port ${port} is in use by something that is no design server; the tool's grants name that port, so free it`);
+    return false;
+  }
+}
+
+/** `--via`: the tool's files from here, every other `/__tamber` request to
+ * the dev loop at `target` as it came (the token only to a local request,
+ * which the loop judges again by this request from loopback). */
+async function forward(req, res, url, access, target) {
+  if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
+  if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
+  if (!access.local) { notFound(res); return true; }
+  const chunks = [];
+  for await (const chunk of req) chunks.push(chunk);
+  const headers = Object.fromEntries(['content-type', 'x-exact-tamber-token'].filter(h => req.headers[h]).map(h => [h, req.headers[h]]));
+  try {
+    const answer = await fetch(`${target}${url.pathname}${url.search}`, { method: req.method, headers, redirect: 'error', ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
+    res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
+    for await (const chunk of answer.body ?? []) res.write(chunk);
+    res.end();
+  } catch (e) {
+    json(res, 502, { error: { message: `the dev loop at ${target} did not answer: ${e.message}` } });
+  }
+  return true;
 }
 
 /** `bun exact.mjs tamber op <url> <request JSON>|subscribe`: the scripted
