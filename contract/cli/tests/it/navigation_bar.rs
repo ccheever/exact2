@@ -98,3 +98,32 @@ fn off_a_route_the_attribute_is_refused_naming_where_it_belongs() {
         .unwrap_err();
     assert_eq!(error.id, "lower-route-bar", "{error}");
 }
+
+#[test]
+fn top_scroll_inset_is_an_explicit_route_policy() {
+    for value in ["none", "auto"] {
+        let plan = contract::compile(&stack(
+            "",
+            &format!("navigationScrollInsetTop=\"{value}\""),
+            "",
+        ))
+        .unwrap();
+        assert!(plan.nodes.iter().any(|n| n
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| b.id == PropId::NavigationScrollInsetTop as u16)));
+    }
+    assert_eq!(
+        contract::compile(&stack("", "navigationScrollInsetTop=\"hidden\"", ""))
+            .unwrap_err()
+            .id,
+        "lower-attr-value"
+    );
+    assert_eq!(
+        contract::compile(&stack("navigationScrollInsetTop=\"none\"", "", ""))
+            .unwrap_err()
+            .id,
+        "lower-route-bar"
+    );
+}

@@ -541,7 +541,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
         // @ref LLP 1115.000 D5.2 — a route's say over the platform's bar:
         // `none` for a full-bleed screen.
-        "navigationBar" => AttrTarget::Prop(p("navigationBar")),
+        "navigationBar" | "navigationScrollInsetTop" => AttrTarget::Prop(p(name)),
         "navigationSource" | "sharedElement" => AttrTarget::Prop(p(name)),
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),

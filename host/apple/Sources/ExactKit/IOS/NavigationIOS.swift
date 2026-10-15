@@ -72,6 +72,21 @@ final class RouteController: UIViewController {
         view.addSubview(node)
     }
 
+    /// Cancel only UIKit's top contribution; bottom and keyboard insets stay native.
+    func syncTopUnderlap() {
+        guard let scroll = collapseScrollView else { return }
+        let automatic = scroll.adjustedContentInset.top - scroll.contentInset.top
+        let next = node.props["navigationScrollInsetTop"] == "none" ? -automatic : 0
+        guard abs(next - topUnderlapInset) > 0.01 else { return }
+        let offset = scroll.contentOffset.y + scroll.adjustedContentInset.top
+        let delta = next - topUnderlapInset
+        topUnderlapInset = next
+        scroll.contentInset.top += delta
+        collapseScroll?.scrollOrigin = scroll.adjustedContentInset.top
+        collapseScroll?.scrollCollapsed = scroll.adjustedContentInset.top
+        scroll.contentOffset.y = offset - scroll.adjustedContentInset.top
+    }
+
     /// The backdrop's colours last written, light and dark.
     private var backdropKey: [[Double]?]?
     /// The controller's view paints what shows behind the route. The sheet

@@ -336,6 +336,9 @@ impl NavPlace {
                     .map_or(span, |a| a.span),
             );
         }
+        if has("navigationScrollInsetTop") && (!has("navigationKey") || has("navigationBack")) {
+            return err("lower-route-bar", "`navigationScrollInsetTop` belongs to a route with `navigationKey`, not the navigation root or content inside a route", span);
+        }
         // @ref LLP 1116.006 D2 — the split's placeholder is a box in the root route; a route
         // marked so would never show.
         if let Some(a) = split_placeholder(attrs).filter(|_| has("navigationKey")) {
