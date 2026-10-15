@@ -343,7 +343,10 @@ async function copy(client: T3Client, nativeHandle: Native, text: string, title:
 }
 
 // ── Visits (ChatView visit effect): the open thread's watermark, deduped per updatedAt, throttled 10s mid-turn.
-const visits = new WeakMap<T3Client, { key: string; at: number; timer: boolean }>();
+// The effect runs whenever the open thread's shell changes, so it is asked after every refresh too: a thread
+// opened on a background environment arrives by the reconnect to that environment, not by openSelected, and
+// a turn completing on the open thread lands as a shell event.
+const visits = new WeakMap<T3Client, { key: string; at: number }>();
 export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   const thread = threadOf(client, client.threadId);
   if (!thread || !client.ready) return;
@@ -353,12 +356,13 @@ export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
   const seen = Date.parse(str(tracked ? thread.lastVisitedAt : prefs.visited[str(thread.id)]));
   if (Number.isFinite(seen) && seen >= updated) return;
   if (!tracked) { prefs.visited[str(thread.id)] = str(thread.updatedAt); return; }
-  const key = `${str(thread.id)}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', at: 0, timer: false };
+  // routeThreadKey: the same thread id on another environment is another thread.
+  const key = `${client.environmentId}:${str(thread.id)}:${str(thread.updatedAt)}`, last = visits.get(client) ?? { key: '', at: 0 };
   if (last.key === key || !client.writable) return;
   const completed = Date.parse(str(latestRun(thread)?.completedAt));
   const unseen = Number.isFinite(completed) && (!Number.isFinite(seen) || completed > seen);
   if (!unseen && wall(client) - last.at < 10_000) return;
-  visits.set(client, { key, at: wall(client), timer: false });
+  visits.set(client, { key, at: wall(client) });
   void dispatch(client, nativeHandle, { type: 'thread.visit', threadId: str(thread.id), visitedAt: str(thread.updatedAt) }).catch(() => undefined);
 }
 
@@ -405,6 +409,7 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
   await syncBranchPullRequests(client, nativeHandle, wall(client)); // A linkless thread's branch pull request
   await watchRowPorts(client, nativeHandle); // The legacy rows' discovered ports
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
+  visitOpenThread(client, nativeHandle);
 }
 /** After a thread opens: the server visit lands at once for an unseen completion. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
