@@ -6,14 +6,14 @@
 //! against. Planned against the app's design as it is, so an unchanged
 //! source proposes nothing.
 
-use exact_tamber::import::{dtcg, shadcn, tailwind, Import};
+use exact_tamber::import::{astryx, dtcg, shadcn, tailwind, Import};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> [--app <app dir>] [--prefix <prefix>]";
+    "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> | astryx <resolved theme json> [--app <app dir>] [--prefix <prefix>]";
 
 pub fn run(args: &[String]) -> ExitCode {
     let (mut kind, mut source, mut app, mut prefix) = (None, None, None, None);
@@ -88,8 +88,16 @@ pub fn run(args: &[String]) -> ExitCode {
         ),
         "tailwind" => tailwind::import(&text, prefix.as_deref().unwrap_or("tw"), &design),
         "dtcg" => dtcg::import(&files, prefix.as_deref().unwrap_or("dtcg"), &design),
+        "astryx" => astryx::import(
+            &text,
+            prefix.as_deref().unwrap_or("astryx"),
+            &design,
+            &contract_lower::tamber_vocab(),
+        ),
         other => {
-            eprintln!("contract tamber import: no importer `{other}` (shadcn, tailwind, dtcg)");
+            eprintln!(
+                "contract tamber import: no importer `{other}` (shadcn, tailwind, dtcg, astryx)"
+            );
             return ExitCode::from(2);
         }
     };

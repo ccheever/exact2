@@ -13,7 +13,7 @@ const USAGE: &str = "usage:
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
-  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
+  contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or dir> | astryx <resolved json> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {

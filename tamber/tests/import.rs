@@ -1226,3 +1226,65 @@ fn dtcg_round_three_theme_order_chains_and_replaced_groups() {
     let files = dtcg_files(&[("r.json", out), ("colors.json", "{}")]);
     assert!(dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).is_err());
 }
+
+#[test]
+fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
+    use exact_tamber::import::astryx;
+    let json = fixture("astryx-neutral.json");
+    let first = astryx::import(&json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    assert_eq!(
+        (
+            first.counted.source,
+            first.counted.mapped,
+            first.counted.reported
+        ),
+        (258, 150, 108)
+    );
+    // The probe: what Tamber's kinds cannot hold yet.
+    let tiers: Vec<&str> = first
+        .unmapped
+        .iter()
+        .filter(|u| u.why.starts_with("a duration's min or max tier"))
+        .map(|u| u.name.as_str())
+        .collect();
+    assert_eq!(
+        tiers,
+        [
+            "--duration-fast-max",
+            "--duration-fast-min",
+            "--duration-medium-max",
+            "--duration-medium-min",
+            "--duration-slow-max",
+            "--duration-slow-min"
+        ]
+    );
+    assert!(
+        first
+            .unmapped
+            .iter()
+            .any(|u| u.name == "--duration-fast"
+                && u.token.as_deref() == Some("astryx.duration.fast"))
+    );
+    assert!(first
+        .unmapped
+        .iter()
+        .any(|u| u.name == "--shadow-inset-hover"
+            && u.why == "kind pending (stage 6): box-shadow (inset)"));
+    let text = accepted(EMPTY, &first);
+    assert_eq!(
+        token_value(&text, "astryx.accent"),
+        "light-dark(#1b1b1b, #f1f1f1)"
+    );
+    assert_eq!(
+        token_value(&text, "astryx.surface.body"),
+        "light-dark(#f1f1f1, #1b1b1b)"
+    );
+    assert_eq!(token_value(&text, "astryx.data.blue.s5"), "#02165E");
+    assert_eq!(
+        token_value(&text, "-exact-background"),
+        "astryx.surface.body"
+    );
+    let again = astryx::import(&json, "astryx", &parse(&text).unwrap(), &vocab()).unwrap();
+    assert_eq!(again.ops, []);
+    assert!(again.offers.is_empty());
+}

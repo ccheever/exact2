@@ -11,6 +11,7 @@
 use crate::edit::{Op, WhenLine};
 use crate::{Design, Diagnostic};
 
+pub mod astryx;
 pub mod dtcg;
 mod engine;
 pub mod shadcn;
