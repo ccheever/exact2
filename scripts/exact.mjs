@@ -600,6 +600,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
                                its tokens in one mode (eval --mode dark-style=dim),
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
+  exact tamber serve <app>     the design server alone (development only): /__tamber
+  exact tamber op <url> <request JSON>|subscribe  its scripted client
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -884,7 +886,11 @@ function main(argv) {
   // The compiler parses its own flags; its help is printed here, so asking compiles nothing (LLP 1116 D4).
   if (verb === 'contract') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('contract')), 0) : contract(argv.slice(1)));
   // An app's design on its own (LLP 1121 D2): the compiler's `tamber` verbs.
-  if (verb === 'tamber') return process.exit(argv.includes('--help') || argv.includes('-h') ? (console.log(helpText('tamber')), 0) : contract(['tamber', ...argv.slice(1)]));
+  if (verb === 'tamber' && (argv.includes('--help') || argv.includes('-h'))) return console.log(helpText('tamber'));
+  // The design server's wire and its scripted client (LLP 1121 D13): development only.
+  if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
+  if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));
   if (verb === 'pattern') return pattern(guardFlags('pattern', argv.slice(1)));
   if (verb === 'new') {

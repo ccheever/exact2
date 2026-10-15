@@ -519,7 +519,15 @@ impl Server {
         if let Some(c) = optional(request, "client")? {
             self.client = Some(c);
         }
-        Ok(json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": []}))
+        // The design's files and digests, whether or not they check: a
+        // client's (and the wire's watcher's) baseline.
+        let files = self
+            .snapshot()
+            .map(|s| files_json(&s))
+            .unwrap_or(Value::Null);
+        Ok(
+            json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files}),
+        )
     }
 
     /// A write's reply, and its event when it wrote.
