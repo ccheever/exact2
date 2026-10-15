@@ -1,6 +1,7 @@
 # macOS: aria-hidden on an ancestor drops the focus
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by refreshInputGates resigning the focus only for gates that remove input (hidden, inert, route inert, dialog blocking), not aria-hidden; FocusFixupMacTests
 **Systems:** host/apple macOS, focus, accessibility
 **Author:** Daehyeon Mun
 **Date:** 2026-10-14

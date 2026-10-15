@@ -208,18 +208,22 @@ final class NavigationHost {
     }
 
     /// Top-layer ownership changes the same native input/AX gates as inert.
+    /// The focus leaves a node input no longer reaches (a hidden view, an
+    /// inert one: authored, a route's, behind a dialog). `aria-hidden` takes
+    /// a node out of the accessibility tree only, and the focus stays, as in
+    /// Chrome.
     func refreshInputGates(_ nodes: [NodeView]) {
         for node in nodes {
             let inert = node.inert
-            let hidden = node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp
+            let unreachable = inert || node.isHiddenOrHasHiddenAncestor
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
-            node.setAccessibilityHidden(hidden)
+            node.setAccessibilityHidden(node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp)
             let enabled = !node.disabled && !inert
             if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
             let editable = enabled && node.props["editable"] != "false"
             if let area = node.textArea, area.isEditable != editable { area.isEditable = editable }
-            if hidden, let responder = node.window?.firstResponder as? NSView,
+            if unreachable, let responder = node.window?.firstResponder as? NSView,
                responder === node || responder.isDescendant(of: node) || node.field?.currentEditor() === responder {
                 node.window?.makeFirstResponder(nil)
             }
