@@ -96,6 +96,10 @@ export function designPath(appDir) {
 /** The design tool's files, to a local request only. */
 export function serveTool(req, res, url, access, toolDir = TOOL_DIST) {
   if (!['GET', 'HEAD'].includes(req.method) || !access.local) return notFound(res);
+  // The tool's data module calls 127.0.0.1 (its grant's origin): a page
+  // opened as localhost would be another origin, every call refused.
+  const host = /^localhost(:\d+)?$/i.exec(String(req.headers.host ?? ''));
+  if (host) { res.writeHead(308, { location: `http://127.0.0.1${host[1] ?? ''}${url.pathname}`, 'cache-control': 'no-store' }); return res.end(); }
   if (url.pathname === '/__tamber/tool') { res.writeHead(308, { location: '/__tamber/tool/', 'cache-control': 'no-store' }); return res.end(); }
   let rel;
   try { rel = decodeURIComponent(url.pathname.slice('/__tamber/tool/'.length)); } catch { return notFound(res); }
@@ -324,9 +328,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // Missed: no events to apply, the files to start again from.
         json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), proposals: held() });
       };
-      // The design server gone: an error, which a following client retries
-      // slowly, never an empty answer it would ask again at once.
-      if (down) { json(res, 503, { error: { message: down } }); return true; }
+      // The design server gone: what is kept after `after` (its `down`
+      // among it), else an error, which a following client retries slowly,
+      // never an empty answer it would ask again at once.
+      if (down && !events.some(e => e.seq > after)) { json(res, 503, { error: { message: down } }); return true; }
+      if (down) { answer(); return true; }
       // `wait: false` (a client's first ask, for where to start) is answered at once.
       if (request?.wait === false || events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
       await new Promise(ok => {
@@ -682,9 +688,10 @@ async function buildTool() {
   process.env.EXACT_APP_DIR = resolve(ROOT, 'apps/design-tool');
   let app;
   try { app = resolveApp(); } finally { if (caller === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = caller; }
-  let built = null;
-  try { built = JSON.parse(readFileSync(resolve(TOOL_DIST, '.exact-build.json'), 'utf8')).app?.id; } catch { /* none */ }
-  if (built === app.id && !webChanges(TOOL_DIST, app).all.length) return 0;
+  // This app's whole JS-target build (every file its marker lists), with
+  // no input changed since, as verify accepts one.
+  const { builtAppMatches, jsTargetBuild } = await import('../host/web/serve.mjs');
+  if (await builtAppMatches(TOOL_DIST, app) && jsTargetBuild(TOOL_DIST) && !webChanges(TOOL_DIST, app).all.length) return 0;
   console.log(`tamber tool: building the design tool into ${relative(process.cwd(), TOOL_DIST)}`);
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'design-tool'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_WEB_DIST: TOOL_DIST } });
   return r.status ?? 1;
@@ -712,6 +719,9 @@ export async function toolCommand(argv) {
   const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
   const dir = appOf(resolve(argv.find((a, i) => !a.startsWith('-') && argv[i - 1] !== '--via') ?? '.'));
   if (!designPath(dir)) { console.error(`tamber tool: ${dir} has no design (app.tamber, or the file app.json's "tamber" names)`); return 1; }
+  const via = at('--via');
+  // `--via` with no URL (or as `--via=…`) is refused, never read as absent.
+  if (argv.some(a => a.startsWith('--via')) && !via?.startsWith('http')) { console.error('tamber tool: --via takes the dev loop\'s URL as the next argument: --via http://127.0.0.1:<port>'); return 2; }
   const built = await buildTool();
   if (built) { console.error('tamber tool: the design tool did not build'); return built; }
   const url = `${TOOL_ORIGIN}/__tamber/tool/`;
@@ -721,12 +731,17 @@ export async function toolCommand(argv) {
     let same = false;
     try { same = there.app !== null && realpathSync(there.app) === realpathSync(dir); } catch { /* gone */ }
     if (!same) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves ${there.app ? `the design of ${there.app}` : 'something else'}; stop it first`); return 1; }
+    // And this checkout's tool, as just built: another checkout's server
+    // serves its own.
+    let page = null;
+    try { page = await (await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(5000) })).text(); } catch { /* none */ }
+    const mine = readFileSync(resolve(TOOL_DIST, 'index.html'), 'utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">');
+    if (page !== mine) { console.error(`tamber tool: the design server at ${TOOL_ORIGIN} serves another build of the design tool (another checkout's?); stop it first`); return 1; }
     console.log(`${url}\n  (the design tool, on the design server already running for ${dir})`);
     open();
     return 0;
   }
   const port = Number(new URL(TOOL_ORIGIN).port);
-  const via = at('--via');
   if (via) {
     let target;
     try { target = new URL(via); } catch { console.error(`tamber tool: --via takes the dev loop's URL, not ${via}`); return 2; }
@@ -744,8 +759,9 @@ export async function toolCommand(argv) {
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
     console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
   } else {
+    // The design server up (or refused) before the port is taken, so a
+    // refusal leaves nothing listening.
     const tamber = tamberServer({ appDir: dir });
-    if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: tamber.handle, stop: tamber.close })))) { await tamber.close(); return 1; }
     await tamber.ready;
     if (tamber.down) {
       const held = /another tamber server/.test(tamber.down);
@@ -753,6 +769,7 @@ export async function toolCommand(argv) {
       await tamber.close();
       return 1;
     }
+    if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: tamber.handle, stop: tamber.close })))) { await tamber.close(); return 1; }
     console.log(`${url}\n  (the design tool, on the design server for ${dir}; ctrl-c to stop)`);
   }
   open();
@@ -775,23 +792,26 @@ async function forward(req, res, url, access, target) {
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
-  // A body within the server's own limit, read here before it is sent on.
-  const chunks = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += chunk.length;
-    if (size > BODY_LIMIT) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); req.destroy?.(); return true; }
-    chunks.push(chunk);
-  }
   const headers = Object.fromEntries(['content-type', 'x-exact-tamber-token'].filter(h => req.headers[h]).map(h => [h, req.headers[h]]));
   // The client gone, the request upstream (a stream, a long poll) ends too.
   const gone = new AbortController();
   res.on('close', () => gone.abort());
   try {
+    // A body within the server's own limit, read here before it is sent on.
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of req) {
+      size += chunk.length;
+      if (size > BODY_LIMIT) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); req.destroy?.(); return true; }
+      chunks.push(chunk);
+    }
     const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
     for await (const chunk of answer.body ?? []) {
-      if (!res.write(chunk)) await new Promise(ok => { res.once('drain', ok); res.once('close', ok); });
+      if (!res.write(chunk)) await new Promise(ok => {
+        const done = () => { res.off('drain', done); res.off('close', done); ok(); };
+        res.on('drain', done); res.on('close', done);
+      });
     }
     res.end();
   } catch (e) {

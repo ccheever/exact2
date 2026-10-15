@@ -46,13 +46,16 @@ test "another client's write arrives on the long poll, attributed"
   expect text "change-2" == "brand.tamber · changed on disk"
 
 test "a restarted server starts the list again"
+  request POST "/__stub/restart" {} as ada
   type "name" "Ada"
   tap "save-name"
   clock data
-  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"]} as ada
   clock +1
   clock data
-  expect text "change-1" == "app.tamber · agent:codex"
+  request POST "/__stub/event" {"client": "agent:before", "edited": ["app.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:before"
   request POST "/__stub/restart" {} as ada
   clock +1
   clock data

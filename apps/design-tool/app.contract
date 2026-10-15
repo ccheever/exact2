@@ -51,9 +51,9 @@ component DesignTool
     after(3000, advance)
 
   action advance
-    // A change (the files' digests moved), another run, or more missed
-    // than the server keeps: read the files again.
-    if changes.missed or not hello.ok or changes.seq != since
+    // A change (the files' digests moved), another run, more missed than
+    // the server keeps, or no answer: read the files again.
+    if changes.missed or not hello.ok or not changes.ok or changes.seq != since
       refresh hello
     since = changes.seq
     epoch = changes.epoch

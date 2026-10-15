@@ -234,8 +234,11 @@ test('a second wire for the app, whose lock is the first\'s, answers 503', async
   expect(subscribed.body.error.message).toContain('another tamber server');
   const hello = await ask(second, gate, { path: '/__tamber', method: 'POST', headers: local, body: '{"method":"hello"}' });
   expect(hello.status).toBe(503);
-  // A long poll is told so, not answered empty to ask again at once.
-  const polled = await ask(second, gate, { path: '/__tamber/events', method: 'POST', headers: local, body: '{"after":0}' });
+  // A long poll gets the `down` event once, then is told so, never
+  // answered empty to ask again at once.
+  const first = await ask(second, gate, { path: '/__tamber/events', method: 'POST', headers: local, body: '{"after":0}' });
+  expect(first.body.events.map(e => e.event)).toEqual(['down']);
+  const polled = await ask(second, gate, { path: '/__tamber/events', method: 'POST', headers: local, body: JSON.stringify({ after: first.body.seq }) });
   expect(polled.status).toBe(503);
   await second.close();
 }, 600_000);
