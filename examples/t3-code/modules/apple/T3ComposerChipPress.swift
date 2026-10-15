@@ -1,12 +1,16 @@
 #if os(macOS)
 import AppKit
 
-/// A skill chip's press. In T3 Code a skill chip is the
+/// A composer chip's press. In T3 Code a skill chip is the
 /// trigger of a ContextChipPopover (ComposerPromptEditorTiptap.tsx ComposerSkillNodeView,
 /// contextChipParts.tsx; T3 Code 1e2ecbd975, MIT, see LICENSE-T3): a button named
 /// "Skill <label>. Show details" that opens the skill's details above it. Here the chip is drawn
 /// in the text view, so the press is caught on the chip and reported to the app (`t3.chip`),
 /// which draws the popover in Contract at the chip's frame (composer-chip-popover.contract).
+///
+/// A terminal excerpt, a review comment and a preview annotation open their details the same way. The other chips'
+/// presses are actions (a mention, thread, citation source link, pull request, image or video; `act`): the press is
+/// reported once with what it names and the app performs it (composer-chip-details.ts).
 ///
 /// One press is open per editor; the app shows the newest of the composer's and the Settings
 /// prompt sample's (`seq` across both). Like Base UI's Popover it closes on a second press of
@@ -96,9 +100,14 @@ final class T3ComposerChipPress {
             select(open, in: view, window: window)
             return true
         }
-        guard let chip = styler.citationAction(at: point) ?? styler.popoverChip(at: point) else { close(); return false }
         // A composition still open is the text view's to commit (it does so on any press).
         let taken = !view.hasMarkedText()
+        guard let chip = styler.citationAction(at: point) ?? styler.popoverChip(at: point) else {
+            guard let target = styler.actionChip(at: point) else { close(); return false }
+            if taken { select(target, in: view, window: window) }
+            act(target)
+            return taken
+        }
         if taken { select(chip, in: view, window: window) }
         press(chip)
         return taken
@@ -114,6 +123,24 @@ final class T3ComposerChipPress {
 
     var isOpen: Bool { chip != nil }
 
+    /// The newest action press (a mention, thread, citation source link, pull request or attachment), until the app takes
+    /// it (`close(seq:)`): what it names, which the app resolves through the draft's records and performs.
+    private(set) var acted: [String: Any]?
+
+    /// A press on an action chip: it closes any open details, as a press elsewhere in the text does, and reports what to do.
+    func act(_ chip: T3ComposerChip) {
+        guard let styler else { return }
+        close()
+        T3ComposerChipPress.lastSeq += 1
+        seq = T3ComposerChipPress.lastSeq
+        var value: [String: Any] = ["act": chip.kind == "context" ? styler.chipKind(chip) : chip.kind, "name": chip.label, "label": styler.displayLabel(chip)]
+        if chip.kind == "mention" { value["path"] = chip.detail }
+        if let path = styler.contextPath(chip), let slash = path.firstIndex(of: "/") { value["context"] = String(path[path.index(after: slash)...]) }
+        if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length { value["link"] = (view.string as NSString).substring(with: chip.range) }
+        acted = value
+        onChange()
+    }
+
     /// A press on `chip`: opens its details, or closes them when they are open on it (PopoverTrigger toggles).
     func press(_ chip: T3ComposerChip) {
         if let open = self.chip, open == chip {
@@ -127,6 +154,7 @@ final class T3ComposerChipPress {
     private func open(_ chip: T3ComposerChip, anchor: String, source: [Double], removeOnCancel: Bool) {
         T3ComposerChipPress.lastSeq += 1
         seq = T3ComposerChipPress.lastSeq
+        acted = nil
         self.chip = chip
         self.anchor = anchor
         self.source = source
@@ -223,6 +251,7 @@ final class T3ComposerChipPress {
     /// outside press with nothing to commit gives the prompt the focus, the caret after the chip, when the press left the
     /// focus nowhere (PopoverPopup's `finalFocus` → onRestoreFocus), as `finishCitation` does.
     func close(seq: Int) {
+        if seq == self.seq, acted != nil { acted = nil; onChange(); return }
         guard seq == self.seq, let chip else { return }
         guard chip.kind == "citation", let view = styler?.view, let window = view.window, chip.end <= (view.string as NSString).length,
               T3ComposerChipPress.focusIsNowhere(window) || T3ComposerChipPress.focusInCitationComment(window) else { close(); return }
@@ -254,13 +283,18 @@ final class T3ComposerChipPress {
 
     /// What the app reads (`editorChip`).
     var state: [String: Any] {
-        guard let chip, let styler else { return ["seq": seq, "open": false, "surface": surface] }
+        guard let chip, let styler else {
+            var value: [String: Any] = ["seq": seq, "open": false, "surface": surface]
+            if let acted { value.merge(acted) { $1 }; value["owner"] = owner() }
+            return value
+        }
         var value: [String: Any] = ["seq": seq, "open": true, "surface": surface, "owner": owner(), "kind": chip.kind, "name": chip.label,
                                     "label": styler.displayLabel(chip), "frame": frame]
-        // A terminal excerpt's details; the app reads its record by the context id.
-        if chip.kind == "context", styler.chipKind(chip) == "terminal" {
-            value["kind"] = "terminal"
-            value["context"] = styler.contextPath(chip).map { String($0.dropFirst("terminal/".count)) } ?? ""
+        // A context reference's details (a terminal excerpt, a review comment, a preview annotation); the app reads its
+        // record by the context id.
+        if chip.kind == "context", let path = styler.contextPath(chip), let slash = path.firstIndex(of: "/") {
+            value["kind"] = styler.chipKind(chip)
+            value["context"] = String(path[path.index(after: slash)...])
         }
         if chip.kind == "citation", let view = styler.view, chip.end <= (view.string as NSString).length {
             // The chip's source link (its href carries the comment), the popover's anchor and the outside presses.
@@ -272,10 +306,11 @@ final class T3ComposerChipPress {
         return value
     }
 
-    /// The newest open press of `presses`, else the newest closed one's sequence.
+    /// The newest open press of `presses`, else the newest press (its action, while the app has not taken it).
     static func latest(_ presses: [T3ComposerChipPress]) -> [String: Any] {
         guard let newest = presses.filter(\.isOpen).max(by: { $0.seq < $1.seq }) else {
-            return ["seq": presses.map(\.seq).max() ?? 0, "open": false]
+            guard let last = presses.max(by: { $0.seq < $1.seq }), last.acted != nil else { return ["seq": presses.map(\.seq).max() ?? 0, "open": false] }
+            return last.state
         }
         return newest.state
     }
@@ -332,6 +367,7 @@ final class T3ComposerChipPress {
         monitor = nil
         if let view = styler?.view, !elements.isEmpty { view.setAccessibilityChildren(nil) }
         elements = []
+        acted = nil
         close()
     }
 

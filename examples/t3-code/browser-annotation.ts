@@ -159,14 +159,16 @@ export function previewAnnotationContextRecord(annotation: PreviewAnnotationPayl
 
 // ── The draft's annotations (composerDraftStore addPreviewAnnotation) ─────────────────────────────
 /** The compact copy kept beside the drafts: the payload without a data URL, and the crop's draft image id. */
-export type SavedAnnotation = { annotation: PreviewAnnotationPayload; imageId: string };
+export type SavedAnnotation = { annotation: PreviewAnnotationPayload; imageId: string; width?: number; height?: number };
 type Local = { previewAnnotations?: Record<string, SavedAnnotation> };
 const saved = (client: T3Client): Record<string, SavedAnnotation> => (obj(client.local) as Local).previewAnnotations ?? {};
 
 /** Keeps the annotation (and its crop's image id) by context id; its chip names it from the prompt. */
 export function savePreviewAnnotation(client: T3Client, annotation: PreviewAnnotationPayload, imageId: string): string {
   const id = previewAnnotationContextId(annotation.id), local = client.local as unknown as Local;
-  local.previewAnnotations = { ...saved(client), [id]: { annotation: { ...annotation, screenshot: null }, imageId } };
+  // The crop's size stays (the chip's details size its screenshot by it); its data URL does not.
+  const size = annotation.screenshot && annotation.screenshot.width > 0 && annotation.screenshot.height > 0 ? { width: annotation.screenshot.width, height: annotation.screenshot.height } : {};
+  local.previewAnnotations = { ...saved(client), [id]: { annotation: { ...annotation, screenshot: null }, imageId, ...size } };
   return id;
 }
 /** The chip `addPreviewAnnotation` puts in the prompt. */
@@ -193,7 +195,9 @@ export function adoptPreviewAnnotations(next: object, previous: Obj): void {
   const records: Record<string, SavedAnnotation> = {};
   for (const [id, value] of Object.entries(obj(previous.previewAnnotations))) {
     const entry = obj(value);
-    if (isPreviewAnnotationPayload(entry.annotation) && previewAnnotationContextId(str(obj(entry.annotation).id)) === id) records[id] = { annotation: entry.annotation, imageId: str(entry.imageId) };
+    if (!isPreviewAnnotationPayload(entry.annotation) || previewAnnotationContextId(str(obj(entry.annotation).id)) !== id) continue;
+    const width = Number(entry.width), height = Number(entry.height);
+    records[id] = { annotation: entry.annotation, imageId: str(entry.imageId), ...(width > 0 && height > 0 ? { width, height } : {}) };
   }
   Object.assign(next, { previewAnnotations: records });
 }

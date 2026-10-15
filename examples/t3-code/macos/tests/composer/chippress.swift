@@ -148,10 +148,15 @@ final class ComposerChipPressTests: XCTestCase {
         fixture.click(fixture.center(fixture.preview.styler.chips[0]))
         XCTAssertTrue(fixture.base.window.firstResponder === fixture.view && fixture.view.selectedRange() == fixture.preview.styler.chips[0].range, "the pressed chip's editor takes the focus with the chip selected")
         fixture.base.escape()
-        // A press that is not on a skill chip stays the text view's: it places the caret.
+        // A mention's press is its Preview button's: taken and selected as the skill's, and reported as an action, not details.
         let mention = fixture.preview.styler.chips.first { $0.kind != "skill" }!
-        XCTAssertFalse(press.mouseDown(NSEvent.mouseEvent(with: .leftMouseDown, location: fixture.view.convert(fixture.center(mention), to: nil), modifierFlags: [],
-            timestamp: 0, windowNumber: fixture.base.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!), "a mention chip's press is not taken")
+        XCTAssertTrue(press.mouseDown(NSEvent.mouseEvent(with: .leftMouseDown, location: fixture.view.convert(fixture.center(mention), to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: fixture.base.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!), "a mention chip's press is taken")
+        XCTAssertFalse(press.isOpen)
+        XCTAssertEqual(press.state["act"] as? String, "mention")
+        // A press on the text beside the chips stays the text view's: it places the caret.
+        XCTAssertFalse(press.mouseDown(NSEvent.mouseEvent(with: .leftMouseDown, location: fixture.view.convert(NSPoint(x: 395, y: 50), to: nil), modifierFlags: [],
+            timestamp: 0, windowNumber: fixture.base.window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1)!), "a press on the text is not taken")
     }
 
     func testEscapeAnEditTheAppsCloseAndTheEditorLeavingCloseIt() {
@@ -220,8 +225,11 @@ final class ComposerChipPressTests: XCTestCase {
         XCTAssertTrue(elements.first?.accessibilityParent() as AnyObject === fixture.view)
         XCTAssertTrue(elements.first!.accessibilityPerformPress())
         XCTAssertTrue(fixture.preview.styler.press.isOpen)
-        // The mention chip is the reference's "Preview <path>" button, no popover trigger (its press is not built here).
-        XCTAssertEqual(elements.filter { $0 is T3ComposerChipPopupElement }.count, fixture.preview.styler.chips.filter { $0.kind == "skill" }.count)
+        // The mention chip is the reference's "Preview <path>" button: pressable, its press an action rather than details.
+        XCTAssertEqual(elements.filter { $0 is T3ComposerChipPopupElement }.count, 2)
         XCTAssertEqual(elements.last?.accessibilityRole(), .button)
+        XCTAssertTrue(elements.last!.accessibilityPerformPress())
+        XCTAssertFalse(fixture.preview.styler.press.isOpen)
+        XCTAssertEqual(fixture.preview.styler.press.state["act"] as? String, "mention")
     }
 }

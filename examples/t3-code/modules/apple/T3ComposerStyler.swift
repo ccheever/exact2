@@ -328,14 +328,33 @@ final class T3ComposerStyler {
     func skillChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { $0.kind == "skill" && chipRect($0)?.contains(point) == true }
     }
-    /// A chip whose press opens its details (ContextChipPopover's trigger): a skill, or a
-    /// terminal excerpt that holds text (TerminalContextInlineChip; an expired one is a plain shell).
+    /// A chip whose press opens its details (ContextChipPopover's trigger): a skill, a
+    /// terminal excerpt that holds text (TerminalContextInlineChip; an expired one is a plain shell), a review comment
+    /// and a preview annotation (composerContextPresentation's ContextChip, details "popover").
     func popoverChip(at point: NSPoint) -> T3ComposerChip? {
         chips.first { isPopoverTrigger($0) && chipRect($0)?.contains(point) == true }
     }
     func isPopoverTrigger(_ chip: T3ComposerChip) -> Bool {
-        chip.kind == "skill" || (terminalText(chip).map { !$0.isEmpty } ?? false)
+        if chip.kind == "skill" { return true }
+        if let text = terminalText(chip) { return !text.isEmpty }
+        return chip.kind == "context" && !chipMissing(chip) && ["review-comment", "preview-annotation"].contains(chipKind(chip))
     }
+    /// A chip whose press does something other than open details: a mention's Preview (openMention), a thread's link, a
+    /// citation's source link, a pull request's Open, and an image's or video's expanded preview (ComposerContextActions).
+    /// A file's press opens AttachmentFilePreview over the draft's bytes in the reference; the clone has no such preview
+    /// for a draft file, so a file chip has no press here.
+    func isActionTrigger(_ chip: T3ComposerChip) -> Bool {
+        if chip.kind == "mention" || chip.kind == "citation" { return true }
+        guard chip.kind == "context", !chipMissing(chip) else { return false }
+        let kind = chipKind(chip)
+        return ["thread", "image", "video", "pull-request"].contains(kind) || kind.hasPrefix("pr-")
+    }
+    /// The action chip under `point` (text view coordinates); a citation's comment button is `citationAction`'s.
+    func actionChip(at point: NSPoint) -> T3ComposerChip? {
+        chips.first { isActionTrigger($0) && chipRect($0)?.contains(point) == true }
+    }
+    /// An expired terminal excerpt: TerminalContextInlineChip's shell with `state="invalid"` (the destructive tint, solid border).
+    func chipExpired(_ chip: T3ComposerChip) -> Bool { terminalText(chip)?.isEmpty == true }
     /// A file chip's size ("40 KB", text-[10px] of a 14px prompt).
     func suffixFont(_ font: NSFont) -> NSFont { NSFont.systemFont(ofSize: font.pointSize * 10 / 14, weight: .medium) }
     func chipSuffix(_ chip: T3ComposerChip) -> String {
@@ -720,13 +739,16 @@ final class T3ComposerUnderlay: NSView {
         let resolved = styler.chipResolved(chip)
         let image = resolved ? styler.chipImage(chip) : nil
         let missing = styler.chipMissing(chip)
-        let palette = image?.palette ?? T3ComposerUnderlay.palette[missing ? "neutral" : styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
-        let ink = resolved ? NSColor(t3Hex: dark ? palette[1] : palette[0]) : (styler.baseInk ?? .textColor)
+        // ContextChip's states: "unresolved" is dashed in the foreground ink; "invalid" (an expired terminal excerpt) keeps a
+        // solid border in the destructive colour (`border-destructive/35 bg-destructive/8 text-destructive`).
+        let expired = styler.chipExpired(chip)
+        let palette = image?.palette ?? T3ComposerUnderlay.palette[expired ? "invalid" : missing ? "neutral" : styler.chipKind(chip)] ?? T3ComposerUnderlay.palette["thread"]!
+        let ink = resolved || expired ? NSColor(t3Hex: dark ? palette[1] : palette[0]) : (styler.baseInk ?? .textColor)
         let path = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: size * 0.5, yRadius: size * 0.5)
-        NSColor(t3Hex: missing && dark ? "#ffffff04" : palette[2]).setFill(); path.fill()
+        NSColor(t3Hex: missing && dark ? "#ffffff04" : expired && dark ? "#fb414a14" : palette[2]).setFill(); path.fill()
         NSColor(t3Hex: dark ? palette[4] : palette[3]).setStroke()
         path.lineWidth = 1
-        if !resolved { path.setLineDash([3, 2], count: 2, phase: 0) }
+        if !resolved && !expired { path.setLineDash([3, 2], count: 2, phase: 0) }
         path.stroke()
         if chip == styler.selectedChip {
             let key = styler.view?.window?.isKeyWindow == true && styler.view?.window?.firstResponder === styler.view
@@ -790,6 +812,9 @@ final class T3ComposerUnderlay: NSView {
         "thread": ["#2a3f40", "#c9e2df", "#009c961c", "#a6cccb", "#21a7a161"],
         // ContextChip's default kind (an unresolved reference): border-border/70, bg-accent/40.
         "neutral": ["#27272a", "#f5f5f5", "#f4f4f566", "#e4e4e7b3", "#ffffff0f"],
+        // The "invalid" state: --destructive (red-500; dark, red-500 mixed 90% with white) as ink, at 35% for the border and
+        // 8% for the fill (the dark fill is drawChip's).
+        "invalid": ["#fb2c36", "#fb414a", "#fb2c3614", "#fb2c3659", "#fb414a59"],
         "mention": ["#2c3e45", "#cbe0e6", "#0096af1c", "#a9cad5", "#39a1b861"],
         "file": ["#2b3d4b", "#cadfed", "#0090cd1c", "#a8c8e0", "#389cd361"],
         "skill": ["#433448", "#e7d4ea", "#b261be1c", "#d4b8db", "#ba72c661"],

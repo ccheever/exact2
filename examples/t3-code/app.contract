@@ -656,6 +656,14 @@ component T3Code
     after(1, chipCoverClose)
   action chipCoverClose
     editorOp("chip-close", `${chip.seq}`, "")
+  // A chip press that is an action (a mention, thread, citation source, pull request or attachment; composer-chip-details.ts)
+  // is sent once, in its own turn.
+  state chipActed = 0
+  task chipAct when chip.act != "" and chip.seq > chipActed key=chip.seq
+    after(1, chipActRun)
+  action chipActRun
+    chipActed = chip.seq
+    editorOp("chip-act", `${chip.seq}`, "")
   state optionsOpen = ""
   state branchQuery = ""
   resource branches = composerBranches(optionsOpen == "branch", branchQuery, data.revision, shellClock) as shape ComposerBranches

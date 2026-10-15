@@ -310,7 +310,7 @@ final class ComposerSendPressTests: XCTestCase {
 }
 
 var executed = 0, failures = 0, succeeded = true
-for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite, ComposerChipAccessibilityTests.defaultTestSuite] {
+for suite in [ComposerTests.defaultTestSuite, ComposerEditorTests.defaultTestSuite, ComposerImageChipTests.defaultTestSuite, ComposerChipTipTests.defaultTestSuite, ImageAccentTests.defaultTestSuite, PromptPreviewEditorTests.defaultTestSuite, ComposerChipPressTests.defaultTestSuite, ComposerCitationTests.defaultTestSuite, ComposerSendPressTests.defaultTestSuite, ComposerChipAccessibilityTests.defaultTestSuite, ComposerChipActionTests.defaultTestSuite] {
     suite.run()
     guard let run = suite.testRun, run.executionCount == suite.testCaseCount else { exit(1) }
     executed += run.executionCount; failures += run.totalFailureCount; succeeded = succeeded && run.hasSucceeded
