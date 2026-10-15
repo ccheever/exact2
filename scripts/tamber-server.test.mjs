@@ -87,7 +87,9 @@ beforeAll(async () => {
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
   const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
-  tamber = tamberServer({ appDir: dir, log: () => {} });
+  // The watcher settles slower than a request lands, so a write's own
+  // reply, not the watcher, is what tells a hand edit before it apart.
+  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 250 });
   server.on('request', async (req, res) => {
     if (!(await tamber.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
   });
@@ -202,6 +204,11 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   expect(late.status).toBe(200);
   rmSync(join(dir, 'late.tamber'));
   await stream.until(e => !('late.tamber' in e.at(-1).files));
+  // The design itself removed and checked out again.
+  rmSync(join(dir, 'app.tamber'));
+  await stream.until(e => !('app.tamber' in e.at(-1).files) && e.at(-1).edited.includes('app.tamber'));
+  spawnSync('git', ['checkout', '--', 'app.tamber'], { cwd: dir });
+  await stream.until(e => e.at(-1).files['app.tamber'] === sha(DESIGN));
   stream.close();
 }, 30_000);
 
@@ -243,7 +250,7 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     if (dev.exitCode === null && dev.signalCode === null) {
       const exit = new Promise(ok => dev.once('exit', ok));
       dev.kill('SIGTERM');
-      await Promise.race([exit, Bun.sleep(30_000)]);
+      if (!(await Promise.race([exit.then(() => true), Bun.sleep(30_000).then(() => false)]))) dev.kill('SIGKILL');
     }
     rmSync(dist, { recursive: true, force: true });
   }

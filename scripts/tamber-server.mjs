@@ -142,11 +142,19 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // appears (a new design, a checkout) is found by asking again.
   const refresh = async () => {
     const reply = await ask({ method: 'hello' });
+    const baseline = first;
+    first = false;
+    // A failed read is said, and the next change reads again.
     if (!reply.ok) { log(`tamber: ${reply.error?.message}`); return; }
     // The first read is the baseline, not a change.
-    if (first) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
+    if (baseline) for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d);
     else publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files)));
-    for (const dir of new Set(Object.keys(reply.ok.files).map(path => dirname(resolve(appDir, path))))) {
+    watchAll(Object.keys(reply.ok.files));
+  };
+  // The app's directory (where a new design beside it appears) and the
+  // design's, whatever the first read gave, and any other holding a file.
+  const watchAll = paths => {
+    for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.map(path => dirname(resolve(appDir, path)))])) {
       if (watchers.has(dir)) continue;
       try {
         watchers.set(dir, watch(dir, (_, name) => {
@@ -164,6 +172,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (writing) { again = true; return; }
     void refresh();
   };
+  watchAll([]);
   const ready = refresh();
 
   const tokenOf = req => {
@@ -174,7 +183,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** The body as text; null when over the limit (the connection is cut)
    * or when the client left. */
   const body = req => new Promise(done => {
-    if (Number(req.headers['content-length']) > BODY_LIMIT) return done(null);
+    if (req.destroyed) return done(null);
+    if (Number(req.headers['content-length']) > BODY_LIMIT) { req.destroy?.(); return done(null); }
     const chunks = []; let size = 0, settled = false;
     const finish = v => { if (!settled) { settled = true; done(v); } };
     req.on('data', chunk => {
@@ -198,6 +208,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (!['/__tamber', '/__tamber/subscribe', '/__tamber/events'].includes(url.pathname)) return false;
     if (req.method !== 'POST' || !tokenOf(req)) { notFound(res); return true; }
     await ready;
+    // The client left while the server started.
+    if (res.destroyed || res.writableEnded) return true;
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -214,11 +226,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (!Number.isSafeInteger(after) || after < 0) { json(res, 400, { error: { message: '`after` is a sequence number' } }); return true; }
       const answer = () => {
         const since = events.filter(e => e.seq > after);
-        // Fewer kept than asked for: the client missed some, and reads again.
-        const missed = after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
-        json(res, 200, { events: since, seq, missed, files: Object.fromEntries(known) });
+        // Fewer kept than asked for, or a number from before this server
+        // started: the client missed some, and reads again.
+        const missed = after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
+        json(res, 200, { events: after > seq ? events : since, seq, missed, files: Object.fromEntries(known) });
       };
-      if (events.some(e => e.seq > after) || down) { answer(); return true; }
+      if (events.some(e => e.seq > after) || after > seq || down) { answer(); return true; }
       await new Promise(ok => {
         const poll = () => { polls.delete(poll); clearTimeout(wait); ok(); };
         const wait = setTimeout(poll, POLL_MS);
@@ -243,11 +256,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     try {
       reply = await ask(request);
       if (write && typeof reply.ok?.inverse === 'string') {
-        // A file the write did not write but that moved since the last
-        // announcement is a hand edit, said first and apart.
+        // What moved by hand since the last announcement, as the write read
+        // it (the files it did not write, and the ones it did as they were
+        // before it), is a hand edit, said first and apart.
         const written = new Set(reply.ok.written ?? []);
         const others = Object.fromEntries(Object.entries(reply.ok.files).filter(([path]) => !written.has(path)));
-        publish(others, { changed: null, client: null });
+        publish({ ...others, ...reply.ok.before }, { changed: null, client: null });
         publish(reply.ok.files, { changed: reply.ok.changed, client: reply.ok.client });
       }
     } finally {
@@ -265,10 +279,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     subscribers.clear();
     for (const poll of polls) poll();
     if (child.exitCode !== null || child.signalCode !== null || down) return Promise.resolve();
-    const exited = new Promise(ok => child.once('exit', ok));
+    const exited = new Promise(ok => child.once('exit', () => ok(true)));
+    const signal = name => { try { process.kill(-child.pid, name); } catch { child.kill?.(name); } };
+    const within = ms => Promise.race([exited, new Promise(ok => setTimeout(() => ok(false), ms))]);
     child.stdin.end();
-    try { process.kill(-child.pid, 'SIGTERM'); } catch { child.kill?.('SIGTERM'); }
-    return Promise.race([exited, new Promise(ok => setTimeout(ok, 5000))]);
+    signal('SIGTERM');
+    // Not gone in 5 s: killed, and said if even that does not end it.
+    return within(5000).then(gone => gone || (signal('SIGKILL'), within(2000))).then(gone => {
+      if (!gone) log('tamber: the design server did not exit; its lock may still be held');
+    });
   }
 
   return { handle, close, ready, get token() { return token; } };
