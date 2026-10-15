@@ -886,3 +886,51 @@ lands with or after the Tamber stage it needs.
    tool sends four commands (inspect, outline, hold, pin) and receives three reports
    (status, a selection, unsupported), and it never drives an app (D4). Taps and typing
    stay with agents, through the agent API.
+
+## 10. As built
+
+### T1, commit 1: the server additions, `tamber/1.1` (`6281652df`..`a0129f4ad`)
+
+- **`history`** is the design files' git log, with token-level edits per commit.
+- **`revert`** proposes, held, the inverse of a past commit as semantic operations
+  (`set-token`, `unset-token-when`, `add-token`, `remove-token`, axis values), planned on
+  today's files. It is never a byte restore, since a client can't send one.
+  - **Refused, with the reason,** for a commit with no inverse: one that created or removed a
+    design file, added or removed a dial, reordered or removed an axis, or changed a kind,
+    range or metadata.
+  - **Accepted after its files moved,** it is planned again from the commit, never replayed. A
+    partial revert keeps its selection when planned again.
+  - A client can't forge a revert's review. A removed dial counts as restored only with its
+    whole declaration.
+- **`import`** takes `{kind, source, name?}`, or `sources: [{name, text}]` for multi-file DTCG
+  such as Figma's per-mode files. Astryx is refused there and keeps its CLI.
+- **`requires: {path: digest}`**, on a transaction or a proposal, names files a write was
+  planned on but doesn't edit. It is checked on the snapshot the write uses.
+- **`/__tamber/tool/`** serves the tool's files to local requests only, through no symlink or
+  dot file.
+
+### T1, commit 2: the skeleton and `tamber tool` (`b516197e1`..`9bdf8cf62`)
+
+- **The tool is served at a fixed local port, 127.0.0.1:7740.** A data module's grant names one
+  origin and port, and its `fetch` needs an absolute URL.
+  - So one tool runs per machine, on one project at a time. To switch, stop it and run `tamber
+    tool <other app>`.
+  - The port binds loopback only.
+  - A port already held is refused, naming what holds it: another app's design server, or a
+    process found with `lsof`. A design server for the same app, serving this checkout's
+    build, is reused.
+- **`bun exact.mjs tamber tool [<app>] [--via <dev url>]`** builds the tool if stale. With no
+  `--via`, it starts the app's design server on that port. With `--via`, it forwards
+  `/__tamber` to the dev loop that holds the design (one writer per project). `--via` takes only
+  a loopback address, and only a loop serving this app.
+- **The data module:**
+  - it fetches the token once, and asks again once after a 404, for a restarted server;
+  - its grant names the tool's origin only;
+  - every write is `design-tool:<person>`, with the person asked once and kept;
+  - it follows changes by the long poll, first asking with `wait: false`;
+  - an epoch change or `missed` starts the list again and reads the design again.
+- **Wire additions (`tamber/1.1`):**
+  - `hello` carries the app's directory;
+  - `wait: false` makes the long poll answer at once;
+  - while the design server is down, the long poll answers its `down` event, then 503, never
+    an empty answer to ask again at once.
