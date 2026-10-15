@@ -760,7 +760,7 @@ carrier uses the bounded pre-handshake startup in LLP 1012: it waits for
 foreground readiness and retries transient connection errors within one
 monotonic deadline, without reconnecting an authenticated session or replaying
 commands. It does not grant Local Network permission. These runs used the
-normal Wi-Fi carrier without a host override, proxy or security-setting change.
+normal Wi-Fi carrier without a host override, proxy or network-configuration change.
 
 Source and binary receipts, the first failures, successful trees/states and
 screenshots are retained in `20261015-current-device-followup`. Physical Android
