@@ -875,10 +875,19 @@ impl Doc {
                     .iter()
                     .position(|l| lex::split_comment(l).0.trim_start().starts_with("tamber "))
                     .ok_or_else(|| refuse("the design has no `tamber` header"))?;
+                // After the header's own comments, the lines that follow it
+                // up to the first blank or block.
+                let mut at = head + 1;
+                while self.lines.get(at).is_some_and(|l| {
+                    let t = l.trim_start();
+                    t.starts_with("//") && !t.is_empty()
+                }) {
+                    at += 1;
+                }
                 let new = [String::new(), "axes".into(), line(2, &code, None)];
                 for (k, l) in new.into_iter().enumerate() {
                     let l = self.ended(l);
-                    self.lines.insert(head + 1 + k, l);
+                    self.lines.insert(at + k, l);
                 }
             }
         }
@@ -930,7 +939,7 @@ fn line(indent: usize, code: &str, comment: Option<&str>) -> String {
 /// its role, as the checker reads one: a system role's name in any case
 /// (`Canvas`, `canvas`), an Exact role's `-exact-` spelling or bare name in
 /// any case (the IR's `-exact-label` for a declared `label`).
-fn token_index(
+pub(crate) fn token_index(
     design: &Design,
     roles: &[(String, bool)],
     name: &str,

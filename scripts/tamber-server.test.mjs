@@ -439,6 +439,9 @@ test("an import is held as proposals: the tokens as one, each role override apar
   // The overrides left off: the tokens alone, recomputed, then accepted.
   const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(23).keys()] });
   expect(part.ok.recomputed).toBe(true);
+  // Its review kept, the overrides' items gone with them.
+  expect(part.ok.review.unmapped.map(u => u.name)).toContain('--radius');
+  expect(part.ok.review.offers.every(o => o.items.length === 0)).toBe(true);
   expect((await post({ method: 'accept', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
   const text = readFileSync(join(dir, 'app.tamber'), 'utf8');
   expect(text).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');

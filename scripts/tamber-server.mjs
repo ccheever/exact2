@@ -412,14 +412,23 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // finds nothing. Every way out is announced: accepted, replaced, or
     // held again.
     proposals.delete(id);
-    const recompute = async ops => {
-      const fresh = await hold(p.client, ops, undefined, id);
+    // The review rides along, its offers' items renumbered to the
+    // operations kept.
+    const recompute = async (ops, kept = ops.map((_, i) => i)) => {
+      const review = p.shown.review && {
+        ...p.shown.review,
+        offers: (p.shown.review.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+      };
+      const fresh = await hold(p.client, ops, undefined, id, review);
       if (!fresh.ok) { restore(id, p); return fresh; }
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
     };
     const some = items && new Set(items).size < p.ops.length;
-    if (some) return recompute([...new Set(items)].sort((a, b) => a - b).map(i => p.ops[i]));
+    if (some) {
+      const kept = [...new Set(items)].sort((a, b) => a - b);
+      return recompute(kept.map(i => p.ops[i]), kept);
+    }
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
     let waiting = true;
@@ -528,7 +537,8 @@ export async function importTheme(argv) {
   if (!kind || !source || !base) { console.error('usage: bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>] [--prefix <prefix>]'); return 2; }
   const args = ['run', '-q', '-p', 'contract', '--', 'tamber', 'import', kind, resolve(source), '--app', resolve(at('--app') ?? '.'), ...(at('--prefix') ? ['--prefix', at('--prefix')] : [])];
   const r = spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
-  if (r.status !== 0) { process.stderr.write(r.stderr); return r.status ?? 1; }
+  if (r.error) { console.error(`tamber import: cargo: ${r.error.message}`); return 1; }
+  if (r.status !== 0) { process.stderr.write(r.stderr ?? ''); return r.status ?? 1; }
   const imported = JSON.parse(r.stdout);
   const origin = new URL(base).origin;
   const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });

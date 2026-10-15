@@ -37,7 +37,7 @@ fn token_value<'a>(text: &'a str, name: &str) -> &'a str {
 #[test]
 fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
     let css = fixture("shadcn-neutral.css");
-    let first = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap()).unwrap();
+    let first = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
     // 24 in :root (23 colours, --radius) and 23 in .dark.
     assert_eq!(
         (
@@ -50,7 +50,7 @@ fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
     let radius = first
         .unmapped
         .iter()
-        .find(|u| u.name == "--radius" && u.block == ":root")
+        .find(|u| u.name == "--radius" && u.block.ends_with(":root"))
         .unwrap();
     assert_eq!(radius.why, "kind pending (stage 6): length");
     assert_eq!(radius.token.as_deref(), Some("shadcn.radius"));
@@ -96,7 +96,7 @@ fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
     assert!(first.offers[4].ops.is_empty() && first.offers[4].note.is_some());
     // Unchanged source, accepted design: nothing to propose, no offer left
     // but the accent's (a Contract edit).
-    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap()).unwrap();
+    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);
     assert_eq!(
         again
@@ -111,7 +111,7 @@ fn shadcn_default_theme_imports_counted_and_again_proposes_nothing() {
 #[test]
 fn a_shadcn_colour_theme_in_hsl_channels_imports_counted() {
     let css = fixture("shadcn-blue.css");
-    let import = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap()).unwrap();
+    let import = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
     // 20 in :root (19 colours, an empty --radius) and 19 in .dark.
     assert_eq!(
         (
@@ -127,14 +127,14 @@ fn a_shadcn_colour_theme_in_hsl_channels_imports_counted() {
         token_value(&text, "shadcn.primary"),
         "light-dark(hsl(221.2 83.2% 53.3%), hsl(217.2 91.2% 59.8%))"
     );
-    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap()).unwrap();
+    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);
 }
 
 #[test]
 fn a_further_shadcn_theme_class_is_a_proposed_axis() {
     let css = fixture("shadcn-neutral-themes.css");
-    let import = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap()).unwrap();
+    let import = shadcn::import(&css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
     assert_eq!(import.counted.source, 47 + 39);
     assert_eq!(
         import.counted.mapped + import.counted.reported,
@@ -156,6 +156,122 @@ fn a_further_shadcn_theme_class_is_a_proposed_axis() {
         ),
         "{text}"
     );
-    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap()).unwrap();
+    let again = shadcn::import(&css, "shadcn", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);
+}
+
+#[test]
+fn shadcn_reads_css_as_css_and_maps_or_reports_every_declaration() {
+    let css = r#"
+/* a comment with { and ; */
+:root {
+  --font: "a { b }; c";
+  --background: oklch(1 0 0);
+  --foreground: 222.2deg, 84%, 4.9%;
+  --gap: 0.5rem;
+  --space: var(--gap);
+  --ring: var(--foreground);
+  --loop-a: var(--loop-b);
+  --loop-b: var(--loop-a);
+  --chart-1: #111111;
+  --chart-s1: #222222;
+  --muted: #333333;
+  --muted: #444444;
+  @media (min-width: 40rem) { --wide: #555555; }
+}
+@media (prefers-color-scheme: dark) { :root { --background: oklch(0.2 0 0); } }
+@media print { :root { --background: #ffffff; } }
+.light, :root { --accent: #666666; }
+.theme-blue, .theme-red { --primary: #0000ff; }
+.theme-default { --card: #777777; }
+.theme-2 { --card: #888888; }
+html.dark .theme-blue { --primary: #000088; }
+"#;
+    let import = shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    assert_eq!(import.counted.source, 20);
+    assert_eq!(
+        why("--font"),
+        ["not a colour, and no other kind is built yet (stage 6)"]
+    );
+    assert_eq!(why("--gap"), ["kind pending (stage 6): length"]);
+    assert_eq!(why("--space"), ["`--gap` becomes no colour token"]);
+    assert_eq!(why("--loop-a").len() + why("--loop-b").len(), 2);
+    assert_eq!(
+        why("--chart-s1"),
+        ["its name is `--chart-1`'s (shadcn.chart.s1)"]
+    );
+    assert_eq!(
+        why("--muted"),
+        ["declared again later for the same theme block, which wins"]
+    );
+    assert_eq!(
+        why("--wide"),
+        ["inside `@media (min-width: 40rem)`, which no theme block is"]
+    );
+    assert_eq!(
+        why("--background"),
+        ["inside `@media print`, which no theme block is"]
+    );
+    assert_eq!(
+        why("--card"),
+        ["the theme `2` is no axis value (an identifier)"]
+    );
+    let text = accepted(EMPTY, &import);
+    assert_eq!(
+        token_value(&text, "shadcn.background"),
+        "light-dark(oklch(1 0 0), oklch(0.2 0 0))"
+    );
+    assert_eq!(
+        token_value(&text, "shadcn.foreground"),
+        "hsl(222.2deg, 84%, 4.9%)"
+    );
+    assert_eq!(token_value(&text, "shadcn.ring"), "shadcn.foreground");
+    assert_eq!(token_value(&text, "shadcn.muted"), "#444444");
+    assert_eq!(token_value(&text, "shadcn.accent"), "#666666");
+    assert_eq!(token_value(&text, "shadcn.card"), "#777777");
+    assert!(text.contains("  theme = default | blue | red\n"), "{text}");
+    // `--primary` only under themes: the first's (blue's, dark side too) is
+    // the default, and red, light only, keeps its own line.
+    assert_eq!(
+        token_value(&text, "shadcn.primary"),
+        "light-dark(#0000ff, #000088)"
+    );
+    assert!(text.contains("    when theme=red: #0000ff\n"), "{text}");
+}
+
+#[test]
+fn a_when_the_source_no_longer_gives_is_taken_back_and_a_role_spelled_bare_is_set() {
+    let design = "tamber app\n\naxes\n  theme = default | blue\n\ntheme\n  shadcn.background = #ffffff\n    when theme=blue: #eeeeff\n  background = #000000\n";
+    let css = ":root { --background: #ffffff; }";
+    let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(
+        import.ops,
+        [Op::UnsetTokenWhen {
+            name: "shadcn.background".into(),
+            when: vec![("theme".into(), "blue".into())],
+        }]
+    );
+    assert_eq!(
+        import.offers[0].ops,
+        [Op::SetToken {
+            name: "background".into(),
+            when: Vec::new(),
+            value: "shadcn.background".into(),
+            at: None,
+            comment: None,
+        }]
+    );
+    accepted(design, &import);
 }

@@ -77,7 +77,12 @@ pub fn run(args: &[String]) -> ExitCode {
         }
     };
     let imported = match kind.as_str() {
-        "shadcn" => shadcn::import(&text, prefix.as_deref().unwrap_or("shadcn"), &design),
+        "shadcn" => shadcn::import(
+            &text,
+            prefix.as_deref().unwrap_or("shadcn"),
+            &design,
+            &contract_lower::tamber_vocab(),
+        ),
         other => {
             eprintln!("contract tamber import: no importer `{other}` (shadcn)");
             return ExitCode::from(2);

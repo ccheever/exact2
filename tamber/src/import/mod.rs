@@ -94,7 +94,8 @@ pub struct Mapped {
 
 /// The operations that bring `design` to carry each of `tokens` (and each
 /// axis in `axes`): none for a token already so, `set-token` lines for one
-/// that differs, `add-token` for one it lacks.
+/// that differs (and `unset-token-when` for a `when` it no longer has),
+/// `add-token` for one it lacks.
 pub fn reconcile(design: &Design, axes: &[(String, Vec<String>)], tokens: &[Mapped]) -> Vec<Op> {
     let mut ops = Vec::new();
     for (name, values) in axes {
@@ -143,6 +144,15 @@ pub fn reconcile(design: &Design, axes: &[(String, Vec<String>)], tokens: &[Mapp
                 comment: None,
             });
         }
+        // A `when` the source no longer gives is the source's to take back.
+        for w in &have.whens {
+            if !t.whens.iter().any(|(c, _)| same_conds(&w.conds, c)) {
+                ops.push(Op::UnsetTokenWhen {
+                    name: t.name.clone(),
+                    when: w.conds.clone(),
+                });
+            }
+        }
         for (conds, value) in &t.whens {
             let line = have.whens.iter().find(|w| same_conds(&w.conds, conds));
             if line.is_none_or(|w| !same(&w.value.value, value)) {
@@ -186,78 +196,150 @@ pub fn counted(source: usize, mapped: usize, reported: usize) -> Result<Counted,
     })
 }
 
-/// A stylesheet's custom properties by block: each selector's (or at-rule
-/// prelude's) `--name: value` declarations, comments removed, nested
-/// at-rules (`@layer base { … }`) entered.
-pub fn css_blocks(css: &str) -> Vec<(String, Vec<(String, String)>)> {
+/// One block's custom properties: the preludes enclosing it, outermost
+/// first (`@layer base`, `@media (prefers-color-scheme: dark)`, `:root`), and
+/// its own `--name: value` declarations in order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Block {
+    /// The preludes, outermost first; the last is the block's own selector.
+    pub context: Vec<String>,
+    /// Its custom properties.
+    pub decls: Vec<(String, String)>,
+}
+
+/// A stylesheet's custom properties by block, read with CSS's own rules:
+/// comments, strings (with escapes) and parentheses hide braces and
+/// semicolons; a block's own declarations count beside its nested rules.
+pub fn css_blocks(css: &str) -> Vec<Block> {
     let text = strip_comments(css);
     let mut out = Vec::new();
-    blocks(&text, &mut out);
+    body(&text, &[], &mut out);
     out
 }
 
+/// `css` without `/* … */`, a comment's opener inside a string kept.
 fn strip_comments(css: &str) -> String {
     let mut out = String::new();
-    let mut rest = css;
-    while let Some(at) = rest.find("/*") {
-        out.push_str(&rest[..at]);
-        rest = rest[at + 2..]
-            .find("*/")
-            .map_or("", |e| &rest[at + 2 + e + 2..]);
+    let mut chars = css.chars().peekable();
+    let mut quote = None;
+    while let Some(c) = chars.next() {
+        match quote {
+            Some(q) => {
+                out.push(c);
+                if c == '\\' {
+                    if let Some(n) = chars.next() {
+                        out.push(n);
+                    }
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None if c == '/' && chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut last = ' ';
+                for n in chars.by_ref() {
+                    if last == '*' && n == '/' {
+                        break;
+                    }
+                    last = n;
+                }
+                out.push(' ');
+            }
+            None => {
+                if c == '"' || c == '\'' {
+                    quote = Some(c);
+                }
+                out.push(c);
+            }
+        }
     }
-    out.push_str(rest);
     out
 }
 
-fn blocks(text: &str, out: &mut Vec<(String, Vec<(String, String)>)>) {
-    let mut i = 0;
-    let b = text.as_bytes();
-    while i < b.len() {
-        let Some(open) = text[i..].find('{').map(|o| i + o) else {
-            return;
-        };
-        // The prelude is what follows the last `;` or `}` before the brace.
-        let prelude = text[i..open]
-            .rsplit([';', '}'])
-            .next()
-            .unwrap_or("")
-            .trim()
-            .to_string();
-        let mut depth = 0;
-        let mut close = open;
-        for (k, c) in text[open..].char_indices() {
-            match c {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        close = open + k;
-                        break;
+/// The byte index of each top-level `{`, `}` and `;` in `text`: outside
+/// strings and parentheses.
+fn marks(text: &str) -> Vec<(usize, char)> {
+    let mut out = Vec::new();
+    let (mut quote, mut parens, mut escaped) = (None, 0i32, false);
+    for (i, c) in text.char_indices() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '(' => parens += 1,
+            ')' => parens -= 1,
+            '{' | '}' | ';' if parens <= 0 => out.push((i, c)),
+            _ => {}
+        }
+    }
+    out
+}
+
+fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
+    let marks = marks(text);
+    let mut decls = Vec::new();
+    let (mut start, mut k) = (0, 0);
+    let declaration = |segment: &str, decls: &mut Vec<(String, String)>| {
+        if let Some((name, value)) = segment.split_once(':') {
+            let name = name.trim();
+            if name.starts_with("--") && name.len() > 2 {
+                decls.push((name.to_string(), value.trim().to_string()));
+            }
+        }
+    };
+    while k < marks.len() {
+        let (i, c) = marks[k];
+        match c {
+            ';' => {
+                declaration(&text[start..i], &mut decls);
+                start = i + 1;
+                k += 1;
+            }
+            '{' => {
+                // Its matching close, counting the marks between.
+                let mut depth = 0;
+                let mut end = None;
+                for (j, &(at, m)) in marks.iter().enumerate().skip(k) {
+                    match m {
+                        '{' => depth += 1,
+                        '}' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                end = Some((j, at));
+                                break;
+                            }
+                        }
+                        _ => {}
                     }
                 }
-                _ => {}
+                let Some((j, close)) = end else { break };
+                let prelude = text[start..i].trim().to_string();
+                let mut inner = context.to_vec();
+                inner.push(prelude);
+                body(&text[i + 1..close], &inner, out);
+                start = close + 1;
+                k = j + 1;
             }
+            // A stray close: what follows is past this body.
+            _ => break,
         }
-        if close == open {
-            return;
-        }
-        let body = &text[open + 1..close];
-        if body.contains('{') {
-            blocks(body, out);
-        } else {
-            let decls: Vec<(String, String)> = body
-                .split(';')
-                .filter_map(|d| {
-                    let (k, v) = d.split_once(':')?;
-                    let k = k.trim();
-                    k.starts_with("--")
-                        .then(|| (k.to_string(), v.trim().to_string()))
-                })
-                .collect();
-            if !decls.is_empty() {
-                out.push((prelude, decls));
-            }
-        }
-        i = close + 1;
+    }
+    // The last declaration may have no `;`.
+    if start < text.len() {
+        declaration(&text[start..], &mut decls);
+    }
+    if !decls.is_empty() && !context.is_empty() {
+        out.push(Block {
+            context: context.to_vec(),
+            decls,
+        });
     }
 }

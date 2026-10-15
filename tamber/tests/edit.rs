@@ -765,4 +765,11 @@ fn an_axis_goes_after_the_axes_there_are_or_in_a_new_block_after_the_header() {
     );
     assert_eq!(format(&done.text).unwrap(), done.text);
     assert!(apply(&done.text, &add, &vocab()).is_err());
+    // The header's own comments stay with it.
+    let commented = "tamber t\n// the brand\n\ntheme\n  ink = #000000\n";
+    let done = apply(commented, &add, &vocab()).unwrap();
+    assert_eq!(
+        done.text,
+        "tamber t\n// the brand\n\naxes\n  theme = default | blue\n\ntheme\n  ink = #000000\n"
+    );
 }
