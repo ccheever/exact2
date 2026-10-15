@@ -419,7 +419,7 @@ impl Server {
             if !temp_name(&r.tmp) {
                 return Err(format!("`{}` is no temporary file of this server", r.tmp));
             }
-            if !self.files().contains(&r.file) {
+            if !self.files()?.contains(&r.file) {
                 return Err(format!("`{}` is no file of this design", r.file));
             }
             out.push(r);
@@ -457,10 +457,9 @@ impl Server {
     /// The design's files: the app's design first, then any other design
     /// beside it, as the directory has them now (a transaction may edit
     /// several, committed as one set).
-    fn files(&self) -> Vec<String> {
+    fn files(&self) -> Result<Vec<String>, String> {
         let mut others: Vec<String> = std::fs::read_dir(&self.dir)
-            .into_iter()
-            .flatten()
+            .map_err(|e| format!("{}: {e}", self.dir.display()))?
             .filter_map(|e| {
                 let e = e.ok()?;
                 e.file_type().ok()?.is_file().then_some(())?;
@@ -469,24 +468,31 @@ impl Server {
             .filter(|n| n.ends_with(".tamber") && *n != self.design)
             .collect();
         others.sort();
-        std::iter::once(self.design.clone()).chain(others).collect()
+        Ok(std::iter::once(self.design.clone()).chain(others).collect())
     }
 
     /// Every design file, read once: the text a plan edits is the text its
     /// digest is of.
     fn snapshot(&self) -> Result<Snapshot, Value> {
-        self.files()
-            .iter()
-            .map(|f| {
-                let bytes = read_plain(&self.dir.join(f))
-                    .and_then(|b| b.ok_or_else(|| format!("{f} is gone")))
-                    .map_err(|m| json!({"message": m}))?;
-                let d = digest(&bytes);
-                let text = String::from_utf8(bytes)
-                    .map_err(|_| json!({"message": format!("{f} is not UTF-8")}))?;
-                Ok((f.clone(), text, d))
-            })
-            .collect()
+        self.read_files(false)
+    }
+
+    /// The files read; with `absent`, a file that is not there (the design
+    /// a checkout removed) is left out rather than an error.
+    fn read_files(&self, absent: bool) -> Result<Snapshot, Value> {
+        let mut out = Vec::new();
+        for f in self.files().map_err(|m| json!({"message": m}))? {
+            let bytes = match read_plain(&self.dir.join(&f)).map_err(|m| json!({"message": m}))? {
+                Some(b) => b,
+                None if absent => continue,
+                None => return Err(json!({"message": format!("{f} is gone")})),
+            };
+            let d = digest(&bytes);
+            let text = String::from_utf8(bytes)
+                .map_err(|_| json!({"message": format!("{f} is not UTF-8")}))?;
+            out.push((f, text, d));
+        }
+        Ok(out)
     }
 
     fn handle(&mut self, line: &str) -> Vec<Value> {
@@ -523,10 +529,10 @@ impl Server {
         if let Some(c) = optional(request, "client")? {
             self.client = Some(c);
         }
-        // The design's files and digests, whether or not they check (an
-        // unreadable one is an error): a client's (and the wire's watcher's)
-        // baseline.
-        let files = files_json(&self.snapshot()?);
+        // The design's files and digests, whether or not they check: a
+        // client's (and the wire's watcher's) baseline. A file not there is
+        // left out; an unreadable one is an error.
+        let files = files_json(&self.read_files(true)?);
         Ok(
             json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files}),
         )
@@ -562,23 +568,15 @@ impl Server {
             .ok_or_else(|| json!({"message": "a write names its `client`, or its hello does"}))
     }
 
-    /// The file a read names (`file`), the app's design when unsaid.
-    fn read_file(&self, request: &Value) -> Result<String, Value> {
-        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
-        match self.files().contains(&file) {
-            true => Ok(file),
-            false => Err(json!({"message": format!("`{file}` is no file of this design")})),
-        }
-    }
-
-    /// A read's file checked, from one snapshot that also gives the digests.
+    /// The file a read names (`file`, the app's design when unsaid),
+    /// checked, from one snapshot that also gives the digests.
     fn design(&self, request: &Value) -> Result<(Snapshot, exact_tamber::Folding), Value> {
-        let file = self.read_file(request)?;
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
         let snap = self.snapshot()?;
         let text = &snap
             .iter()
             .find(|(f, _, _)| *f == file)
-            .expect("a design file")
+            .ok_or_else(|| json!({"message": format!("`{file}` is no file of this design")}))?
             .1;
         let folding = exact_tamber::check(text, &self.vocab).map_err(|all| refused(&file, all))?;
         Ok((snap, folding))
@@ -744,8 +742,16 @@ impl Server {
             return Ok(out);
         };
         out["client"] = json!(client);
-        // The files this write wrote; the rest of `files` is as it read them.
+        // The files this write wrote, and each one's digest as it read it;
+        // the rest of `files` is as it read them.
         out["written"] = json!(planned.files.iter().map(|(p, _, _)| p).collect::<Vec<_>>());
+        out["before"] = files_json(
+            &snap
+                .iter()
+                .filter(|(f, _, _)| planned.files.iter().any(|(p, _, _)| p == f))
+                .cloned()
+                .collect::<Vec<_>>(),
+        );
         if planned.files.is_empty() {
             out["inverse"] = Value::Null;
             return Ok(out);
