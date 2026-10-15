@@ -239,7 +239,8 @@ component RealWorld
       navigationBack="back"
       navigate=followLink
       width="100%"
-      min-height="100%"
+      height="100%"
+      position="relative"
       display="flex"
       flex-direction="column"
       font-family="sans-serif"
@@ -252,8 +253,8 @@ component RealWorld
       // keeps one <Home> mounted: going to a tag changes the feed and the
       // tabs, not the page.
       if current.name == "home" or current.name == "tag"
-        column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
-          // @ref LLP 1123#d2-content-owners-and-their-host-blocks — native routes own their content.
+        column navigationKey=`${current.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${current.name}`
+          // @ref LLP 1123 D2 — native routes own their content.
           Header(me=me, current=current, go=go)
           head title="Home — Conduit"
           HomePage(
@@ -278,7 +279,7 @@ component RealWorld
       // lives as long as its instance, LLP 1017 P4c), survives Back.
       for e in stack(nav) key = e.id
         if e.name != "home" and e.name != "tag"
-          column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
+          column navigationKey=`${e.id}` position="absolute" inset=0 overflow-y="auto" testId=`page-${e.name}`
             Header(me=me, current=e, go=go)
             if e.name == "login"
               head title="Sign in — Conduit"

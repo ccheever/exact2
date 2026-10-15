@@ -264,6 +264,19 @@ confirmed the article banner at `y=0` over the header's `y=0..56` allocation.
 `apps/realworld/app.contract` now composes those shared components inside each
 route, keeping their authored styles and normal hit testing. This corrects the
 app's ownership, without a native stacking exception or extra clearance.
+Its retained route columns are absolute layers inside the viewport-height
+root, each with vertical overflow. A hidden retained route consumes no flow
+space above the next page's header, and long article content still scrolls.
+
+A retained iOS route can leave the native stack, give its block back, then
+rejoin below the selected route without appearing. If its controller already
+has a loaded view with nonempty bounds, `OwnerBlocks` restores that real block
+without claiming an offscreen placement. An offscreen route that kept its
+block retains it. The distinction matters to `head::inactive`: only a first
+route still in document layout can remain live beside a Mac detail pane; a
+covered native owner stays inactive. The content-owner regression exercises
+removal and offscreen reintroduction, its restored block and inactive tree,
+and ordinary input on the shown route.
 
 **Nested owners clear once.** Owners nest: a route inside a tab, a sheet over either. Only an owner whose content is authored clears. A container whose whole content is another owner, such as a tab panel holding a navigation stack, contributes no clearance of its own. UIKit already includes the outer chrome (the tab bar) in the inner owner's `safeAreaInsets`, so the inner owner clears it, once. A tab panel whose content is authored directly is itself the owner that clears.
 

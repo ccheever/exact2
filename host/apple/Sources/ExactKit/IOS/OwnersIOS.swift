@@ -225,6 +225,12 @@ final class OwnerBlocks {
             let id = route.node.id
             guard shown else {
                 if let held = told[id] { now[id] = held }
+                else if !block.isEmpty {
+                    // A retained controller may rejoin below the top after
+                    // leaving the stack. Its loaded bounds still own its
+                    // content; no placement is claimed while it is offscreen.
+                    now[id] = (.size(block.size), nil)
+                }
                 continue
             }
             now[id] = (.size(block.size), presented ? nil : placement(of: route, block: block, in: view))
