@@ -248,13 +248,15 @@ const forgetArrivals = (client: T3Client) => { arrivals.delete(client); };
 
 export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pick<SidebarHelpers, 'projectIdentity'>): LegacySidebarView {
   const enabled = legacyEnabled(client);
+  // useProjects lists every enabled environment's projects, so a background environment's project keeps
+  // "No projects yet" away even when this one has none (LegacySidebar.tsx `projectsLength === 0`).
+  const entries = enabled ? sortedGroups(client) : [];
   const newThread = shortcutLabel(client, 'chat.newLocal') || shortcutLabel(client, 'chat.new');
   const base = { enabled, manual: projectSortOrder(client) === 'manual', projectSort: projectSortOrder(client), threadSort: threadSortOrder(client), previewCount: previewCount(client),
     newThreadTip: newThread ? `New thread (${newThread})` : 'New thread', searchShortcut: shortcutLabel(client, 'commandPalette.toggle'),
-    confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: client.shell.projects.length === 0,
+    confirmArchive: client.local.clientSettings?.confirmThreadArchive === true, noProjects: enabled && entries.length === 0,
     jumpHints: !terminalFocused(client) && client.presentation.sidebarJumpHints === true, ...dialogView(client) };
   if (!enabled) { forgetArrivals(client); return { ...base, projects: [] }; }
-  const entries = sortedGroups(client);
   const views = entries.map(({ group, threads }) => projectThreads(client, group, threads));
   const entering = arrivalsOf(client, now, [...entries.map(entry => `project:${entry.group.key}`), ...views.flatMap(view => view.rendered.map(thread => `thread:${str(thread.id)}`))]);
   const jumps = base.jumpHints ? Array.from({ length: 9 }, (_, index) => shortcutLabel(client, `thread.jump.${index + 1}`)) : [];
