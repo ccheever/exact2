@@ -98,7 +98,7 @@ enum T3ComposerChipNames {
         let sized = size.isEmpty ? label : "\(label), \(size)"
         switch kind {
         case "thread": return [(.chip, .link, "Thread, \(label)", true)]
-        case "file": return [(.chip, .button, "File attachment, \(sized)", false)]
+        case "file": return [(.chip, .button, "File attachment, \(sized)", true)]
         case "video": return [(.chip, .button, "Preview video attachment, \(sized)", true)]
         case "image": return [(.chip, .button, "Image attachment, \(sized)", true)]
         case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", true)]

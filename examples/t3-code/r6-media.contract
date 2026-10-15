@@ -15,6 +15,9 @@ component R6MediaBody
     att: R5Attachment
     local: action
   view
+    // A draft's audio plays from its staged copy in the same hook (R6MediaPreview.swift R6AudioBody).
+    if att.preview == "audio-local"
+      box hatch="t3-media" data-media-url=att.url data-media-kind="audio" data-media-name=att.name flex=1 min-height=0 width="100%" aria-label=att.name testId="attachment-audio"
     if att.preview == "pdf" or att.preview == "html"
       box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
     if att.preview == "audio"

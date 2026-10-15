@@ -13,7 +13,7 @@ extension T3Module {
         if request["op"] as? String == "saveText" { return T3ContextMenu.saveText(request, exportsRoot: exportsRoot) { reply.send($0) } }
         if request["op"] as? String == "openText" { return T3ContextMenu.openText(request, importsRoot: exportsRoot.map { $0.deletingLastPathComponent().appendingPathComponent("imports", isDirectory: true) }) { reply.send($0) } }
         if request["op"] as? String == "fetchText" { return T3ContextMenu.fetchText(request) { reply.send($0) } }
-        if request["op"] as? String == "attachmentText" || request["op"] as? String == "attachmentSave" { return T3AttachmentFiles.perform(request, exportsRoot: exportsRoot) { reply.send($0) } } // T3PanelsNative.swift
+        if request["op"] as? String == "attachmentText" || request["op"] as? String == "attachmentSave" { return T3AttachmentFiles.perform(request, exportsRoot: exportsRoot, stagedFile: attach.stagedFile) { reply.send($0) } } // T3PanelsNative.swift
         next()
     }
 }

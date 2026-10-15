@@ -98,6 +98,12 @@ final class T3ComposerAttach {
         return staged.appendingPathComponent(id.lowercased())
     }
 
+    /// A draft file's staged copy, when it is still there (a file chip's preview reads it: T3PanelsNative.swift, R6MediaPreview.swift).
+    func stagedFile(_ id: String) -> URL? {
+        guard let url = stagedURL(["id": id]), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
     /// `composerAttachPick`, `composerAttachRead` (a staged file's bytes, once, at send) and `composerAttachRemove`.
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0

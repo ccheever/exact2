@@ -217,6 +217,70 @@ final class MediaPreviewTests: XCTestCase {
         return (rect.minY, body.bounds.maxY - rect.maxY, rect.height)
     }
 
+    /// A composer file chip's preview of a draft: its staged copy, never a URL (`t3-staged:<id>`).
+    func testADraftsStagedPdfPageAndAudioAreReadFromTheirCopy() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("staged-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pdfID = UUID().uuidString.lowercased(), pageID = UUID().uuidString.lowercased(), audioID = UUID().uuidString.lowercased()
+        let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 612, height: 792))
+        try sheet.dataWithPDF(inside: sheet.bounds).write(to: root.appendingPathComponent(pdfID))
+        let other = try LoopbackAssets(), away = "http://127.0.0.1:\(other.port)"
+        other.bodies["/next.html"] = ("text/html", Data("<!doctype html><title>next</title><p id=n>navigated</p>".utf8))
+        try Data("""
+        <!doctype html><title>draft</title><p id=s>no script</p><img id=r src="sibling.png" alt="">
+        <a id=l href="\(away)/next.html">link</a> <a id=b href="\(away)/beacon-blank" target="_blank">popup</a> <a id=t href="\(away)/beacon-top" target="_top">top</a>
+        <script>document.getElementById('s').textContent = 'ran:' + self.origin;</script>
+        """.utf8).write(to: root.appendingPathComponent(pageID))
+        try Data(repeating: 0, count: 64).write(to: root.appendingPathComponent(audioID))
+        let media = R6MediaPreview(agent: true, stagedFile: { id in [pdfID, pageID, audioID].contains(id) ? root.appendingPathComponent(id) : nil })
+        defer { media.destroy() }
+        media.mount(host: host, kind: "pdf", raw: "t3-staged:\(pdfID)", name: "spec.pdf")
+        let body = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        spin(until: { body.pdf.document != nil })
+        XCTAssertEqual(body.pdf.document?.pageCount, 1)
+        XCTAssertEqual(media.loaded["spec.pdf"], "pdf:1")
+        // The page runs in the reference's sandboxed frame: an opaque origin, no sibling, a link navigates the frame in
+        // place, and neither the popup nor a top link moves the window.
+        media.mount(host: host, kind: "html", raw: "t3-staged:\(pageID)", name: "page.html")
+        let web = try XCTUnwrap(host.subviews.first as? WKWebView)
+        spin(until: { !web.isLoading && media.loaded["page.html"] != nil })
+        let wrapper = web.url?.absoluteString ?? ""
+        XCTAssertTrue(wrapper.hasPrefix("t3-draft://"), wrapper)
+        func frame(_ script: String) -> String {
+            var value: String?
+            spin(until: { media.documentFrame(of: web) != nil }, timeout: 5)
+            guard let info = media.documentFrame(of: web) else { return "no frame" }
+            web.evaluateJavaScript(script, in: info, in: .page) { result in
+                switch result { case .success(let any): value = (any as? String) ?? "\(any)"; case .failure(let error): value = "error: \(error.localizedDescription)" }
+            }
+            spin(until: { value != nil }, timeout: 5)
+            return value ?? "timeout"
+        }
+        spin(until: { frame("document.getElementById('s').textContent") == "ran:null" }, timeout: 5)
+        XCTAssertEqual(frame("document.getElementById('s').textContent"), "ran:null")
+        XCTAssertEqual(frame("String(document.getElementById('r').naturalWidth)"), "0", "a sibling is not found, as a Blob page's")
+        _ = frame("document.getElementById('b').click(); document.getElementById('t').click(); 'clicked'")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        XCTAssertEqual(frame("document.getElementById('s').textContent"), "ran:null", "neither the popup nor the top link moved the frame")
+        XCTAssertEqual(web.url?.absoluteString, wrapper, "the window still shows the wrapper")
+        _ = frame("document.getElementById('l').click(); 'clicked'")
+        spin(until: { frame("String(document.getElementById('n') && document.getElementById('n').textContent)") == "navigated" }, timeout: 5)
+        XCTAssertEqual(frame("document.getElementById('n').textContent"), "navigated", "the link navigated the frame in place")
+        XCTAssertEqual(frame("self.origin"), "null", "the navigated frame keeps the sandbox")
+        XCTAssertEqual(web.url?.absoluteString, wrapper)
+        XCTAssertEqual(Set(other.seen.map { String($0.split(separator: "?").first ?? "") }), ["/next.html"], "the popup and the top navigation never reached the host")
+        // Audio: AVKit's inline controls, from a typed link beside the staged copy.
+        media.mount(host: host, kind: "audio", raw: "t3-staged:\(audioID)", name: "memo.mp3")
+        let audio = try XCTUnwrap(host.subviews.first as? R6AudioBody)
+        XCTAssertNotNil(audio.player.player)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: root.appendingPathComponent("\(audioID).mp3").path))
+        // A copy that is gone says so.
+        media.mount(host: host, kind: "pdf", raw: "t3-staged:\(UUID().uuidString.lowercased())", name: "gone.pdf")
+        let gone = try XCTUnwrap(host.subviews.first as? R6PDFBody)
+        XCTAssertTrue(gone.subviews.contains { ($0 as? NSTextField)?.stringValue == "Could not load this file." })
+    }
+
     func testShortPdfStartsAtTheTop() throws {
         // One US-letter page in a panel taller than the page at its fitted width: as Chromium's viewer,
         // the page sits at the top and the viewer surface fills the rest below it (PDFView alone centers it).

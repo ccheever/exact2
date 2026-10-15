@@ -155,6 +155,9 @@ function mapFor<T>(store: WeakMap<object, Map<string, T>>, client: T3Client): Ma
   return map;
 }
 
+/** A folded paste's text while this device holds it (a file chip's preview reads it). */
+export function foldedText(client: T3Client, fileId: string): string | undefined { return mapFor(texts, client).get(fileId); }
+
 async function nativeCall(native: Native, request: Obj): Promise<Obj> {
   const reply = await bridgeReply(native, request);
   if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);

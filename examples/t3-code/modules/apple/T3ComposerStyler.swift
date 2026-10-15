@@ -340,14 +340,14 @@ final class T3ComposerStyler {
         return chip.kind == "context" && !chipMissing(chip) && ["review-comment", "preview-annotation"].contains(chipKind(chip))
     }
     /// A chip whose press does something other than open details: a mention's Preview (openMention), a thread's link, a
-    /// citation's source link, a pull request's Open, and an image's or video's expanded preview (ComposerContextActions).
-    /// A file's press opens AttachmentFilePreview over the draft's bytes in the reference; the clone has no such preview
-    /// for a draft file, so a file chip has no press here.
+    /// citation's source link, a pull request's Open, an image's or video's expanded preview and a file's
+    /// AttachmentFilePreview over the draft's bytes (ComposerContextActions). A file whose bytes are gone (FileContextChip's
+    /// `needsReattach`) has no record here, so it is missing and has no press.
     func isActionTrigger(_ chip: T3ComposerChip) -> Bool {
         if chip.kind == "mention" || chip.kind == "citation" { return true }
         guard chip.kind == "context", !chipMissing(chip) else { return false }
         let kind = chipKind(chip)
-        return ["thread", "image", "video", "pull-request"].contains(kind) || kind.hasPrefix("pr-")
+        return ["thread", "image", "video", "file", "pull-request"].contains(kind) || kind.hasPrefix("pr-")
     }
     /// The action chip under `point` (text view coordinates); a citation's comment button is `citationAction`'s.
     func actionChip(at point: NSPoint) -> T3ComposerChip? {
