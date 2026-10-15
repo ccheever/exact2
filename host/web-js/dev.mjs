@@ -19,6 +19,7 @@ import { acceptsHTML, appDocumentPath, webRequestURL } from '../../scripts/origi
 import { compilerWarnings, INPUT_TREE, OUTPUT } from '../../scripts/agent-launch.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, replaceBuild, saveTrace, sendStaticBody, watchLauncher, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
+import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 
 const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
@@ -171,11 +172,14 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   // the local iOS build (D6b): this server's, since only it sees the real
   // peer (a forwarded request's is loopback).
   const installer = localInstaller({ app: () => app, origins, port, gate, listener: { host, port } });
+  // The design server's wire (LLP 1121 D13), when the app has a design.
+  const tamber = designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
   const server = createServer(async (req, res) => {
     const access = gate.check(req);
     if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
     const url = webRequestURL(req.url);
     if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+    if (tamber && await tamber.handle(req, res, url, access)) return;
     if (await installer.handle(req, res, url, access)) return;
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
@@ -269,7 +273,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     req.pipe(out);
   }, (e) => { res.writeHead(503, { 'content-type': 'text/plain', 'cache-control': 'no-store' }); res.end(`${e.message}\n`); });
   const stop = async () => {
-    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); server.close();
+    for (const w of watchers) w.close(); building?.kill('SIGKILL'); residentChild?.kill('SIGTERM'); tamber?.close(); server.close();
     // A local iOS build in flight is stopped and waited for, as the resident loop does.
     const install = installer.child;
     if (install && install.exitCode === null && install.signalCode === null) { const exit = new Promise((ok) => install.once('exit', ok)); install.kill('SIGTERM'); await exit; }

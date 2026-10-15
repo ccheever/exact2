@@ -58,3 +58,6 @@ What to know:
   line here.
 - **One way to write a colour:** a role if the platform has one, a token if it
   is the brand.
+- **Edit it while it runs** (development only): the dev loop serves
+  `/__tamber`. `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads;
+  a `transaction` names its `client` and the file's digest, and writes a line.

@@ -45,6 +45,7 @@ import { developmentLinks } from '../apple/build.mjs';
 import { acceptsHTML, webRequestURL } from '../../scripts/origin.mjs';
 import { guardFlags } from '../../scripts/help.mjs';
 import { localInstaller } from './local-install.mjs';
+import { designPath, tamberServer } from '../../scripts/tamber-server.mjs';
 import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = guardFlags('web', process.argv.slice(2)); // --help, or a flag it does not take, before anything starts
@@ -239,6 +240,9 @@ const push = (data) => { for (const res of clients) res.write(`data: ${JSON.stri
 // makes a restarted server's seq=1 newer than the previous server's seq=N.
 const epoch = randomBytes(16).toString('hex');
 const installer = localInstaller({ app: () => app, origins, port: servedAs ?? port, gate, listener: { host, port } });
+// The design server's wire (LLP 1121 D13) when the app has a design; under
+// the JS loop (--serve-as) that loop mounts it.
+const tamber = servedAs == null && designPath(app.dir) ? tamberServer({ appDir: app.dir }) : null;
 const generationCache = resolve(root, 'target/dev-generations', createHash('sha256').update(canonicalBytes({ app: app.id, path: app.dir, dist })).digest('hex'));
 let current = null;
 let currentModule = null;
@@ -737,6 +741,7 @@ const stop = async () => {
   const children = [dev, rustChild, gpuBuildChild, installer.child, hostBuildChild].filter(Boolean);
   const exits = children.map(child => new Promise(ok => child.exitCode !== null || child.signalCode !== null ? ok() : child.once('exit', ok)));
   killCompiler();
+  tamber?.close();
   installer.child?.kill('SIGTERM');
   // A rebuild in flight would otherwise swap dist under the next dev server.
   hostBuildChild?.kill('SIGTERM');
@@ -1079,6 +1084,7 @@ const server = createServer(async (req, res) => {
   if (!access.allowed) { res.writeHead(421, { 'cache-control': 'no-store' }); res.end(); return; }
   const url = webRequestURL(req.url);
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
+  if (tamber && await tamber.handle(req, res, url, access)) return;
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
   const trace = url.pathname === '/__exact/trace';

@@ -107,6 +107,10 @@ fn reads_answer_on_the_clones_design() {
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
     assert_eq!(hello["ok"]["protocol"], "tamber/1.0");
     assert_eq!(hello["ok"]["builds"], json!([]));
+    assert_eq!(
+        hello["ok"]["files"]["app.tamber"],
+        json!(digest(&dir.join("app.tamber")))
+    );
     let (describe, _) = s.ask(json!({"method": "describe"}));
     assert_eq!(describe["ok"]["ir"]["name"], "bluesky");
     assert_eq!(
