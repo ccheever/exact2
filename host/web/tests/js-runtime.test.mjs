@@ -251,7 +251,7 @@ test('a stand-in whose ask is refused at ready fails its resource', async () => 
 });
 
 // `failure(x).reason` (LLP 1109 D3, amended by the author's ruling of 2026-10-12): a thrown error's string `reason` (the
-// snapback4 driver's refusal code), synchronous or after a request, beside the closed code; empty when it names none.
+// snapback4 driver's refusal code), synchronous or after a request. A domain reason is also the failure code.
 test('a failure keeps the reason its error named', async () => {
   const page = globalThis.document;
   globalThis.document = { querySelector: () => null, getElementById: () => ({}) };
@@ -261,10 +261,10 @@ test('a failure keeps the reason its error named', async () => {
     data.answer = source => { if (source === 'now') throw refusal(); if (source === 'plain') throw new Error('plain'); return Promise.reject(refusal()); };
     let now, plain, later;
     commit(() => { now = res('nowSlot', 'now', () => [], 0, undefined, 'n', 0); plain = res('plainSlot', 'plain', () => [], 0, undefined, 'n', 0); later = res('laterSlot', 'later', () => [1], 0, undefined, 'n', 0); now(); plain(); later(); });
-    expect(now.e()).toEqual(['error', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
+    expect(now.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
     expect(plain.e()).toEqual(['error', 'plain', '']);
     for (let i = 0; i < 5 && !later.f(); i++) await new Promise(ok => setTimeout(ok, 1));
-    expect(later.e()).toEqual(['error', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
+    expect(later.e()).toEqual(['SLOT_FULL', 'SLOT_FULL: the slot is taken', 'SLOT_FULL']);
   } finally { if (page === undefined) delete globalThis.document; else globalThis.document = page; }
 });
 

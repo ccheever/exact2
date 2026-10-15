@@ -57,13 +57,13 @@ const PREBUILD = ['--prebuild', 'start the build apart from this shell and retur
 
 export const HELP = {
   backend: {
-    line: 'start the app’s Snapback backend at its authored origin',
+    line: 'run the Snapback backend',
     usage: 'bun exact.mjs backend [dev|serve <release>] [flags]',
     flags: [],
     body: 'Runs the backend package installed above the app, on app.ts’s loopback origin. Use snapback --port <n> to move it.',
   },
   snapback: {
-    line: 'wire the Snapback backend above the app',
+    line: 'wire Snapback',
     usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',
     flags: [['--port <n>', 'add or move a loopback backend origin, matching grants and test fetch prefixes'],
       ['--online', 'use the server without a local device'],

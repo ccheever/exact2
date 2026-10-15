@@ -68,6 +68,7 @@ mutation post(body: text 1..200):
 `);
     }
     run(process.execPath, [join(sdk, 'scripts/exact.mjs'), 'new', app, '--snapback', ...(online ? ['--online'] : []), '--port', String(port)]);
+    if (!online) run(process.execPath, ['exact.mjs', 'snapback'], app);
     if (online) {
       run(process.execPath, ['exact.mjs', 'update'], app);
       run(process.execPath, ['exact.mjs', 'snapback'], app);

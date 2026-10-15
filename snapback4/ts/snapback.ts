@@ -270,10 +270,16 @@ interface Partition {
  * docs/contract-for-humans.md). */
 interface Page { partitions: Map<string, Promise<Partition>>; closing: Map<string, Promise<unknown>>; authJobs: Map<string, Promise<unknown>> }
 const pages = new WeakMap<object, Page>();
+// A native executor owns one module for this app; every answer gets a new facade.
+const nativePages = new Map<string, Page>();
 function pageOf(options: Options): Page {
-  const owner = (options.native ?? options.storage) as object;
-  let page = pages.get(owner);
-  if (!page) pages.set(owner, page = { partitions: new Map(), closing: new Map(), authJobs: new Map() });
+  const owner = options.storage as object;
+  let page = options.native ? nativePages.get(options.app) : pages.get(owner);
+  if (!page) {
+    page = { partitions: new Map(), closing: new Map(), authJobs: new Map() };
+    if (options.native) nativePages.set(options.app, page);
+    else pages.set(owner, page);
+  }
   return page;
 }
 

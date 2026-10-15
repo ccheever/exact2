@@ -1115,13 +1115,20 @@ test('password accounts on serve: signup, reopen, refresh, login, logout and iso
     expect(nativeDevice).toBeUndefined();
     // An auth source opened before sign-in owns no partition; a data source
     // signs in later, and a third source uses manually supplied credentials.
-    const authOnly = await Snapback.open(nativeOptions);
+    const fromAnswer = () => ({ ...nativeOptions,
+      native: { call: (request: Record<string, unknown>) => native.call(request) },
+      auth: { ...nativeOptions.auth, store: {
+        get: (key: string) => store.get(key), set: (key: string, value: string) => store.set(key, value),
+        forget: (key: string) => store.forget(key),
+      } },
+    });
+    const authOnly = await Snapback.open(fromAnswer());
     expect(authOnly.session).toBeNull();
-    const signedIn = await Snapback.open(nativeOptions);
+    const signedIn = await Snapback.open(fromAnswer());
     expect((await signedIn.login('alice@example.com', 'correct-horse-battery-staple')).ok).toBe(true);
-    const authenticatedSibling = await Snapback.open(nativeOptions);
+    const authenticatedSibling = await Snapback.open(fromAnswer());
     const aliceSession = signedIn.session!;
-    const headersSibling = await Snapback.open({ ...nativeOptions, auth: undefined,
+    const headersSibling = await Snapback.open({ ...fromAnswer(), auth: undefined,
       name: signedIn.options.name, viewer: aliceSession.principal,
       headers: () => ({ authorization: `Bearer ${aliceSession.token}` }) });
     const privatePdf = new TextEncoder().encode('%PDF-1.4\nPrivate native document\n%%EOF');
