@@ -157,7 +157,8 @@ component ProjectActionEditor
             button id="action-delete" press=askDelete(true) disabled=busy class=AeOutline border-color="light-dark(#e7000b40, #ff646740)" testId="action-delete" data-focus-stop=(busy ? "" : "enabled")
               text "Delete" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#c10007, #ff6467)"
           box flex=1
-          button id="action-cancel" press=close aria-keyshortcuts="Escape" class=AeOutline testId="action-cancel" data-focus-stop="enabled"
+          // While "Delete action?" shows over this dialog, Escape is that dialog's Cancel (Base UI closes the topmost dialog).
+          button id="action-cancel" press=close aria-keyshortcuts=(confirming ? "" : "Escape") class=AeOutline testId="action-cancel" data-focus-stop="enabled"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) disabled=busy display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" testId="action-save"
             text (busy ? "Saving…" : (editing ? "Save changes" : "Save action")) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

@@ -103,6 +103,22 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     const window = await source('app-window.contract');
     expect(window.indexOf('        ProjectDialogs(')).toBeGreaterThan(window.indexOf('          SettingsWindow('));
   });
+
+  test('"Remove from this device…" makes the page inert too, so Escape closes only it and the menu\'s trigger gets the focus back', async () => {
+    // Back's Escape was the first declared, so Escape left Settings with the dialog and the focus fell to the window.
+    const settings = await component('app-settings.contract', 'SettingsWindow');
+    expect(line(settings, 'derive dialogShown =')).toContain('connectionsPage.environments.filter(environment => environment.key == connectionRemove).length > 0');
+    expect(line(await source('app-window.contract'), '          SettingsWindow(')).toContain('connecting=connecting, connectionRemove=connectionRemove,');
+    // The other Connections confirmations are aria-modal, which keeps Escape inside them.
+    expect(line(await source('connections-routes.contract'), 'testId="route-remove-dialog"')).toContain('aria-modal=true');
+    expect(line(await source('this-machine.contract'), 'role="alertdialog"')).toContain('aria-modal=true');
+  });
+
+  test('"Delete action?" over the action editor takes Escape from the editor\'s Cancel', async () => {
+    const actions = await source('settings-b-actions.contract');
+    expect(line(actions, 'testId="action-cancel"')).toContain('aria-keyshortcuts=(confirming ? "" : "Escape")');
+    expect(line(actions, 'testId="action-delete-cancel"')).toContain('aria-keyshortcuts="Escape"');
+  });
 });
 
 describe('the keybinding recorder owns every key while it records', () => {
