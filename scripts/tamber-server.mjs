@@ -786,7 +786,14 @@ export async function toolCommand(argv) {
 async function listenOn(port, listening) {
   try { await listening(); return true; } catch (e) {
     if (e.code !== 'EADDRINUSE') throw e;
-    console.error(`tamber tool: port ${port} is in use by something that is no design server; the tool's grants name that port, so free it`);
+    // Who holds it, where lsof can say: the process with a socket whose
+    // own end is the port (a client's names it after `->`). Its state is
+    // not asked for, as macOS's lsof does not always report LISTEN.
+    let pid, command;
+    for (const proc of (spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-Fpcn'], { encoding: 'utf8' }).stdout ?? '').split(/^(?=p)/m)) {
+      if (proc.split('\n').some(l => l.startsWith('n') && !l.includes('->') && l.endsWith(`:${port}`))) { pid = /^p(\d+)$/m.exec(proc)?.[1]; command = /^c(.+)$/m.exec(proc)?.[1]; break; }
+    }
+    console.error(`tamber tool: port ${port} is in use by ${pid ? `${command ?? 'a process'} (pid ${pid}), which is` : 'something that is'} no design server; the tool's grants name that port, so free it`);
     return false;
   }
 }

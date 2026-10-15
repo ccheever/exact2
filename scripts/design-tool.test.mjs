@@ -35,7 +35,7 @@ const stop = async child => {
   if (!(await Promise.race([exit.then(() => true), Bun.sleep(15_000).then(() => false)]))) child.kill('SIGKILL');
 };
 
-test('the tool opens on the theme fixture, shows its hello, and an agent\'s write arrives attributed', async () => {
+test('the tool opens on the theme fixture, shows its hello, and an agent\'s write arrives attributed; a second tool reuses it or is refused', async () => {
   const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-'));
   for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(app, f));
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app });
@@ -43,7 +43,7 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
   const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   let said = '';
   tool.stderr.on('data', d => { said = (said + d).slice(-4000); });
-  let drive;
+  let drive, other;
   try {
     const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000).catch(e => { throw new Error(`${e.message}\n${said}`); });
     drive = spawn(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-${process.pid}`, '--json',
@@ -64,10 +64,23 @@ test('the tool opens on the theme fixture, shows its hello, and an agent\'s writ
     expect(hello).toMatchObject({ ok: true, protocol: 'tamber/1.1', app });
     expect(hello.files.map(f => f.path)).toEqual(['app.tamber']);
     expect(changes.recent[0]).toMatchObject({ kind: 'changed', who: 'agent:codex', files: ['app.tamber'], tokens: ['surface.card'] });
+    // One tool per machine: while it runs, another app's is refused, naming
+    // the design the port serves, and this app's reuses it (its build is
+    // this checkout's).
+    other = mkdtempSync(join(tmpdir(), 'exact-design-tool-other-'));
+    for (const f of ['app.contract', 'app.tamber', 'app.json']) cpSync(resolve(ROOT, 'apps/theme-fixture', f), join(other, f));
+    const again = target => spawnSync(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', target, '--no-open'], { cwd: ROOT, encoding: 'utf8' });
+    const refused = again(other);
+    expect(refused.status, refused.stderr).toBe(1);
+    expect(refused.stderr).toContain(`already serves the design of ${app}; stop it first`);
+    const reused = again(app);
+    expect(reused.status, reused.stderr).toBe(0);
+    expect(reused.stdout).toContain('already running');
   } finally {
     if (drive) await stop(drive);
     await stop(tool);
     rmSync(app, { recursive: true, force: true });
+    if (other) rmSync(other, { recursive: true, force: true });
   }
 }, 900_000);
 
