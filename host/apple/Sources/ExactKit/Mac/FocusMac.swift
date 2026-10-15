@@ -44,6 +44,11 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         presenter?.selection.focusEntered(self)
         presenter?.focus(id)
+        // A row of an open menu taking the focus is its highlight, which
+        // AppKit's menu tells as its selected child changing (Accessibility.swift).
+        if isMenuItem, let menu = owningMenu, presenter?.shownMenus.contains(where: { $0 === menu }) == true {
+            NSAccessibility.post(element: menu, notification: .selectedChildrenChanged)
+        }
     }
     func focusLeft() {
         focusVisible = false
