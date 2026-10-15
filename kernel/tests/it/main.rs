@@ -32,6 +32,7 @@ mod handoff;
 mod head;
 mod height_binding;
 mod image;
+mod invocation;
 mod layout_equality;
 mod motion;
 mod native_buttons;
