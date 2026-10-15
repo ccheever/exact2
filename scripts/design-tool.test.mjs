@@ -441,11 +441,11 @@ test('commit refuses a file dirty or staged at its baseline, or edited by hand b
   for (const [name, before, why] of cases) {
     const r = repo(name);
     before(r);
-    // Between the two writes, a hand edit: just before the tool reads the
-    // cell it then edits.
-    let explains = 0;
+    // Between the two writes, a hand edit: just before the tool proposes
+    // the second.
+    let proposals = 0;
     const tool = await proxied(r.app, request => {
-      if (name === 'hand' && request.method === 'explain' && ++explains === 1) writeFileSync(join(r.app, 'app.tamber'), readFileSync(join(r.app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+      if (name === 'hand' && request.method === 'propose' && request.ops?.[0]?.op === 'set-token' && ++proposals === 1) writeFileSync(join(r.app, 'app.tamber'), readFileSync(join(r.app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
     });
     try {
       const head = r.git('rev-parse', 'HEAD').stdout;
