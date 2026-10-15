@@ -530,6 +530,8 @@ package final class Runtime {
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
     func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
+    /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
+    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }

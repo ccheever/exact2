@@ -148,6 +148,21 @@ fn the_home_screen_shows_both_boards_with_live_countdowns() {
 }
 
 #[test]
+fn an_hour_away_on_the_live_clock_shows_the_time_after_one_tick() {
+    let mut r = caltrain::boot(caltrain::build().unwrap(), Kernel::with_monospace()).unwrap();
+    let epoch = r.slot("seededEpoch").and_then(Value::as_number).unwrap();
+    // A device's clock: the app was suspended for an hour.
+    r.set_live_clock(Some(Box::new(|| 3_600_000.0)));
+    let a = r.advance_timed(3_600_000.0);
+    assert!(a.error.is_none(), "{:?}", a.error);
+    assert_eq!(a.receipts.len(), 1, "one tick, not 3,600");
+    assert_eq!(
+        r.slot("nowMs").and_then(Value::as_number),
+        Some(epoch + 3_600_000.0)
+    );
+}
+
+#[test]
 fn the_home_screen_explains_when_service_has_ended() {
     let now = caltrain_data::DAY_START_MS + 24.0 * 60.0 * 60_000.0;
     let plan = contract::compile(&caltrain::SOURCE.replace(

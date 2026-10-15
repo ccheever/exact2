@@ -546,6 +546,10 @@ uint32_t exact_start_on_frame(ExactRuntime rt, uint32_t on, double at_ms);
 /* Whether the display drives frame tasks: exact_frame turns it on; 0 when the
  * agent's clock takes over, whose advances then fire virtual frames. */
 uint32_t exact_present_frames(ExactRuntime rt, uint32_t on);
+/// The presenter's clock owns time (`wall`, milliseconds in the runner's
+/// domain), or the agent's seekable one does (NULL): the timers RFC, D1.
+typedef double (*ExactWallFn)(void);
+uint32_t exact_set_live_clock(ExactRuntime rt, ExactWallFn wall);
 /* Input: name alone clears; name NUL JSON publishes a current record. */
 uint32_t exact_surface_record(ExactRuntime rt, size_t len);
 /* @ref LLP 1027.000.000: the date — Unix ms at clock zero, minutes east of UTC. */

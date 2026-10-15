@@ -50,5 +50,6 @@ extension ExactSession {
         let date = dateNow()
         runtime.setLaunchTime(epochAtZero: date.epoch, utcOffset: date.offset)
         runtime.setLaunchPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed)
+        runtime.liveClock(clock == nil)
     }
 }

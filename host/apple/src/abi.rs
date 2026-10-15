@@ -57,12 +57,6 @@ impl Hooks {
         }
     }
 }
-/// The alert shape (LLP 1115 D6), the kernel's rule
-/// (`exact_kernel::confirmation`), for the presenter's Swift
-/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
-pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
-    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
-}
 /// The buffers and the host behind the exports.
 pub struct Bridge<D: DataSource> {
     document_owner: u64,
@@ -109,6 +103,8 @@ pub struct Bridge<D: DataSource> {
     /// The date and place last told before a boot (`set_launch_time`,
     /// `set_launch_place`): a runner booted later reads them from its first settle.
     launch_facts: exact_runner::time::Launch,
+    /// The host's live clock while it owns time, kept for every boot (`set_live_clock`)
+    live_clock: Option<LiveClockFn>,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -160,6 +156,7 @@ impl<D: DataSource> Bridge<D> {
             canvas_deferred: false,
             preferences: exact_runner::Preferences::NONE,
             launch_facts: exact_runner::time::Launch::NONE,
+            live_clock: None,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -1477,8 +1474,10 @@ use registry::REFUSAL;
 pub use registry::{refusal_ptr, with_entry, with_runtime, Entry, Registry};
 #[path = "abi/commands.rs"]
 mod commands;
+pub use commands::confirmation_is_alert;
 mod exports;
 pub use exports::{gesture_constant, header_shape, route_bar};
+pub use preferences::LiveClockFn;
 mod group;
 mod preferences;
 pub(crate) mod segments;
