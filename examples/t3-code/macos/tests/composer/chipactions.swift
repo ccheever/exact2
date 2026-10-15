@@ -135,6 +135,28 @@ final class ComposerChipActionTests: XCTestCase {
         XCTAssertEqual(fixture.view.selectedRange(), chip.range)
     }
 
+    /// A preview's close gives the prompt the focus back with the pressed chip still selected, so a typed letter replaces
+    /// the chip. In T3 Code the press makes ProseMirror's NodeSelection of the chip and the dialog's `finalFocus`
+    /// refocuses the editor, which keeps it: its Tiptap editor and Base UI Dialog in Chrome for Testing 154, "fix
+    /// [sample.py] and [square.png] now", a click on either chip, then Escape, the Close button or the backdrop, then "z",
+    /// leave "fix z and [square.png] now" or "fix [sample.py] and z now".
+    func testAPreviewClosingLeavesThePressedChipSelectedAsTheReferenceDoes() {
+        let text = "fix \(file) and \(image) now "
+        for (kind, source) in [("file", file), ("image", image)] {
+            let fixture = ActionFixture(text)
+            let chip = fixture.chip(kind)
+            XCTAssertTrue(fixture.mouseDown(fixture.center(chip)), kind)
+            fixture.press.close(seq: fixture.press.seq)
+            // The preview holds the focus while open and gives it back to the prompt as it closes.
+            fixture.base.window.makeFirstResponder(nil)
+            fixture.base.window.makeFirstResponder(fixture.view)
+            XCTAssertEqual(fixture.view.selectedRange(), chip.range, kind)
+            fixture.view.insertText("z", replacementRange: fixture.view.selectedRange())
+            fixture.base.tick()
+            XCTAssertEqual(fixture.view.string, text.replacingOccurrences(of: source, with: "z"), kind)
+        }
+    }
+
     func testAnExpiredExcerptHasNoPress() {
         let fixture = ActionFixture("[Terminal 1 line 2](t3-context://v1/terminal/terminal_old) now ")
         let chip = fixture.chip("terminal")
