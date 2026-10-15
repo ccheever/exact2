@@ -200,14 +200,13 @@ check('a field marked aria-invalid is outlined in the system red, its focus ring
 
 check('Enter in a single-line field with a submit submits once; a key handler that prevents it keeps it', () => inChrome(async (evaluate, call) => {
   const key = async (name, text) => { for (const type of ['keyDown', 'keyUp']) await call('Input.dispatchKeyEvent', { type, key: name, code: name, windowsVirtualKeyCode: 13, ...(type === 'keyDown' && text ? { text } : {}) }); };
+  // What was saved, read on a zero-delay timer: the Enter queued `onSubmit`'s zero-delay timer before it, and HTML runs
+  // timers of one delay in the order they were set, so the submit has run
+  const saved = () => evaluate('new Promise(ok => setTimeout(() => ok(saved)))');
   await evaluate(`document.getElementById('draft').focus()`);
   await key('Enter', '\r');
-  for (let i = 0; i < 200 && !(await evaluate('saved.length')); i++) await Bun.sleep(5);
-  expect(await evaluate('saved')).toEqual(['25']);
-  await Bun.sleep(50);
-  expect(await evaluate('saved')).toEqual(['25']); // once
+  expect(await saved()).toEqual(['25']); // once
   await evaluate(`document.getElementById('kept').focus()`);
   await key('Enter', '\r');
-  await Bun.sleep(50);
-  expect(await evaluate('saved')).toEqual(['25']);
+  expect(await saved()).toEqual(['25']);
 }), 30000);

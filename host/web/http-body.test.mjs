@@ -121,12 +121,12 @@ async function socketPeer() {
   const { createServer } = await import('node:http');
   const { createHash } = await import('node:crypto');
   const frame = (op, payload) => Buffer.concat([Buffer.from([0x80 | op, payload.length]), payload]);
-  const gone = [];
+  const gone = [], closing = new Map();
   const server = createServer((_, res) => res.end());
   server.on('upgrade', (req, socket) => {
     const accept = createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-    socket.on('close', () => gone.push(req.url));
+    socket.on('close', () => { gone.push(req.url); closing.get(req.url)?.(); });
     socket.on('error', () => {});
     // The client's close: answer it and hang up (a server's half of the handshake).
     socket.on('data', (d) => { if ((d[0] & 0x0f) === 8) socket.end(frame(8, Buffer.from([0x03, 0xe8]))); });
@@ -139,7 +139,9 @@ async function socketPeer() {
     }, 30);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
-  return { url: `ws://127.0.0.1:${server.address().port}`, gone, close: () => server.close() };
+  // `closed(path)`: once the socket of the request for `path` has closed
+  const closed = path => gone.includes(path) ? Promise.resolve() : new Promise((ok) => closing.set(path, ok));
+  return { url: `ws://127.0.0.1:${server.address().port}`, closed, close: () => server.close() };
 }
 
 test('a socket delivers text messages, coalescing a burst, then its close (LLP 1069.004)', async () => {
@@ -160,15 +162,15 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
     const binary = await open('/binary', []);
     assert.deepEqual([binary.kind, text(binary)], [2, "a binary message: a socket's messages are text"]);
     // Letting the ticket go aborts it, and the far side sees the socket close.
-    const controller = new AbortController(), held = [];
-    const done = open('/hold', held, controller);
-    while (!held.length) await new Promise((r) => setTimeout(r, 5));
+    const controller = new AbortController();
+    const { promise: heard, resolve: hear } = Promise.withResolvers();
+    const done = open('/hold', { push: hear }, controller);
+    await heard;
     controller.abort();
     assert.equal((await done).kind, 4);
-    for (let i = 0; i < 200 && !peer.gone.includes('/hold'); i++) await new Promise((r) => setTimeout(r, 5));
-    assert.ok(peer.gone.includes('/hold'), 'the peer saw the socket close');
+    await peer.closed('/hold');
   } finally { peer.close(); }
-});
+}, 30_000); // hang bound
 
 // The JS target's stream (`streamed`, LLP 1016.000): a source's request run
 // as the wasm host runs it, so a socket is admitted by `net.websocket` alone

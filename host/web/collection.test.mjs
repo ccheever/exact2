@@ -623,7 +623,7 @@ test('activation retries unchanged geometry once and a continuing edge refusal b
   expect(result).toEqual({before:1,after:2,attempts:3,successes:1,errors:2,pending:0});
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
-  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
+  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await ${frames(2)}; f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await ${frames(1)}; f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await ${frames(2)}; f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
   expect(result.last.rowWidth).toBe(result.inner - 24);
   expect(result.last.rows[0].size).toBe(97);
   expect(result.idle).toBe(true);
@@ -1479,17 +1479,16 @@ function chromePage() {
 }
 const frames = n => `new Promise(r=>{let k=${n};const f=()=>--k?requestAnimationFrame(f):r();requestAnimationFrame(f);})`;
 async function wheel(deltaX, deltaY) {
-  const at = await evaluate(`(() => { const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  const at = await evaluate(`(() => { window.scrolled=new Promise(r=>{const t=setTimeout(r,10000);document.addEventListener('scrollend',()=>{clearTimeout(t);r();},{capture:true,once:true});}); const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
   await protocol('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY });
-  await evaluate(`new Promise(r=>setTimeout(r,400)).then(()=>${frames(3)})`);
-  return evaluate(`({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft})`);
+  return evaluate(`window.scrolled.then(()=>${frames(3)}).then(()=>({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft}))`);
 }
 test('Chrome: a phase-less tick over a row-only scroller goes by its components, never split', async () => {
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(0, 120)).toEqual({ outer: 120, strip: 0 });
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(60, 100)).toEqual({ outer: 0, strip: 60 });
-});
+}, 30_000); // hang bound: each wheel waits up to 10 s for its scroll to end
 test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inserted scroller resets to 0', async () => {
   const result = await evaluate(`(async () => { const {outer,strip}=(${chromePage})();
     strip.scrollLeft=1000; await ${frames(2)}; strip.children[0].style.width='380px'; await ${frames(2)}; const inline=strip.scrollLeft;
