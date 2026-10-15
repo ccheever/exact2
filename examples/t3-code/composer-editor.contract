@@ -331,6 +331,8 @@ component ComposerDrawerLayer
 // An image picked with Attach files on the shelf (ChatComposer's non-snap-shot
 // frame): a 64pt square thumbnail (object-cover, the SnapShot tile hook draws
 // the draft PNG) with its media-close Remove always shown, no capture details.
+// The thumbnail is the "Preview <name>" button that opens the expanded preview,
+// then Remove follows, in the reference's DOM order; the frame itself is unnamed.
 component ImageDraftTile
   props
     id: string
@@ -340,9 +342,10 @@ component ImageDraftTile
     disabled: bool
     remove: action
     ask: action
+    command: action
   view
-    column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" aria-label=name testId=`image-draft-${id}`
-      box hatch="t3-snapshot-tile" data-snapshot-id=id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${id}`
+    column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`image-draft-${id}`
+      ImagePreviewButton(id=id, name=name, command=command)
       row position="absolute" top="0.25rem" right="0.25rem"
         if referenced
           button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
@@ -350,3 +353,15 @@ component ImageDraftTile
         else
           button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center" title=""
             StashGlyph(name="x", size=14, color="#ffffff")
+
+// The draft image's thumbnail as its "Preview <name>" button (ChatComposer's
+// `image.previewUrl` button, cursor-zoom-in): a press opens the expanded preview
+// over the draft's images, as the image's chip does.
+component ImagePreviewButton
+  props
+    id: string
+    name: string
+    command: action
+  view
+    button press=command("editorlocal:chip-image-open", id, "", 0) aria-label=`Preview ${name}` testId=`preview-image-${id}` id=`preview-image-${id}` position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" cursor="zoom-in" title=""
+      box hatch="t3-snapshot-tile" data-snapshot-id=id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${id}`
