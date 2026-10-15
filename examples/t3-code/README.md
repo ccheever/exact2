@@ -251,8 +251,8 @@ editor) and ⌘1–9 reach the window; every button chord stays a hidden File ke
 one dispatch button per chord (⌘N and ⇧⌘O both start a thread with no text field focused).
 Edit › Undo sends ⌘Z to thread.undo when no editable text has the focus, and ⌘W closes the
 active right-panel surface tab (its neighbour becomes active; the last tab closes the panel;
-on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts and
-answers its letters before type-to-focus (`R8KeysLauncher.swift`); a Markdown table's Copy
+on the Pull Requests page the open pull request) before it closes the window. The surface launcher takes the focus when it mounts (`autofocus`), and
+its letters are its rows' `aria-keyshortcuts` (`shell-panels.contract`), which Exact presses before type-to-focus; a Markdown table's Copy
 menu is a window-level popup, placed from the trigger's drawn frame (`R8KeysMeasure.swift`),
 that Escape and an outside press close (`r8-keys-table-menu.*`). A global hotkey of another
 app (a launcher holding ⌘1, say) never reaches the window.
