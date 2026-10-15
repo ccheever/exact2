@@ -273,16 +273,23 @@ Ports    none. Runs to completion.`,
   },
   tamber: {
     line: 'the app\'s design (app.tamber): checked, its tokens in one mode, its IR',
-    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
+    usage: 'bun exact.mjs tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check] | serve <app> [--port <n>] [--lan] | op <url> <request JSON>|subscribe | import shadcn|tailwind|dtcg|astryx <source> <url> [--app <app>] [--prefix <p>]   (<app>: its directory, app.contract or a .tamber file; a flag before or after it)',
     flags: [
       ['--mode <axis>=<value>[,…]', 'eval: the mode to print the tokens in; the rest at their defaults'],
       ['-o <file>', 'ir: write the IR (tamber.json, generated, never committed) there'],
       ['--check', 'fmt: write nothing; exit 1 where the layout would change'],
+      ['--port <n>', 'serve: the port (else any free one)'],
+      ['--lan', 'serve: bind every interface; a client there still cannot have the token'],
     ],
     body: `The design is the file app.json's "tamber" names, else app.tamber beside app.contract
 (LLP 1121). check prints each refusal at its line; eval prints "name = value" a token.
+serve is the design server (the dev loops mount it too, at /__tamber): reads, edits,
+undo and a change stream, with a token only this machine's loopback can have. op takes
+that token and sends one request, or prints the change stream (subscribe). import reads
+another system's theme and holds it on the server as proposals to accept: the tokens as
+one, each role override apart; every source value is mapped or reported, counted.
 docs/recipes/tamber.md.
-Ports    none. Runs to completion.`,
+Ports    serve: a loopback port (printed), until ctrl-c. The rest: none; they run to completion.`,
     example: 'bun exact.mjs tamber eval . --mode dark-style=dim',
   },
   hatch: {

@@ -425,17 +425,19 @@ a literal number of milliseconds, and the action takes no parameters.
 
 ```contract
 component App
-  state n = 0
+  state seconds = 0
   task t mount
     every(1000, tick)
   action tick
-    n = n + 1
+    seconds = floor(performanceNow() / 1000)
   view
-    text `${n}s` testId="n"
+    text `${seconds}s` testId="n"
 ```
 
 - A `derive` that reads `performanceNow()` is not read again as time passes: the tick's action
   writes it to state. In a test `clock +N` fires the timers; never wait in real time.
+- Measure time, never count ticks: on a device, ticks missed while the app was suspended fire
+  once, not once each.
 
 More: docs/recipes/timers.md
 

@@ -537,7 +537,7 @@ impl<D: DataSource> Presenter<D> {
             || role == Some("link") && name == "Enter"
         {
             self.note_press(id, true);
-            self.dispatch_press(id, now_ms, false);
+            self.activate_with(id, now_ms, false);
             return;
         }
         // A radio's arrows and Space (x2apps survey #2).

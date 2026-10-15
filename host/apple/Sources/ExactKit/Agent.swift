@@ -45,8 +45,12 @@ public final class Agent {
         let bounds: CGRect
         if let id = request["id"] as? UInt32, let run = presenter.inlineText(id) {
             let fragments = node.inlineRects(run).filter { !$0.isEmpty }.map { box(node, region: $0) }
-            let viewport = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
-            guard let fragment = fragments.first(where: { viewport.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
+            #if os(iOS) || os(tvOS)
+            let reach = presenter.reach(of: node)
+            #else
+            let reach = CGRect(origin: .zero, size: presenter.viewport.bounds.size)
+            #endif
+            guard let fragment = fragments.first(where: { reach.contains(CGPoint(x: $0.midX, y: $0.midY)) }) ?? fragments.first else { return nil }
             bounds = fragment
         } else { bounds = box(node) }
         // `at` is target-relative (a mouse click, a context menu). `x`/`y` are viewport points.

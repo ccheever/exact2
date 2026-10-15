@@ -16,7 +16,8 @@ crate-type = ["rlib"]
 [dependencies]
 exact-color = { path = "../color" }
 exact-num = { path = "../num" }
+# The DTCG importer reads JSON (LLP 1121 D14).
+serde_json = "1.0"
 
 [dev-dependencies]
 exact-kernel = { path = "../kernel" }
-serde_json = "1.0"

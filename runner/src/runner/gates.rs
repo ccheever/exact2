@@ -96,7 +96,7 @@ impl<D: DataSource> Runner<D> {
         self.timers
             .iter()
             .zip(&self.plan.timers)
-            .filter(|(_, row)| !(row.frame && self.presenting))
+            .filter(|(_, row)| !(row.frame && self.clock.presenting))
             .map(|(timer, _)| timer.next_ms)
             .chain(self.then_due.iter().copied())
             // A drop's hold waits a second for its move (LLP 1094 D8).

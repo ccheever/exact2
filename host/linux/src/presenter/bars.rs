@@ -481,7 +481,9 @@ impl<D: DataSource> Presenter<D> {
                 // Read before the tab's press, scrolled after it.
                 let root = self.reselected_root(node);
                 if (self.host.runner().handlers_of(node)).contains(&EventKind::Press) {
-                    self.dispatch_press(node, now_ms, true);
+                    self.press_then_follow(node, now_ms, true);
+                } else if let Some(key) = self.host.kernel().node(node).map(|n| n.key) {
+                    self.follow_invocation(key, node, now_ms);
                 }
                 let scroller = root
                     .filter(|route| self.reselected_root(node) == Some(*route))

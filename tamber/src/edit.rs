@@ -98,6 +98,17 @@ pub enum Op {
         /// The value.
         value: String,
     },
+    /// `add-axis name = a | b`: a new app axis, its first value the default,
+    /// after the axes there are (an `axes` block made after the header when
+    /// there is none). An importer proposes one for a theme class.
+    AddAxis {
+        /// The axis.
+        name: String,
+        /// Its values, the first the default.
+        values: Vec<String>,
+        /// `under scheme=dark`.
+        under_dark: bool,
+    },
     /// An inverse: lines `line` (1-based) to `line + remove - 1` replaced by
     /// `lines`, as they were, and whether the text ends with a newline. Only
     /// [`undo`] takes it, and a server takes it only as an inverse it issued
@@ -333,6 +344,20 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
             before.as_deref().map_or(Ok(()), ident)
         }
         Op::RemoveAxisValue { axis, value } => ident(axis).and_then(|_| ident(value)),
+        Op::AddAxis {
+            name: n, values, ..
+        } => {
+            ident(n)?;
+            if values.is_empty()
+                || values
+                    .iter()
+                    .enumerate()
+                    .any(|(i, v)| values[..i].contains(v))
+            {
+                return Err(refuse(format!("`{n}`: an axis has values, each once")));
+            }
+            values.iter().try_for_each(|v| ident(v))
+        }
         // A restored line keeps its `\r`.
         Op::Restore { lines, .. } => lines
             .iter()
@@ -789,6 +814,11 @@ impl Doc {
                     value: value.clone(),
                 }])
             }
+            Op::AddAxis {
+                name,
+                values,
+                under_dark,
+            } => self.add_axis(design, name, values, *under_dark),
             Op::RemoveAxisValue { axis, value } => {
                 let a = design
                     .axes
@@ -808,6 +838,60 @@ impl Doc {
                 }])
             }
         }
+    }
+
+    /// A new axis: after the last axis, or in a new `axes` block after the
+    /// header.
+    fn add_axis(
+        &mut self,
+        design: &Design,
+        name: &str,
+        values: &[String],
+        under_dark: bool,
+    ) -> Result<Vec<Op>, Vec<Diagnostic>> {
+        if let Some(a) = design.axes.iter().find(|a| a.name.value == name) {
+            return Err(refuse_at(
+                a.name.line,
+                format!("an axis `{name}` is declared already"),
+            ));
+        }
+        let mut code = format!("{name} = {}", values.join(" | "));
+        if under_dark {
+            code.push_str("  under scheme=dark");
+        }
+        match (design.axes.last(), self.block_end("axes")) {
+            (Some(last), Some(end)) => {
+                let indent = self.parts(last.name.line).0;
+                let l = self.ended(line(indent, &code, None));
+                self.lines.insert(end, l);
+            }
+            (None, Some(end)) => {
+                let l = self.ended(line(2, &code, None));
+                self.lines.insert(end, l);
+            }
+            (_, None) => {
+                let head = self
+                    .lines
+                    .iter()
+                    .position(|l| lex::split_comment(l).0.trim_start().starts_with("tamber "))
+                    .ok_or_else(|| refuse("the design has no `tamber` header"))?;
+                // After the header's own comments, the lines that follow it
+                // up to the first blank or block.
+                let mut at = head + 1;
+                while self.lines.get(at).is_some_and(|l| {
+                    let t = l.trim_start();
+                    t.starts_with("//") && !t.is_empty()
+                }) {
+                    at += 1;
+                }
+                let new = [String::new(), "axes".into(), line(2, &code, None)];
+                for (k, l) in new.into_iter().enumerate() {
+                    let l = self.ended(l);
+                    self.lines.insert(at + k, l);
+                }
+            }
+        }
+        Ok(Vec::new())
     }
 
     /// The index after block `name`'s last line that is not blank (its
@@ -855,7 +939,7 @@ fn line(indent: usize, code: &str, comment: Option<&str>) -> String {
 /// its role, as the checker reads one: a system role's name in any case
 /// (`Canvas`, `canvas`), an Exact role's `-exact-` spelling or bare name in
 /// any case (the IR's `-exact-label` for a declared `label`).
-fn token_index(
+pub(crate) fn token_index(
     design: &Design,
     roles: &[(String, bool)],
     name: &str,
@@ -876,7 +960,7 @@ fn token_index(
 }
 
 /// The role a name spells, by its schema name, or `None` for a plain name.
-fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
+pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
     let lower = n.to_ascii_lowercase();
     let found = match lower.strip_prefix("-exact-") {
         Some(bare) => roles

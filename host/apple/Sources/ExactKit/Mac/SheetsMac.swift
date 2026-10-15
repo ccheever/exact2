@@ -153,8 +153,11 @@ extension Presenter {
     /// its `open` answer are told (`Runtime.on`). One painted in the page's
     /// top layer is ordered by its place there; one in a window of its own
     /// stands in front of the page, the sheets in the order they opened and
-    /// then the popovers, which every dialog closes as it opens.
-    package var openTopLayerFrames: [(UInt32, CGRect)] {
+    /// then the popovers, which every dialog closes as it opens. And the
+    /// index of the front modal route's (RouteSheetMac.swift), a
+    /// presentation the runner keeps live with what is above it, and the
+    /// rest inert (LLP 1123 D2).
+    package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
         let sheets = dialogs.presented, popovers = menus.presented
         func depth(_ view: NodeView) -> Int {
             if view.window !== viewport.window {
@@ -166,16 +169,26 @@ extension Presenter {
             return viewport.subviews.firstIndex(of: at) ?? -1
         }
         let clip = viewport.contentView
-        let painted: [(UInt32, CGRect)] = (popovers + sheets).sorted { depth($0) < depth($1) }.map {
-            let rect = clip.convertAcross($0.bounds, from: $0)
+        // A dialog or popover in a window of its own is its block's root
+        // (BlockHostMac.swift): reported by its block, which the root sits
+        // in by its own frame (LLP 1123 D2); one in the page by its border box
+        func shown(_ view: NodeView) -> CGRect {
+            guard blocks.owns(view), let container = view.superview else { return clip.convertAcross(view.bounds, from: view) }
+            let size = blocks.used[view.id] ?? container.bounds.size
+            return clip.convertAcross(CGRect(origin: .zero, size: size), from: container)
+        }
+        let ordered = (popovers + sheets).sorted { depth($0) < depth($1) }
+        let painted: [(UInt32, CGRect)] = ordered.map {
+            let rect = shown($0)
             return ($0.id, CGRect(x: rect.minX - clip.bounds.minX,
                                   y: rect.minY - clip.bounds.minY,
                                   width: rect.width, height: rect.height))
         }
         let alerts = (carrying("popover") + carrying("tag:dialog"))
             .filter { self.alerts.isOpen($0) }.map { ($0.id, CGRect.zero) }
-        return painted + alerts
+        return (painted + alerts, ordered.lastIndex { dialogs.presentsRoute($0) })
     }
+    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
 }
 
 extension DialogHost {

@@ -1124,7 +1124,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
-        let (p, error) = crate::app::boot_presenter_with_painter::<D>(
+        let (mut p, error) = crate::app::boot_presenter_with_painter::<D>(
             &mut config,
             viewport,
             crate::presenter::PainterBoot::canvas(),
@@ -1132,7 +1132,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
-        let mut p = p;
+        p.set_live_clock(Some(crate::presenter::wall_since(started)));
         // What the reader read of the device, before the first frame (D3.1).
         if let Some(e) = device::configured().and_then(|d| p.set_device(&d)) {
             eprintln!("exact: device: {e}");

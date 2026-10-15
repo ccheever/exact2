@@ -363,7 +363,11 @@ fn refusals_and_a_destroyed_root() {
     let key = k.node(4).unwrap().key;
     let (frame, _) = k.measure_auto_height(key).unwrap();
     assert_eq!((frame.x, frame.y, frame.width), (0.0, 0.0, 400.0));
-    assert_eq!(k.fit_content_height(k.node(3).unwrap().key), None);
+    assert_eq!(
+        k.fit_content_height(k.node(3).unwrap().key),
+        Some(40.0),
+        "a block's root fits its content at the block's width"
+    );
     // A node that is destroyed takes its block with it.
     k.apply(0, 3, &[children(2, []), Op::DestroyView { id: 3 }])
         .unwrap();
@@ -541,4 +545,45 @@ fn route_fitting_tracks_retained_sizes_clears_and_its_own_basis() {
         work,
         "an unchanged block does no layout work"
     );
+}
+
+/// A sheet whose content decides its height (the `fit-content` detent,
+/// LLP 1075.003 §9.11) fits its content once its route is laid out in its
+/// block (LLP 1123 D2): measured at the block's width, so text wraps as it
+/// will in the block, and whatever the block's height, which the
+/// measurement is for.
+#[test]
+fn a_blocks_root_fits_its_content_at_the_blocks_width() {
+    let mut ops = Vec::new();
+    ops.extend(view(1, NodeType::View, &[(StyleId::Height, n(600.0))]));
+    ops.extend(view(3, NodeType::View, &FILL));
+    ops.extend(view(4, NodeType::View, &[(StyleId::PaddingTop, n(10.0))]));
+    ops.extend(text(5, &"word ".repeat(40)));
+    ops.extend([
+        children(4, [5]),
+        children(3, [4]),
+        children(1, [3]),
+        Op::AttachRoot { id: 1 },
+    ]);
+    let mut k = laid_out(ops);
+    let fit = |k: &mut Kernel| k.fit_content_height(k.node(3).unwrap().key).unwrap();
+    let page = fit(&mut k);
+    k.set_host_block(3, is(300.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let wide = fit(&mut k);
+    assert!(
+        wide > page,
+        "narrower than the page, the text wraps more: {wide} > {page}"
+    );
+    k.set_host_block(3, is(150.0, 900.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    let narrow = fit(&mut k);
+    assert!(
+        narrow > wide,
+        "and more at half the width: {narrow} > {wide}"
+    );
+    assert!(narrow < 900.0, "the block's height is not the content's");
+    k.set_host_block(3, is(300.0, 50.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(fit(&mut k), wide, "nor its own measure");
 }

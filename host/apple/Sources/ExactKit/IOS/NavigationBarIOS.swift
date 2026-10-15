@@ -1047,18 +1047,30 @@ extension NavigationHost {
 
     // MARK: The content area (LLP 1075.003 §3.5)
 
-    /// Whether a native container shows its bars, so the session's view
-    /// takes the whole of its own (ExactViewIOS `fit`).
-    var wantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome) || allNavigations.contains(where: barShows)
-    }
+    /// Whether the root's routes have a native primary container (a stack
+    /// or the tabs), so the session's view takes the whole of its own
+    /// (ExactViewIOS `fit`): the document and the window the viewport units
+    /// resolve against. Its bars, whether shown or not, and a
+    /// presentation's containers never decide it (LLP 1123 D1); its routes
+    /// clear what covers them (`reportCovers`). Not under the agent's own
+    /// chrome, where no native container shows.
+    var wantsWholeView: Bool { primaryOwner != nil && !ExactEnv.authoredChrome }
 
-    /// `wantsWholeView` for the root's containers alone, whatever a sheet
-    /// shows: what the window's own viewport is, which the viewport units
-    /// resolve against (LLP 1075.003 §9.11; Astra's review).
-    var rootWantsWholeView: Bool {
-        (tabOwner != nil && !ExactEnv.authoredChrome)
-            || allNavigations.contains { nav in !presentedNavigations.contains { $0 === nav } && barShows(nav) }
+    /// What covers a route of its controller's safe area (`safe`): the
+    /// edges past the document's insets (`env()`, which the page authored
+    /// against) for a route in the document, and every edge of its own for a
+    /// presented one, whose sheet the document's insets do not clear (LLP
+    /// 1123 D2). The top is a collapsing title's scroller's when it has one,
+    /// and the bottom a scroller's at the bottom edge (`reachBottom`); the
+    /// sides and the bottom only while the containers take the whole view
+    /// (`whole`), and the bottom only as far as the route reaches it.
+    static func routeEdges(safe: UIEdgeInsets, document: UIEdgeInsets, presented: Bool, whole: Bool,
+                           collapses: Bool, scrollsToBottom: Bool, reached: CGFloat) -> HostCover.Edges {
+        let env = presented ? .zero : document
+        return .init(top: collapses ? 0 : max(0, safe.top - env.top),
+                     right: whole ? max(0, safe.right - env.right) : 0,
+                     bottom: whole && !scrollsToBottom ? max(0, min(safe.bottom, reached) - env.bottom) : 0,
+                     left: whole ? max(0, safe.left - env.left) : 0)
     }
 
     /// What Exact's containers cover of each route — its controller's safe
@@ -1069,11 +1081,16 @@ extension NavigationHost {
     func reportCovers() {
         var changes: [(UInt32, HostCover?)] = []
         var wanted: [UInt32: HostCover] = [:]
-        let whole = wantsWholeView && presenter.viewportFit != "cover"
         for c in controllers.values where presenter.views[c.node.id] === c.node {
             // A lifted header takes no room, on a stack yet or not (`coverLifted`).
             for node in c.lifted.map({ [$0] }) ?? c.barNodes { wanted[node.id] = .whole }
             guard let nav = c.navigationController, nav.viewControllers.contains(c) else { continue }
+            // A presented route's controller takes its sheet's whole view, and
+            // the document's insets (`env()`) are not the sheet's: its route is
+            // covered for its own safe area whatever the document's fit (LLP
+            // 1123 D2; its own clearance and credit are stage 2's)
+            let presented = presentedNavigations.contains { $0 === nav }
+            let whole = presented || (wantsWholeView && presenter.viewportFit != "cover")
             let shows = barShows(nav)
             guard shows || whole else { continue }
             let edges: HostCover.Edges
@@ -1114,15 +1131,12 @@ extension NavigationHost {
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
             if settled, c.viewIfLoaded?.window != nil {
-                let safe = c.view.safeAreaInsets, env = presenter.insets
-                let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
-                // A scroller at the bottom edge goes under it (`reachBottom`).
+                let safe = c.view.safeAreaInsets
                 // Only what the route reaches of the bottom bars is covered:
                 // none once the keyboard ends it above them (`ownerFrame`).
                 let reached = c.node.convert(c.node.bounds, to: c.view).maxY - (c.view.bounds.height - safe.bottom)
-                let bottom = whole && c.edgeScroll == nil ? max(0, min(safe.bottom, reached) - env.bottom) : 0
-                edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,
-                              bottom: bottom, left: whole ? max(0, safe.left - env.left) : 0)
+                edges = Self.routeEdges(safe: safe, document: presenter.insets, presented: presented, whole: whole,
+                                        collapses: c.collapseScroll != nil, scrollsToBottom: c.edgeScroll != nil, reached: reached)
             } else if case .edges(let e)? = covers[c.node.id] {
                 edges = e
             } else { continue }
@@ -1133,23 +1147,20 @@ extension NavigationHost {
             measuredTablist = presenter.session?.view.map { list.convert(list.bounds, to: $0) }
             if adopts(tablist: list) { wanted[list.id] = .whole }
             else if tablistAppearanceNone, list.style["display"]?.string != "none",
-                    rootWantsWholeView, presenter.viewportFit != "cover",
+                    wantsWholeView, presenter.viewportFit != "cover",
                     let view = presenter.session?.view, view.window != nil {
                 // Authored tabs are page content outside the routes. Protect
                 // only the edges they reach; leave the viewport and bar
-                // backgrounds full-size. A sheet never measures these covers.
-                if presenter.modals.coordinateView != nil {
-                    if case .edges? = covers[list.id] { wanted[list.id] = covers[list.id] }
-                } else {
-                    let rect = list.convert(list.bounds, to: view)
-                    let safe = view.bounds.inset(by: view.safeAreaInsets)
-                    let edges = HostCover.Edges(
-                        top: max(0, min(rect.height, safe.minY - rect.minY)),
-                        right: max(0, min(rect.width, rect.maxX - safe.maxX)),
-                        bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
-                        left: max(0, min(rect.width, safe.minX - rect.minX)))
-                    if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
-                }
+                // backgrounds full-size. A sheet leaves them where they are
+                // (LLP 1123 D1).
+                let rect = list.convert(list.bounds, to: view)
+                let safe = view.bounds.inset(by: view.safeAreaInsets)
+                let edges = HostCover.Edges(
+                    top: max(0, min(rect.height, safe.minY - rect.minY)),
+                    right: max(0, min(rect.width, rect.maxX - safe.maxX)),
+                    bottom: max(0, min(rect.height, rect.maxY - safe.maxY)),
+                    left: max(0, min(rect.width, safe.minX - rect.minX)))
+                if edges != .init(top: 0, right: 0, bottom: 0, left: 0) { wanted[list.id] = .edges(edges) }
             }
         }
         for (id, cover) in wanted where covers[id] != cover { changes.append((id, cover)) }

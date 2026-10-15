@@ -449,6 +449,8 @@ fn run<D: DataSource + Default>(
     if let Some(e) = error {
         log(&format!("exact: {e}"));
     }
+    // The device's clock owns time (the timers RFC, D1)
+    p.set_live_clock(Some(crate::presenter::wall_since(started)));
     if insets.iter().any(|i| *i != 0.0) {
         if let Some(e) = p.set_safe_area(insets.map(|i| i / scale)) {
             log(&format!("exact: {e}"));

@@ -87,15 +87,12 @@ impl<D: DataSource> Host<D> {
     }
 
     /// The engine time a commit at `ms` is heard at: never behind the engine,
-    /// and, with the rule on, never past the host's clock, which a runner a
-    /// frame task put at its target may lead (D5).
+    /// and never past the host's clock, which the runner may lead: with the
+    /// rule on, a frame task puts it at its target (D5), and on a live clock
+    /// an input's commit observes a sample taken after the input's time,
+    /// whose gesture (a release ending its hold) runs on at that time.
     pub(super) fn engine_time(&self, ms: f64) -> f64 {
-        let t = if self.engine.starts_on_frame() {
-            ms.min(self.now_ms) / 1000.0
-        } else {
-            ms / 1000.0
-        };
-        t.max(self.engine.now())
+        (ms.min(self.now_ms) / 1000.0).max(self.engine.now())
     }
 
     /// While a motion tick's frame is set, start what waits for it, and send

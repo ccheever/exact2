@@ -23,6 +23,9 @@ pub struct Checked {
     pub values: Vec<Folded>,
     /// The dials it depends on, in declaration order.
     pub dials: Vec<String>,
+    /// The tokens its values name, the default's and every `when` line's,
+    /// by their names here, in declaration order.
+    pub names: Vec<String>,
     /// Marked `scheme=fixed`: one colour in every scheme by design, which the
     /// one-scheme warning leaves alone.
     pub fixed: bool,
@@ -50,6 +53,8 @@ struct Checker<'a> {
     /// Folded (token, tuple), or `None` when it refused.
     memo: HashMap<(usize, usize), Option<Folded>>,
     used: Vec<BTreeSet<usize>>,
+    /// Per token, the tokens its values named as they folded.
+    refs: Vec<BTreeSet<usize>>,
     stack: Vec<usize>,
     /// Tokens refused as declared, which are not folded.
     refused: Vec<bool>,
@@ -75,6 +80,7 @@ pub(crate) fn check(
         radix: Vec::new(),
         memo: HashMap::new(),
         used: vec![BTreeSet::new(); design.tokens.len()],
+        refs: vec![BTreeSet::new(); design.tokens.len()],
         stack: Vec::new(),
         refused: vec![false; design.tokens.len()],
         refused_names: HashSet::new(),
@@ -119,6 +125,7 @@ pub(crate) fn check(
                 role,
                 values,
                 dials: Vec::new(),
+                names: Vec::new(),
                 fixed,
             },
         ));
@@ -135,6 +142,13 @@ pub(crate) fn check(
             token.dials = c.used[i]
                 .iter()
                 .map(|&d| design.dials[d].name.value.clone())
+                .collect();
+            token.names = c.refs[i]
+                .iter()
+                .map(|&j| {
+                    let name = &design.tokens[j].name.value;
+                    c.role_key(name).map_or(name.clone(), |(_, row)| row)
+                })
                 .collect();
             token
         })
@@ -938,6 +952,9 @@ impl Names for Scope<'_, '_> {
                 .copied()
         });
         if let Some(j) = token {
+            if let Some(&i) = c.stack.last() {
+                c.refs[i].insert(j);
+            }
             return c.value(j, self.tuple).map(Named::Color).ok_or_else(quiet);
         }
         if let Some((_, value)) = c.dials.get(name) {

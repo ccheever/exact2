@@ -268,7 +268,7 @@ fn the_shape_rule_is_the_one_the_apple_hosts_follow() {
 
     // Read from the tree: the cancel first, then the actions as written.
     let p = boot();
-    let plan = |name: &str| p.surface_plan(named(&p, name));
+    let plan = |name: &str| p.surface_plan(named(&p, name), true);
     let Some(Plan::Alert {
         title,
         message,

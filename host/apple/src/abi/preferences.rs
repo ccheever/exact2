@@ -1,7 +1,9 @@
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
 //! 1027.000.000) and where the viewer is, told to the running host, and
-//! before each boot for its first settle (`set_launch_time`, `set_launch_place`).
+//! before each boot for its first settle (`set_launch_time`, `set_launch_place`);
+//! and the host's live clock while it owns time (the timers RFC, D1), told to the
+//! running host and kept for every boot (`set_live_clock`).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
@@ -90,4 +92,25 @@ impl<D: DataSource> Bridge<D> {
             ..exact_runner::Viewport::sized(width as f64, height as f64)
         }
     }
+
+    /// The presenter's clock owns time (`Some`), or the agent's seekable one
+    /// does (`None`): the running runner and every one booted later take it.
+    pub fn set_live_clock(&mut self, wall: Option<LiveClockFn>) {
+        self.live_clock = wall;
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().set_live_clock(wall.map(sampler));
+        }
+    }
 }
+
+/// The presenter's clock in the runner's milliseconds (`ExactEnv.wall`).
+pub type LiveClockFn = extern "C" fn() -> f64;
+
+/// The runner's sampler for `wall`.
+pub(super) fn sampler(wall: LiveClockFn) -> Box<dyn FnMut() -> f64> {
+    Box::new(move || wall())
+}
+
+#[cfg(test)]
+#[path = "live_clock_tests.rs"]
+mod live_clock_tests;

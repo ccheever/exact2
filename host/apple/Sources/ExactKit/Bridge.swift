@@ -65,7 +65,7 @@ public struct Batch {
 package final class Runtime {
     package let rt: ExactRuntime
     private(set) package var destroyed = false
-    var topLayer: (() -> [(UInt32, CGRect)])?
+    var topLayer: (() -> (frames: [(UInt32, CGRect)], modal: Int?))?
     var inlineFrame: ((UInt32) -> CGRect?)?
     #if DEBUG
     // Per-runtime observation for differential tests of actual session traffic.
@@ -96,13 +96,13 @@ package final class Runtime {
         error: "busy: the owner is waiting on this callback (LLP 1072 T5)")
     static let busyAgent = "{\"error\":\"busy: the owner is waiting on this callback (LLP 1072 T5)\"}"
     package func on(_ body: () -> Batch) -> Batch {
-        let open = topLayer?() ?? []
+        let (open, modal) = topLayer?() ?? ([], nil)
         let ids = open.map(\.0)
         let rects = open.flatMap { [Double($0.1.minX), Double($0.1.minY), Double($0.1.width), Double($0.1.height)] }
         return Owner.shared.sync({
             ids.withUnsafeBufferPointer { ids in
                 rects.withUnsafeBufferPointer { rects in
-                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count))
+                    exact_top_layer(rt, ids.baseAddress, rects.baseAddress, UInt32(open.count), modal.map(UInt32.init) ?? .max)
                 }
             }
             return body()
@@ -530,6 +530,8 @@ package final class Runtime {
     /// (LLP 1003.001 D7); off, what waits starts at `at`.
     func startOnFrame(_ yes: Bool, at: Double) -> Batch { on { read(exact_start_on_frame(rt, yes ? 1 : 0, at)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
+    /// The wall clock owns time, or the agent's clock does (the timers RFC, D1).
+    func liveClock(_ yes: Bool) { on { () -> Void in _ = exact_set_live_clock(rt, yes ? { ExactEnv.wall() } : nil) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }

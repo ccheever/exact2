@@ -74,17 +74,19 @@ extension NodeView {
     }
     /// Whether a click here moves the focus to this node (LLP 1115.000
     /// D7.1). On the Mac a click on a button, a radio or a box that is only
-    /// pressable never does: the first responder stays where it is, as it
-    /// does for a clicked `NSButton`, and a field beside the button keeps its
-    /// caret. What `retainFocus` asked for is so the default. A box the
-    /// author made a taker of keys does take it, as AppKit focuses a clicked
-    /// custom view that accepts first responder (and Safari a `tabindex`
-    /// box): one with a `tabindex`, or a box that is no button with `focus`,
-    /// `blur` or `key` handlers, or a canvas that takes input. There
-    /// `retainFocus`, on it or above it, still keeps the focus where it was.
-    /// An `autofocus` and an action's `focus()` move it to any of them.
+    /// pressable never does, whatever its `tabindex`: the first responder
+    /// stays where it is, as it does for a clicked `NSButton`, and a field
+    /// beside the button keeps its caret. What `retainFocus` asked for is so
+    /// the default. A box the author made a taker of keys does take it, as
+    /// AppKit focuses a clicked custom view that accepts first responder
+    /// (and Safari a `tabindex` box): one that is no control with a
+    /// `tabindex`, or with `focus`, `blur` or `key` handlers, or a canvas
+    /// that takes input. There `retainFocus`, on it or above it, still keeps
+    /// the focus where it was. An `autofocus` and an action's `focus()` move
+    /// it to any of them.
     var takesClickFocus: Bool {
-        acceptsFirstResponder && !retainsFocus && (explicitTabIndex != nil || takesKeysOfItsOwn)
+        acceptsFirstResponder && !retainsFocus
+            && (explicitTabIndex != nil && !isButton && !isRadio && kind != "toggle" || takesKeysOfItsOwn)
     }
     /// How AppKit is told: before it hands a view the mouse-down, its window
     /// makes that view first responder when it accepts first responder and

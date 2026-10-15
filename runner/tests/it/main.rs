@@ -13,6 +13,7 @@ mod height_binding;
 mod incremental;
 mod list_layout;
 mod live_tick;
+mod live_timers;
 mod native_field_resize;
 mod now_screen;
 mod reorder_codec;

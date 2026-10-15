@@ -323,3 +323,77 @@ fn native_intersect_rotated_root_ratios_match_chrome() {
         );
     }
 }
+
+/// LLP 1123 D2: the intersection observer reads where a block's subtree is
+/// shown as `frame` does. A block its host shows in place at half size
+/// scales the target and what its scroller shows of it alike (20 of 100
+/// points: 0.2, not 0.8); a block the host lifts to the top layer is not
+/// clipped or moved by the scroller its logical ancestor is, and a block
+/// clips what it holds.
+#[test]
+fn native_intersect_reads_a_block_where_its_host_shows_it() {
+    let source = r#"component App
+  state count = 0
+  action seen(e: IntersectionObserverEntry)
+    count = count + 1
+  view
+    scroll id="page" width=400 height=800
+      column id="route" position="absolute" top=0 left=0 right=0 bottom=0
+        scroll id="list" height=100 flex-shrink=0
+          box height=80 flex-shrink=0
+          box id="target" width=100 height=100 flex-shrink=0 intersect=seen
+      box height=2000 flex-shrink=0
+"#;
+    let boot = || {
+        let mut r = Runner::boot(
+            contract::compile(source).unwrap(),
+            NoData,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        let route = r.kernel().find_by_id("route")[0];
+        let route = r.kernel().arena().local_id(route.index);
+        let is = |l| exact_kernel::BlockAxis::Is(l);
+        r.kernel_mut()
+            .set_host_block(
+                route,
+                Some(exact_kernel::HostBlock {
+                    width: is(300.0),
+                    height: is(500.0),
+                }),
+            )
+            .unwrap();
+        lay_out(&mut r);
+        (r, route)
+    };
+    let id = |r: &Runner<NoData>, name: &str| {
+        r.kernel()
+            .arena()
+            .local_id(r.kernel().find_by_id(name)[0].index)
+    };
+    let first = |r: &mut Runner<NoData>| {
+        let due = r.intersect_due();
+        (due[0].is_intersecting, due[0].intersection_ratio)
+    };
+    // In place, at half size: the scroller shows 20 of the target's 100 points
+    let (mut r, route) = boot();
+    let page = id(&r, "page");
+    r.place_blocks(&[(route, Some(([0.0, 0.0, 150.0, 250.0], page)))]);
+    let (inside, ratio) = first(&mut r);
+    assert!(inside);
+    assert!((ratio - 0.2).abs() < 1e-9, "{ratio}");
+    // Lifted, under a page scrolled 300 points: shown whole in its sheet
+    let (mut r, route) = boot();
+    let page = id(&r, "page");
+    let list = id(&r, "list");
+    r.scrolled(Some(page), 0.0, 300.0);
+    r.scrolled(Some(list), 0.0, 80.0);
+    r.top_layer_frames(&[(route, [50.0, 100.0, 300.0, 500.0])], None);
+    assert_eq!(
+        first(&mut r),
+        (true, 1.0),
+        "the page's scrolling does not reach a presented block"
+    );
+}
