@@ -42,9 +42,14 @@ its time counts too.
   - Browsers: an event or a promise, or the agent's `clock settle` and virtual
     time.
 - **Poll only when nothing notifies, and poll cheaply.** Every 50–100 ms, with a
-  limit of tens of seconds that only stops hanging tests. A check that something
-  did *not* happen should wait until the work it watches has ended (a count of
-  operations in flight, a join) and then check.
+  limit of tens of seconds that only stops hanging tests. A shorter interval can
+  be considered for state that is cheap to read in the test's own process, when
+  the poll significantly affects the test's speed. In a browser,
+  `setTimeout(fn, 0)` is already throttled and coalesced: HTML clamps it to at
+  least 4 ms once nested five deep, and browsers slow and batch the timers of a
+  hidden page. A check that something did *not* happen should wait until the
+  work it watches has ended (a count of operations in flight, a join) and then
+  check.
 - **Keep waits simple.** A wait reads as one condition and one bound. If
   observing an event needs a new hook, the hook is small and read-only (for
   example `Module::storage_in_flight`).
