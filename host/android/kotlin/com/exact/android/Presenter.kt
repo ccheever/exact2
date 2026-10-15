@@ -41,7 +41,7 @@ internal class Presenter(
     private val scrolled: (Int, Double, Double) -> Unit
 ) {
     private val scale = context.resources.displayMetrics.density
-    private val images = NativeImages(context)
+    private val images = NativeImages(context) { root.isHardwareAccelerated }
     fun rasterViewport(width: Int, height: Int) = images.viewport(width, height)
     fun trimRaster() = images.trim()
     private val accessibility = context.getSystemService(AccessibilityManager::class.java)
@@ -472,7 +472,7 @@ internal class Presenter(
                     if ("submit" in handlers) { dispatchInteractive(key, 7, null); true } else false
                 }
             }
-            "image" -> ImageView(context).apply {
+            "image" -> NativeImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
                 // Replaced content clips to its own viewport even when the
                 // surrounding CSS box allows descendants to overflow.

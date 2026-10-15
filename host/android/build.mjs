@@ -77,7 +77,7 @@ function writeProject(app, out, env, config) {
     (compose ? `implementation("androidx.activity:activity:${versions.activity}"); implementation("androidx.compose.foundation:foundation:${versions.compose}"); implementation("androidx.compose.ui:ui:${versions.compose}")` : '');
   write(resolve(out, 'app/build.gradle.kts'), `plugins { id("com.android.application") version "${versions.agp}"${plugin} }\nandroid {\n    namespace = "${namespace}"\n    compileSdk = ${versions.compileSdk}\n    buildToolsVersion = "${versions.buildTools}"\n    ndkVersion = "${versions.ndk}"\n    defaultConfig {\n        applicationId = ${kotlin(appId)}\n        minSdk = ${minSdk}\n        targetSdk = ${targetSdk}\n        versionCode = ${versionCode}\n        versionName = ${kotlin(host.versionName ?? '0.1.0')}\n        ndk { abiFilters += ${kotlin(abi)} }\n    }\n    compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }\n    ${compose ? 'buildFeatures { compose = true }' : ''}\n    signingConfigs.getByName("debug").storeFile = file("debug.keystore")\n    buildTypes.getByName("release") {\n        isDebuggable = false\n        isMinifyEnabled = true\n        isShrinkResources = true\n        proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")\n        signingConfig = signingConfigs.getByName("debug")\n    }\n}\ndependencies { ${dependencies} }\n`);
   // RegisterNatives/FindClass/GetMethodID address these exact classes and callback signatures.
-  write(resolve(out, 'app/proguard-rules.pro'), exact ? `-keep,allowoptimization class com.exact.android.Native { *; }\n-keep,allowoptimization class com.exact.android.TextEngine {\n    java.nio.ByteBuffer measure(java.nio.ByteBuffer,int);\n    void fonts(java.nio.ByteBuffer);\n    void wake();\n}\n` : '');
+  write(resolve(out, 'app/proguard-rules.pro'), exact ? `-keep,allowoptimization class com.exact.android.Native { *; }\n-keep,allowoptimization class com.exact.android.NativeImageDecode { *; }\n-keep,allowoptimization class com.exact.android.TextEngine {\n    java.nio.ByteBuffer measure(java.nio.ByteBuffer,int);\n    void fonts(java.nio.ByteBuffer);\n    void wake();\n}\n` : '');
   write(resolve(out, 'app/src/main/AndroidManifest.xml'), `<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n    <application android:label="${xml(app.displayName + label)}" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:supportsRtl="true">\n        <profileable android:shell="true"/>\n        <activity android:name="${activity}" android:exported="true" android:windowSoftInputMode="adjustResize">\n            <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>\n        </activity>\n    </application>\n</manifest>\n`);
   if (!existsSync(resolve(out, 'app/debug.keystore'))) {
     const keytool = env.JAVA_HOME ? resolve(env.JAVA_HOME, 'bin', 'keytool') : 'keytool';
@@ -133,6 +133,14 @@ export function buildAndroid(app, options = {}) {
     run(clang, ['-std=c++17', '-O3', '-DNDEBUG', '-fPIC', '-shared', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
       resolve(root, 'host/android/jni/exact_jni.cpp'), archive, '-static-libstdc++', '-Wl,--gc-sections', '-Wl,--exclude-libs,ALL',
       '-Wl,--pack-dyn-relocs=android+relr', '-Wl,--use-android-relr-tags', '-Wl,-z,max-page-size=16384', '-llog', '-landroid', '-ldl', '-lm', '-o', lib], env);
+    // Public NDK decode writes opaque JPEG pixels directly into the ImageView's
+    // hardware buffer. API30 symbols are optional at runtime (minSdk stays29).
+    const imageLib = resolve(dirname(lib), 'libexact_image_decode.so');
+    run(clang, ['-std=c++17', '-O3', '-DNDEBUG', '-fPIC', '-shared', '-fno-exceptions', '-fno-rtti', '-nostdlib++',
+      '-fvisibility=hidden', '-ffunction-sections', '-fdata-sections', '-Wall', '-Wextra', '-Werror',
+      resolve(root, 'host/android/jni/image_decode.cpp'), '-Wl,--build-id=sha1', '-Wl,--gc-sections',
+      '-Wl,-z,max-page-size=16384', '-Wl,--no-undefined', '-Wl,-soname,libexact_image_decode.so', '-landroid', '-ldl', '-o', imageLib], env);
+    run(resolve(dirname(clang), 'llvm-strip'), ['--strip-unneeded', imageLib], env);
     const assets = resolve(out, 'app/src/main/assets');
     rmSync(assets, { recursive: true, force: true });
     mkdirSync(assets, { recursive: true });

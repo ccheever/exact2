@@ -116,9 +116,9 @@ internal object NativeRenewalTest {
         @Suppress("UNCHECKED_CAST") fun seed(source: String, bitmap: Bitmap) {
             val images = field(presenter, "images") as NativeImages
             val constructor = Class.forName("com.exact.android.NativeImages\$Key")
-                .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java)
+                .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java, java.lang.Boolean.TYPE)
                 .apply { isAccessible = true }
-            val key = constructor.newInstance(source, (72.31f * scale).roundToInt(), (52.19f * scale).roundToInt(), "fill")
+            val key = constructor.newInstance(source, (72.31f * scale).roundToInt(), (52.19f * scale).roundToInt(), "fill", presenter.root.isHardwareAccelerated)
             (field(images, "cache") as LruCache<Any, NativeImages.Image>).put(key, NativeImages.Image(bitmap, bitmap.width, bitmap.height))
         }
         override fun close() { container?.removeView(presenter.root); presenter.close(); text.close() }
@@ -170,7 +170,7 @@ internal object NativeRenewalTest {
         val images = NativeImages(context)
         val cache = field(images, "cache") as LruCache<Any, NativeImages.Image>
         val constructor = Class.forName("com.exact.android.NativeImages\$Key")
-            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java)
+            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java, java.lang.Boolean.TYPE)
             .apply { isAccessible = true }
         val leases = ArrayList<NativeImages.Image>()
         try {
@@ -180,7 +180,7 @@ internal object NativeRenewalTest {
                 bitmap.eraseColor(color)
                 val image = NativeImages.Image(bitmap, bitmap.width, bitmap.height)
                 image.retain(); leases.add(image)
-                cache.put(constructor.newInstance("cache-lease-$index", 2048, 2048, "fill"), image)
+                cache.put(constructor.newInstance("cache-lease-$index", 2048, 2048, "fill", false), image)
             }
             check(cache.size() == 48 * 1024 * 1024) { "viewport budget did not retain three images" }
             // A smaller owning viewport evicts the oldest cache lease; its
@@ -194,7 +194,7 @@ internal object NativeRenewalTest {
             check(cache.size() == 0) { "background trim retained cached pixels" }
             leases.forEachIndexed { index, image ->
                 image.retain()
-                cache.put(constructor.newInstance("close-lease-$index", 2048, 2048, "fill"), image)
+                cache.put(constructor.newInstance("close-lease-$index", 2048, 2048, "fill", false), image)
             }
             images.close()
             check(cache.size() == 0) { "closed cache retained images" }
@@ -213,13 +213,13 @@ internal object NativeRenewalTest {
         val images = field(presenter, "images") as NativeImages
         val cache = field(images, "cache") as LruCache<Any, NativeImages.Image>
         val constructor = Class.forName("com.exact.android.NativeImages\$Key")
-            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java)
+            .getDeclaredConstructor(String::class.java, Integer.TYPE, Integer.TYPE, String::class.java, java.lang.Boolean.TYPE)
             .apply { isAccessible = true }
         val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888).apply { eraseColor(Color.RED) }
         val image = NativeImages.Image(bitmap, 2, 2)
         image.retain()
         try {
-            cache.put(constructor.newInstance("session-visibility-lease", 2, 2, "fill"), image)
+            cache.put(constructor.newInstance("session-visibility-lease", 2, 2, "fill", presenter.root.isHardwareAccelerated), image)
             view.setSessionVisible(false)
             check(cache.size() == 0 && !bitmap.isRecycled && bitmap.getPixel(0, 0) == Color.RED)
         } finally { view.setSessionVisible(true); image.release() }

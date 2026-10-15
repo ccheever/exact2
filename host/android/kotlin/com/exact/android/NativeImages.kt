@@ -13,7 +13,7 @@ import java.util.concurrent.Executors
  * Two pixel decodes and cancellable shared waiting demands bound fling work.
  * The byte-bounded cache keeps no invisible portion of a center-cover image.
  */
-internal class NativeImages(private val context: Context) : AutoCloseable {
+internal class NativeImages(private val context: Context, private val hardware: () -> Boolean = { false }) : AutoCloseable {
     class Image(val bitmap: Bitmap, val width: Int, val height: Int) {
         // The decode result, cache, queued delivery and each ImageView hold a
         // lease. Pixel retirement must not depend on Java text allocation/GC.
@@ -28,8 +28,8 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
         }
     }
     internal class Request(val source: String, val width: Int, val height: Int, val fit: String,
-        var deliver: ((Image) -> Unit)?) { var cancelled = false }
-    private data class Key(val source: String, val width: Int, val height: Int, val fit: String)
+        var deliver: ((Image) -> Unit)?, val hardware: Boolean = false) { var cancelled = false }
+    private data class Key(val source: String, val width: Int, val height: Int, val fit: String, val hardware: Boolean)
     private val handler = Handler(Looper.getMainLooper())
     private val workers = Executors.newFixedThreadPool(2)
     private val requests = ImageRequests<Key, Request>(2)
@@ -48,10 +48,10 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
     }
     private var closed = false
 
-    private fun Request.key() = Key(source, width, height, fit)
+    private fun Request.key() = Key(source, width, height, fit, hardware)
     fun request(source: String, width: Int, height: Int, fit: String, deliver: (Image) -> Unit): Request {
         check(!closed && Looper.myLooper() == Looper.getMainLooper())
-        val request = Request(source, width.coerceAtLeast(1), height.coerceAtLeast(1), fit, deliver)
+        val request = Request(source, width.coerceAtLeast(1), height.coerceAtLeast(1), fit, deliver, hardware())
         val key = request.key()
         val cached = cache.get(key)
         if (cached != null) {
@@ -103,6 +103,8 @@ internal class NativeImages(private val context: Context) : AutoCloseable {
         val density = Bitmap.createBitmap(1, 1, Bitmap.Config.ALPHA_8).let { probe ->
             probe.density.also { probe.recycle() }
         }
+        if (key.hardware) NativeImageDecode.decode(context.assets, key.source, key.width, key.height, key.fit,
+            context.resources.displayMetrics.densityDpi == density, density)?.let { return it }
         var naturalWidth = 0
         var naturalHeight = 0
         val bitmap = ImageDecoder.decodeBitmap(ImageDecoder.createSource(context.assets, key.source)) { decoder, info, _ ->
