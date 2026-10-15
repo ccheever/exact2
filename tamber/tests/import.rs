@@ -463,18 +463,11 @@ fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
     use exact_tamber::import::tailwind;
     let css = fixture("tailwind-theme.css");
     let first = tailwind::import(&css, "tw", &parse(EMPTY).unwrap()).unwrap();
-    // 419 variables: 288 colours, 275 mapped and 13 with a `none` component
-    // Tamber does not fold yet; every other kind pending or reported.
-    assert_eq!((first.counted.source, first.counted.mapped), (419, 275));
-    assert_eq!(first.counted.reported, 144);
-    assert_eq!(
-        first
-            .unmapped
-            .iter()
-            .filter(|u| u.why.starts_with("a colour Tamber does not fold yet"))
-            .count(),
-        13
-    );
+    // 419 variables: the 288 colours mapped (13 with a `none` component,
+    // written as the zero CSS reads it as); every other kind pending or
+    // reported.
+    assert_eq!((first.counted.source, first.counted.mapped), (419, 288));
+    assert_eq!(first.counted.reported, 131);
     let why = |name: &str| {
         first
             .unmapped
@@ -525,6 +518,7 @@ fn tailwinds_default_theme_imports_counted_and_again_proposes_nothing() {
         "oklch(63.7% 0.237 25.331)"
     );
     assert_eq!(token_value(&text, "tw.black"), "#000");
+    assert_eq!(token_value(&text, "tw.neutral.s50"), "oklch(98.5% 0 0)");
     let again = tailwind::import(&css, "tw", &parse(&text).unwrap()).unwrap();
     assert_eq!(again.ops, []);
 }
@@ -546,7 +540,7 @@ fn a_tailwind_project_maps_its_dark_block_to_light_dark_and_honours_its_reset() 
         import
             .unmapped
             .iter()
-            .filter(|u| u.why == "reset by a later `initial` in its namespace")
+            .filter(|u| u.why == "reset by `--color-*: initial`")
             .count(),
         288
     );
@@ -563,4 +557,69 @@ fn a_tailwind_project_maps_its_dark_block_to_light_dark_and_honours_its_reset() 
     assert_eq!(token_value(&text, "tw.ink"), "tw.brand.s600");
     let again = tailwind::import(&css, "tw", &parse(&text).unwrap()).unwrap();
     assert_eq!(again.ops, []);
+}
+
+#[test]
+fn tailwind_reads_defaults_inline_keys_resets_and_whole_blocks_as_tailwind_does() {
+    use exact_tamber::import::tailwind;
+    let css = r#"
+@theme { --color-brand: red; --spacing-4: 1rem; --font-sans: x; --font-weight-bold: 700; }
+@theme default { --color-brand: blue; --color-late: #010101; }
+@theme { --color-late: #020202; }
+:root { --ink: #111111; }
+.dark { --ink: #eeeeee; }
+@theme inline { --color-ink: var(--ink); }
+.dark { --color-ink: black; }
+@theme { --color-x: white; }
+.dark { --color-x: black; --color-x: initial; }
+:root:not(.dark) { --color-x: red; }
+.dark .card { --color-x: navy; }
+.card { @variant dark { --color-x: teal; } }
+[data-theme=darker] { --color-x: olive; }
+@media (prefers-color-scheme: dark) { @theme { --color-y: #121212; } }
+@theme { --spacing-*: initial; --font-*: initial; }
+"#;
+    let import = tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    let text = accepted(EMPTY, &import);
+    // A default yields to a value the key has, before or after it.
+    assert_eq!(token_value(&text, "tw.brand"), "red");
+    assert_eq!(token_value(&text, "tw.late"), "#020202");
+    // An inline key reads its backing variable on each side.
+    assert_eq!(token_value(&text, "tw.ink"), "light-dark(#111111, #eeeeee)");
+    assert!(why("--color-ink")
+        .iter()
+        .any(|w| w.starts_with("an `inline` theme key")));
+    // A dark reset takes the dark redefinition back.
+    assert_eq!(token_value(&text, "tw.x"), "white");
+    for restricted in ["red", "navy", "teal", "olive"] {
+        assert!(
+            import
+                .unmapped
+                .iter()
+                .any(|u| u.value == restricted && u.why.contains("some elements only")),
+            "{restricted}: {:?}",
+            import.unmapped
+        );
+    }
+    // A theme value under a dark media query is still the theme's.
+    assert_eq!(token_value(&text, "tw.y"), "#121212");
+    // Resets clear pending rows too; --font-* keeps the weights.
+    assert_eq!(why("--spacing-4"), ["reset by `--spacing-*: initial`"]);
+    assert_eq!(why("--font-sans"), ["reset by `--font-*: initial`"]);
+    assert_eq!(
+        why("--font-weight-bold"),
+        ["kind pending (stage 6): number"]
+    );
 }

@@ -45,61 +45,13 @@ fn targets(selectors: &[String], dark: bool) -> Result<Vec<Target>, String> {
     Ok(out)
 }
 
-/// The selectors a nested rule's chain names, each in full: `&` is its
-/// parent, and a rule without `&` is a descendant of it (CSS nesting).
-fn nested(rules: &[&String]) -> Vec<String> {
-    let mut out = vec![String::new()];
-    for prelude in rules {
-        let alternatives = split_top(prelude);
-        out = out
-            .iter()
-            .flat_map(|parent| {
-                alternatives.iter().map(move |alt| {
-                    let alt = alt.trim();
-                    match (alt.contains('&'), parent.is_empty()) {
-                        (true, _) => alt.replace('&', parent),
-                        (false, true) => alt.to_string(),
-                        (false, false) => format!("{parent} {alt}"),
-                    }
-                })
-            })
-            .collect();
-        out.sort();
-        out.dedup();
-        // A list too long to be a theme's: none.
-        if out.len() > 1024 {
-            return Vec::new();
-        }
-    }
-    out
-}
-
-/// A selector list's selectors: its commas outside parentheses and
-/// brackets (`:is(.a, .b)` is one).
-fn split_top(list: &str) -> Vec<&str> {
-    let (mut out, mut start, mut depth) = (Vec::new(), 0, 0i32);
-    for (i, c) in list.char_indices() {
-        match c {
-            '(' | '[' => depth += 1,
-            ')' | ']' => depth -= 1,
-            ',' if depth == 0 => {
-                out.push(&list[start..i]);
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    out.push(&list[start..]);
-    out
-}
-
 /// One selector: `:root`, `.light`, `html` …, with `.dark` anywhere for the
 /// dark side and a theme class (`.theme-x`, `[data-theme=x]`) for a theme;
 /// `None` for a selector that names neither a root nor a theme.
 fn target(selector: &str, dark: bool) -> Result<Option<Target>, String> {
     let (mut theme, mut is_dark, mut rooted) = (None, dark, false);
     for word in selector.split_whitespace() {
-        for part in split_compound(word) {
+        for part in engine::split_compound(word) {
             match part {
                 ".dark" => is_dark = true,
                 ":root" | ".light" | "html" | "body" => rooted = true,
@@ -135,50 +87,16 @@ fn target(selector: &str, dark: bool) -> Result<Option<Target>, String> {
     Ok(Some((theme, is_dark)))
 }
 
-/// A compound selector's simple selectors: `.dark.theme-x` → `.dark`,
-/// `.theme-x`; `[data-theme=x].dark` → `[data-theme=x]`, `.dark`.
-fn split_compound(w: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    let (mut start, mut depth) = (0, 0);
-    for (i, c) in w.char_indices() {
-        match c {
-            '[' => {
-                if depth == 0 && i > start {
-                    out.push(&w[start..i]);
-                    start = i;
-                }
-                depth += 1;
-            }
-            ']' => depth -= 1,
-            '.' | ':' if depth == 0 && i > start => {
-                out.push(&w[start..i]);
-                start = i;
-            }
-            _ => {}
-        }
-    }
-    out.push(&w[start..]);
-    out
-}
-
-/// A literal colour: as written, or v3's bare channels (`222.2 84% 4.9%`,
-/// any form `hsl()` reads) as `hsl()`.
 /// One line, spaces collapsed; `currentColor`, which no token can be, is
 /// none.
 fn literal(value: &str) -> Option<String> {
-    let v = value.split_whitespace().collect::<Vec<_>>().join(" ");
-    let ok = |c: &str| {
-        exact_color::parse(c).is_some_and(|p| !matches!(p, exact_color::Parsed::Current))
-            && super::unfolded(c).is_none()
-    };
-    if ok(&v) {
-        return Some(v);
-    }
-    if v.contains('(') || v.is_empty() {
-        return None;
-    }
-    let hsl = format!("hsl({v})");
-    ok(&hsl).then_some(hsl)
+    super::colour_literal(value).or_else(|| {
+        let v = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        if v.contains('(') || v.is_empty() {
+            return None;
+        }
+        super::colour_literal(&format!("hsl({v})"))
+    })
 }
 
 /// The name a variable becomes: `--chart-1` → `chart.s1`, `--sidebar-x` →
@@ -235,7 +153,7 @@ pub fn import(
             .iter()
             .filter(|p| !p.starts_with('@'))
             .collect();
-        let selectors = nested(&rules);
+        let selectors = engine::nested(&rules);
         let enclosing: Vec<&String> = block
             .context
             .iter()
@@ -310,7 +228,7 @@ pub fn import(
     let named = engine::name(&decls, |var| {
         let segs = segments(var);
         let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
-        tamber_name(prefix, &refs)
+        Some(tamber_name(prefix, &refs))
     });
     let names = &named.names;
     let (tokens, fates) = engine::assemble(&decls, &named, &themes, &literal);
@@ -323,6 +241,8 @@ pub fn import(
                 mapped += 1;
                 continue;
             }
+            // Every shadcn variable names a token.
+            Fate::Aux => continue,
             Fate::Collided(first) => (format!("its name is `{first}`'s ({})", names[first]), None),
             Fate::Superseded => (
                 "declared again later for the same theme block, which wins".to_string(),

@@ -190,16 +190,48 @@ fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
 }
 
 /// Why a colour the CSS parser reads is no Tamber value yet (`none`
-/// components, say), or `None` when it folds.
+/// components, say), or `None` when it folds. Each value is checked once.
 pub fn unfolded(value: &str) -> Option<String> {
+    thread_local! {
+        static SEEN: std::cell::RefCell<std::collections::HashMap<String, Option<String>>> =
+            Default::default();
+    }
+    if let Some(known) = SEEN.with(|s| s.borrow().get(value).cloned()) {
+        return known;
+    }
     let design = format!("tamber probe\n\ntheme\n  probe = {value}\n");
-    match crate::check(&design, &crate::Vocab { roles: Vec::new() }) {
+    let why = match crate::check(&design, &crate::Vocab { roles: Vec::new() }) {
         Ok(_) => None,
         Err(all) => Some(
             all.first()
                 .map_or_else(|| "it does not fold".to_string(), |d| d.message.clone()),
         ),
+    };
+    SEEN.with(|s| s.borrow_mut().insert(value.to_string(), why.clone()));
+    why
+}
+
+/// A literal colour as Tamber can hold it, on one line: as written, or
+/// with each `none` component written as the zero CSS reads it as (the
+/// fold asks for the value written); `currentColor` is none.
+pub fn colour_literal(value: &str) -> Option<String> {
+    let v = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let parsed = exact_color::parse(&v)?;
+    if matches!(parsed, exact_color::Parsed::Current) {
+        return None;
     }
+    if unfolded(&v).is_none() {
+        return Some(v);
+    }
+    let zeroed = v
+        .split(' ')
+        .map(|w| match w.trim_end_matches(')') {
+            "none" => w.replacen("none", "0", 1),
+            _ => w.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    (zeroed != v && unfolded(&zeroed).is_none()).then_some(zeroed)
 }
 
 /// The counted check: every source value mapped or reported, exactly.

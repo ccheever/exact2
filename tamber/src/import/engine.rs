@@ -25,6 +25,8 @@ pub enum Fate {
     Superseded,
     /// It wins a block but is a colour in none.
     NotColour,
+    /// Its variable makes no token; it is read only through references.
+    Aux,
 }
 
 /// Each variable's token name, first seen first; a later variable whose
@@ -37,17 +39,25 @@ pub struct Names {
     pub order: Vec<String>,
     /// Variable → the variable whose token name it would have.
     pub collided: BTreeMap<String, String>,
+    /// Variables that make no token but may be read through a reference
+    /// (Tailwind's backing variables): a reference to one is written as the
+    /// colour it resolves to.
+    pub aux: BTreeSet<String>,
 }
 
-/// Name every variable `decls` declare by `token`.
-pub fn name(decls: &[Decl], token: impl Fn(&str) -> String) -> Names {
+/// Name every variable `decls` declare by `token`; `None` is a variable
+/// with no token of its own.
+pub fn name(decls: &[Decl], token: impl Fn(&str) -> Option<String>) -> Names {
     let mut out = Names::default();
     let mut taken: BTreeMap<String, String> = BTreeMap::new();
     for (_, var, _, _) in decls {
-        if out.names.contains_key(var) || out.collided.contains_key(var) {
+        if out.names.contains_key(var) || out.collided.contains_key(var) || out.aux.contains(var) {
             continue;
         }
-        let t = token(var);
+        let Some(t) = token(var) else {
+            out.aux.insert(var.clone());
+            continue;
+        };
         match taken.get(&t) {
             Some(first) => {
                 out.collided.insert(var.clone(), first.clone());
@@ -134,13 +144,17 @@ impl Read<'_> {
             return Some((c.clone(), c));
         }
         let r = reference(value)?;
-        if visiting.iter().any(|v| v == r) || !self.names.names.contains_key(r) {
+        let aux = self.names.aux.contains(r);
+        if visiting.iter().any(|v| v == r) || !(aux || self.names.names.contains_key(r)) {
             return None;
         }
         visiting.push(r.to_string());
         let found = self.seen(at, r, visiting);
         visiting.pop();
-        found.map(|(_, resolved)| (self.names.names[r].clone(), resolved))
+        found.map(|(_, resolved)| match aux {
+            true => (resolved.clone(), resolved),
+            false => (self.names.names[r].clone(), resolved),
+        })
     }
 }
 
@@ -175,7 +189,7 @@ pub fn assemble(
         let value = &decls[*k].2;
         if let Some((written, resolved)) = read.colour_of(value, t, &mut visiting) {
             let named = reference(value)
-                .filter(|_| literal(value).is_none())
+                .filter(|r| literal(value).is_none() && names.names.contains_key(*r))
                 .map(str::to_string);
             sides.insert((t.clone(), var.clone()), (written, resolved, named));
         }
@@ -206,6 +220,9 @@ pub fn assemble(
         .map(|(k, (_, var, _, targets))| {
             if let Some(first) = names.collided.get(var) {
                 return Fate::Collided(first.clone());
+            }
+            if names.aux.contains(var) {
+                return Fate::Aux;
             }
             let won: Vec<&Target> = targets
                 .iter()
@@ -268,4 +285,78 @@ pub fn assemble(
         });
     }
     (tokens, fates)
+}
+
+/// The selectors a nested rule's chain names, each in full: `&` is its
+/// parent, and a rule without `&` is a descendant of it (CSS nesting).
+/// Deduplicated level by level; a list past 1024 is none.
+pub fn nested(rules: &[&String]) -> Vec<String> {
+    let mut out = vec![String::new()];
+    for prelude in rules {
+        let alternatives = split_top(prelude);
+        out = out
+            .iter()
+            .flat_map(|parent| {
+                alternatives.iter().map(move |alt| {
+                    let alt = alt.trim();
+                    match (alt.contains('&'), parent.is_empty()) {
+                        (true, _) => alt.replace('&', parent),
+                        (false, true) => alt.to_string(),
+                        (false, false) => format!("{parent} {alt}"),
+                    }
+                })
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        if out.len() > 1024 {
+            return Vec::new();
+        }
+    }
+    out
+}
+
+/// A selector list's selectors: its commas outside parentheses and
+/// brackets (`:is(.a, .b)` is one).
+fn split_top(list: &str) -> Vec<&str> {
+    let (mut out, mut start, mut depth) = (Vec::new(), 0, 0i32);
+    for (i, c) in list.char_indices() {
+        match c {
+            '(' | '[' => depth += 1,
+            ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(&list[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    out.push(&list[start..]);
+    out
+}
+
+/// A compound selector's simple selectors: `.dark.theme-x` → `.dark`,
+/// `.theme-x`; `[data-theme=x].dark` → `[data-theme=x]`, `.dark`.
+pub fn split_compound(w: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let (mut start, mut depth) = (0, 0);
+    for (i, c) in w.char_indices() {
+        match c {
+            '[' | '(' => {
+                if depth == 0 && c == '[' && i > start {
+                    out.push(&w[start..i]);
+                    start = i;
+                }
+                depth += 1;
+            }
+            ']' | ')' => depth -= 1,
+            '.' | ':' if depth == 0 && i > start => {
+                out.push(&w[start..i]);
+                start = i;
+            }
+            _ => {}
+        }
+    }
+    out.push(&w[start..]);
+    out
 }
