@@ -186,9 +186,16 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
   const stateLabel = ({ open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' } as Record<string, string>)[state] ?? '';
   const worktree = str(thread.worktreePath).trim(), branch = str(thread.branch);
   const remote = remoteThread(client, thread);
+  const worktreeLabel = worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '';
+  const remoteLabel = remote ? remote.label || 'Remote' : '', terminalCount = terminalProcessCount(client, id);
   return {
-    id, dropKey: parseFleetThreadId(id) ? id : fleetThreadId(client.environmentId, id), title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
-    terminalCount: terminalProcessCount(client, id),
+    // The row's name. The reference's row is a `div role="button"` named from its content, so it reads the worktree,
+    // terminal and machine glyphs' labels too (Chrome names it "<title> … Lane Second 9d ago"); here the row is a native
+    // button, a leaf whose image children VoiceOver never reaches, so their labels join its name.
+    id, dropKey: parseFleetThreadId(id) ? id : fleetThreadId(client.environmentId, id), title,
+    label: [title, status.label, worktreeLabel, terminalCount > 0 ? 'Terminal process running' : '', remoteLabel].filter(Boolean).join(', '),
+    active: id === client.threadId, selected: session.selection.includes(id),
+    terminalCount,
     renaming: session.renameId === id, running: !canArchive(thread),
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,
     ...(link ? {
@@ -197,8 +204,8 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
       prPending: !snapshot,
     } : fallbackPr(client, thread)), ...portLabels(rowPorts(client, id)),
     // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
-    worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
-    remoteMachine: remote ? (remote.machine === 'desktop' ? 'monitor' : remote.machine) : '', remoteLabel: remote ? remote.label || 'Remote' : '',
+    worktree: worktree !== '', worktreeLabel,
+    remoteMachine: remote ? (remote.machine === 'desktop' ? 'monitor' : remote.machine) : '', remoteLabel,
     age: relativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt, now), jump,
   };
 }
