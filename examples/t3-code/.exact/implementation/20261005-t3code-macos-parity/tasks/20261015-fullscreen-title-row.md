@@ -2,13 +2,13 @@
 name: 20261015-fullscreen-title-row
 plan: 20261005-t3code-macos-parity
 implementation: complete
-verification: unverified
+verification: verified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-fullscreen-title-row
 pr_url: null
-verified_commit: null
+verified_commit: c3f3b793d
 ---
 
 # The title row in real full screen
@@ -19,8 +19,9 @@ Goal: in real macOS full screen the title row (breadcrumb, sidebar toggle, panel
 the top of the window with no empty titlebar band over it, and without the traffic lights' inset, as
 `AppSidebarLayout.tsx` drops `--workspace-controls-left` in full screen (reference pin
 `1e2ecbd975`). The system titlebar may reveal at the top edge. Windowed stays as it is. Found in
-realinput-1015 (`20261014-timeline-and-window-hooks.md`, step 32). The change is in and its
-AppKit test passes; the real full-screen check did not run (the Mac's screen was locked).
+realinput-1015 (`20261014-timeline-and-window-hooks.md`, step 32). Done: the real full-screen
+check passed on 2026-10-15 (below); only the top-edge hover was not run (the tool cannot move the
+pointer).
 
 ## Cause
 
@@ -63,29 +64,31 @@ title row has no toolbar until the next full-screen exit.
 | `caps.mjs`, `cargo fmt --check`, `cargo check --workspace --all-targets --keep-going` | pass |
 | Bundle `EXACT_APP_DIR=… build.mjs t3-code-macos --bundle` | built |
 | Independent review of the diff | no blocking defects |
-| Real input (`orca computer`) | NOT RUN: see below |
+| Real input (`orca computer`) | PASS (second session, below); hover not run |
 
-Real input, 2026-10-15: the realinput lock was taken, and a lane copy of this bundle
-(`com.exact.t3code.macos.fsfix-1`, port 16917, homes copied from the ri1015 lane) launched
-through LaunchServices. `orca computer` refused every read (`permission_denied`: no accessibility
-window). The session's screen was locked (`CGSSessionScreenIsLocked` true; the front process was
-`loginwindow`) and stayed locked for 30 minutes. The lane was quit, its server exited, the port
-was free and the lock was removed. One `screencapture` of the lane window (windowed, inactive) shows
-the title row as before (local `target/fullscreen-fix/pr-images/02-after-windowed-title-row-fix-build.png`).
+Real input, first session (2026-10-15 09:10): not run. The Mac's screen was locked
+(`CGSSessionScreenIsLocked` true, front process `loginwindow`) for 30 minutes, and `orca computer`
+refused every read (`permission_denied`). The lane was quit and the lock removed.
 
-| Real-input row | Result |
-| --- | --- |
-| Windowed title row | Pixels only (screen capture): breadcrumb, sidebar toggle and panel toggles drawn; no input |
-| Enter real full screen: title row at the top, no band | NOT RUN (screen locked) |
-| Breadcrumb or toggle clicked in full screen | NOT RUN |
-| Hover at the top edge | NOT RUN |
-| Exit full screen: windowed title row again | NOT RUN |
+Real input, second session (2026-10-15 12:20, screen unlocked): realinput lock taken; a fresh lane
+copy of this branch's bundle (code of `c3f3b793d`; `com.exact.t3code.macos.fsfix-1`, port 16917,
+homes copied from the ri1015 lane) launched through LaunchServices; real keys and pointer through
+`orca computer`, targeted by pid. Evidence is local in `target/fullscreen-fix/` (`ev/`, `pr-images/`).
+
+| Real-input row | Result | Evidence (`ev/`) |
+| --- | --- | --- |
+| Windowed title row | PASS: traffic lights, sidebar toggle, breadcrumb and panel toggles drawn; window 36,38 1280×840; the AX tree has the window's `toolbar` | `b-windowed` |
+| Enter real full screen (real ⌃⌘F) | PASS: window 0,30 1352×848; `list-windows` shows one window (realinput-1015 saw a second, 52-pt titlebar window) | `c-ctrlcmdf`, `d-fs` |
+| Title row at the top, no band | PASS: breadcrumb, sidebar toggle and panel toggles at the top edge, sidebar toggle without the traffic lights' inset | `d-fs` |
+| No toolbar in full screen (the review's note on `ToolbarMac.attach`) | PASS: the full-screen AX tree has no `toolbar` element | `d-fs.tree.txt` |
+| Click a title-row toggle in full screen | PASS: a real pointer click on the sidebar toggle hid the sidebar (the tree lost "Search threads"); a second click brought it back. Seen: an AX element press on "Toggle thread details panel" changed nothing (still expanded), not looked into | `h-after-sidebar`, `j-sidebar-back`, `f-after-click` |
+| Hover at the top edge | NOT RUN: `orca computer` has no pointer-move action | — |
+| Exit full screen (real ⌃⌘F) | PASS: window 36,38 1280×840 again; the `toolbar` is back in the AX tree; the traffic-light crop (top 52 pt × 90 pt) is pixel-identical to the windowed capture before entry | `k-exit`, `l-windowed` |
+| Light appearance | NOT RUN (dark only) | — |
+
+Cleanup: the lane quit by AppleScript `quit`; no lane process stayed; port 16917 free; lock removed.
 
 ## Next action
 
-Run the one real-input check with the Mac unlocked: lane copy of this branch's bundle, enter
-full screen by View › Enter Full Screen, check the title row at the top with no band, click the
-sidebar toggle and read back its state, hover the top edge, exit, and check the windowed title row.
-Also look in that drive for a host-added window toolbar in full screen (the review's note:
-`ToolbarMac.attach` accepts a window with no toolbar). If it passes, set `verification: verified`
-and remove the "Real full screen" row from `STATUS.md`.
+None for this fix. Open: the top-edge hover in full screen (needs a pointer-move tool) and why an
+accessibility press on "Toggle thread details panel" did nothing in that session.

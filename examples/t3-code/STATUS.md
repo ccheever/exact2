@@ -349,7 +349,6 @@ found, one line each (evidence in that session worktree's ignored `target/realin
 | Sidebar, between two rows | A right-click in the gap opens the text menu (Cut, Copy, Paste, Select All) | `s10-i-menu-screen.png` |
 | Right panel launcher after the panel was closed | ⌘⌥B shows it with the focus on the root; ⇧B types ㅠ into the composer, ⇧F does nothing | `s08-e-shiftb`, `s11-d-f.png` |
 | The panel's + menu | Return and Right on the highlighted Browser row do nothing; Space opens Browser | `s08-n-small.png`, `s08-p-small.png` |
-| Real full screen | An empty 52-pt titlebar band covers the title row (breadcrumb, sidebar and panel toggles). Fix in `20261015-fullscreen-title-row` (the toolbar leaves in full screen); its real-input check is not yet run | `s32-titlerow-windowed-vs-fullscreen.png` |
 | Legacy sidebar rows | "rec http://127.0.0.1:16843/rec" draws as "rec..." (the unbreakable word dropped, not cut at a character) | `s14-b.png` |
 | Legacy rename field | Its accessibility role is AXUnknown ("Thread title"), not a text field | `s14-d` |
 | Legacy inline Archive with Archive confirmation on | An accessibility press archives at once, with no Confirm (a pointer click shows Confirm) | `s19-n`, `s19-o` |
