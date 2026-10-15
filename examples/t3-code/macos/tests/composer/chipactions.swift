@@ -4,7 +4,8 @@ import XCTest
 // The composer chips' other presses (composerContextPresentation.tsx, contextChipParts.tsx, ThreadContextChip.tsx and
 // AssistantCitationChip.tsx in T3 Code): a review comment and a preview annotation open their details as a skill does; a
 // thread, a pull request, an image, a video, a mention and a citation's source link are actions the app performs
-// (T3ComposerChipPress `act`); a file has no press; an expired terminal excerpt is drawn in the destructive colour.
+// (T3ComposerChipPress `act`), and so is a file (its AttachmentFilePreview); an expired terminal excerpt has no press and
+// is drawn in the destructive colour.
 
 private let thread = "[Plan the release](t3-context://v1/thread/thread_t2)"
 private let review = "[app.ts L3](t3-context://v1/review-comment/review_x)"
@@ -109,14 +110,30 @@ final class ComposerChipActionTests: XCTestCase {
         XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
     }
 
-    func testAFileChipAndAnExpiredExcerptHaveNoPress() {
-        let fixture = ActionFixture("\(file) [Terminal 1 line 2](t3-context://v1/terminal/terminal_old) now ")
-        for kind in ["file", "terminal"] {
-            let chip = fixture.chip(kind)
-            XCTAssertFalse(fixture.styler.isActionTrigger(chip) || fixture.styler.isPopoverTrigger(chip), kind)
-            XCTAssertFalse(fixture.mouseDown(fixture.center(chip)), "\(kind): the text view's press")
-            XCTAssertNil(fixture.press.state["act"])
-        }
+    /// FileContextChip: a button "File attachment, <name>, <size>" whose press is `openFile`, by pointer and by VoiceOver.
+    func testAFileChipOpensItsPreviewByPointerAndVoiceOver() {
+        let fixture = ActionFixture("\(file) now ")
+        let chip = fixture.chip("file")
+        XCTAssertTrue(fixture.styler.isActionTrigger(chip))
+        XCTAssertTrue(fixture.mouseDown(fixture.center(chip)), "the press is the chip's")
+        XCTAssertEqual(fixture.press.state["act"] as? String, "file")
+        XCTAssertEqual(fixture.press.state["context"] as? String, "file_x")
+        fixture.press.close(seq: fixture.press.seq)
+        XCTAssertNil(fixture.press.state["act"])
+        let element = fixture.press.accessibilityElements[0]
+        XCTAssertEqual(element.accessibilityLabel(), "File attachment, notes.txt, 1 KB")
+        XCTAssertEqual(element.accessibilityRole(), .button)
+        XCTAssertTrue(element is T3ComposerChipPopupElement)
+        XCTAssertTrue(element.accessibilityPerformPress())
+        XCTAssertEqual(fixture.press.state["act"] as? String, "file")
+    }
+
+    func testAnExpiredExcerptHasNoPress() {
+        let fixture = ActionFixture("[Terminal 1 line 2](t3-context://v1/terminal/terminal_old) now ")
+        let chip = fixture.chip("terminal")
+        XCTAssertFalse(fixture.styler.isActionTrigger(chip) || fixture.styler.isPopoverTrigger(chip))
+        XCTAssertFalse(fixture.mouseDown(fixture.center(chip)), "the text view's press")
+        XCTAssertNil(fixture.press.state["act"])
         XCTAssertTrue(fixture.press.accessibilityElements.allSatisfy { !($0 is T3ComposerChipPopupElement) })
     }
 

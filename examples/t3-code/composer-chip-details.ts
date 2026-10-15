@@ -8,7 +8,8 @@
 // action: a mention opens its file in the right panel (openMention: rightPanelStore.openFile), a thread opens it
 // (ThreadContextChip's Link), a citation's source link opens its thread at the cited answer (assistantCitationNavigation),
 // a pull request opens beside the thread or in the browser (useOpenPrLink), an image opens the expanded preview over the
-// draft's images (buildExpandedImagePreview), and a video its expanded player (expandVideo). The native editor reports
+// draft's images (buildExpandedImagePreview), a video its expanded player (expandVideo), and a file AttachmentFilePreview
+// over the draft's bytes (openFile, composer-chip-file.ts). The native editor reports
 // the action (T3ComposerChipPress.swift `act`); the window's `chipAct` task sends `editorlocal:chip-act` once per press.
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
@@ -19,6 +20,7 @@ import { parseAssistantCitationHref } from './diff-citations';
 import { reviewCommentRecords } from './composer-editor';
 import { draftFiles } from './composer-editor-files';
 import { videoOp } from './r4-composer-attachments';
+import { openComposerFile } from './composer-chip-file';
 import { openPullRequest } from './pr-chip-open';
 import { previewAnnotationContextLabel, type PreviewAnnotationPayload, type SavedAnnotation } from './browser-annotation';
 
@@ -128,6 +130,7 @@ export async function performChipAct(client: T3Client, native: Native, press: Ob
     images.set(client, { key: client.draftKey, id });
     return '';
   }
+  if (act === 'file') { openComposerFile(client, context); return ''; }
   if (act === 'video') {
     const file = draftFiles(client.local).find(entry => entry.contextId === context && entry.draftKey === client.draftKey);
     if (!file) throw new ClientError('That video is no longer attached.');

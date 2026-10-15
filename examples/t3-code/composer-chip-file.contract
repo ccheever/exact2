@@ -1,0 +1,42 @@
+// A composer file chip's preview, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): ChatComposer.tsx's
+// `previewFileId` Dialog. DialogPopup "h-[min(85vh,52rem)] max-w-4xl overflow-hidden" with showCloseButton={false},
+// centred in DialogViewport's p-4 over the blurred backdrop, its sr-only DialogTitle the file's name, holding
+// AttachmentFilePreview (r5-panels.contract R5AttachmentBody: the subheader's dialog form, 40pt over a hairline) with
+// origin "Draft", Remove from draft and Close. Escape and a press on the backdrop close it (onOpenChange). The first
+// header action takes the focus as it opens, and Tab wraps between the first header action and Close (Base UI's trap).
+use ComposerFilePreview from "./r5-panels-shapes.contract"
+use R5AttachmentBody from "./r5-panels.contract"
+use ChatDocument from "./markdown.contract"
+use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
+
+component ComposerFileDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+    rem: number
+  props
+    preview: ComposerFilePreview
+    documents: ChatDocument[]
+    scheme: string
+    windowHeight: number
+    command: action
+    chatLocal: action
+  derive att = preview.file
+  derive first = att.canRender ? "chip-file-preview-render" : att.showWrap ? "chip-file-preview-wrap" : att.canCopy ? "chip-file-preview-copy" : att.canSave ? "chip-file-preview-save" : "chip-file-preview-remove"
+  derive dialogTargets = [first, "chip-file-preview-close"]
+  // The header's controls are the draft preview's (composer-chip-file.ts); the rendered Markdown's own (Copy code, a
+  // table's menu) are the window's, as in the panel.
+  action local(op: string, id: string, value: string)
+    if op.startsWith("surface-r5-att-")
+      command("editorlocal:chip-file", op, id, 0)
+    else
+      chatLocal(op, id, value)
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="chip-file-preview-overlay"
+      button press=command("editorlocal:chip-file", "close", att.id, 0) aria-label="Close file preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-file-preview-backdrop" title=""
+      column width="100%" max-width="56rem" height=min(windowHeight * 0.85, 52 * rem) max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=att.name testId="chip-file-preview" id="chip-file-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-file-preview") key=dialogFallback("chip-file-preview", dialogTargets)
+        FocusGuard(guardId="chip-file-preview-guard-start", targets=dialogTargets, popup="chip-file-preview")
+        DialogOpenFocus(target=first)
+        R5AttachmentBody(att=att, documents=documents, scheme=scheme, sheet=true, local=local, actionIds="chip-file-preview")
+        FocusGuard(guardId="chip-file-preview-guard-end", targets=dialogTargets, popup="chip-file-preview")

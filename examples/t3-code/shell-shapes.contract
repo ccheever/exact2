@@ -5,6 +5,7 @@ use R4GitCard from "./r4-git-shapes.contract"
 use AutomationsView from "./thread-automations.contract"
 use R4Panel from "./r4-surfaces-shapes.contract"
 use R5PrRows from "./r5-panels-shapes.contract"
+use ComposerFilePreview from "./r5-panels-shapes.contract"
 use R9Checkout from "./r9-connect-shapes.contract"
 
 shape ShellToast
@@ -110,6 +111,8 @@ shape ShellView
   panel: R4Panel
   // The branch picker's PullRequestThreadDialog (r9-connect-checkout.ts).
   prCheckout: R9Checkout
+  // A composer file chip's AttachmentFilePreview over the draft's bytes (composer-chip-file.ts).
+  composerFile: ComposerFilePreview
   highlightPending: bool // a Files / attachment code text waits for its Shiki tokens
 shape CardScript
   id: string

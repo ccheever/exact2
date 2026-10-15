@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import AVKit
 import PDFKit
 import WebKit
 
@@ -26,6 +27,12 @@ import WebKit
 ///   `window.open`) opens an http(s) URL in the default browser (never under the agent; the
 ///   desktop's setWindowOpenHandler and parseSafeExternalUrl). Alerts and confirms show as
 ///   sheets; `prompt()` returns null, as in Electron. A non-persistent data store.
+///
+/// A draft's file (`t3-staged:<id>`, the composer chip's preview) is read from its staged copy, as the reference reads the
+/// draft's Blob: a PDF the same way; an HTML page as its own document at a URL that is never fetched, under the server's
+/// sandbox policy as a response header, so it has the same opaque origin and no top navigation, and, like a Blob's
+/// page, no siblings; an audio file in an AVPlayerView with inline controls (AudioPreview's `<audio controls>`), whose
+/// typed link beside the staged copy names its type for AVFoundation.
 final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let maximumBytes = 64 * 1024 * 1024
     /// The iframe's sandbox, as BrowserDocumentFrame.tsx sets it.
@@ -68,13 +75,15 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
     private var entries: [ObjectIdentifier: Entry] = [:]
     private let agent: Bool
+    private let stagedFile: (String) -> URL?
     private let session: URLSession
     /// What the bodies did (state.presentation for the agent): loaded documents, refused loads.
     private(set) var loaded: [String: String] = [:]
     private(set) var refused: [String] = []
 
-    init(agent: Bool) {
+    init(agent: Bool, stagedFile: @escaping (String) -> URL? = { _ in nil }) {
         self.agent = agent
+        self.stagedFile = stagedFile
         let configuration = URLSessionConfiguration.ephemeral
         configuration.httpCookieStorage = nil
         configuration.urlCache = nil
@@ -93,6 +102,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         let key = ObjectIdentifier(host), identity = "\(kind)\n\(raw)"
         if entries[key]?.identity == identity { return }
         detach(key)
+        if raw.hasPrefix(Self.stagedScheme) { return mountStaged(host: host, key: key, identity: identity, kind: kind, id: String(raw.dropFirst(Self.stagedScheme.count)), name: name) }
         guard let url = T3AttachmentFiles.assetURL(raw), kind == "pdf" || kind == "html" else { return }
         let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : webView(name: name)
         view.frame = host.bounds
@@ -113,6 +123,66 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         entry.task?.resume()
     }
 
+    static let stagedScheme = "t3-staged:"
+    /// Where a draft's page is shown: never fetched, so nothing but the page itself loads at it.
+    static let stagedPageOrigin = "https://draft.t3.invalid/"
+    /// The server's policy for a page attachment, as the sandboxed frame has it.
+    static let stagedPagePolicy = "sandbox \(frameSandbox)"
+
+    private func mountStaged(host: NSView, key: ObjectIdentifier, identity: String, kind: String, id: String, name: String) {
+        guard ["pdf", "html", "audio"].contains(kind) else { return }
+        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : kind == "html" ? webView(name: name) : Self.audioView(name: name)
+        view.frame = host.bounds
+        view.autoresizingMask = [.width, .height]
+        host.addSubview(view)
+        let entry = Entry(host: host, identity: identity, view: view)
+        entries[key] = entry
+        guard let file = stagedFile(id) else { return fail(entry, "Could not load this file.") }
+        if kind == "audio" { return showAudio(entry, file: file, name: name) }
+        DispatchQueue.global(qos: .userInitiated).async { [weak self, weak entry] in
+            let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int) ?? 0
+            let bytes = size <= Self.maximumBytes ? try? Data(contentsOf: file) : nil
+            DispatchQueue.main.async {
+                guard let self, let entry, self.entries[key] === entry else { return }
+                guard let bytes else { return self.fail(entry, "Could not load this file.") }
+                if kind == "pdf" { self.showPDF(entry, bytes, name: name) } else { self.showStagedPage(entry, bytes, name: name) }
+            }
+        }
+    }
+
+    private func showStagedPage(_ entry: Entry, _ bytes: Data, name: String) {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "page.html"
+        guard let web = entry.view as? WKWebView, let url = URL(string: Self.stagedPageOrigin + encoded) else { return fail(entry, "Could not load this file.") }
+        entry.document = url
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
+            "Content-Type": "text/html", "Content-Security-Policy": Self.stagedPagePolicy, "Cache-Control": "no-store",
+        ])!
+        web.loadSimulatedRequest(URLRequest(url: url), response: response, responseData: bytes)
+        loaded[name] = "html"
+    }
+
+    static func audioView(name: String) -> NSView {
+        let box = R6AudioBody()
+        box.player.setAccessibilityLabel(name)
+        return box
+    }
+
+    private func showAudio(_ entry: Entry, file: URL, name: String) {
+        guard let body = entry.view as? R6AudioBody else { return }
+        let ext = (name as NSString).pathExtension.lowercased()
+        let typed = file.deletingLastPathComponent().appendingPathComponent("\(file.lastPathComponent).\(ext.isEmpty ? "audio" : ext)")
+        if !FileManager.default.fileExists(atPath: typed.path) { try? FileManager.default.linkItem(at: file, to: typed) }
+        let player = AVPlayer(url: FileManager.default.fileExists(atPath: typed.path) ? typed : file)
+        player.isMuted = agent // agent runs play silently, as the shelf's video does
+        body.player.player = player
+        // AudioPreview's onError: "Unable to load audio." in the body.
+        body.status = player.currentItem?.observe(\.status) { [weak self, weak entry] item, _ in
+            guard item.status == .failed else { return }
+            DispatchQueue.main.async { if let self, let entry, self.entries.values.contains(where: { $0 === entry }) { self.fail(entry, "Unable to load audio.") } }
+        }
+        loaded[name] = "audio"
+    }
+
     func remove(_ element: ExactElement) {
         if let host = element.view { detach(ObjectIdentifier(host)) }
         for (key, entry) in entries where entry.host == nil { entries[key] = nil; release(entry) }
@@ -130,6 +200,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     private func release(_ entry: Entry) {
         entry.task?.cancel()
         if let web = entry.view as? WKWebView { web.stopLoading(); web.navigationDelegate = nil; web.uiDelegate = nil }
+        if let audio = entry.view as? R6AudioBody { audio.status = nil; audio.player.player?.pause() }
         entry.view.removeFromSuperview()
     }
 
@@ -267,6 +338,32 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         entry.view.addSubview(label)
         NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: entry.view.centerXAnchor), label.centerYAnchor.constraint(equalTo: entry.view.centerYAnchor)])
         refused.append("load-failed")
+    }
+}
+
+/// AudioPreview: `<audio controls preload="metadata" class="w-full max-w-xl">` centred in `p-6`, Chrome's controls a
+/// 54 px pill; here AVKit's inline controls at that size.
+final class R6AudioBody: NSView {
+    let player = AVPlayerView()
+    var status: NSKeyValueObservation?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        player.controlsStyle = .inline
+        player.showsFullScreenToggleButton = false
+        player.wantsLayer = true
+        player.layer?.cornerRadius = 27
+        player.layer?.masksToBounds = true
+        addSubview(player)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { nil }
+
+    override var isFlipped: Bool { true }
+    override func layout() {
+        super.layout()
+        let width = max(0, min(bounds.width - 48, 576)), height: CGFloat = 54
+        player.frame = NSRect(x: ((bounds.width - width) / 2).rounded(), y: ((bounds.height - height) / 2).rounded(), width: width, height: height)
     }
 }
 
