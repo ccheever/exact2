@@ -12,14 +12,17 @@
 //!   digest as the client saw it; a different digest on disk is a conflict.
 //!   The files are read once, and that read is what is checked, planned and
 //!   compared. It is committed as a set: each new text to a temporary file
-//!   of its own, fsynced; each file read again, a conflict if it moved; an
-//!   intent record (each rename and its new text's digest) written beside
-//!   and renamed to `.exact/tamber.journal`; the renames; the record
-//!   removed; each directory flushed. A write that fails part way is
-//!   completed at once, or the server stops.
-//! - **At start** a record is completed: a rename is done when its
-//!   temporary file has the recorded digest, already done when the file
-//!   has it. A record that names anything else, or cannot be read, is kept
+//!   of its own, fsynced; an intent record (each rename and its new text's
+//!   digest) written beside and renamed to `.exact/tamber.journal`; each
+//!   file read again, the record withdrawn and a conflict if one moved; the
+//!   renames; the record removed; each directory flushed at each step. A
+//!   write that fails part way is completed at once, or the server stops.
+//!   An editor saving between that last read and its rename takes no lock
+//!   and is overwritten; the digests narrow that window, they do not close
+//!   it. Development builds only, on macOS and Linux.
+//! - **At start** a record is completed: every rename judged first, then
+//!   done when its temporary file has the recorded digest, already done
+//!   when the file has it. A record that names anything else, or cannot be read, is kept
 //!   and the server refuses to start. Temporary files no record names are
 //!   removed.
 //! - **The inverse** a transaction returns is an id, unique to this run:
@@ -152,6 +155,9 @@ struct Rename {
 struct Server {
     /// The app's directory, canonical.
     dir: PathBuf,
+    /// `.exact` as the lock was taken in it: a directory put in its place
+    /// later is refused.
+    state_id: (u64, u64),
     /// The design's files, by path from the app's directory.
     files: Vec<String>,
     /// Held while the server runs: the one writer.
@@ -187,6 +193,20 @@ fn sync_dir(dir: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// A file's device and inode.
+fn identity(m: &std::fs::Metadata) -> (u64, u64) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (m.dev(), m.ino())
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = m;
+        (0, 0)
+    }
+}
+
 /// A file's bytes when it is a regular file, `None` when it is not there;
 /// a link or anything else is an error.
 fn read_plain(path: &Path) -> Result<Option<Vec<u8>>, String> {
@@ -202,6 +222,11 @@ fn read_plain(path: &Path) -> Result<Option<Vec<u8>>, String> {
 
 impl Server {
     fn start(dir: &Path) -> Result<Server, String> {
+        if !cfg!(unix) {
+            return Err(
+                "the tamber server runs on macOS and Linux: its commit flushes directories".into(),
+            );
+        }
         let dir = dir
             .canonicalize()
             .map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -240,9 +265,9 @@ impl Server {
         match std::fs::symlink_metadata(&state) {
             Ok(m) if m.is_dir() => {}
             Ok(_) => return Err(format!("{} is not a directory", state.display())),
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                std::fs::create_dir(&state).map_err(|e| format!("{}: {e}", state.display()))?
-            }
+            Err(e) if e.kind() == ErrorKind::NotFound => std::fs::create_dir(&state)
+                .and_then(|()| sync_dir(&dir))
+                .map_err(|e| format!("{}: {e}", state.display()))?,
             Err(e) => return Err(format!("{}: {e}", state.display())),
         }
         let lock = no_follow(OpenOptions::new().create(true).truncate(false).write(true))
@@ -271,7 +296,11 @@ impl Server {
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
+        let state_id = std::fs::symlink_metadata(&state)
+            .map(|m| identity(&m))
+            .map_err(|e| format!("{}: {e}", state.display()))?;
         let server = Server {
+            state_id,
             dir,
             files,
             _lock: lock,
@@ -291,6 +320,14 @@ impl Server {
         self.dir.join(".exact")
     }
 
+    /// Whether `.exact` is still the directory the lock is in.
+    fn same_state(&self) -> Result<(), String> {
+        match std::fs::symlink_metadata(self.state()) {
+            Ok(m) if m.is_dir() && identity(&m) == self.state_id => Ok(()),
+            _ => Err(".exact is not the directory this server locked; restart it".into()),
+        }
+    }
+
     /// Complete a transaction a crash left between its renames. Each rename
     /// is done when its temporary file is there with the recorded digest, or
     /// already done when the file has it; anything else keeps the journal
@@ -303,12 +340,15 @@ impl Server {
         let renames = self
             .journal(&bytes)
             .map_err(|e| format!("the journal .exact/tamber.journal: {e}; it is kept"))?;
+        // The record durable before any file moves on its word.
+        sync_dir(&self.state()).map_err(|e| format!(".exact: {e}; the journal is kept"))?;
+        // Every rename judged before any is done: a set that cannot complete
+        // is left as it is.
+        let mut pending = Vec::new();
         for r in &renames {
             let tmp = self.state().join(&r.tmp);
-            let target = self.dir.join(&r.file);
             match read_plain(&tmp)? {
-                Some(b) if digest(&b) == r.digest => std::fs::rename(&tmp, &target)
-                    .map_err(|e| format!("completing {}: {e}; the journal is kept", r.file))?,
+                Some(b) if digest(&b) == r.digest => pending.push((tmp, r)),
                 Some(_) => {
                     return Err(format!(
                         "{} is not the text the journal records for {}; the journal is kept",
@@ -316,7 +356,7 @@ impl Server {
                     ))
                 }
                 None => {
-                    if read_plain(&target)?.is_none_or(|b| digest(&b) != r.digest) {
+                    if read_plain(&self.dir.join(&r.file))?.is_none_or(|b| digest(&b) != r.digest) {
                         return Err(format!(
                             "{} has neither its new text nor its temporary file; the journal is kept",
                             r.file
@@ -324,6 +364,10 @@ impl Server {
                     }
                 }
             }
+        }
+        for (tmp, r) in pending {
+            std::fs::rename(&tmp, self.dir.join(&r.file))
+                .map_err(|e| format!("completing {}: {e}; the journal is kept", r.file))?;
         }
         self.sync_files(renames.iter().map(|r| r.file.as_str()))?;
         std::fs::remove_file(&journal).map_err(|e| format!("the journal: {e}"))?;
@@ -702,9 +746,10 @@ impl Server {
     }
 
     /// Commit new texts as a set: each to a temporary file of its own,
-    /// fsynced; each file read again and refused if it moved since the
-    /// snapshot; the intent record written beside and renamed into place;
-    /// the renames; the record removed; each step's directory flushed.
+    /// fsynced; the intent record written beside and renamed into place;
+    /// each file read again, and the record withdrawn if one moved since
+    /// the snapshot; the renames; the record removed; each step's directory
+    /// flushed.
     fn commit(
         &mut self,
         files: &[(String, String, Vec<Op>)],
@@ -712,6 +757,7 @@ impl Server {
     ) -> Result<(), Value> {
         let fail = |m: String| json!({"message": m});
         let state = self.state();
+        self.same_state().map_err(fail)?;
         let journal = state.join("tamber.journal");
         if read_plain(&journal).map_err(fail)?.is_some() {
             return Err(fail(
@@ -744,19 +790,10 @@ impl Server {
                 digest: digest(text.as_bytes()),
             });
         }
-        // Another writer (an editor, `tamber fmt`) since the snapshot.
-        for (path, d) in expected {
-            let now = read_plain(&self.dir.join(path)).map_err(fail)?;
-            if now.is_none_or(|b| digest(&b) != *d) {
-                clean(&renames);
-                let files = self
-                    .snapshot()
-                    .map(|s| files_json(&s))
-                    .unwrap_or(Value::Null);
-                return Err(
-                    json!({"conflict": true, "message": format!("{path} changed while the write was planned"), "files": files}),
-                );
-            }
+        // The temporaries' names durable before a record names them.
+        if let Err(e) = sync_dir(&state) {
+            clean(&renames);
+            return Err(fail(format!(".exact: {e}")));
         }
         let record = json!({"renames": renames.iter().map(|r| json!({"tmp": r.tmp, "file": r.file, "digest": r.digest})).collect::<Vec<_>>()});
         let staged = state.join("tamber.journal.tmp");
@@ -766,17 +803,45 @@ impl Server {
                 j.write_all(record.to_string().as_bytes())?;
                 j.sync_all()
             })
-            .and_then(|()| std::fs::rename(&staged, &journal))
-            .and_then(|()| sync_dir(&state));
+            .and_then(|()| std::fs::rename(&staged, &journal));
         if let Err(e) = published {
             let _ = std::fs::remove_file(&staged);
-            if read_plain(&journal).ok().flatten().is_some() {
-                // Renamed into place but not flushed: the record stands, and
-                // completing it now is as good as completing it at start.
-                return self.complete_or_exit();
+            match read_plain(&journal) {
+                Ok(None) => {
+                    clean(&renames);
+                    return Err(fail(format!("the journal: {e}")));
+                }
+                // In place, or not known: the record and its temporaries
+                // stay for the next start.
+                _ => self.stop(format!("the journal: {e}")),
             }
-            clean(&renames);
-            return Err(fail(format!("the journal: {e}")));
+        }
+        // No file moves on the record's word until the record is durable.
+        if let Err(e) = sync_dir(&state) {
+            self.stop(format!(".exact, after its journal: {e}"));
+        }
+        // Another writer (an editor, `tamber fmt`) since the snapshot, as
+        // late as this protocol can look: such a writer takes no lock, so a
+        // save between this read and the rename is still overwritten.
+        for (path, d) in expected {
+            let moved = match read_plain(&self.dir.join(path)) {
+                Ok(now) => now.is_none_or(|b| digest(&b) != *d),
+                Err(_) => true,
+            };
+            if moved {
+                // No file has moved: the record is withdrawn.
+                if let Err(e) = std::fs::remove_file(&journal).and_then(|()| sync_dir(&state)) {
+                    self.stop(format!("withdrawing the journal: {e}"));
+                }
+                clean(&renames);
+                let files = self
+                    .snapshot()
+                    .map(|s| files_json(&s))
+                    .unwrap_or(Value::Null);
+                return Err(
+                    json!({"conflict": true, "message": format!("{path} changed while the write was planned"), "files": files}),
+                );
+            }
         }
         for (n, r) in renames.iter().enumerate() {
             if let Err(e) = std::fs::rename(state.join(&r.tmp), self.dir.join(&r.file)) {
@@ -788,17 +853,26 @@ impl Server {
                 std::process::exit(9);
             }
         }
+        // While the record stands, recovery flushes and removes it.
         let done = self
             .sync_files(renames.iter().map(|r| r.file.as_str()))
-            .and_then(|()| std::fs::remove_file(&journal).map_err(|e| format!("the journal: {e}")))
-            .and_then(|()| sync_dir(&state).map_err(|e| format!(".exact: {e}")));
-        match done {
-            Ok(()) => Ok(()),
-            Err(e) => {
-                eprintln!("contract tamber serve: {e}");
-                self.complete_or_exit()
-            }
+            .and_then(|()| std::fs::remove_file(&journal).map_err(|e| format!("the journal: {e}")));
+        if let Err(e) = done {
+            eprintln!("contract tamber serve: {e}");
+            return self.complete_or_exit();
         }
+        // A removed record that came back would be replayed over later
+        // writes: its removal is flushed, or the server stops.
+        if let Err(e) = sync_dir(&state).or_else(|_| sync_dir(&state)) {
+            self.stop(format!(".exact, after removing its journal: {e}"));
+        }
+        Ok(())
+    }
+
+    /// Stop serving: the state on disk is for the next start to judge.
+    fn stop(&self, message: String) -> ! {
+        eprintln!("contract tamber serve: {message}; stopping");
+        std::process::exit(1);
     }
 
     /// After a write stopped with its journal on disk: complete it now, or
@@ -806,12 +880,9 @@ impl Server {
     fn complete_or_exit(&self) -> Result<(), Value> {
         match self.recover() {
             Ok(()) => Ok(()),
-            Err(e) => {
-                eprintln!(
-                    "contract tamber serve: a write stopped part way and could not be completed: {e}"
-                );
-                std::process::exit(1);
-            }
+            Err(e) => self.stop(format!(
+                "a write stopped part way and could not be completed: {e}"
+            )),
         }
     }
 }
