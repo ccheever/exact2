@@ -400,7 +400,7 @@ someone using the app runs into are in the section above.
   LLP 1115.000 D7.3), so each row must take Return itself. The surface launcher and its + menu,
   Snooze, the Settings and Connections row kits, and the composer's Run on and Workspace menus
   do. A host change for a focused `menuitem` or `option` in an open popover would cover every
-  menu; no issue is filed yet.
+  menu ([`issues/20261015-macos-return-on-a-focused-menu.md`](../../issues/20261015-macos-return-on-a-focused-menu.md)).
 
 **Not built:**
 
