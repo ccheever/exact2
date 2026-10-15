@@ -961,7 +961,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
 
     /// A custom row's own views in its cell, at the row's place in its
-    /// group, as tall as the row less the separator the cell draws instead.
+    /// group. UIKit draws the separator inside the cell, independently of any
+    /// CSS border the author gave the row.
     private func carry(_ id: UInt32, into cell: GroupedCell) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
@@ -971,7 +972,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        let height = cellHeight(id, row: place.frame.height)
+        let height = max(0, place.frame.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
@@ -986,15 +987,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             host.presenter.requestTextPublication()
         }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
-    }
-
-    /// A custom row's cell height for a row box `height` tall: less the
-    /// separator the cell draws instead of the row's own border. A card-less
-    /// section has no UIKit separator to stand in for it, so the row keeps
-    /// its full height (§6.2).
-    private func cellHeight(_ id: UInt32, row height: CGFloat) -> CGFloat {
-        let separator = card(of: id) ? CGFloat(host.presenter.views[id]?.style["border_width_bottom"]?.number ?? 0) : 0
-        return max(0, height - separator)
+        row.layoutGroupedNativeButton()
+        row.setNeedsDisplay()
     }
 
     /// A row whose cell was sized to nothing and that has a box now (the
@@ -1004,7 +998,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func remeasure() {
         unsized = unsized.filter { rows[$0]?.custom == true }
         let grown = unsized.filter { id in
-            host.presenter.views[id].map { cellHeight(id, row: carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
+            host.presenter.views[id].map { (carried[id]?.frame.height ?? $0.frame.height) > 0 } ?? false
         }
         guard !grown.isEmpty else { return }
         unsized.subtract(grown)
@@ -1023,6 +1017,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             guard let place = carried[id], let row = host.presenter.views[id] else { continue }
             if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
             row.frame = place.frame
+            row.layoutGroupedNativeButton()
         }
         carried.removeAll()
         carriedOrder.removeAll()

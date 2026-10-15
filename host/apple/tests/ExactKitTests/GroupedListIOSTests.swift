@@ -468,7 +468,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let cell = try cell(p, 21)
         XCTAssertTrue(row.superview === cell.contentView, "carried into its cell")
         XCTAssertEqual(row.frame.minX, 16, "at its place in its group")
-        XCTAssertEqual(cell.bounds.height, 60, accuracy: 0.5, "the row less the separator the cell draws")
+        XCTAssertEqual(cell.bounds.height, 61, accuracy: 0.5, "the full authored row; the separator reserves no height")
         XCTAssertTrue(host(p).projects(row))
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
@@ -493,16 +493,16 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(host(p).projects(row))
         XCTAssertEqual(row.frame, CGRect(x: 16, y: 0, width: 354, height: 61))
         XCTAssertEqual(prepared.accessibilityIdentifier, "displayed-custom")
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 60)
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61)
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "display-time carrying still restores normally")
         p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 81.0]]).ops[0])
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 60, "the prepared cell still has its older measured height")
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 61, "the prepared cell still has its older measured height")
         l.collectionView(l.collection, willDisplay: prepared, forItemAt: path)
         XCTAssertTrue(row.superview === prepared.contentView)
-        XCTAssertEqual((prepared as? GroupedCell)?.height, 80, "display reads the current authored frame")
+        XCTAssertEqual((prepared as? GroupedCell)?.height, 81, "display reads the current authored frame")
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
-        XCTAssertEqual(prepared.bounds.height, 80, accuracy: 0.5, "the existing projection sync settles the height outside the display callback")
+        XCTAssertEqual(prepared.bounds.height, 81, accuracy: 0.5, "the existing projection sync settles the height outside the display callback")
     }
 
     func testUnchangedCustomRowsKeepTheirNativeGeometryAndRefreshLiveProjectionProps() throws {
@@ -515,7 +515,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let offset = l.collection.contentOffset
         let nativeY = shown.convert(shown.bounds, to: l.collection).minY
         let before = shown.convert(shown.bounds, to: window)
-        XCTAssertEqual(shown.height, 239)
+        XCTAssertEqual(shown.height, 240)
         for index in 0..<4 {
             p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "custom\(index)"], "clear": [String]()]]))
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -537,8 +537,8 @@ final class GroupedListIOSTests: GroupedListFixture {
         XCTAssertTrue(try cell(p, 21) === shown)
         XCTAssertTrue(shown.isUserInteractionEnabled)
         XCTAssertFalse(shown.accessibilityElementsHidden)
-        XCTAssertEqual(shown.height, 299, "mount updates an authored box without changing the custom model")
-        XCTAssertEqual(shown.bounds.height, 299, accuracy: 0.5)
+        XCTAssertEqual(shown.height, 300, "mount updates an authored box without changing the custom model")
+        XCTAssertEqual(shown.bounds.height, 300, accuracy: 0.5)
     }
 
     /// A carried row of stacked lines keeps the cell's margins (team-kanban's
@@ -546,7 +546,7 @@ final class GroupedListIOSTests: GroupedListFixture {
     /// card and buttons the separator): the sheet keeps the stack 15 under the
     /// row's top and 15 over its separator, as a hand-built cell pinned to its
     /// content view's margins has it, and the cell shows the row so, as tall
-    /// as the row less the separator it draws instead.
+    /// as the full row; its separator reserves no height.
     func testACarriedStackKeepsTheCellsMargins() throws {
         let p = presenter { self.model(custom: true) }
         let text = { (id: Int, text: String) -> [String: Any] in
@@ -571,7 +571,7 @@ final class GroupedListIOSTests: GroupedListFixture {
         let cell = try cell(p, 21)
         let row = try XCTUnwrap(p.views[21])
         XCTAssertTrue(row.superview === cell.contentView, "carried")
-        XCTAssertEqual(cell.bounds.height, 122, accuracy: 0.5, "the row less the separator the cell draws")
+        XCTAssertEqual(cell.bounds.height, 123, accuracy: 0.5, "the full authored row; the separator reserves no height")
         let first = try XCTUnwrap(p.views[40]), last = try XCTUnwrap(p.views[42])
         let (top, bottom) = (first.convert(first.bounds, to: cell), last.convert(last.bounds, to: cell))
         let margins = cell.contentView.directionalLayoutMargins
@@ -1213,18 +1213,18 @@ final class GroupedListIOSTests: GroupedListFixture {
         func shown(_ id: UInt32, _ height: CGFloat, _ what: String) throws {
             let cell = try self.cell(p, id), row = try XCTUnwrap(p.views[id])
             XCTAssertTrue(row.superview === cell.contentView, "\(what): carried into its cell")
-            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the row less its separator")
+            XCTAssertEqual(cell.bounds.height, height, accuracy: 0.5, "\(what): the full authored row")
             XCTAssertTrue(l.collection.bounds.intersects(cell.frame), "\(what): in the list's port")
         }
-        try shown(71, 100, "the next-up card")
-        try shown(80, 72, "the new row")
-        try shown(21, 90, "the grown row")
+        try shown(71, 101, "the next-up card")
+        try shown(80, 73, "the new row")
+        try shown(21, 91, "the grown row")
         // The next batch gives the rows back and carries them again at
         // their boxes, the ones the sheet held.
         p.apply(wireBatch([["op": "props", "id": 95, "set": ["testId": "root"], "clear": [String]()]]))
         XCTAssertEqual(p.views[21]?.frame.height ?? 0, 91, accuracy: 0.5, "the replayed box, kept")
-        try shown(21, 90, "the grown row, after a batch")
-        try shown(80, 72, "the new row, after a batch")
+        try shown(21, 91, "the grown row, after a batch")
+        try shown(80, 73, "the new row, after a batch")
     }
 
     /// LLP 1116.003 D7, round 5's password-generator: at launch the list

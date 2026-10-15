@@ -240,6 +240,8 @@ pub struct ButtonMeasureRequest {
     /// `None` when they wrote none, which each host draws as its platform's
     /// own default (LLP 1115.000 D15).
     pub button_style: Option<String>,
+    /// The button is a direct grouped-list row; the host includes its slot inset.
+    pub grouped_row: bool,
     /// Offered border-box width; hosts answer height-for-width.
     pub width: crate::AxisOffer,
 }

@@ -56,7 +56,7 @@ test('the neutral sheet\'s lengths and ratios are the metric table\'s neutral co
     'focus-ring-offset': ['outline-offset'],
     'mark-size': ['width', 'height', 'background'], 'mark-size-coarse': ['width', 'height'],
     'switch-width': ['width'], 'switch-height': ['height'], 'range-height': ['height'], 'range-track': ['height'], 'range-thumb-line': ['border'],
-    'button-padding-block': ['padding'], 'button-padding-inline': ['padding'], 'button-padding-inline-symbol': ['padding-inline'],
+    'button-padding-block': ['padding'], 'button-padding-inline': ['padding', 'padding-left'], 'button-padding-inline-symbol': ['padding-inline', 'padding-left'],
     'field-padding-block': ['padding'], 'field-padding-block-coarse': ['padding-block'], 'field-padding-inline': ['padding'],
     'file-padding-block': ['padding'], 'file-gap': ['margin-inline-end'],
     'segmented-padding': ['padding'], 'segment-padding-block': ['padding'], 'segment-padding-inline': ['padding'], 'segment-height-coarse': ['min-height'],

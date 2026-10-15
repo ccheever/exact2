@@ -1,5 +1,6 @@
 // @ref LLP 1007 §3: the app is the wasm; this is its DOM host.
 import { textField, popoverCommand, contextAt, grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, controlEvent, environment, preferences, onPreferences, inertAncestor, editMenu, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, launchLocation, pageReporter, appRootFontSize, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks, onSelection, noteFit, refitTexts, pageTitle } from "./navigation.js";
+let groupedInsets; function groupedInset(el, op, raw) { if (!groupedInsets && (op !== "observe" || !String(raw).includes('%'))) return; (groupedInsets ??= afterNativePaint().then(() => loadAfterPaint('./grouped-inset.js', 'groupedInsets'))).then(m => m[op](el, raw)); }
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule, notifyModule; // the file picker (LLP 1069.002), documents (LLP 1069.010) and notifications, loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -7,9 +8,7 @@ const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker
 const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value, then) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] !== value) return; const media = el instanceof HTMLMediaElement && name === "src", to = url || (media ? value : null); if (el.getAttribute(name) !== to) to ? el.setAttribute(name, to) : el.removeAttribute(name); if (media) { then?.(); syncMedia(el, { src: to }); } }); track(p.catch(() => {})); return el.getAttribute(name); }
 function appFrameSource(el, value) { if (el.exactAppFrame?.path === value) return true; el.exactAppFrame?.dispose(); el.exactAppFrame = null; if (!value?.startsWith("app:/")) return false; const state = el.exactAppFrame = { path: value, live: true, url: null, dispose() { this.live = false; if (this.url) URL.revokeObjectURL(this.url); } }; el.removeAttribute("src"); iframeLoading.set(el, true); track(picker().then(m => m.appFrame(el, state, () => commitGuestOrigin(el)))); return true; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
-function httpHelpers() {
-  return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
-}
+function httpHelpers() { return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers')); }
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 // Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
@@ -597,7 +596,7 @@ function viewFor(op, id) {
 function apply(batch) {
   // Retire before teardown blur. Keep removed descendants attached to their removed parent for the outgoing focusout; presence reads leaving boxes before any op (LLP 1063).
   for (const op of batch.ops ?? []) {
-    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); } }
+    if (op.op === "destroy") { const el = views.get(op.id); if (el) { retiredViews.add(el); groupedInset(el, "release"); el.exactAppFrame?.dispose(); el.exactIntersect?.(); } }
   }
   presence.live?.before(batch, views);
   listSelection?.before();
@@ -626,7 +625,7 @@ function apply(batch) {
         }
         applyProps(el, op.props, []);
         const css = op.css + (el.hasAttribute("data-action") ? ";touch-action:none" : ""); if ((el.getAttribute("style") ?? "") !== css) el.style.cssText = css; noteFit(css); // an adopted element's is already there; a fitted text's scale follows each batch (LLP 1116.001 D1.4)
-        attach(el, op.id, op.handlers);
+        attach(el, op.id, op.handlers); if (el.hasAttribute("data-grouped-row-separator")) groupedInset(el, "observe", el.style.getPropertyValue("--exact-grouped-inset"));
         views.set(op.id, el); if (op.tag.includes("-") && !op.ns && !el.exactNative) nativeCreate(el, op.id);
         listView(el, op.id, collectionOp?.items.some(item => item.view === op.id));
         break;
@@ -638,7 +637,7 @@ function apply(batch) {
       }
       case "style": {
         const el = viewFor("style", op.id);
-        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); noteFit(op.css); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
+        if (el) { exact.gpu?.beforeStyle(el); motion.style(op.id, op.css); noteFit(op.css); if (el.hasAttribute("data-grouped-row-separator")) groupedInset(el, "observe", el.style.getPropertyValue("--exact-grouped-inset")); if (el.hasAttribute("data-action")) el.style.touchAction="none"; exact.gpu?.afterStyle(el); }
         break;
       }
       case "children": {
@@ -655,7 +654,7 @@ function apply(batch) {
         let cursor = skip(el.firstElementChild);
         for (const child of want) {
           if (child === cursor) { cursor = skip(cursor.nextElementSibling); continue; }
-          el.insertBefore(child, cursor);
+          el.insertBefore(child, cursor); groupedInset(child, "reparent");
         }
         while (cursor) { const next = skip(cursor.nextElementSibling); cursor.remove(); cursor = next; } settleValue(el); // a select shows its committed value among its new options
         break;
@@ -823,7 +822,7 @@ function apply(batch) {
       case "destroy": {
         arrange.destroy(op.id);
         motion.destroy(op.id);
-        const el = views.get(op.id); if (el) { retiredViews.add(el); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
+        const el = views.get(op.id); if (el) { retiredViews.add(el); groupedInset(el, "release"); el.exactAppFrame?.dispose(); el.exactIntersect?.(); el.exactMarkup?.destroy(); el.exactNative?.destroy(); if (el instanceof HTMLMediaElement) { globalThis.exact.removeMedia?.(el); el.pause(); el.removeAttribute("src"); el.load(); } forgetList(el); followScroll(el, false); messageFrames.delete(el); if (!presence.live?.keeps(el) && !retiredViews.has(el.parentElement)) el.remove(); }
         views.delete(op.id); messageViews.delete(op.id); globalThis.exact.gpu?.destroy(op.id); break;
       }
       case "roots": {
@@ -1338,7 +1337,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   globalThis.exact.pendingSurfaces = [];
   ticker?.dispose(); ticker = null;
   arrange.reset(); motion.reset();
-  if (textflow) for (const el of views.values()) retiredViews.add(el);
+  for (const el of views.values()) { groupedInset(el, "release"); if (textflow) retiredViews.add(el); }
   textflow?.dispose(); textflow = null; flowLoading = null; flowContexts = []; flowDue = null; flowFrames = false;
   globalThis.exact?.gpu?.reset(Boolean(bytes));
   for (const el of followedScrolls.keys()) followScroll(el, false);

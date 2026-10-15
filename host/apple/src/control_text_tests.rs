@@ -509,6 +509,56 @@ fn trait_notification_remeasures_buttons_when_control_fonts_are_unchanged() {
     assert_eq!(CALLS.get(), 0, "ordinary layouts reuse the new revision");
 }
 
+#[test]
+fn grouped_native_button_measurement_includes_its_host_slot_once() {
+    #[allow(unsafe_code)]
+    extern "C" fn raw(
+        _: *mut std::ffi::c_void,
+        r: *const crate::control_text::CButtonMeasureRequest,
+    ) -> crate::control_text::CButtonMeasure {
+        let r = unsafe { &*r };
+        crate::control_text::CButtonMeasure {
+            width: if r.width_kind == 0 { r.width } else { 60.0 },
+            height: if r.width_kind == 0 && r.width < 100.0 {
+                40.0
+            } else {
+                28.0
+            },
+            provisional: 0,
+        }
+    }
+    let mut request = exact_kernel::ButtonMeasureRequest {
+        face: Default::default(),
+        style: exact_kernel::ButtonFaceStyle {
+            neutral_tab_root: None,
+            title: Default::default(),
+            subtitle: None,
+            symbol: Default::default(),
+            button: Default::default(),
+            image_gap: None,
+        },
+        button_style: Some("bordered".into()),
+        grouped_row: true,
+        width: exact_kernel::AxisOffer::MaxContent,
+    };
+    let natural = crate::control_text::button_measure(raw, std::ptr::null_mut(), &request);
+    let inset = if cfg!(target_os = "macos") {
+        10.0
+    } else {
+        16.0
+    };
+    assert_eq!((natural.width, natural.height), (60.0 + inset, 28.0));
+    request.width = exact_kernel::AxisOffer::Definite(100.0 + inset / 2.0);
+    let wrapped = crate::control_text::button_measure(raw, std::ptr::null_mut(), &request);
+    assert_eq!((wrapped.width, wrapped.height), (100.0 + inset / 2.0, 40.0));
+    request.grouped_row = false;
+    let ordinary = crate::control_text::button_measure(raw, std::ptr::null_mut(), &request);
+    assert_eq!(
+        (ordinary.width, ordinary.height),
+        (100.0 + inset / 2.0, 28.0)
+    );
+}
+
 /// LLP 1116.005 D2: a native field in a grouped list's row asks UIKit for
 /// the field in a list's cell (the kind's cell bit, 4) and is published as
 /// one (`"cell":true` beside its editor box), so iOS draws it borderless,

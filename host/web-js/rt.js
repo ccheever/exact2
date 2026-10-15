@@ -1071,7 +1071,7 @@ export function wf(e, f) {
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
-export { onResize, onIntersect } from "./observers.js";
+export { onResize, onIntersect, groupedInset } from "./observers.js";
 /** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
  * the web host's own geometry-glue.js, fetched after first paint by a plan
  * whose actions read geometry (`geo`); unavailable until it is (D5). The

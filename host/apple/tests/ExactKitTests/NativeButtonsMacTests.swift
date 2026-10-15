@@ -55,6 +55,28 @@ final class NativeButtonsMacTests: XCTestCase {
          ["op": "frame", "id": id, "x": 0.0, "y": 0.0, "w": 300.0, "h": 40.0]]
     }
 
+    func testGroupedNativeButtonKeepsLeadingInsetInsideItsSlot() throws {
+        let p = presenter(box(1) + native(2, ["groupedRowSeparator": "true"])
+                          + native(3, ["groupedRowSeparator": "false"]) + native(4)
+                          + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Grouped"), 3: face("Last or cardless"), 4: face("Standalone")])
+        let grouped = try XCTUnwrap(p.controls.controls[2] as? NativeButtonMac)
+        let last = try XCTUnwrap(p.controls.controls[3] as? NativeButtonMac)
+        let standalone = try XCTUnwrap(p.controls.controls[4] as? NativeButtonMac)
+        let row = try XCTUnwrap(p.views[2])
+        let inset = CGRect(x: 10, y: 0, width: 110, height: 24)
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), inset)
+        XCTAssertEqual(last.alignmentRect(forFrame: last.frame), inset, "separator visibility does not define membership")
+        XCTAssertEqual(standalone.alignmentRect(forFrame: standalone.frame), p.views[4]?.bounds)
+        XCTAssertEqual(row.bounds.width, 120, "the native slot retains its entire authored width")
+        p.apply(wireBatch([]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), inset)
+        p.apply(wireBatch([["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 10.0, "h": 24.0]]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), CGRect(x: 10, y: 0, width: 0, height: 24))
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["groupedRowSeparator"]]]))
+        XCTAssertEqual(grouped.alignmentRect(forFrame: grouped.frame), row.bounds, "leaving grouped membership removes the inset")
+    }
+
     /// LLP 1116.008 (team-kanban: "Delete is not styled as destructive"): an ordinary
     /// `button destructive=true` is AppKit's destructive role (`hasDestructiveAction`) in the
     /// platform's red, whatever accent it only inherits: red ink on a push or borderless button,

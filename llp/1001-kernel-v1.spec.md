@@ -1415,6 +1415,16 @@ platform's, as any control's is.
 > paragraph describes the bare box an author gets with `appearance="none"` or a background,
 > border or radius.
 
+Declared native grouped-row presentation exception: when a native button
+is itself a row of a grouped list, its authored box is the full row slot.
+The host places the existing control 16 points inside its leading edge
+(the browser includes this inset in the button's face padding). A definite
+fitting offer subtracts the inset; the natural answer adds it once. The
+inset follows grouped membership, independently of UIKit cell recycling.
+Explicit width and height still size the row slot. Standalone native
+buttons and buttons nested inside custom rows keep their ordinary layout.
+The separator remains decoration and reserves no layout height (LLP 1084 D5/D7).
+
 ### Window toolbars
 
 Charlie requested native window-toolbar presentation for Interview on 2026-09-15;

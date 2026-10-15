@@ -194,6 +194,12 @@ impl BoxPaint {
                 *color = c;
             }
         }
+        if let (Some((_, ink)), Some(color)) = (
+            &mut self.grouped_separator,
+            paint.color(Property::BorderBottomColor),
+        ) {
+            *ink = color;
+        }
         let geometry = paint.0[PaintValues::slot(Property::BoxShadow)];
         let color = paint.color(Property::ShadowColor);
         if geometry.is_some() || color.is_some() {

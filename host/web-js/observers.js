@@ -1,6 +1,6 @@
 // The browser's geometry events, loaded after first paint only where used.
 // @ref LLP 1005 intersection visibility; the resize event's contentRect.
-import { onEnd, inflight, say } from "./rt.js";
+import { S, onEnd, inflight, say } from "./rt.js";
 
 let Resizes = null;
 export function onResize(e, f) {
@@ -19,4 +19,12 @@ export function onIntersect(e, f) {
   (Intersects ??= new Promise(r => requestAnimationFrame(r)).then(() => import("./intersect-glue.js")))
     .then(m => { if (!gone && e.isConnected) stop = m.observeIntersect(e, r => { if (!gone) f([r.isIntersecting, r.intersectionRatio]); }); })
     .catch(err => say(`intersect: ${err.message}`)).finally(() => inflight.n--);
+}
+
+// A compiled padding binding keeps its raw CSS value; only its separator
+// reads the browser-resolved inset, and its scope releases the observation.
+import { observeGroupedInset, releaseGroupedInset } from "./grouped-inset.js";
+export function groupedInset(e, prop, unit, f) {
+  S(e, prop, unit, () => { const v = f(); observeGroupedInset(e, v == null ? "" : typeof v === "number" ? `${v}${unit}` : String(v)); return v; });
+  onEnd(() => releaseGroupedInset(e));
 }

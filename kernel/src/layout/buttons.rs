@@ -114,6 +114,7 @@ impl LayoutTree {
                                 .props(slot)
                                 .str(PropId::ButtonStyle)
                                 .map(str::to_owned),
+                            grouped_row: arena.props(slot).contains(PropId::GroupedRowSeparator),
                             width: AxisOffer::MaxContent,
                         },
                         answers: Vec::with_capacity(LEAF_OFFERS),
@@ -229,6 +230,7 @@ mod tests {
                 face: arena.press_face(slot).unwrap(),
                 style: arena.button_face_style_unresolved(slot).unwrap(),
                 button_style: None,
+                grouped_row: false,
                 width: AxisOffer::MaxContent,
             },
             answers: Vec::with_capacity(LEAF_OFFERS),

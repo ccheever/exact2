@@ -4,7 +4,8 @@
 //! fixtures exercise LLP 1104's default in the grouped-list context.
 
 use exact_kernel::{
-    Accessory, Color, ColorValue, GroupedRow, Kernel, Offer, PropId, StyleMask, TextFont, TextLook,
+    Accessory, BoxSizing, Color, ColorValue, Dimension, GroupedRow, Kernel, Offer, PropId,
+    StyleMask, TextFont, TextLook,
 };
 use exact_runner::{DataError, DataSource, Runner, Value};
 
@@ -27,10 +28,19 @@ fn app(body: &str) -> String {
 }
 
 fn boot(body: &str) -> Runner<NoData> {
-    boot_source(&app(body))
+    boot_width(body, 402.0)
+}
+
+fn boot_width(body: &str, width: f32) -> Runner<NoData> {
+    let source = app(body).replace("width=402 height=874", &format!("width={width} height=874"));
+    boot_source_width(&source, width)
 }
 
 fn boot_source(source: &str) -> Runner<NoData> {
+    boot_source_width(source, 402.0)
+}
+
+fn boot_source_width(source: &str, width: f32) -> Runner<NoData> {
     let plan = contract::bake(
         contract::compile(source).unwrap_or_else(|e| panic!("{e}")),
         NoData,
@@ -46,7 +56,7 @@ fn boot_source(source: &str) -> Runner<NoData> {
     .unwrap();
     let k = r.kernel_mut();
     let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
-    k.compute_layout(root, Offer::definite(402.0, 874.0))
+    k.compute_layout(root, Offer::definite(width, 874.0))
         .unwrap();
     r
 }
@@ -222,17 +232,27 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     let list = k.node(id(&r, "list")).unwrap();
     assert_eq!(list.props.str(PropId::ListStyle), Some("inset-grouped"));
     // The header row is 10 + a line + 10; the rows start under it, 52 apart
-    // (each draws its separator and overlaps the next by its width).
+    // The system separator is painted inside each row's box.
     let profile = frame("profile");
-    assert_eq!(profile.height, 53.0, "52 and its 1-point separator");
-    // (to a float's rounding: the header above is a line of the body style).
+    assert_eq!(profile.height, 52.0, "the separator adds no layout height");
     assert!((frame("notes").y - profile.y - 52.0).abs() < 0.01);
     assert_eq!(
-        profile.x, 72.0,
-        "the row starts at the text, after an icon, as UIKit's label does"
+        profile.x, 16.0,
+        "the row's border box starts at the card's edge"
     );
     let delete = frame("delete");
-    assert_eq!(delete.x, 32.0, "no icon: 16 into the group");
+    assert_eq!(
+        delete.x, 16.0,
+        "the row spans the card even without an icon"
+    );
+    assert_eq!(
+        k.node(id(&r, "profile")).unwrap().style.padding_left,
+        Dimension::Points(56.0)
+    );
+    assert_eq!(
+        k.node(id(&r, "delete")).unwrap().style.padding_left,
+        Dimension::Points(16.0)
+    );
     let own = boot(&SETTINGS.replace(
         "destructive=true testId=\"delete\"",
         "destructive=true testId=\"delete\" min-height=60",
@@ -240,7 +260,7 @@ fn the_sheet_draws_ios_metrics_and_the_author_replaces_it() {
     let k2 = own.kernel();
     assert_eq!(
         k2.node(id(&own, "delete")).unwrap().frame.height,
-        61.0,
+        60.0,
         "the author's row replaces the sheet's"
     );
 }
@@ -283,7 +303,9 @@ fn a_grouped_list_holds_sections_and_a_section_its_texts_at_its_ends() {
 
 #[test]
 fn a_class_replaces_the_sheet_as_an_attribute_does() {
-    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go class=Tall testId=\"tall\"\n      text \"Tall\"");
+    let src = app(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go class=Tall testId=\"tall\"\n      text \"Tall\"",
+    );
     let src = format!("style Tall\n  min-height=80\n{src}");
     let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
@@ -303,15 +325,23 @@ fn a_class_replaces_the_sheet_as_an_attribute_does() {
             .unwrap()
             .frame
             .height,
-        81.0,
-        "the class's 80 and the separator"
+        80.0,
+        "the class's 80 includes the cell's box"
     );
 }
 
 #[test]
 fn a_symbol_under_a_condition_moves_the_text_with_it() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\"");
-    let x = |r: &Runner<NoData>| r.kernel().node(id(r, "row")).unwrap().frame.x;
+    let mut r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:person\"\n      text \"Profile\"",
+    );
+    let x = |r: &Runner<NoData>| {
+        let row = r.kernel().node(id(r, "row")).unwrap();
+        let Dimension::Points(inset) = row.style.padding_left else {
+            panic!("point inset");
+        };
+        row.frame.x + inset
+    };
     assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
     let row = id(&r, "row");
     r.dispatch(row, exact_runner::Event::Press).unwrap();
@@ -330,7 +360,9 @@ fn a_symbol_under_a_condition_moves_the_text_with_it() {
 
 #[test]
 fn hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"pair\"\n      row\n        text \"A\"\n        text \"B\"\n    row display=\"none\"\n      text \"Hidden\"\n  section display=\"none\"\n    row\n      text \"Gone\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"pair\"\n      row\n        text \"A\"\n        text \"B\"\n    row display=\"none\"\n      text \"Hidden\"\n  section display=\"none\"\n    row\n      text \"Gone\"",
+    );
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     assert_eq!(list.sections.len(), 1, "a hidden section is none");
     assert_eq!(list.sections[0].rows.len(), 1, "a hidden row is none");
@@ -342,7 +374,9 @@ fn hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them() {
 
 #[test]
 fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
-    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section testId=\"a\"\n    button press=go\n      text \"A\"\n  section testId=\"b\"\n    button press=go\n      text \"B\"");
+    let r = boot(
+        "list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section testId=\"a\"\n    button press=go\n      text \"A\"\n  section testId=\"b\"\n    button press=go\n      text \"B\"",
+    );
     let k = r.kernel();
     let (a, b) = (
         k.node(id(&r, "a")).unwrap().frame,
@@ -357,7 +391,9 @@ fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
 
 #[test]
 fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"",
+    );
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
     assert_eq!(
@@ -378,7 +414,9 @@ fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them(
 
 #[test]
 fn a_text_after_a_condition_is_styled_by_the_condition() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
+    let mut r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"",
+    );
     let grow = |r: &Runner<NoData>| r.kernel().node(id(r, "title")).unwrap().style.flex_grow;
     assert_eq!(grow(&r), 1.0, "the title while `dark` is false");
     let row = id(&r, "row");
@@ -393,7 +431,9 @@ fn a_text_after_a_condition_is_styled_by_the_condition() {
 
 #[test]
 fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      if dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      if dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"",
+    );
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 60.0,
@@ -414,7 +454,9 @@ fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
 
 #[test]
 fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        if dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      if dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        if dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"",
+    );
     let k = r.kernel();
     assert!(
         k.node(id(&r, "stack")).unwrap().frame.height > 45.0,
@@ -433,13 +475,17 @@ fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
 #[test]
 fn round_three_shapes() {
     // A class that makes a row a native button.
-    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button class=Native press=go testId=\"native\"\n      text \"Native\"");
+    let src = app(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button class=Native press=go testId=\"native\"\n      text \"Native\"",
+    );
     let src = format!("style Native\n  appearance=\"auto\"\n{src}");
     contract::compile(&src)
         .unwrap_or_else(|e| panic!("a class-made native button row compiles: {e}"));
     // A conditional first subtitle line, a text field beside a column,
     // and a hidden leading symbol.
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
+    let mut r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"",
+    );
     let size = |r: &Runner<NoData>| r.kernel().node(id(r, "second")).unwrap().frame.height;
     let title = size(&r);
     assert!(
@@ -447,8 +493,8 @@ fn round_three_shapes() {
         "beside a text field the column is the author's"
     );
     assert_eq!(
-        r.kernel().node(id(&r, "plain")).unwrap().frame.x,
-        32.0,
+        r.kernel().node(id(&r, "plain")).unwrap().style.padding_left,
+        Dimension::Points(16.0),
         "a hidden symbol reserves no inset"
     );
     let row = id(&r, "row");
@@ -499,14 +545,13 @@ fn a_column_row_keeps_its_direction() {
         "stacked: {q:?} {choices:?} {answer:?}"
     );
     assert_eq!(
-        frame("form").x,
-        32.0,
-        "16 into the card, as a row without an icon"
+        q.x, 32.0,
+        "the content is 16 into the card, as a row without an icon"
     );
     assert_eq!(
         frame("one").height,
-        53.0,
-        "one line: a cell's 52 and its separator"
+        52.0,
+        "one line: a cell's 52, including its separator"
     );
     let own = boot("list appearance=\"auto\" flex=1\n  section\n    column flex-direction=\"row\" testId=\"strip\"\n      text \"A\" testId=\"a\"\n      text \"B\" testId=\"b\"");
     let k = own.kernel();
@@ -533,7 +578,7 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     let (card, title, actions) = (frame("card"), frame("title"), frame("actions"));
     assert_eq!(title.y - card.y, 15.0, "the title 15 under the card's top");
     assert_eq!(
-        card.y + card.height - 1.0 - (actions.y + actions.height),
+        card.y + card.height - (actions.y + actions.height),
         15.0,
         "the buttons 15 over the separator: {card:?} {actions:?}"
     );
@@ -546,17 +591,17 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     );
     assert_eq!(
         item.height,
-        lines.height + 31.0,
-        "15 above, 15 below, and the separator"
+        lines.height + 30.0,
+        "15 above and below; the separator is decoration"
     );
     assert_eq!(
         frame("one").height,
-        53.0,
-        "one text: a cell's 52 and its separator"
+        52.0,
+        "one text: a cell's 52, including its separator"
     );
     assert_eq!(
         frame("field").height,
-        53.0,
+        52.0,
         "a row of controls keeps the cell's 52"
     );
     assert!(
@@ -565,12 +610,12 @@ fn a_row_holding_its_own_stack_keeps_the_cells_margins() {
     );
     assert_eq!(
         frame("cover").height,
-        67.0,
+        66.0,
         "an empty column is a box (a cover's placeholder), not lines"
     );
     assert_eq!(
         frame("profile").height,
-        77.0,
+        76.0,
         "the stack's margins are its own: a taller avatar with its own sets the height"
     );
     // The author's padding replaces the sheet's, a shorthand included.
@@ -675,13 +720,15 @@ fn the_sheets_text_follows_the_root_font_size() {
             assert_eq!(size(t), want, "{name}: {t}");
         }
         let row = k.node(id(&r, "row")).unwrap().frame.height;
-        assert_eq!(row, 53.0, "{name}: a row is 52 and its separator");
+        assert_eq!(row, 52.0, "{name}: a row includes its separator in 52");
     }
 }
 
 #[test]
 fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
-    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
+    let mut r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        if dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"",
+    );
     assert!(
         r.kernel().node(id(&r, "stack")).unwrap().frame.height > 60.0,
         "two shown lines: the subtitle cell's padding"
@@ -702,7 +749,9 @@ fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
 
 #[test]
 fn a_transparent_section_has_no_card() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\" testId=\"head\"\n    row testId=\"profile\"\n      image \"avatar.png\" width=80 height=80\n      text \"Maya Chen\"\n  section\n    button press=go testId=\"mute\"\n      text \"Mute\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\" testId=\"head\"\n    row testId=\"profile\"\n      image \"avatar.png\" width=80 height=80\n      text \"Maya Chen\"\n  section\n    button press=go testId=\"mute\"\n      text \"Mute\"",
+    );
     let k = r.kernel();
     let list = k.grouped_list(id(&r, "list")).unwrap();
     assert!(
@@ -729,7 +778,9 @@ fn a_transparent_section_has_no_card() {
 
 #[test]
 fn a_cardless_section_draws_no_separators_and_takes_only_transparent() {
-    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button press=go testId=\"a\"\n      text \"A\"\n    button press=go testId=\"b\"\n      text \"B\"");
+    let r = boot(
+        "list appearance=\"auto\" testId=\"list\" flex=1\n  section background-color=\"transparent\"\n    button press=go testId=\"a\"\n      text \"A\"\n    button press=go testId=\"b\"\n      text \"B\"",
+    );
     let k = r.kernel();
     let a = k.node(id(&r, "a")).unwrap();
     assert_eq!(
@@ -785,13 +836,13 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
         "30 and 40 meet as 40, not 70, above the header"
     );
     // The kernel's own layout (which the web host follows) agrees: the
-    // rows are 40 apart where the margins meet, less the separator's overlap.
+    // rows are 40 apart where the margins meet; separator paint adds no height.
     let a = k.node(id(&r, "a")).unwrap().frame;
     let header_top = k.node(id(&r, "more")).unwrap().frame.y;
     assert!(
-        (header_top - (a.y + a.height - 1.0) - 40.0).abs() < 0.5,
+        (header_top - (a.y + a.height) - 40.0).abs() < 0.5,
         "web gap {}",
-        header_top - (a.y + a.height - 1.0)
+        header_top - (a.y + a.height)
     );
     assert_eq!(
         list.sections[2].space_above,
@@ -806,7 +857,9 @@ fn authored_margins_collapse_as_the_web_lays_them_out() {
 
 #[test]
 fn a_negative_margin_collapses_as_css_has_it() {
-    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=-10\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=17.33\n    button press=go testId=\"c\"\n      text \"Help\"");
+    let r = boot(
+        "list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section margin-bottom=30\n    button press=go testId=\"a\"\n      text \"Account\"\n  section margin-top=-10\n    button press=go testId=\"b\"\n      text \"Chats\"\n  section margin-top=17.33\n    button press=go testId=\"c\"\n      text \"Help\"",
+    );
     let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
     assert_eq!(
         list.sections[1].space_above,
@@ -819,6 +872,8 @@ fn a_negative_margin_collapses_as_css_has_it() {
         "17.33 is the author's: they wrote it"
     );
 }
+
+mod boxes;
 
 #[test]
 fn default_buttons_keep_grouped_titles_presses_and_detail_accessories() {
@@ -888,9 +943,17 @@ fn the_sheet_names_the_platforms_metrics_and_an_author_cannot() {
     assert_eq!(row.style.min_height, exact_kernel::Dimension::Points(52.0));
     assert_eq!(row.style.appearance, exact_kernel::Appearance::None);
     assert!(
-        !row.style.mask.has(exact_kernel::StyleId::PaddingTop)
-            && !row.style.mask.has(exact_kernel::StyleId::PaddingLeft),
-        "the Mac's rows are no row here"
+        !row.style.mask.has(exact_kernel::StyleId::PaddingTop),
+        "the Mac's block padding is no row here"
+    );
+    assert_eq!(
+        row.style.padding_left,
+        exact_kernel::Dimension::Points(16.0),
+        "the leading inset is inside the row"
+    );
+    assert!(
+        !row.style.written.has(exact_kernel::StyleId::PaddingLeft),
+        "the inset remains user-agent style"
     );
     let red = ColorValue::Role(exact_kernel::style::roles::role("-exact-system-red").unwrap());
     assert_eq!(row.style.text_color, red);

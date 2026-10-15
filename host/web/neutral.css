@@ -39,15 +39,15 @@
      while pressed. `bordered` and the unsaid button are an outline in the label's ink; `gray` a neutral fill; `filled`
      the accent under the ink that reads on it; `tinted` and `plain` the accent as ink. `destructive` is the red as the
      button's accent, so an outline or a grey button takes red ink. */
-  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; line-height: 1.25; }
-  #exact-root button[data-button-style]:has(> img:only-child) { padding-inline: .5em; }
+  #exact-root button[data-button-style] { min-height: 2.25em; min-width: 2.25em; border: 1px solid transparent; padding: .4375em 1em; padding-left: calc(1em + var(--exact-grouped-button-inset, 0px)); line-height: 1.25; }
+  #exact-root button[data-button-style]:has(> img:only-child) { padding-inline: .5em; padding-left: calc(.5em + var(--exact-grouped-button-inset, 0px)); }
   @media (pointer: coarse) { #exact-root button[data-button-style] { min-height: 44px; min-width: 44px; } }
   /* The floor and the padding are the look's, and a size the author wrote is the author's (LLP 1115: what is written
      wins). In CSS a minimum outranks a size, and a border box is never narrower than its padding, so the host names a
      written `width` or `height` (`data-exact-said`, D2's bit) and on that axis the look steps aside: the minimum is
      CSS's own again and the label is centred in the box that was written, which is the box the kernel lays out. */
   #exact-root button[data-button-style][data-exact-said~="height"] { min-height: auto; padding-block: 0; }
-  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; }
+  #exact-root button[data-button-style][data-exact-said~="width"] { min-width: auto; padding-inline: 0; padding-left: var(--exact-grouped-button-inset, 0px); }
   #exact-root button[data-button-style][data-pressed] > * { opacity: 1; }
   #exact-root button:is([data-button-style="bordered"], [data-button-style="gray"]) { background-color: transparent; color: var(--exact-label); }
   #exact-root button[data-button-style="bordered"] { border-color: var(--exact-line); }

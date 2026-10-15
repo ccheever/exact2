@@ -1126,6 +1126,7 @@ package final class Presenter {
                     container.addSubview(child)
                 }
                 orderChildren(want, in: container)
+                parent.invalidateGroupedSeparators()
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }

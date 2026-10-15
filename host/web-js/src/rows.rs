@@ -159,7 +159,7 @@ impl Em<'_> {
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -341,6 +341,45 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if parts.props.contains_key("data-grouped-row-separator") {
+            match id {
+                StyleId::Display => {
+                    let p = self.uses.rt("P");
+                    let _ = write!(self.out, "{p}({e},\"data-grouped-row-hidden\",()=>({f})()===\"none\"?\"true\":null);");
+                }
+                StyleId::PaddingLeft | StyleId::BorderColorBottom => {
+                    let alias = if id == StyleId::PaddingLeft {
+                        "--exact-grouped-inset"
+                    } else {
+                        "--exact-grouped-separator"
+                    };
+                    if let Some((_, unit, map)) = writes.first().cloned() {
+                        writes.push((alias.into(), unit, map));
+                    }
+                }
+                StyleId::BackgroundImage
+                | StyleId::BackgroundClip
+                | StyleId::BackgroundAttachment => {
+                    let alias = match id {
+                        StyleId::BackgroundImage => "--exact-grouped-row-background",
+                        StyleId::BackgroundClip => "--exact-grouped-row-background-clip",
+                        _ => "--exact-grouped-row-background-attachment",
+                    };
+                    if let Some((_, unit, map)) = writes.first().cloned() {
+                        writes.push((alias.into(), unit, map));
+                    }
+                }
+                StyleId::Transition => {
+                    for (name, _, map) in &mut writes {
+                        if name == "transition" {
+                            let m = map.take().unwrap_or_else(|| "v=>v".into());
+                            *map = Some(format!("v=>{{const t=({m})(v);return t==null?t:t.split(/,(?![^(]*\\))/).flatMap(p=>/(^|\\s)border-(bottom-)?color(?=\\s|$)/.test(p)?[p,p.replace(/(^|\\s)border-(bottom-)?color(?=\\s|$)/,\"$1--exact-grouped-separator\")]:[p]).join(\",\")}}"));
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).
@@ -359,6 +398,11 @@ impl Em<'_> {
         // itself: that token's colour stands by tuple (`data-x-accent`), as
         // css.rs leaves a self-reference out; a clear there writes nothing.
         for (name, unit, map) in writes {
+            let s = if name == "--exact-grouped-inset" {
+                self.uses.rt("groupedInset")
+            } else {
+                s.clone()
+            };
             let modes = crate::modes::active(plan);
             let channel = crate::modes::CHANNELS
                 .iter()
@@ -387,6 +431,34 @@ impl Em<'_> {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn grouped_inset(&mut self, i: u32, e: &str, css: &str) {
+        if self.plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| self.plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Style
+                    && b.id == StyleId::PaddingLeft as u16
+                    && style::literal(self.plan, self.plan.code(b.expr)).is_none()
+            })
+        {
+            return;
+        }
+        let Some(raw) = css
+            .split(';')
+            .find_map(|d| d.strip_prefix("--exact-grouped-inset:"))
+            .filter(|v| v.contains('%'))
+        else {
+            return;
+        };
+        let raw = serde_json::to_string(raw).unwrap();
+        let gi = self.uses.rt("groupedInset");
+        let _ = write!(
+            self.out,
+            "{gi}({e},\"--exact-grouped-inset\",\"\",()=>{raw});"
+        );
     }
 
     /// A Markdown text field is the web host's own editor (LLP 1045 D5:
@@ -809,7 +881,7 @@ mod tests {
     /// runs (LLP 1115.002 D6): the page, which keeps no kernel, reads each
     /// name as its value in the web's column, as the kernel reads a literal
     /// one. A number takes the row's `px`, a role goes on through the colour
-    /// map, and a metric with no row on the web unsets the row.
+    /// map.
     #[test]
     fn a_bound_metric_is_its_value_in_the_webs_column() {
         let plan = contract::compile(
@@ -849,7 +921,7 @@ mod tests {
         // The row starts at its text, after a symbol where one is shown.
         assert_eq!(
             run(
-                &named("margin_left"),
+                &named("padding_left"),
                 &[
                     "-exact-grouped-row-inset",
                     "-exact-grouped-row-inset-symbol",
@@ -865,14 +937,6 @@ mod tests {
                 &["-exact-grouped-destructive-color", "-exact-label"]
             ),
             serde_json::json!(["-exact-system-red", "-exact-label"])
-        );
-        // The Mac's push button's padding is no row on the web.
-        assert_eq!(
-            run(
-                &named("padding_left"),
-                &["-exact-grouped-button-padding-start", "unset"]
-            ),
-            serde_json::json!([null, "unset"])
         );
     }
 

@@ -215,6 +215,12 @@
       "kind": "bool"
     },
     {
+      "id": 8,
+      "name": "groupedRowSeparator",
+      "kind": "bool",
+      "_comment": "Set by Contract, never authored: a card row in a native list. Hosts paint an inset separator when a later visible card row follows; the decoration contributes no layout box."
+    },
+    {
       "id": 9,
       "name": "lang",
       "kind": "str"

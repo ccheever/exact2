@@ -20,8 +20,12 @@ fn fixture(text: &str) -> Presenter<()> {
 
 #[test]
 fn nested_text_paints_the_same_paragraph_that_layout_measured() {
-    let mut plain = fixture("      text \"Alpha beta gamma delta. Another line wraps here.\" testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n");
-    let mut nested = fixture("      text testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n        text \"Alpha beta \"\n        text\n          text \"gamma delta. \"\n          text \"Another line wraps here.\"\n");
+    let mut plain = fixture(
+        "      text \"Alpha beta gamma delta. Another line wraps here.\" testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n",
+    );
+    let mut nested = fixture(
+        "      text testId=\"paragraph\" font-size=16 line-height=1.5 color=\"#234567\"\n        text \"Alpha beta \"\n        text\n          text \"gamma delta. \"\n          text \"Another line wraps here.\"\n",
+    );
     for width in [300.0, 160.0, 240.0] {
         assert!(plain.resize(width, 300.0).is_none());
         assert!(nested.resize(width, 300.0).is_none());
@@ -166,7 +170,9 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
 #[test]
 fn own_text_suppresses_inline_descendants_in_measurement_and_paint() {
     let mut plain = fixture("      text \"Owner\" font-size=24 color=\"#ff0000\"\n");
-    let mut nested = fixture("      text \"Owner\" font-size=24 color=\"#ff0000\"\n        text \"Must not paint\" color=\"#0000ff\"\n");
+    let mut nested = fixture(
+        "      text \"Owner\" font-size=24 color=\"#ff0000\"\n        text \"Must not paint\" color=\"#0000ff\"\n",
+    );
     assert_eq!(plain.frame().data(), nested.frame().data());
 }
 
@@ -381,4 +387,160 @@ fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
         passes + 2,
         "replacement kernels invalidate ranks"
     );
+}
+
+#[test]
+fn grouped_separators_stay_inside_full_width_rows_after_resize() {
+    let mut p = fixture(
+        r##"      list appearance="auto" listStyle="plain" width="100%" height=180
+        section
+          row width="100%" testId="first" padding-left=24 border-bottom-color="#ff0000"
+          row width="100%" testId="last" border-bottom-width=4 border-bottom-style="solid" border-bottom-color="#0000ff"
+"##,
+    );
+    for width in [300.0, 160.0, 240.0] {
+        assert!(p.resize(width, 300.0).is_none());
+        let row = |name| {
+            let kernel = p.host().kernel();
+            kernel
+                .node_by_key(kernel.find_by_test_id(name)[0])
+                .unwrap()
+                .frame
+        };
+        let first = row("first");
+        let last = row("last");
+        assert_eq!(first.x, 20.0);
+        assert_eq!(first.width, width - 40.0);
+        assert_eq!(
+            first.height, 52.0,
+            "system separator consumes no layout height"
+        );
+        let frame = p.frame();
+        let pixel = |x: f32, y: f32| {
+            let index = (y as usize * frame.width() as usize + x as usize) * 4;
+            &frame.data()[index..index + 4]
+        };
+        let bottom = first.y + first.height - 1.0;
+        assert_eq!(pixel(first.x + 23.0, bottom), [255, 255, 255, 255]);
+        assert_eq!(pixel(first.x + 24.0, bottom), [255, 0, 0, 255]);
+        assert_eq!(pixel(first.x + first.width - 1.0, bottom), [255, 0, 0, 255]);
+        assert_eq!(
+            pixel(last.x, last.y + last.height - 1.0),
+            [0, 0, 255, 255],
+            "the last row keeps its authored CSS border across its whole box"
+        );
+        assert_eq!(
+            pixel(last.x + last.width - 1.0, last.y + last.height - 1.0),
+            [0, 0, 255, 255]
+        );
+    }
+}
+
+#[test]
+fn a_hidden_last_grouped_row_leaves_no_separator_on_the_previous_row() {
+    let mut p = fixture(
+        r##"      list appearance="auto" listStyle="plain" width="100%" height=180
+        section
+          row width="100%" testId="first" border-bottom-color="#ff0000"
+          row width="100%" display="none"
+"##,
+    );
+    let kernel = p.host().kernel();
+    let row = kernel
+        .node_by_key(kernel.find_by_test_id("first")[0])
+        .unwrap()
+        .frame;
+    let frame = p.frame();
+    let start = ((row.y + row.height - 1.0) as usize * frame.width() as usize + row.x as usize) * 4;
+    assert!(frame.data()[start..start + row.width as usize * 4]
+        .chunks_exact(4)
+        .all(|pixel| pixel == [255, 255, 255, 255]));
+}
+
+#[test]
+fn grouped_separator_stays_above_an_authored_border() {
+    let mut p = fixture(
+        r##"      list appearance="auto" listStyle="plain" width="100%" height=180
+        section
+          row width="100%" testId="first" color="#ff0000" padding-left=24 border-left-width=2 border-right-width=3 border-bottom-width=4 border-style="solid" border-color="#0000ff"
+          row width="100%"
+"##,
+    );
+    let kernel = p.host().kernel();
+    let row = kernel
+        .node_by_key(kernel.find_by_test_id("first")[0])
+        .unwrap()
+        .frame;
+    let frame = p.frame();
+    let pixel = |x: f32, y: f32| {
+        let index = (y as usize * frame.width() as usize + x as usize) * 4;
+        &frame.data()[index..index + 4]
+    };
+    let separator_y = row.y + row.height - 5.0;
+    assert_eq!(pixel(row.x + 25.0, separator_y), [255, 255, 255, 255]);
+    assert_eq!(pixel(row.x + 26.0, separator_y), [0, 0, 255, 255]);
+    assert_eq!(pixel(row.x + 26.0, separator_y - 1.0), [255, 255, 255, 255]);
+    assert_eq!(
+        pixel(row.x, separator_y + 1.0),
+        [0, 0, 255, 255],
+        "the authored border fills the bottom four points"
+    );
+    let id = p
+        .host()
+        .kernel()
+        .node_by_key(p.host().kernel().find_by_test_id("first")[0])
+        .unwrap()
+        .id;
+    p.host_mut().apply_test_ops(&[exact_kernel::Op::ClearStyle {
+        id,
+        mask: StyleMask::of(StyleId::BorderColorBottom),
+        written: false,
+    }]);
+    let frame = scene_frame(&p, false, Box::new(crate::raster::Raster::new())).pixmap;
+    let border = ((row.y + row.height - 1.0) as usize * frame.width() as usize
+        + (row.x + 30.0) as usize)
+        * 4;
+    assert_eq!(&frame.data()[border..border + 4], [255, 0, 0, 255],
+        "an unset authored border color uses currentColor, independently of the system separator ink");
+}
+
+#[test]
+fn grouped_separator_uses_resolved_percentage_padding_after_parent_resize() {
+    for padding in ["10%", "calc(10% + 2px)"] {
+        let mut p = fixture(&format!(
+            r##"      list appearance="auto" listStyle="plain" width="100%" height=180
+        section
+          row width=100 testId="first" padding-left="{padding}" border-width=0 border-left-width=2 border-right-width=3 border-style="solid" border-color="white" border-bottom-color="#ff0000"
+          row width=100
+"##
+        ));
+        for width in [340.0, 440.0, 240.0] {
+            assert!(p.resize(width, 300.0).is_none());
+            let k = p.host().kernel();
+            let row = k.node_by_key(k.find_by_test_id("first")[0]).unwrap();
+            assert_eq!(row.frame.width, 100.0);
+            let expected = (width - 40.0) * 0.1
+                + if padding.starts_with("calc") {
+                    2.0
+                } else {
+                    0.0
+                };
+            assert!((k.resolved_padding(row.key).unwrap().0 - expected).abs() < 0.001);
+            let (x, y) = (
+                row.frame.x + 2.0 + expected,
+                row.frame.y + row.frame.height - 1.0,
+            );
+            let frame = p.frame();
+            let pixel = |x: f32| {
+                let i = (y as usize * frame.width() as usize + x as usize) * 4;
+                &frame.data()[i..i + 4]
+            };
+            assert_eq!(
+                pixel(x - 1.0),
+                [255, 255, 255, 255],
+                "{padding} at parent {width}"
+            );
+            assert_eq!(pixel(x), [255, 0, 0, 255], "{padding} at parent {width}");
+        }
+    }
 }

@@ -44,6 +44,8 @@ mod batch_tests;
 pub mod css;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod dev;
+#[path = "grouped_css.rs"]
+pub mod grouped;
 pub mod host;
 pub mod link;
 pub mod motion;

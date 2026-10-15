@@ -1089,6 +1089,7 @@ package final class Presenter {
             else { current.insert(child, at: i) }
         }
         flats.mounted(parent.id)
+        parent.invalidateGroupedSeparators()
         if parent === navigation.container { navigation.placeOwner() }
     }
 

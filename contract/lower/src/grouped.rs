@@ -133,9 +133,8 @@ pub(crate) fn native_rows(sheet: &mut Vec<Attr>) {
     let Some(span) = sheet.first().map(|a| a.span) else {
         return;
     };
-    // Its own inset, which knows a leading symbol; the rest is a button's.
-    sheet.retain(|a| a.name == "margin-left");
-    sheet.extend(split(&native_row(span)[1..]).0);
+    sheet.retain(|a| a.name == "ua:groupedRowSeparator");
+    sheet.extend(split(&native_row(span)).0);
 }
 
 /// A native button row's sheet (LLP 1069.011): the platform's control, at
@@ -144,7 +143,7 @@ pub(crate) fn native_rows(sheet: &mut Vec<Attr>) {
 /// margins and its place are metrics too, and are no row elsewhere.
 fn native_row(span: Span) -> Vec<Attr> {
     vec![
-        m("margin-left", "row-inset", span),
+        s("position", "relative", span),
         m("min-height", "button-min-height", span),
         m("margin-top", "button-margin-block", span),
         m("margin-bottom", "button-margin-block", span),
@@ -223,7 +222,11 @@ pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
         .into_iter()
         .filter(|a| a.name != BUTTON_CONTEXT)
         .map(|a| Attr {
-            name: a.name[MARK.len()..].to_owned(),
+            name: if a.name == "ua:groupedRowSeparator" {
+                a.name.clone()
+            } else {
+                a.name[MARK.len()..].to_owned()
+            },
             ..a
         })
         .collect();
@@ -539,6 +542,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             _ => "label-inset-plain",
         };
         let mut rows = vec![
+            s("box-sizing", "border-box", span),
             m("padding-left", edge, span),
             m("padding-right", edge, span),
         ];
@@ -600,14 +604,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     if let Some(corner) = corner.filter(|_| !cardless) {
         group.push(m("border-radius", corner, span));
     }
-    // Every row draws the separator under it and overlaps the next by its
-    // width; the group clips the last one away (`row`). Where a platform's
-    // separator stands between two rows and takes no height from either
-    // (the Mac's), the rows are that far apart and the separator is drawn
-    // in the gap; no row elsewhere.
-    if !cardless {
-        group.push(m("row-gap", "separator-gap", span));
-    }
+    // The separator is decoration inside the row, not a border or a gap.
     group.push(s("overflow", "hidden", span));
     let body = rows
         .iter()
@@ -752,7 +749,19 @@ fn row(node: &Node, separated: bool) -> Node {
         .find(|a| a.name == "appearance")
         .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"));
     if native {
-        return with(node, [context, native_row(span)].concat());
+        return with(
+            node,
+            [
+                context,
+                native_row(span),
+                vec![attr(
+                    "groupedRowSeparator",
+                    Expr::Bool(separated, span),
+                    span,
+                )],
+            ]
+            .concat(),
+        );
     }
     // A destructive row's ink is the platform's (red in UIKit's list, the
     // label's in the Mac's form, whose button says it); a disabled row is the
@@ -781,7 +790,6 @@ fn row(node: &Node, separated: bool) -> Node {
             span,
         )
     };
-    let unset = || Expr::Str("unset".into(), span);
     // The row starts at its text: after a leading symbol, a symbol shown
     // by a condition included, as `part` styles it.
     fn inset(first: Option<&Node>, span: Span) -> Expr {
@@ -825,20 +833,15 @@ fn row(node: &Node, separated: bool) -> Node {
             s("flex-direction", "column", span),
             s("justify-content", "center", span),
             m("gap", if stack { "stack-gap" } else { "row-gap" }, span),
-            m("min-height", "stack-min-height", span),
-            m("margin-left", "row-inset", span),
-            m("margin-right", "row-margin-end", span),
-            m("padding-right", "row-padding-end", span),
+            m("min-height", "row-min-height", span),
+            s("box-sizing", "border-box", span),
+            s("position", "relative", span),
+            m("padding-left", "row-inset", span),
+            m("padding-right", "row-inset", span),
             m("padding-top", "stack-padding-block", span),
             m("padding-bottom", "stack-padding-block", span),
-            n(
-                "border-bottom-width",
-                if separated { 1.0 } else { 0.0 },
-                span,
-            ),
-            s("border-bottom-style", "solid", span),
+            attr("groupedRowSeparator", Expr::Bool(separated, span), span),
             m("border-bottom-color", "separator", span),
-            n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
             s("font-size", BODY, span),
             attr("color", tint(label()), span),
             s("text-align", "left", span),
@@ -883,7 +886,7 @@ fn row(node: &Node, separated: bool) -> Node {
             )
         });
     let row_height = mv("row-min-height", span);
-    let row_end = mv("row-padding-end", span);
+    let row_end = mv("row-inset", span);
     let mut sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
@@ -894,37 +897,28 @@ fn row(node: &Node, separated: bool) -> Node {
         } else {
             attr("min-height", row_height, span)
         },
+        s("box-sizing", "border-box", span),
+        s("position", "relative", span),
         attr(
-            "margin-left",
+            "padding-left",
             inset(children.iter().find(|c| !hidden(c)), span),
             span,
         ),
-        m("margin-right", "row-margin-end", span),
         attr("padding-right", row_end, span),
         m("padding-top", "row-padding-block", span),
         m("padding-bottom", "row-padding-block", span),
-        // A card-less section's rows draw no separator (§6.2).
-        n(
-            "border-bottom-width",
-            if separated { 1.0 } else { 0.0 },
-            span,
-        ),
-        s("border-bottom-style", "solid", span),
+        attr("groupedRowSeparator", Expr::Bool(separated, span), span),
         m("border-bottom-color", "separator", span),
-        n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         s("font-size", BODY, span),
         attr("color", tint(label()), span),
         s("text-align", "left", span),
     ];
     if destructive {
-        sheet.extend([
-            button("padding-left", "button-padding-start", unset()),
-            button(
-                "appearance",
-                "button-appearance",
-                Expr::Str("none".into(), span),
-            ),
-        ]);
+        sheet.push(button(
+            "appearance",
+            "button-appearance",
+            Expr::Str("none".into(), span),
+        ));
     }
     // The title grows to push a value to the far edge; a push button's is
     // as wide as its words.
