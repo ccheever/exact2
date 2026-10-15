@@ -44,6 +44,9 @@ struct HeaderShape: Equatable {
         /// the item's menu, its rows read when it opens, as LLP 1021 D3's
         /// pull-down.
         let menu: Bool
+        /// The popover's `aria-label`: the menu's title, as an in-page
+        /// button's is (MenusIOS: "Open location in", "Sort by").
+        let menuTitle: String
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
@@ -73,7 +76,9 @@ struct HeaderShape: Equatable {
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
-            menu = button.presenter?.invocation(of: button)?.opensPopover == true
+            let invocation = button.presenter?.invocation(of: button)
+            menu = invocation?.opensPopover == true
+            menuTitle = menu ? invocation?.target.props["accessibilityLabel"] ?? "" : ""
             self.symbol = symbol
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
@@ -93,7 +98,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu):\(menuTitle):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -949,8 +954,8 @@ extension NavigationHost {
         if i.menu, let button = presenter.views[i.id] {
             // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
             let deferred = presenter.menus.pullDown(of: button, inBar: true)
-            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(children: [deferred])) }
-                ?? UIBarButtonItem(title: i.title, menu: UIMenu(children: [deferred]))
+            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(title: i.menuTitle, children: [deferred])) }
+                ?? UIBarButtonItem(title: i.title, menu: UIMenu(title: i.menuTitle, children: [deferred]))
         } else {
             item = image.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
                 ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
