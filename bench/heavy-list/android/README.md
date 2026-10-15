@@ -455,7 +455,7 @@ Evidence remains in ignored `target/android-heavy-list-20261008/`: `comparative-
 
 The Android image cache now follows Apple’s owning-viewport budget policy: eight RGBA viewports, bounded to 32–64 MiB on Android. The existing hidden/detached ExactView lifecycle drops cached leases while active views keep their pixels. This adds 13 runtime lines and no configuration, dependency, JNI or shared-kernel change. Apple bounds resident plus reserved pixels; this Android LRU bounds cached pixels.
 
-The final release cohort uses three repetitions per arm and speed (24 fresh Galaxy A57/API36/120Hz processes), the original 10,000-message/104-JPEG workload, eight-second intervals after 1.5 seconds of warmup, Live OFF and ART speed compilation. Views and Compose use isolated controls with the same 64 MiB viewport budget; the repository’s default reference loader remains 32 MiB. No profiler, video or forced GC enters timing. Scroll acknowledgments and raw medians are verified; thermal status is zero in all phases.
+The final release cohort uses three repetitions per arm and speed (24 fresh Galaxy A57/API36/120Hz processes), the original 10,000-message/104-JPEG workload, eight-second intervals after 1.5 seconds of warmup, Live OFF and ART speed compilation. Views and Compose use isolated controls with the same 64 MiB viewport budget; the repository’s reference loader was still fixed at 32 MiB for that cohort. No profiler, video or forced GC enters timing. Scroll acknowledgments and raw medians are verified; thermal status is zero in all phases.
 
 | Speed dp/s | Renderer | Cache cap MiB | UI CPU % | Process CPU % | Endpoint PSS MiB | Window p95 ms |
 |---:|---|---:|---:|---:|---:|---:|
@@ -475,3 +475,74 @@ An excluded counter capture for the same 64 MiB sizing policy observes 318 → 2
 The actual release SDK passes cache resize/trim/close pixel lifetime checks, real session hiding, SDK text metric/paint checks, borders, pending intrinsics, collection coverage and empty batches. Native Android Rust tests pass (60). Build, Clippy, fmt, caps and boot pass; the full default-member suite still fails only the two unchanged exact-bake asset watcher tests. No current-main or independent presentation claim is made.
 
 Raw build/source/APK receipts, 24 phase logs and verified medians remain in ignored `target/android-image-cache-session-lifetime-20261010/`. Earlier sizing and counter captures are separate cohorts; their percentages are not additive.
+
+
+## Redmi release campaign, 2026-10-15
+
+The frozen C9 runtime below is `c4e387816`; the independent main reference is
+`9479c6464`. These are separate balanced N=4 cohorts on Redmi Note15 /2510DRA23E
+(Android16, MT6789), release/R8, full ART speed compilation, Live OFF and the
+unchanged 10,000-message/104-JPEG dataset. Each scroll interval is 8s; actual applied
+motion, APK, fresh PID, geometry and thermal state are verified. CPU 100% is one
+fully occupied core. PSS is an external `dumpsys meminfo` endpoint after scrolling,
+without forced GC; it is neither peak memory nor total GPU allocation.
+
+| Stack | Process CPU at 1,000 dp/s | PSS at 1,000 dp/s | Process CPU at 24,000 dp/s | PSS at 24,000 dp/s |
+|---|---:|---:|---:|---:|
+| C9 native Views | 71.76%|85.95MiB|151.77%|102.21MiB|
+| Android Views |61.84%|70.78MiB|150.36%|84.32MiB|
+| Jetpack Compose |64.56%|77.94MiB|146.13%|89.87MiB|
+| Main947 Canvas |75.16%|83.73MiB|119.36%|97.39MiB|
+
+At1k all four image budgets are 64 MiB. At24k main uses its shipped viewport policy
+(~108 MiB), while C9/Views/Compose use 64 MiB; this is a default-policy comparison.
+A separate same-APK main cache-control N=4 cohort raised process CPU by 7.35% when
+its budget was reduced to 64 MiB (all four pairs); it is not pooled into the table.
+The reference source now uses SDK hardware decoding and the measured viewport
+budget: initially 32 MiB, then eight RGBA viewports clamped to 32–64 MiB. Earlier
+software-reference and Galaxy cohorts above remain separate.
+
+C9 still uses 16.04%/11.15% more process CPU than Views/Compose at 1,000 dp/s and 0.93%/3.86%
+more at 24,000 dp/s. Its PSS remains 21.43%/10.27% higher at 1,000 dp/s and 21.22%/13.73% higher at 24,000 dp/s.
+The direct public-NDK JPEG path keeps SDK Bitmap/ImageView rendering and removes
+the software-bitmap retention/upload cost; it does not establish native parity.
+
+Startup uses a separate common local-touch observer. Each install receives one
+discarded startup-only prime and at least 500 ms idle; measurement then launches a fresh
+process without reinstall. This avoids including main's per-install 104-asset
+extraction in every measured launch. Installed assets, OS/code/driver caches are
+warm; the process is cold. All 16 measured launches succeeded, with no timeouts.
+
+| Stack | First content draw, median | Local input ACK, median |
+|---|---:|---:|
+| C9 native Views |445.11ms|501.68ms|
+| Android Views |480.95ms|553.60ms|
+| Jetpack Compose |487.58ms|566.59ms|
+| Main947 Canvas |385.14ms|446.14ms|
+
+ACK is the common local SDK touch sequence followed by a completed post-UP UI
+traversal reporting changed committed scroll state. It excludes hardware input
+dispatch, image completion and physical/GPU presentation. C9 ACK is 9.38%/11.46%
+lower than Views/Compose; main remains 55.54 ms faster. N=4 medians are descriptive.
+Earlier install-cold startup cohorts are retained and are not pooled here.
+
+A separate diagnostic slow-scroll profile places the largest remaining non-UI gap
+on RenderThread: C9/Views/Compose scheduled CPU is 3,675/3,235/3,040 ms per 8 s. UI CPU
+is 1,636/1,360/1,795 ms. Sampling includes tracing cost and incomplete OEM unwinding;
+these values identify investigation areas, not release speedups. Text measurement
+is not established as the dominant gap. Fewer carriers alone are not a CPU result.
+
+C9's APK is 28.75 MiB including benchmark assets, versus 8.97 MiB Views and 10.23 MiB
+Compose. File-backed encoded plan/value-pool residency and the adopted live feed
+contribute to RAM; no forced reclamation or accounting shift is counted as a win.
+Main947 also uses a newer shared Runner/Plan/kernel than C9, so the whole gap must
+not be attributed to the Android presentation layer.
+
+Raw frozen evidence is retained under the campaign output directory: fast
+`four-hardware-r2`, slow `four-hardware-slow-r1`, startup
+`input-ready/four-primed-install-cold-process-n4-r1`, and the separate
+`main-cache-policy-n4-r1`. Each has APK/PID/source/interval-bound receipts. Private
+carrier and LTO experiments are excluded. Redmi Window metrics and callback
+counts are not presented FPS. Release build/R8/lint, the 304-case image pixel/metric
+oracle, kernel tests, Clippy/fmt/caps/boot passed; the broader test run retains two
+unchanged exact-bake asset-watch failures.
