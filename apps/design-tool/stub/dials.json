@@ -1107,5 +1107,136 @@
     }
    ]
   }
+ },
+ "explain": {
+  "surface.page": {
+   "dials": [],
+   "names": [],
+   "token": "surface.page",
+   "value": "light-dark(#ffffff, #000000)",
+   "whens": [
+    {
+     "value": "light-dark(#ffffff, #15202b)",
+     "when": [
+      {
+       "axis": "dark-style",
+       "value": "dim"
+      }
+     ]
+    }
+   ]
+  },
+  "surface.card": {
+   "dials": [],
+   "names": [],
+   "token": "surface.card",
+   "value": "light-dark(#f1f3f5, #16181c)",
+   "whens": [
+    {
+     "value": "light-dark(#f1f3f5, #1e2732)",
+     "when": [
+      {
+       "axis": "dark-style",
+       "value": "dim"
+      }
+     ]
+    }
+   ]
+  },
+  "surface.inset": {
+   "dials": [],
+   "names": [],
+   "token": "surface.inset",
+   "value": "light-dark(#f8f9fa, #101214)",
+   "whens": [
+    {
+     "value": "light-dark(#eef0f2, #0c0e10)",
+     "when": [
+      {
+       "axis": "density",
+       "value": "compact"
+      }
+     ]
+    }
+   ]
+  },
+  "accent.fill": {
+   "dials": [
+    "accent"
+   ],
+   "names": [],
+   "token": "accent.fill",
+   "value": "accent",
+   "whens": []
+  },
+  "accent.soft": {
+   "dials": [
+    "accent",
+    "lift"
+   ],
+   "names": [],
+   "token": "accent.soft",
+   "value": "oklch(from accent calc(l + lift) c h)",
+   "whens": []
+  },
+  "tone.base": {
+   "dials": [
+    "hue",
+    "chroma"
+   ],
+   "names": [],
+   "token": "tone.base",
+   "value": "oklch(0.6 chroma hue)",
+   "whens": []
+  },
+  "tone.warm": {
+   "dials": [
+    "warmth"
+   ],
+   "names": [],
+   "token": "tone.warm",
+   "value": "oklch(0.7 0.1 warmth)",
+   "whens": []
+  },
+  "tone.deep": {
+   "dials": [
+    "accent",
+    "shade"
+   ],
+   "names": [],
+   "token": "tone.deep",
+   "value": "oklch(from accent calc(l - shade) c h)",
+   "whens": []
+  },
+  "text.primary": {
+   "dials": [],
+   "names": [],
+   "token": "text.primary",
+   "value": "light-dark(#0f1419, #e7e9ea)",
+   "whens": []
+  },
+  "text.system": {
+   "dials": [],
+   "names": [],
+   "token": "text.system",
+   "value": "-exact-secondary-label",
+   "whens": []
+  },
+  "ink.on-brand": {
+   "dials": [],
+   "names": [],
+   "token": "ink.on-brand",
+   "value": "#ffffff",
+   "whens": []
+  },
+  "-exact-label": {
+   "dials": [],
+   "names": [
+    "text.primary"
+   ],
+   "token": "-exact-label",
+   "value": "text.primary",
+   "whens": []
+  }
  }
 }

@@ -12,7 +12,7 @@ import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
 const TOKEN = 'stub-token';
-let EPOCH = 'stub-epoch', restarts = 0;
+let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
@@ -41,6 +41,12 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // scripts/design-tool.test.mjs checks the two still agree).
       if (request.method === 'describe') return send({ ok: DIALS.describe });
       if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: DIALS.resolve[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
+      if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: DIALS.explain[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
+      // A write is not applied: canned answers in its shape, enough for the
+      // tool's own flow (its edits are tested on a real server).
+      if (request.method === 'propose') return send({ ok: { files: FILES, class: 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
+      if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
   },

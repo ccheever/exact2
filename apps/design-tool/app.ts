@@ -126,15 +126,15 @@ type Axis = { name: string; values: string[]; under: string | null };
 /** The grid's columns: every app-mode tuple, light and dark. A light column
  * for an `under scheme=dark` axis's other values repeats the default's (the
  * axis varies the dark side only), so it is left out. */
-export function columnsOf(axes: Axis[]): { id: string; label: string; tuple: number; dark: boolean }[] {
+export function columnsOf(axes: Axis[]): { id: string; label: string; tuple: number; dark: boolean; values: string[] }[] {
   const tuples: string[][] = [[]];
   for (const a of axes) tuples.splice(0, tuples.length, ...tuples.flatMap(t => a.values.map(v => [...t, v])));
-  const out: { id: string; label: string; tuple: number; dark: boolean }[] = [];
+  const out: { id: string; label: string; tuple: number; dark: boolean; values: string[] }[] = [];
   for (const dark of [false, true]) {
     tuples.forEach((values, tuple) => {
       if (!dark && axes.some((a, i) => a.under === 'dark' && values[i] !== a.values[0])) return;
       const modes = values.filter((v, i) => !(axes[i].under === 'dark' && !dark) && v !== axes[i].values[0]);
-      out.push({ id: `${tuple}-${dark ? 'dark' : 'light'}`, label: [dark ? 'Dark' : 'Light', ...modes].join(' · '), tuple, dark });
+      out.push({ id: `${tuple}-${dark ? 'dark' : 'light'}`, label: [dark ? 'Dark' : 'Light', ...modes].join(' · '), tuple, dark, values });
     });
   }
   return out;
@@ -144,12 +144,51 @@ export function columnsOf(axes: Axis[]): { id: string; label: string; tuple: num
 type Stored = { css: string; srgb: string; residual: boolean; note: string };
 let stored = new Map<string, Stored[][]>();
 let columns: ReturnType<typeof columnsOf> = [];
+let axes: Axis[] = [];
+// Whether running apps take a value edit with no reload: a server says so
+// in its hello once it has the live table (LLP 1121 stage 4). Until then
+// every edit reaches them through the dev loop's reload.
+let liveTable = false;
+
+type When = { axis: string; value: string };
+const whenOf = (text: string): When[] => text.split(' ').filter(Boolean).map(w => { const [axis, value] = w.split('='); return { axis, value }; });
+const whenText = (w: When[]) => w.map(c => `${c.axis}=${c.value}`).sort().join(' ');
+
+/** An edit's operation in `tamber/1`'s shape, on `file` (the app's design
+ * when ""). */
+function opOf(file: string, kind: string, target: string, when: string, value: string): Record<string, unknown> {
+  const on = file ? { file } : {};
+  switch (kind) {
+    case 'set-dial': return { op: kind, name: target, value, ...on };
+    case 'set-token': return { op: kind, name: target, when: whenOf(when), value, ...on };
+    case 'add-token': return { op: kind, name: target, value, ...on };
+    case 'rename-token': return { op: kind, from: target, to: value, ...on };
+    default: return { op: 'remove-token', name: target, ...on };
+  }
+}
+const label = (kind: string, target: string, when: string, value: string) =>
+  kind === 'rename-token' ? `${target} → ${value}` : kind === 'remove-token' ? `removed ${target}` : `${target}${when ? ` when ${when}` : ''} = ${value}`;
+
+// The edit last reviewed (its key) and the digests `propose` read: a write
+// carries those, so anything written since is a conflict, never overwritten.
+let reviewed: { key: string; files: Record<string, string> } | null = null;
+type Entry = { inverse: string; ops: Record<string, unknown>[]; file: string; label: string };
+const undoStack: Entry[] = [], redoStack: Entry[] = [];
+const stacks = (ok: boolean, error: string, last: string) => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last });
+/** Who moved a file a refused write or undo found moved: its client, or
+ * "changed on disk". */
+const byWhom = (reply: Reply) => {
+  const by = (reply.error as { by?: Record<string, string> } | undefined)?.by ?? {};
+  const said = Object.entries(by).map(([file, who]) => `${file} was ${who === 'changed on disk' ? 'changed on disk' : `changed by ${who}`}`);
+  return said.length ? said.join('; ') : '';
+};
 
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [] };
     const ok = reply.ok ?? {};
+    liveTable = ok.live === true;
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
   },
   loadDesign: async ([file]) => {
@@ -157,7 +196,8 @@ const sources: Sources = {
     const described = await call('/__tamber', { method: 'describe', ...which });
     if (described.error) return noDesign(described.error);
     const ir = described.reply.ok.ir;
-    columns = columnsOf(ir.axes ?? []);
+    axes = ir.axes ?? [];
+    columns = columnsOf(axes);
     // Each token's stored value per tuple and scheme, a residual as its
     // fallback (no running app reports it until T2).
     const resolved = await Promise.all((ir.tokens ?? []).map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which })));
@@ -192,6 +232,72 @@ const sources: Sources = {
       tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
       names: tokens.map((t: { name: string }) => t.name),
     };
+  },
+  loadBranch: async ([file, token, column]) => {
+    const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], exact: true, own: '' };
+    const col = columns.find(c => c.id === column);
+    if (!token || !col) return none;
+    const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
+    if (error) return { ...none, ok: false, error };
+    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[] };
+    // The axes this cell's side reads: an `under scheme=dark` axis only on dark.
+    const applies = (i: number) => col.dark || axes[i].under !== 'dark';
+    const mode = (a: string) => { const i = axes.findIndex(x => x.name === a); return i >= 0 && applies(i) ? col.values[i] : axes[i]?.values[0]; };
+    // The `when` that won here: every condition holds, the most axes named
+    // (the checker refuses two that tie); else the default.
+    const won = x.whens.filter(w => w.when.every(c => mode(c.axis) === c.value)).sort((a, b) => b.when.length - a.when.length)[0];
+    const when = won ? whenText(won.when) : '';
+    // "Only this mode": a `when` naming every axis this side reads, so it
+    // holds for this tuple alone and ties with no other `when`.
+    const own = whenText(axes.flatMap((a, i) => (applies(i) ? [{ axis: a.name, value: col.values[i] }] : [])));
+    const value = won ? won.value : x.value;
+    // An expression's inputs: the tokens and dials it names.
+    const inputs = [...new Set([...x.names, ...x.dials])].filter(n => new RegExp(`(^|[^\\w.-])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w.-])`).test(value));
+    return { ok: true, error: '', token, column, label: `${token} · ${when || 'default'} (${col.label})`, when, value, expression: inputs.length > 0, inputs, exact: when === own, own };
+  },
+  proposeEdit: async ([file, kind, target, when, value]) => {
+    const idle = { ok: true, error: '', active: false, chip: '', diff: '', tokens: [] };
+    if (!kind || !target) return idle;
+    if (kind !== 'remove-token' && !value) return { ...idle, ok: false, error: 'Give it a value.' };
+    const { error, reply } = await call('/__tamber', { method: 'propose', ops: [opOf(file, kind, target, when, value)] });
+    if (error) { reviewed = null; return { ...idle, ok: false, error }; }
+    const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
+    reviewed = { key: JSON.stringify([file, kind, target, when, value]), files: ok.files };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token) };
+  },
+  writeEdit: async ([file, kind, target, when, value, client]) => {
+    const key = JSON.stringify([file, kind, target, when, value]);
+    if (!reviewed || reviewed.key !== key) return stacks(false, 'Review the change before applying it.', '');
+    const op = opOf(file, kind, target, when, value);
+    const edited = (op.file as string | undefined) ?? Object.keys(reviewed.files)[0];
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: { [edited]: reviewed.files[edited] }, ops: [op] });
+    reviewed = null;
+    if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) undoStack.push({ inverse, ops: [op], file: edited, label: label(kind, target, when, value) });
+    redoStack.length = 0;
+    return stacks(true, '', kind.split('-')[0]);
+  },
+  undoLast: async ([client]) => {
+    const top = undoStack.pop();
+    if (!top) return stacks(false, 'Nothing to undo.', '');
+    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse });
+    // Refused, it can never apply: the file moved under it. Say who moved it.
+    if (error) return stacks(false, byWhom(reply) ? `Can't undo ${top.label}: ${byWhom(reply)} since.` : error, '');
+    redoStack.push(top);
+    return stacks(true, '', 'undo');
+  },
+  redoLast: async ([client]) => {
+    const top = redoStack.pop();
+    if (!top) return stacks(false, 'Nothing to redo.', '');
+    // The original transaction again, against the files as they are now.
+    const hello = await call('/__tamber', { method: 'hello' });
+    if (hello.error) { redoStack.push(top); return stacks(false, hello.error, ''); }
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: { [top.file]: hello.reply.ok.files[top.file] }, ops: top.ops });
+    if (error) return stacks(false, `Can't redo ${top.label}: ${error}`, '');
+    const inverse = (reply.ok as { inverse: string | null }).inverse;
+    if (inverse) undoStack.push({ ...top, inverse });
+    return stacks(true, '', 'redo');
   },
   loadContrast: async ([a, b]) => {
     if (!a || !b) return { ok: true, error: '', ratios: [] };

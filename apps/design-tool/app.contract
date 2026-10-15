@@ -82,6 +82,38 @@ shape Design
   tokenGroups: TokenGroup[]
   names: string[]
 
+// The branch a grid cell shows (LLP 1122 D6's target branch): the `when`
+// that won for its tuple, or the default, and what its value reads.
+shape Branch
+  ok: bool
+  error: string
+  token: string
+  column: string
+  label: string
+  when: string
+  value: string
+  expression: bool
+  inputs: string[]
+  exact: bool
+  own: string
+
+// An edit before it is written: `propose`'s answer.
+shape Proposal
+  ok: bool
+  error: string
+  active: bool
+  chip: string
+  diff: string
+  tokens: string[]
+
+// A write, an undo or a redo: what it did, and the stacks after it.
+shape Written
+  ok: bool
+  error: string
+  undo: number
+  redo: number
+  last: string
+
 shape Ratio
   column: string
   label: string
@@ -112,6 +144,24 @@ component DesignTool
   state pickB = ""
   resource design = loadDesign(file, since, epoch) as shape Design else empty(ok=true)
   resource contrast = loadContrast(pickA, pickB, since, epoch) as shape Contrast else empty(ok=true)
+  // The cell chosen in the grid, and the edit being considered: an
+  // operation, the token or dial, the `when` (`axis=value …`, "" for the
+  // default) and the value. Nothing is written until Apply.
+  state selToken = ""
+  state selColumn = ""
+  state pinning = false
+  state editKind = ""
+  state editTarget = ""
+  state editWhen = ""
+  state editValue = ""
+  state newName = ""
+  state newValue = ""
+  state renameTo = ""
+  resource branch = loadBranch(file, selToken, selColumn, since, epoch) as shape Branch else empty(ok=true)
+  resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  // One slot for a write, an undo or a redo: its reply holds the stacks.
+  mutation written as shape Written refreshes design then afterWrite
+  derive stack = match written { case some(w) => w, case none => Written(ok=true, error="", undo=0, redo=0, last="") }
 
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
@@ -144,6 +194,74 @@ component DesignTool
   action changeName
     draftName = person
     person = ""
+  action dialNumber(name: string, n: number)
+    editKind = "set-dial"
+    editTarget = name
+    editWhen = ""
+    editValue = `${n}`
+  action dialText(name: string, v: string)
+    editKind = "set-dial"
+    editTarget = name
+    editWhen = ""
+    editValue = v.trim()
+  action selectCell(token: string, column: string)
+    selToken = token
+    selColumn = column
+    pinning = false
+    editKind = ""
+  action cellText(v: string)
+    editKind = "set-token"
+    editTarget = branch.token
+    editWhen = branch.when
+    editValue = v.trim()
+  action onlyThisMode
+    editKind = "set-token"
+    editTarget = branch.token
+    editWhen = branch.own
+    editValue = branch.value
+  action pin
+    pinning = true
+  action editNewName(v: string)
+    newName = v
+  action editNewValue(v: string)
+    newValue = v
+  action addToken
+    editKind = "add-token"
+    editTarget = newName.trim()
+    editWhen = ""
+    editValue = newValue.trim()
+  action editRename(v: string)
+    renameTo = v
+  action renameToken
+    editKind = "rename-token"
+    editTarget = selToken
+    editWhen = ""
+    editValue = renameTo.trim()
+  action removeToken
+    editKind = "remove-token"
+    editTarget = selToken
+    editWhen = ""
+    editValue = ""
+  action cancelEdit
+    editKind = ""
+  action apply
+    if proposal.ok and proposal.active and not pending(written)
+      send written = writeEdit(file, editKind, editTarget, editWhen, editValue, client)
+  action afterWrite
+    match written
+      case some(w)
+        if w.ok and w.last != "undo" and w.last != "redo"
+          editKind = ""
+          if w.last == "remove" or w.last == "rename"
+            selToken = ""
+      case none
+        editKind = ""
+  action undo
+    if not pending(written)
+      send written = undoLast(client)
+  action redo
+    if not pending(written)
+      send written = redoLast(client)
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
@@ -199,17 +317,17 @@ component DesignTool
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
                   text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
                   for c in g.dials key=c.name
-                    DialControl(c=c)
+                    DialControl(c=c, onNumber=dialNumber(c.name), onText=dialText(c.name))
                   if g.more.length > 0
                     button press=toggleMore(g.name) testId=`more-${g.name}`
                       text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
                     if opened.includes(g.name)
                       for c in g.more key=c.name
-                        DialControl(c=c)
+                        DialControl(c=c, onNumber=dialNumber(c.name), onText=dialText(c.name))
             column gap=8 testId="tokens"
               text "Tokens" role="heading" aria-level=2
-              column overflow-x="auto" testId="grid"
-                column gap=2
+              column overflow-x="auto" align-items="flex-start" testId="grid"
+                column gap=2 flex-shrink=0
                   row gap=8 align-items="end"
                     text "Token" width=200 flex-shrink=0 font="-exact-footnote" color="-exact-secondary-label"
                     for col in design.columns key=col.id
@@ -223,9 +341,67 @@ component DesignTool
                           if t.follows != ""
                             text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                         for cell in t.cells key=cell.column
-                          column width=96 flex-shrink=0 gap=2 testId=`cell-${t.name}-${cell.column}`
+                          column width=96 flex-shrink=0 gap=2 press=selectCell(t.name, cell.column) role="button" aria-label=`${t.name} ${cell.column}` testId=`cell-${t.name}-${cell.column}`
                             view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
                             text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
+            if selToken != "" and branch.ok and branch.token != ""
+              column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
+                text branch.label role="heading" aria-level=3 testId="branch-label"
+                if branch.expression and not pinning
+                  text `Follows ${branch.inputs.join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
+                  for n in branch.inputs key=n
+                    button press=selectCell(n, selColumn) testId=`input-${n}`
+                      text n
+                  button press=pin buttonStyle="bordered" testId="pin"
+                    text "Pin a value"
+                else
+                  if branch.expression
+                    text `Pinned here: no longer follows ${branch.inputs.join(", ")}.` color="-exact-system-orange" testId="pinned"
+                  input value=branch.value change=cellText aria-label=`${branch.token} value` testId="branch-value"
+                if not branch.exact
+                  button press=onlyThisMode testId="only-this-mode"
+                    text "Only this mode"
+                row gap=8
+                  input value=renameTo input=editRename placeholder="New name" aria-label="New name" flex=1 min-width=0 testId="rename-to"
+                  button press=renameToken disabled=(renameTo.trim() == "") testId="rename"
+                    text "Rename"
+                  button commandfor="confirm-remove" command="show-modal" destructive=true testId="remove"
+                    text "Remove"
+                dialog id="confirm-remove" role="alertdialog" aria-label=`Remove ${selToken}?`
+                  button press=removeToken destructive=true commandfor="confirm-remove" command="close" testId="confirm-remove-yes"
+                    text "Remove"
+                  button commandfor="confirm-remove" command="close"
+                    text "Cancel"
+            if not branch.ok
+              text branch.error color="-exact-system-red" testId="branch-error"
+            column gap=8 testId="add"
+              text "Add a token" role="heading" aria-level=3
+              row gap=8
+                input value=newName input=editNewName placeholder="surface.raised" aria-label="New token's name" flex=1 min-width=0 testId="new-name"
+                input value=newValue input=editNewValue placeholder="light-dark(#fff, #000)" aria-label="New token's value" flex=1 min-width=0 testId="new-value"
+                button press=addToken disabled=(newName.trim() == "" or newValue.trim() == "") testId="add-token"
+                  text "Add"
+            if editKind != ""
+              column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="proposal"
+                if not proposal.ok
+                  text proposal.error color="-exact-system-red" testId="proposal-error"
+                else if proposal.active
+                  row gap=8 align-items="center"
+                    text (proposal.chip == "live" ? "Live" : "Rebuilds") font="-exact-footnote" padding="2px 8px" border-radius=8 background-color="-exact-tertiary-background" testId="chip"
+                    text proposal.tokens.join(", ") color="-exact-secondary-label" font="-exact-footnote" flex=1 testId="proposal-tokens"
+                  text proposal.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId="proposal-diff"
+                row gap=8
+                  button press=apply disabled=(not proposal.ok or not proposal.active or pending(written)) buttonStyle="filled" testId="apply"
+                    text "Apply"
+                  button press=cancelEdit testId="cancel-edit"
+                    text "Cancel"
+            row gap=8 align-items="center" testId="undo-bar"
+              button press=undo disabled=(stack.undo == 0 or pending(written)) testId="undo"
+                text `Undo (${stack.undo})`
+              button press=redo disabled=(stack.redo == 0 or pending(written)) testId="redo"
+                text `Redo (${stack.redo})`
+              if not stack.ok
+                text stack.error color="-exact-system-red" flex=1 testId="write-error"
             column gap=8 testId="contrast"
               text "Contrast" role="heading" aria-level=2
               text "Between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
@@ -254,6 +430,8 @@ component DesignTool
 component DialControl
   props
     c: Control
+    onNumber: action
+    onText: action
   view
     column gap=4 testId=`dial-${c.name}`
       row gap=8 align-items="center"
@@ -262,13 +440,13 @@ component DialControl
       if c.control == "color"
         row gap=8 align-items="center" testId=`dial-${c.name}-color`
           view width=28 height=28 border-radius=6 background-color=c.value border="1px solid -exact-separator"
-          input value=c.value aria-label=c.label flex=1 min-width=0
+          input value=c.value change=onText aria-label=c.label flex=1 min-width=0 testId=`dial-${c.name}-field`
       else if c.control == "slider"
-        input type="range" min=c.min max=c.max step=c.step value=c.number aria-label=c.label testId=`dial-${c.name}-slider`
+        input type="range" min=c.min max=c.max step=c.step value=c.number change=onNumber aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
-        input type="number" min=c.min max=c.max step=c.step value=c.value aria-label=c.label testId=`dial-${c.name}-stepper`
+        input type="number" min=c.min max=c.max step=c.step value=c.value input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"
-        select value=c.value aria-label=c.label testId=`dial-${c.name}-select`
+        select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o
             option o value=o
       if c.help != ""

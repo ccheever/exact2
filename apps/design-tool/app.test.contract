@@ -110,3 +110,40 @@ test "contrast between two tokens, per column, on the stored values"
   expect text "ratio-0-light" == "18.51:1"
   expect text "ratio-0-dark" == "17.24:1"
   expect text "ratio-2-dark" == "13.54:1"
+
+test "an edit is proposed with its chip and diff before it is written, then undone and redone"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree missing "proposal"
+  type "dial-hue-stepper" "210"
+  clock data
+  expect text "chip" == "Rebuilds"
+  expect text "proposal-tokens" == "hue"
+  expect disabled "undo"
+  tap "apply"
+  clock data
+  expect tree missing "proposal"
+  expect text "undo" == "Undo (1)"
+  tap "undo"
+  clock data
+  expect text "undo" == "Undo (0)"
+  expect text "redo" == "Redo (1)"
+  tap "redo"
+  clock data
+  expect text "undo" == "Undo (1)"
+
+test "a cell shows the branch that won for its mode; an expression offers its inputs until pinned"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.page-2-dark"
+  clock data
+  expect text "branch-label" == "surface.page · dark-style=dim (Dark · dim)"
+  tap "cell-accent.soft-0-light"
+  clock data
+  expect text "branch-inputs" == "Follows accent, lift: edit those, or pin a value here."
+  expect tree missing "branch-value"
+  tap "pin"
+  expect text "pinned" == "Pinned here: no longer follows accent, lift."
+  expect tree has "branch-value"
