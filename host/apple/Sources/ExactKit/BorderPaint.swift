@@ -331,7 +331,7 @@ extension NodeView {
         #else
         let defaultInset: CGFloat = 16
         #endif
-        let padding = style["padding_left"] == nil ? defaultInset : self.padding("left")
+        let padding = writtenPadding("left") ?? defaultInset
         let left = number("border_width_left", uniform) + max(0, padding)
         let right = bounds.width - number("border_width_right", uniform)
         let bottom = bounds.height - number("border_width_bottom", uniform)

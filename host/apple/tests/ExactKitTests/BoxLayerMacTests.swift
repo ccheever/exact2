@@ -333,6 +333,7 @@ final class BoxLayerMacTests: XCTestCase {
         first.props["groupedRowSeparator"] = "true"
         last.props["groupedRowSeparator"] = "true"
         owner.addSubview(first); owner.addSubview(last)
+        first.applyContentBox(padding: [0, 0, 0, 16])
         first.applyBoxLayer(); last.applyBoxLayer()
         let shape = try XCTUnwrap(first.boxBorder as? CAShapeLayer)
         XCTAssertEqual(shape.path?.boundingBox, CGRect(x: 16, y: 119, width: 284, height: 1))
@@ -351,28 +352,35 @@ final class BoxLayerMacTests: XCTestCase {
         XCTAssertNotNil(first.boxBorder, "inserting a row restores the previous row's separator")
         first.frame.size.width = 200
         first.applyStyle(["padding_left": 56, "border_color_bottom": white])
+        first.applyContentBox(padding: [0, 0, 0, 56])
         first.applyBoxLayer()
         XCTAssertEqual((first.boxBorder as? CAShapeLayer)?.path?.boundingBox,
                        CGRect(x: 56, y: 119, width: 144, height: 1))
         first.applyStyle(["padding_left": 56, "border_width_left": 2, "border_width_right": 3,
                           "border_width_bottom": 4, "border_color_bottom": white])
+        first.applyContentBox(padding: [0, 0, 0, 56], border: [0, 3, 4, 2])
         XCTAssertEqual(first.groupedSeparatorRect, CGRect(x: 58, y: 115, width: 139, height: 1),
                        "the separator stays in the padding box above authored borders")
         first.applyStyle([:])
+        first.applyFieldContent(["rect": NSNull()])
         XCTAssertEqual(first.groupedSeparatorRect?.minX, 10, "a native button has the system inset without UA padding")
         first.applyStyle(["padding_left": 0])
+        first.applyContentBox(padding: [0, 0, 0, 0])
         XCTAssertEqual(first.groupedSeparatorRect?.minX, 0, "an authored zero inset stays zero")
+        first.applyKernelContentBox(first.bounds, padding: [nil, nil, nil, nil])
+        XCTAssertEqual(first.groupedSeparatorRect?.minX, 10,
+                       "a published unsaid side keeps the host inset even if its stored style is zero")
         owner.frame.size.width = 300
         first.frame.size.width = 100
         first.applyStyle(["padding_left": ["pct": 10, "px": 2], "border_width_left": 2, "border_width_right": 3])
-        first.applyKernelContentBox(CGRect(x: 34, y: 0, width: 63, height: 120))
+        first.applyContentBox(padding: [0, 0, 0, 32], border: [0, 3, 0, 2])
         first.applyBoxLayer()
         XCTAssertEqual(first.groupedSeparatorRect?.minX, 34,
                        "10% + 2 is resolved against the 300-point containing block, plus the border")
         first.removeFromSuperview(); owner.addSubview(first); owner.addSubview(last)
         first.applyBoxLayer()
         XCTAssertEqual(first.groupedSeparatorRect?.minX, 34, "a retained row keeps its resolved padding")
-        first.applyKernelContentBox(CGRect(x: 44, y: 0, width: 53, height: 120))
+        first.applyContentBox(padding: [0, 0, 0, 42], border: [0, 3, 0, 2])
         first.applyBoxLayer()
         XCTAssertEqual(first.groupedSeparatorRect?.minX, 44,
                        "a content-box-only update moves the separator without changing the row's bounds")
