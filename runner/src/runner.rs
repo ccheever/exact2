@@ -382,8 +382,6 @@ pub struct Runner<D: DataSource> {
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
-    /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4).
-    presenting: bool,
     clock: advance::Clock,
     batch: u64,
     commands: Vec<Command>,
@@ -834,7 +832,6 @@ impl<D: DataSource> Runner<D> {
             ids: Ids::default(),
             now_ms,
             timers: Vec::new(),
-            presenting: false,
             clock: Default::default(),
             batch: 0,
             commands: Vec::new(),

@@ -5,10 +5,12 @@
 
 use super::*;
 
-/// The runner's clock while a host's live clock owns it (D1); none is a seek
-/// clock.
+/// How the runner's clock moves: whether the host presents frames, and the
+/// host's live clock when one owns it (D1; none is a seek clock).
 #[derive(Default)]
 pub(super) struct Clock {
+    /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4)
+    pub(super) presenting: bool,
     sample: Option<Box<dyn FnMut() -> f64>>,
     /// The scheduling instant of the callback running, which the `then`s and
     /// queue `next`s it arms inherit (D2)
@@ -116,7 +118,7 @@ impl<D: DataSource> Runner<D> {
     /// virtual frames. A host turns it on when its display drives the clock
     /// and off when the agent's clock takes over.
     pub fn present_frames(&mut self, on: bool) {
-        self.presenting = on;
+        self.clock.presenting = on;
     }
 
     /// A presented frame at `now_ms` (LLP 1073 D2, D4): timers due by then
@@ -132,9 +134,9 @@ impl<D: DataSource> Runner<D> {
         } else {
             now_ms
         };
-        let presenting = std::mem::replace(&mut self.presenting, true);
+        let presenting = std::mem::replace(&mut self.clock.presenting, true);
         let mut a = self.advance_timed(cutoff);
-        self.presenting = presenting;
+        self.clock.presenting = presenting;
         // A refused `next` is journaled and the frame goes on: its frame
         // tasks fire, and the `next` waits for a later wake (LLP 1092 D3).
         let next_refused = std::mem::take(&mut self.queues.stopped_on_next);
@@ -204,7 +206,7 @@ impl<D: DataSource> Runner<D> {
         let live = self.clock.sample.is_some();
         // A host that presents frames fires frame tasks at `frame`; else
         // their virtual frames are timers (LLP 1073 D3).
-        let frames = !self.presenting;
+        let frames = !self.clock.presenting;
         let mut receipts = Vec::new();
         if !now_ms.is_finite() {
             return Advanced {
