@@ -722,7 +722,6 @@ final class NavigationBasicsIOSTests: XCTestCase {
         let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
         sv.contentInset.bottom += 180 // the keyboard toolbar's manual inset basis
         sv.layoutIfNeeded()
-        spin(0.1)
         XCTAssertEqual(sv.contentInset.bottom, manual + 180, accuracy: 0.5)
         XCTAssertEqual(sv.contentSize.height, height, accuracy: 0.5)
         XCTAssertEqual(sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height, end + 180, accuracy: 0.5)
