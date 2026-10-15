@@ -5,7 +5,8 @@
 //! evidence for new kinds, each gap a §9 question or a later kind.
 //!
 //! - `--color-background-*` → `surface.*` (`-exact-background` offered for
-//!   `body`), `--color-text-*` → `text.*`, `--color-icon-*` → `icon.*`,
+//!   `body`, `AccentColor` for `--color-accent`), `--color-text-*` →
+//!   `text.*`, `--color-icon-*` → `icon.*`,
 //!   `--color-border*` → `border.*`, `--color-overlay*` → `overlay.*`,
 //!   `--color-syntax-*` → `syntax.*`, `--color-data-*` → `data.*`, the rest
 //!   of `--color-*` (accent, status colours with their muted and on
@@ -250,49 +251,72 @@ pub fn import(
     })
 }
 
-/// The body surface as the platform's background, offered alone.
+/// The body surface as the platform's background and the accent as the
+/// theme's tint (`AccentColor`), each offered alone. Astryx gives a token no
+/// `when` line, but the design may keep its own on one (reconcile owns no
+/// axis here): a role has one value (LLP 1121 D5), so such a token is
+/// offered with no operations, and a note.
 fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Vec<Offer> {
-    let token = tamber_name(prefix, &["surface", "body"]);
-    if !tokens.iter().any(|t| t.name == token) {
-        return Vec::new();
-    }
     let roles: Vec<(String, bool)> = vocab
         .roles
         .iter()
         .map(|r| (r.name.clone(), r.system))
         .collect();
-    let role = "-exact-background";
-    let existing = crate::edit::token_index(design, &roles, role)
-        .ok()
-        .map(|i| &design.tokens[i]);
-    let ops = match existing {
-        Some(t) if t.value.value.trim() == token && t.whens.is_empty() => return Vec::new(),
-        Some(t) => std::iter::once(Op::SetToken {
-            name: t.name.value.clone(),
-            when: Vec::new(),
-            value: token.clone(),
-            at: None,
-            comment: None,
-        })
-        .chain(t.whens.iter().map(|w| Op::UnsetTokenWhen {
-            name: t.name.value.clone(),
-            when: w.conds.clone(),
-        }))
-        .collect(),
-        None => vec![Op::AddToken {
-            name: role.into(),
-            kind: None,
-            value: token.clone(),
-            meta: Vec::new(),
-            whens: Vec::new(),
-            comment: None,
-            before: None,
-        }],
-    };
-    vec![Offer {
-        role: role.into(),
-        token,
-        ops,
-        note: None,
-    }]
+    let mut out = Vec::new();
+    for (segs, role) in [
+        (&["surface", "body"][..], "-exact-background"),
+        (&["accent"][..], "AccentColor"),
+    ] {
+        let token = tamber_name(prefix, segs);
+        if !tokens.iter().any(|t| t.name == token) {
+            continue;
+        }
+        if design
+            .tokens
+            .iter()
+            .any(|t| t.name.value == token && !t.whens.is_empty())
+        {
+            out.push(Offer {
+                role: role.into(),
+                note: Some(format!("not offered: `{token}` keeps the design's `when` lines, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)")),
+                token,
+                ops: Vec::new(),
+            });
+            continue;
+        }
+        let existing = crate::edit::token_index(design, &roles, role)
+            .ok()
+            .map(|i| &design.tokens[i]);
+        let ops = match existing {
+            Some(t) if t.value.value.trim() == token && t.whens.is_empty() => continue,
+            Some(t) => std::iter::once(Op::SetToken {
+                name: t.name.value.clone(),
+                when: Vec::new(),
+                value: token.clone(),
+                at: None,
+                comment: None,
+            })
+            .chain(t.whens.iter().map(|w| Op::UnsetTokenWhen {
+                name: t.name.value.clone(),
+                when: w.conds.clone(),
+            }))
+            .collect(),
+            None => vec![Op::AddToken {
+                name: role.into(),
+                kind: None,
+                value: token.clone(),
+                meta: Vec::new(),
+                whens: Vec::new(),
+                comment: None,
+                before: None,
+            }],
+        };
+        out.push(Offer {
+            role: role.into(),
+            token,
+            ops,
+            note: None,
+        });
+    }
+    out
 }

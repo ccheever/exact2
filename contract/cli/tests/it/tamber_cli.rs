@@ -196,3 +196,36 @@ fn a_design_role_a_shadcn_import_makes_vary_is_named_and_refused() {
     let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
     assert_eq!(e.id, "tamber-role-axis", "{e:?}");
 }
+
+/// Astryx's whole transaction, both offers accepted, compiles.
+#[test]
+fn an_astryx_import_with_every_offer_accepted_compiles() {
+    use exact_tamber::import::astryx;
+    let vocab = contract_lower::tamber_vocab();
+    let json = std::fs::read_to_string(format!(
+        "{}/../../tamber/tests/import/astryx-neutral.json",
+        env!("CARGO_MANIFEST_DIR")
+    ))
+    .unwrap();
+    let empty = "tamber app\n";
+    let import = astryx::import(
+        &json,
+        "astryx",
+        &exact_tamber::parse(empty).unwrap(),
+        &vocab,
+    )
+    .unwrap();
+    let mut ops = import.ops.clone();
+    ops.extend(import.offers.iter().flat_map(|o| o.ops.clone()));
+    let design = exact_tamber::apply_all(empty, &ops, &vocab).unwrap().text;
+    assert!(design.contains("AccentColor = astryx.accent"), "{design}");
+    let dir = app("astryx", &design);
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"astryx.accent\"\n",
+    )
+    .unwrap();
+    if let Err(e) = contract::compile_path(&dir.join("app.contract")) {
+        panic!("{e:?}\n{design}");
+    }
+}

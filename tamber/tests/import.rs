@@ -1285,6 +1285,11 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
         token_value(&text, "-exact-background"),
         "astryx.surface.body"
     );
+    // The accent is the theme's tint, offered as `AccentColor` and accepted
+    // in the same transaction as the tokens.
+    let roles: Vec<&str> = first.offers.iter().map(|o| o.role.as_str()).collect();
+    assert_eq!(roles, ["-exact-background", "AccentColor"]);
+    assert_eq!(token_value(&text, "AccentColor"), "astryx.accent");
     assert_eq!(
         token_value(&text, "astryx.local.status-fill-accent"),
         "light-dark(#0074e2, #6d9cfe)"
@@ -1292,6 +1297,23 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
     let again = astryx::import(&json, "astryx", &parse(&text).unwrap(), &vocab()).unwrap();
     assert_eq!(again.ops, []);
     assert!(again.offers.is_empty());
+}
+
+/// The design's own `when` line on the accent stays (Astryx owns no axis),
+/// so the role would vary: it is offered with no operations (LLP 1121 D5).
+#[test]
+fn astryx_offers_no_accent_role_over_a_token_the_design_varies() {
+    use exact_tamber::import::astryx;
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  astryx.accent = #111111\n    when density=compact: #222222\n";
+    let json = r##"{"source": "test", "light": {"--color-accent": "#333333"}, "dark": {"--color-accent": "#333333"}}"##;
+    let import = astryx::import(json, "astryx", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(import.offers.len(), 1);
+    assert!(import.offers[0].ops.is_empty());
+    assert!(import.offers[0]
+        .note
+        .as_deref()
+        .unwrap()
+        .starts_with("not offered"));
 }
 
 #[test]
