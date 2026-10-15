@@ -95,6 +95,48 @@ final class InitialFocusMacTests: XCTestCase {
         }
     }
 
+    /// A session's window whose own first responder is the window (after
+    /// `blur()`, or a menu a click opened closed): Tab goes to the first key
+    /// view, the one the window opened with, and Shift-Tab to the last, as
+    /// AppKit goes from such a window to its `initialFirstResponder`. The
+    /// window's initial first responder is the session's view, which is no
+    /// key view, so AppKit alone focused nothing.
+    func testTabFromTheWindowItselfGoesToTheFirstKeyViewAndShiftTabToTheLast() throws {
+        _ = NSApplication.shared
+        let bytes = try plan(source(autofocus: false))
+        // (Keyboard Navigation, the node Tab reaches, the node Shift-Tab reaches)
+        for (navigation, first, last) in [(false, "first", "second"), (true, "go", "second")] {
+            KeyboardNavigation.agent = navigation
+            defer { KeyboardNavigation.agent = nil }
+            let session = ExactApp.shared.makeSession()
+            defer { session.destroy() }
+            XCTAssertNil(session.boot(plan: bytes, size: CGSize(width: 400, height: 300)).error)
+            let view = ExactView(session: session)
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.initialFirstResponder = view
+            window.autorecalculatesKeyViewLoop = false
+            defer { window.close() }
+            window.contentView = view
+            let p = session.presenter
+            launched(p)
+            func tab(shift: Bool) throws {
+                let event = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: shift ? .shift : [], timestamp: 0, windowNumber: window.windowNumber,
+                                                           context: nil, characters: "\t", charactersIgnoringModifiers: "\t", isARepeat: false, keyCode: 48))
+                // As the view's key monitor routes it, then AppKit.
+                if !p.routeKey(event, focused: view.ownsShortcutFocus(in: window), in: window) { window.sendEvent(event) }
+            }
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            try tab(shift: false)
+            XCTAssertEqual(p.focusedNode?.props["testId"], first, "Keyboard Navigation \(navigation): Tab")
+            XCTAssertTrue(window.makeFirstResponder(nil))
+            try tab(shift: true)
+            XCTAssertEqual(p.focusedNode?.props["testId"], last, "Keyboard Navigation \(navigation): Shift-Tab")
+            let field = try XCTUnwrap(p.views.values.first { $0.props["testId"] == last }?.field)
+            XCTAssertTrue(window.firstResponder === field.currentEditor(), "the caret is in the field")
+        }
+    }
+
     /// With no key view nothing is focused, and a first key view in a canvas
     /// that takes input is passed over, as before: its caret would be in the
     /// canvas's first frame (LLP 1014's readback).
