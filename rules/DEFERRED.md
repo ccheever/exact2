@@ -1005,8 +1005,10 @@ distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 to AppDrop (creating the link the first time, writing it to app.json), and the
 install page offers the link.
 Unblocks sending one install link whose app stays current: bundles over the
-air, binaries through AppDrop. The EAS adapter, signed distribution IPAs and
-automatic provisioning stay deferred.
+air, binaries through AppDrop. It lifts the `--unsigned` waiver's GPU refusal:
+a GPU card's digest leaves out a Mach-O's code signature (`code_digest`), so a
+re-signer keeps it and a code change still breaks it. The EAS adapter, signed
+distribution IPAs and automatic provisioning stay deferred.
 
 **Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
 "intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},

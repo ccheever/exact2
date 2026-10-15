@@ -647,8 +647,6 @@ async function main(args) {
   const modules = app.modulesFor(ios ? 'ios' : 'macos');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
-  // The bake names each GPU module's digest, checked at load: a re-signer's bytes would be refused.
-  if (unsigned && (hasGpu || gpuModules(app.manifest).length)) throw new Error(`--unsigned: ${app.name} has GPU modules, whose baked digests a re-signer would break; archive it signed (EXACT_IDENTITY and EXACT_PROFILE)`);
   let ph, prof;
   const sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined, { tv });

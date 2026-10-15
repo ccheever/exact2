@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
+import { codeDigest, signingOrder, signRelease, signedGpuProduct, assertArchiveFrameworks } from '../host/apple/assets.mjs';
 import { appleEmbedOnly, copyAppleGpuProducts, captureAppleProduct, stripForDistribution } from '../host/apple/build.mjs';
 import { assertLinkedSdk } from '../host/apple/link.mjs';
 
@@ -86,16 +86,28 @@ test.skipIf(!tools)('release preserves baked GPU signatures and rejects changed 
   cpSync(gpu, named);
   const rust = resolve(app, 'Contents/Resources/rust/module.dylib');
   mkdirSync(dirname(rust), { recursive: true }); cpSync(gpu, rust);
-  const compat = { embedded: { assets: [{ name: 'rust/module.dylib', sha256: digest }], gpu: { sha256: digest }, gpuModules: { 'title-sky': { sha256: digest } } } };
+  const code = codeDigest(readFileSync(gpu));
+  assert.notEqual(code, digest);
+  const compat = { embedded: { assets: [{ name: 'rust/module.dylib', sha256: digest }], gpu: { sha256: code }, gpuModules: { 'title-sky': { sha256: code } } } };
   assert.deepEqual(signingOrder(app, compat), [app]);
   for (const path of signingOrder(app, compat)) assert.equal(spawnSync('codesign', ['--force', '--sign', '-', '--options', 'runtime', '--timestamp=none', path]).status, 0);
   assert.equal(spawnSync('codesign', ['--verify', '--deep', '--strict', app]).status, 0);
   assert.equal(createHash('sha256').update(readFileSync(gpu)).digest('hex'), digest);
+  // A re-signer (AppDrop) keeps the GPU card's digest; a change to the code does not.
+  const resigned = resolve(dir, 'resigned.dylib');
+  cpSync(gpu, resigned);
+  writeFileSync(resolve(dir, 'ent.plist'), plist('Fixture').replace('<dict>', '<dict><key>get-task-allow</key><true/><key>application-identifier</key><string>ABCDE12345.a.longer.identifier.than.before</string>'));
+  assert.equal(spawnSync('codesign', ['--force', '--sign', '-', '--identifier', 'a.recipient.identifier.that.is.much.longer', '--entitlements', resolve(dir, 'ent.plist'), '--timestamp=none', resigned]).status, 0);
+  assert.notEqual(createHash('sha256').update(readFileSync(resigned)).digest('hex'), digest);
+  assert.equal(codeDigest(readFileSync(resigned)), code);
+  const edited = readFileSync(resigned); edited[64] ^= 1;
+  assert.notEqual(codeDigest(edited), code);
   assert.match(spawnSync('codesign', ['-dv', gpu], { encoding: 'utf8' }).stderr, /runtime/);
   const development = signedGpuProduct(product);
   assert.doesNotMatch(spawnSync('codesign', ['-dv', development], { encoding: 'utf8' }).stderr, /runtime/);
   assert.notEqual(createHash('sha256').update(readFileSync(development)).digest('hex'), digest, 'the signing mode invalidates the cached copy');
-  writeFileSync(gpu, Buffer.concat([readFileSync(gpu), Buffer.from('changed')]));
+  const changed = readFileSync(gpu); changed[64] ^= 1;
+  writeFileSync(gpu, changed);
   assert.throws(() => signingOrder(app, compat), /baked code.*digest/);
 }), 60000);
 

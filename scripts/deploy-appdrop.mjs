@@ -22,7 +22,6 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
-import { gpuModules } from './app.mjs';
 import { refuse } from './deploy-signing.mjs';
 import { streamPath } from './origin.mjs';
 
@@ -50,7 +49,6 @@ function linkFor(app, config) {
 export function appdropPlan(app, table, builds) {
   const config = app.manifest.deploy?.appdrop;
   if (config === undefined) return null;
-  if (app.hasGpu || gpuModules(app.manifest).length) refuse(`deploy.appdrop: ${app.name} has GPU modules, whose baked digests AppDrop's re-signing would break (host/apple/build.mjs --unsigned)`);
   const link = linkFor(app, config);
   const row = table.rows.find((r) => r.kind === 'binary' && r.platform === 'ios');
   if (!row || !builds.ios) return null;
