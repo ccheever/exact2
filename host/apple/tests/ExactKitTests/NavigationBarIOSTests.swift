@@ -790,5 +790,38 @@ private final class Transitions: NSObject, UINavigationControllerDelegate, UIVie
             context.completeTransition(!context.transitionWasCancelled)
         }
     }
+    func testExplicitGroupsSplitGlassWithoutChangingButtonOrderOrDefaultGrouping() throws {
+        let presenter = Presenter()
+        defer { presenter.reset() }
+        let header = NodeView(id: 100, kind: "view", presenter: presenter)
+        header.props["semanticTag"] = "header"
+        let route = RouteController(header)
+        var buttons: [NodeView] = []
+        for (groupID, names) in [(101, ["share"]), (102, ["favorite", "bookmark"]), (103, ["info"])] {
+            let group = NodeView(id: UInt32(groupID), kind: "view", presenter: presenter)
+            group.props["accessibilityRole"] = "group"
+            header.container.addSubview(group)
+            for name in names {
+                let button = NodeView(id: UInt32(200 + buttons.count), kind: "button", presenter: presenter)
+                button.props["testId"] = name
+                group.container.addSubview(button)
+                buttons.append(button)
+            }
+        }
+        let shape = buttons.map { HeaderShape.Item($0) }
+        XCTAssertEqual(shape.map(\.toolbarGroup), [101, 102, 102, 103])
+        let items = presenter.navigation.barItems(shape, route)
+        XCTAssertEqual(items.compactMap(\.accessibilityIdentifier), ["share", "favorite", "bookmark", "info"])
+        if #available(iOS 26.0, *) {
+            XCTAssertEqual(items.count, 6, "two system spaces split three groups")
+            XCTAssertEqual(items[1].width, 0)
+            XCTAssertEqual(items[4].width, 0)
+        } else { XCTAssertEqual(items.count, 4) }
+        for button in buttons { header.container.addSubview(button) }
+        let plain = buttons.map { HeaderShape.Item($0) }
+        XCTAssertNotEqual(shape[0].source, plain[0].source, "regrouping invalidates the projected bar")
+        XCTAssertEqual(presenter.navigation.barItems(plain, route).count, 4)
+    }
+
 }
 #endif

@@ -36,6 +36,7 @@ struct HeaderShape: Equatable {
         /// The button's `testId`: the item's `accessibilityIdentifier`, so
         /// XCUITest and Maestro address it as any other node (LLP 1116 D2).
         let testId: String?
+        let toolbarGroup: UInt32?
         /// A face drawn from the button's one filled box (an avatar or a
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
@@ -69,6 +70,16 @@ struct HeaderShape: Equatable {
             } else {
                 walk(button)
             }
+            var parent = button.superview
+            var grouped: UInt32?
+            while let view = parent {
+                if let node = view as? NodeView {
+                    if node.props["semanticTag"] == "header" { break }
+                    if node.props["accessibilityRole"] == "group" { grouped = node.id; break }
+                }
+                parent = view.superview
+            }
+            toolbarGroup = grouped
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
@@ -92,7 +103,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(toolbarGroup.map(String.init) ?? ""):\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -625,8 +636,8 @@ extension NavigationHost {
         item.leftItemsSupplementBackButton = true
         #endif
         c.barPresses = []
-        item.leftBarButtonItems = shape?.leading.map { barItem($0, c) }
-        item.rightBarButtonItems = shape?.trailing.reversed().map { barItem($0, c) }
+        item.leftBarButtonItems = shape.map { barItems($0.leading, c) }
+        item.rightBarButtonItems = shape.map { barItems(Array($0.trailing.reversed()), c) }
         if let shape {
             if shape.authored.isEmpty {
                 shape.header.isHidden = true
@@ -930,6 +941,22 @@ extension NavigationHost {
     /// bottom-edge scroller.
     func insetByUIKit(_ node: NodeView) -> Bool {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
+    }
+
+    /// UIKit's zero-width fixed space splits shared glass without authored metrics.
+    func barItems(_ items: [HeaderShape.Item], _ route: RouteController) -> [UIBarButtonItem] {
+        var result: [UIBarButtonItem] = []
+        var previous: UInt32?
+        for (index, item) in items.enumerated() {
+            #if !os(tvOS)
+            if #available(iOS 26.0, *), index > 0, previous != item.toolbarGroup {
+                result.append(UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil))
+            }
+            #endif
+            result.append(barItem(item, route))
+            previous = item.toolbarGroup
+        }
+        return result
     }
 
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {

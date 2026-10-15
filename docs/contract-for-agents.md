@@ -1228,6 +1228,12 @@ lists any literal colour, font size or weight an app's `.contract` files still w
 | a route with `navigationBar="none"` | no navigation bar: a full-bleed screen that draws its own way back; the edge swipe still goes back |
 | a route with `navigationPresentation="modal"` | a sheet |
 
+Inside a route's `header`, wrap related bar buttons in a `row role="group"`.
+iOS 26 keeps each explicit group's buttons on one shared glass background and
+separates adjacent groups with UIKit's fixed-space item. Ungrouped buttons keep
+the existing platform default. The wrappers remain ordinary layout on the web;
+this adds no spacing value or custom button face.
+
 On macOS, date, time, datetime-local and select controls are default Tab stops,
 independent of the system's Keyboard navigation setting. Their native control
 owns focus and editing keys; `focus`/`blur` and cancellable `key` handlers still
