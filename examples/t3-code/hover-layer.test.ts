@@ -40,10 +40,10 @@ describe('#248: "N scopes" and the other Authorized clients tooltips are drawn b
   test('NetScopes draws no card itself: hover and focus hand the count frame to the layer as a hover card, side top, align start', async () => {
     const body = await component('connections-network.contract', 'NetScopes');
     expect(body).not.toContain('"Granted scopes" font-size');
-    expect(body).not.toContain('when open');
+    expect(body).not.toContain('if open');
     const call = tipCall(body);
     expect(call).toEqual({ key: 'tipId', kind: 'scopes', side: 'top', align: 'start', frame: 'tipId', testId: '`${tipId}-popup`', inside: 'over' });
-    expect(body).toContain('map(scopes, (scope) => scope.text)');
+    expect(body).toContain('scopes.map((scope) => scope.text)');
     expect(body).toMatch(/button id=tipId focus=show\(true\) blur=show\(false\)/);
   });
 
@@ -65,7 +65,7 @@ describe('#248: "N scopes" and the other Authorized clients tooltips are drawn b
 describe('#262: the base branch hover card is drawn by the window layer and takes the pointer', () => {
   test('PaFreshnessMark draws no hover card beside the mark; its hover hands the mark frame to the layer, side bottom, align start', async () => {
     const body = await component('pages-pr-actions.contract', 'PaFreshnessMark');
-    expect(body).not.toContain('when over');
+    expect(body).not.toContain('if over');
     expect(body).not.toContain('testId="pr-freshness-hover"');
     expect(tipCall(body)).toEqual({ key: '`pr-freshness-${prKey}`', kind: 'freshness', side: 'bottom', align: 'start', frame: '"pr-freshness-mark"', testId: '"pr-freshness-hover"', inside: 'value' });
     expect(body).toContain('button id="pr-freshness-mark" popovertarget="pr-freshness"');
@@ -87,7 +87,7 @@ describe('#263 bug 10: the Usage segment popover is drawn in the page scroll con
   test('PoolSegment draws no popover; the page draws the shown (or last shown) one where its card lies inside every box around it', async () => {
     expect(await component('usage-pooled.contract', 'PoolSegment')).not.toContain('SegmentPopup(');
     const popups = await component('usage-pooled.contract', 'UsagePopups');
-    expect(popups).toContain('each seg in filter(window.segments, (one) => one.id == (shown != "" ? shown : last)) key=seg.id');
+    expect(popups).toContain('for seg in window.segments.filter((one) => one.id == (shown != "" ? shown : last)) key=seg.id');
     const popup = await component('usage-pooled.contract', 'SegmentPopup');
     // Its placement box spans from the content top to the segment (side top) or from the segment down (side bottom).
     expect(popup).toContain('top=(side == "bottom" ? y + h : 0) height=(side == "bottom" ? "auto" : y)');
@@ -128,10 +128,10 @@ describe('#246 bug 9: an unavailable model row says why beside the picker', () =
 });
 
 describe('the layer and its timing', () => {
-  test('T3Window holds the hover state, provides it, and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
+  test('T3Code holds the hover state; T3Window provides it and draws the layer after every page, panel and overlay, inside the SSH-inert row', async () => {
     const window = await source('app-window.contract');
-    expect(window).toMatch(/\n  provide\n    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
-    expect(window).toContain(`  derive hoverShown = hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
+    expect(window).toMatch(/\n  provide\n(?:    dialog\w+\n)*    rem = data\.look\.fontSize\n    still = viewport\.prefersReducedMotion\n    hoverTipAt\n    hoverTip\n    hoverShown\n/);
+    expect(await source('app.contract')).toContain(`  derive hoverShown = hoverOwnerValid and hoverTip.key != "" and (hoverOn != "" ? hoverWait == hoverOpen : hoverWait < hoverUntil)
   action hoverTipAt(tip: HoverTip, part: string, inside: bool)
     if inside
       let at = tip.key == hoverTip.key and hoverShown ? hoverWait : hoverWait + hoverOpenDelay(tip.kind)
@@ -145,7 +145,7 @@ describe('the layer and its timing', () => {
       hoverUntil = until
       hoverHold(until)`);
     // Base UI's open delay (nothing drawn before it) and closeDelay, on the root's hover clock.
-    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" ? 600 : 0)))');
+    expect(await source('hover-layer.contract')).toContain('fn hoverOpenDelay(kind: string): number = kind == "pr-preview" ? 350 : kind == "scopes" ? 250 : (kind == "usage" ? 300 : (kind == "policy" ? 200 : (kind == "tooltip" or kind == "code" ? 600 : 0)))');
     const lines = window.split('\n');
     const overlays = lines.findIndex(line => line.startsWith('        WindowOverlays('));
     const layer = lines.findIndex(line => line.startsWith('          HoverLayer(tip=hoverTip, viewportWidth=viewport.width, viewportHeight=viewport.height, hoverAt=hoverTipAt)'));
@@ -153,13 +153,16 @@ describe('the layer and its timing', () => {
     expect(overlays).toBeGreaterThan(0);
     expect(layer).toBeGreaterThan(overlays);
     expect(ssh).toBeGreaterThan(layer);
-    expect(lines[layer - 1]).toBe('        when hoverShown and hoverTip.kind != "usage"');
+    expect(lines[layer - 1]).toBe('        if hoverShown and hoverTip.kind != "usage"');
   });
 
   test('a tooltip takes no pointer; a hover card hears it, its 4 pt sideOffset included, on each of the four sides', async () => {
     const body = await component('hover-layer.contract', 'HoverLayer');
     expect(body.match(/column hover=hoverAt\(tip, "card"\) padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="auto"/g)).toHaveLength(4);
-    expect(body.match(/column padding-(top|bottom|left|right)=4 max-width="20(\.25)?rem" pointer-events="none"\n/g)).toHaveLength(4);
+    // A tooltip's column: 20rem on the left and right, and on the top and bottom the span's (a "code" tip's 30rem; MSU-1).
+    expect(body.match(/column padding-(left|right)=4 max-width="20\.25rem" pointer-events="none"\n/g)).toHaveLength(2);
+    expect(body.match(/column padding-(top|bottom)=4 max-width=\(\(span - 2\.5\) \* rem\) pointer-events="none"\n/g)).toHaveLength(2);
+    expect(body).toContain('derive span = tip.kind == "code" ? 32.5 : 22.5');
     // The side asked for, flipped when the window leaves no room there and more on the other side (Base UI's flip).
     expect(body).toContain('derive place = tip.side == "left" ? hoverFlip("left", "right", leftRoom, rightRoom, tip.estimate)');
     expect(await source('hover-layer.contract')).toContain('fn hoverFlip(side: string, other: string, room: number, otherRoom: number, need: number): string = need <= room or (need > otherRoom and room >= otherRoom) ? side : other');
@@ -170,13 +173,15 @@ describe('the layer and its timing', () => {
     expect(root).toContain(`  state hoverEnd = 0
   task hoverTick when hoverWait < hoverEnd key=hoverEnd
     every(10, hoverTicked)
-  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}\`
+  task hoverSurface key=\`\${settingsOpen}|\${settingsRoute}|\${utilityPage}|\${modal}|\${prSelected}|\${data.threadId}|\${hoverOwnerValid}\` // also close a legacy tip whose row vanished without leave
     after(1, hoverTicked)
   action hoverTicked
+    if not hoverOwnerValid
+      hoverTipAt(noHoverTip(), "", true)
     hoverWait = hoverWait + 10
   action hoverHold(end: number)
     hoverEnd = end`);
-    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverWait=hoverWait, hoverHold=hoverHold,');
+    expect(root).toContain('T3Window(data=data, viewport=viewport, scheme=scheme, hoverTip=hoverTip, hoverShown=hoverShown, hoverTipAt=hoverTipAt,');
   });
 });
 
@@ -199,7 +204,7 @@ describe('settings-rows-and-labels S1-16, S2-7: one "Background policy details" 
     expect(providers).toContain('PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status="", policy="This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings.", wide=');
     expect(providers).not.toContain('policyOpen');
     const row = await component('providers-kit.contract', 'PvRow');
-    expect(row.match(/role="heading" aria-level=3\n              when policy != ""\n                PolicyTip\(tip=policy, tipId="provider-health-policy"\)/g)).toHaveLength(2);
+    expect(row.match(/role="heading" aria-level=3\n              if policy != ""\n                PolicyTip\(tip=policy, tipId="provider-health-policy"\)/g)).toHaveLength(2);
     const git = await source('settings-source-control.contract');
     expect(git).toContain('text "Git fetch interval" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"\n              PolicyTip(tip="This interval is configured for Git only. The shared Background activity policy still decides whether Git refreshes may run when the timer fires. Custom intervals appear as Advanced in General settings.", tipId="git-fetch-policy")');
     expect(git).not.toContain('text "Automatic Git fetch interval"');

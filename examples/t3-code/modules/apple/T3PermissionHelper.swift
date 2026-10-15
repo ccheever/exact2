@@ -168,8 +168,11 @@ final class T3PermissionHelper {
             }
         }
         T3PermissionHelperLog.note("open \(permission.rawValue)")
-        // Reference: TCC is polled once a second only while the helper is open.
-        grantTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.check(isGranted) }
+        // Reference: TCC is polled once a second only while the helper is open. Use the Settings watcher's common
+        // modes so AppKit's drag or menu tracking loop cannot hold a detected grant back.
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.check(isGranted) }
+        RunLoop.main.add(timer, forMode: .common)
+        grantTimer = timer
         stopTracking = watch { [weak self] reading in self?.settingsChanged(reading) }
     }
     func check(_ isGranted: () -> Bool) { if panel != nil, isGranted() { finish("granted") } }

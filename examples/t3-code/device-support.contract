@@ -11,7 +11,7 @@ use R4Icon from "./r4-surfaces-icons.contract"
 
 shape SimulatorSupportRow
   key: string
-  platforms: list<R4Platform>
+  platforms: R4Platform[]
   description: string
   disabled: bool
 
@@ -24,7 +24,7 @@ component SimulatorSupportSection
   view
     column width="100%" gap="0.75rem" margin-top=(device.step == 0 ? "0.25rem" : "0px") testId=`device-platforms-step-${device.step}`
       text "Check simulator support" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-      each platform in device.platforms key=platform.id
+      for platform in device.platforms key=platform.id
         row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
           box margin-top="0.125rem" flex-shrink=0
             R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
@@ -52,14 +52,14 @@ component SimulatorSupportSettingsRow
         row min-height="1.25rem" align-items="center" gap="0.375rem"
           text "Simulator support" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           box width="1.25rem" height="1.25rem"
-        when row.description != ""
+        if row.description != ""
           text row.description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem" testId="device-platform-support-description"
         row padding-top="0.125rem" flex-wrap="wrap" column-gap="1.25rem" row-gap="0.5rem" testId="device-platform-support-status"
-          each platform in row.platforms key=platform.id
+          for platform in row.platforms key=platform.id
             row gap="0.5rem" align-items=(platform.ready ? "center" : "flex-start") testId=`device-platform-${platform.id}`
               box margin-top=(platform.ready ? "0px" : "0.125rem") flex-shrink=0
                 R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
-              when platform.ready
+              if platform.ready
                 row gap="0.5rem" align-items="center"
                   text platform.platform font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
                   text "Ready" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

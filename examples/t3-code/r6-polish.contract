@@ -13,10 +13,10 @@ use KeyMenu from "./menu-keys.contract"
 
 component R6TextProbes
   props
-    probes: list<R5Probe>
+    probes: R5Probe[]
   view
     column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r6-text-probes"
-      each probe in probes key=probe.key
+      for probe in probes key=probe.key
         box hatch="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
           text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0
 
@@ -57,7 +57,7 @@ component R6ScriptMenu
   // FX-2 (menu-keys.contract): the pointer entering a row focuses it; leaving the row that holds the focus hands it to the popup.
   action hover(id: string, rowId: string, value: bool)
     if value
-      focus(`${rowId}-km`)
+      focus(rowId)
     else if lit == id
       focus("details-scripts-keys")
   action focused(id: string, on: bool)
@@ -65,8 +65,8 @@ component R6ScriptMenu
   view
     button press=close aria-label="Close script menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-scripts-backdrop" title=""
     column position="absolute" left="0.5rem" right="0.5rem" top=top padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Project scripts" testId="details-scripts-menu"
-      KeyMenu(menuId="details-scripts-keys", items=concat(map(details.scripts, (script) => KmItem(id=`details-script-${script.id}`, label=script.label)), [KmItem(id="details-scripts-add", label="Add project script")]), keyed=0, gap="0px", modal=false)
-        each script in details.scripts key=script.id
+      KeyMenu(menuId="details-scripts-keys", items=details.scripts.map((script) => KmItem(id=`details-script-${script.id}`, label=script.label)).concat([KmItem(id="details-scripts-add", label="Add project script")]), keyed=0, gap="0px", modal=false)
+        for script in details.scripts key=script.id
           button id=`details-script-${script.id}` press=act("terminallocal:run-script", script.id, "") hover=hover(script.id, `details-script-${script.id}`) focus=focused(script.id, true) blur=focused(script.id, false) role="menuitem" testId=`details-script-${script.id}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(lit == script.id ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
             CnScriptIcon(icon=script.icon, size=16, color="light-dark(#71717b, #818181)")
             text script.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"

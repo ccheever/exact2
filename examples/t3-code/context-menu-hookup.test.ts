@@ -36,9 +36,12 @@ function fixture() {
 
 describe('right-click hookup', () => {
   test('the Contract nodes carry the handlers and the root actions name the ops', async () => {
-    expect(await nodeLine('pages-prs.contract', 'testId=`pr-number-${row.number}`')).toContain('contextmenu=control("link-menu", row.linkMenu)');
-    expect(await source('pages-prs.contract')).toContain('PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control,');
-    expect(await nodeLine('pages-pr-detail.contract', 'testId="pull-request-open-host"')).toContain('contextmenu=local("pr-link-menu", "", detail.linkMenu)');
+    // contract-keys-and-menu-bar X292: the number's menu is a context popover (pages-prs.contract PrLinkMenu); its rows pick.
+    expect(await nodeLine('pages-prs.contract', 'testId=`pr-number-${row.number}`')).toContain('contextmenu=linkMenuFor(row.linkMenu, row.linkOpenLabel) contextPopover="pr-link-menu"');
+    expect(await source('pages-prs.contract')).toContain('PrRowButton(row=row, scheme=scheme, compact=compact, select=select, control=control, linkMenuFor=linkMenuFor,');
+    expect(await source('pages-prs.contract')).toContain('PrLinkMenu(menuId="pr-link-menu", link=linkMenuOf, openLabel=linkMenuLabel, pick=control("link-pick"))');
+    expect(await nodeLine('pages-pr-detail.contract', 'testId="pull-request-open-host"')).toContain('contextPopover="pr-detail-link-menu"');
+    expect(await source('pages-pr-detail.contract')).toContain('PrLinkMenu(menuId="pr-detail-link-menu", link=detail.linkMenu, openLabel=detail.linkOpenLabel, pick=local("pr-link-pick", ""))');
     expect(await nodeLine('r4-surfaces-files.contract', 'testId=`tree-${row.path}`')).toContain('contextmenu=local("surface-files-row-menu", row.path, "")');
     const app = await source('app.contract');
     // prControl (the list's `control`) and chatLocal (the panels' and the detail's `local`).
@@ -50,14 +53,12 @@ describe('right-click hookup', () => {
     expect(main).toMatch(/SurfacePanel\([^\n]*local=chatLocal/);
   });
 
-  test('the ops those handlers send open the reference menus', async () => {
+  test('the ops those handlers send open the reference menus; a number\'s menu choice asks for no native menu', async () => {
     const { menus, command } = fixture();
-    await command('pageslocal:pr-link-menu', '', 'github https://github.com/a/b/pull/7');
-    await command('chatlocal:pr-link-menu', '', 'gitlab https://gitlab.com/a/b/-/merge_requests/7');
+    await command('pageslocal:pr-link-pick', '', 'copy-link\ngithub https://github.com/a/b/pull/7');
+    await command('chatlocal:pr-link-pick', '', 'open-external\ngitlab https://gitlab.com/a/b/-/merge_requests/7');
     await command('chatlocal:surface-files-row-menu', 'README.md', '');
     expect(menus()).toEqual([
-      ['Copy link', 'Open on GitHub'],
-      ['Copy link', 'Open on GitLab'],
       ['Open', 'Reveal in Finder', 'Open with', 'Copy mention', 'Add to chat'],
     ]);
   });

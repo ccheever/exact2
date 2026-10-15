@@ -30,7 +30,7 @@ shape R4Tab
   closeTitle: string
   closeBody: string
   closeTarget: string
-  menu: list<R4TabMenuItem>
+  menu: R4TabMenuItem[]
   favicon: string // browser-surface: a Browser tab's captured favicon, then the public service's
   faviconFallback: string
   audio: string // browser-surface part 5: "none", "audible" or "muted" (the tab's audio button)
@@ -49,7 +49,7 @@ shape R4TreeRow
   selected: bool
   token: string
   ignored: bool
-  guides: list<R4Guide>
+  guides: R4Guide[]
 shape R4Guide
   id: string
   left: number
@@ -66,7 +66,7 @@ shape R4CodeRun
 shape R4CodeLine
   id: string
   number: string
-  runs: list<R4CodeRun>
+  runs: R4CodeRun[]
   // diff-review: a code line ("line"), or a saved ("note") or draft comment under its last line; line selection.
   kind: string
   line: number
@@ -84,7 +84,7 @@ shape R4Editor
 shape R4TableRow
   id: string
   header: bool
-  cells: list<R4CodeRun>
+  cells: R4CodeRun[]
 shape R4Files
   cwd: string
   project: string
@@ -93,7 +93,7 @@ shape R4Files
   error: string
   query: string
   truncated: bool
-  rows: list<R4TreeRow>
+  rows: R4TreeRow[]
   hasDirectories: bool
   allExpanded: bool
   explorer: bool
@@ -101,8 +101,8 @@ shape R4Files
   path: string
   preview: string
   previewError: string
-  crumbs: list<R4Crumb>
-  lines: list<R4CodeLine>
+  crumbs: R4Crumb[]
+  lines: R4CodeLine[]
   commentOpen: bool
   text: string
   textKey: string
@@ -123,18 +123,18 @@ shape R4Files
   editorShow: bool
   editorHint: string
   editorUnavailable: string
-  editors: list<R4Editor>
+  editors: R4Editor[]
   absolutePath: string
   // markdown-links-and-files-preview PA-3: the rendered file is ChatMarkdown (app.contract's filesMarkdown answers
   // markdownSource); md, code, diagrams, mdUrls and the Copy code check are what the transcript's answers carry.
-  markdownSource: list<MarkdownSource>
+  markdownSource: MarkdownSource[]
   md: MarkdownEnv
-  code: list<CodeHighlight>
-  diagrams: list<MermaidDiagram>
-  mdUrls: list<AttachmentUrl>
+  code: CodeHighlight[]
+  diagrams: MermaidDiagram[]
+  mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
-  table: list<R4TableRow>
+  table: R4TableRow[]
   editing: bool
   editorText: string
   editorsOpen: bool
@@ -159,7 +159,7 @@ shape R4CrumbMenu
   back: string
   backPath: string
   status: string
-  entries: list<R4CrumbEntry>
+  entries: R4CrumbEntry[]
 shape R4LinkedRow
   key: string
   index: number
@@ -194,7 +194,7 @@ shape R4LinkedRow
   canWatch: bool
 shape R4Prs
   supported: bool
-  rows: list<R4LinkedRow>
+  rows: R4LinkedRow[]
   footer: string
   canWatch: bool
   menu: string
@@ -217,7 +217,7 @@ shape R4DeviceRow
 shape R4DeviceGroup
   id: string
   label: string
-  devices: list<R4DeviceRow>
+  devices: R4DeviceRow[]
 shape R4Device
   loaded: bool
   step: number
@@ -227,15 +227,15 @@ shape R4Device
   hostStatus: string
   hubStatus: string
   hubReady: bool
-  platforms: list<R4Platform>
+  platforms: R4Platform[]
   agentEnabled: bool
   agentStatus: string
   agentReady: bool
   failure: string
   canContinue: bool
   doneLabel: string
-  notices: list<R4HostNotice>
-  groups: list<R4DeviceGroup>
+  notices: R4HostNotice[]
+  groups: R4DeviceGroup[]
   empty: string
   hint: string
   panelStatus: string
@@ -264,7 +264,7 @@ shape R4Panel
   kind: string
   active: string
   count: number
-  tabs: list<R4Tab>
+  tabs: R4Tab[]
   files: R4Files
   prs: R4Prs
   device: R4Device

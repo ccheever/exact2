@@ -94,7 +94,7 @@ describe('background activity, advanced', () => {
 });
 
 import { editDraft, editorView, previewTheme, saveDraft, serializeTheme, syncDraft, themeEditorCommand, updateFamily } from './settings-appearance-editor';
-import { deviceTool, labelWidth } from './settings-a-integrations';
+import { deviceTool } from './settings-a-integrations';
 import { archiveCommand, archiveConfirmation } from './settings-a-archive';
 import { branchRef } from './scheduled-view';
 import { look } from './settings-appearance-look';
@@ -148,7 +148,8 @@ describe('device tools, refs, archive menu, look', () => {
     expect([hub.label, hub.aria, hub.running, hub.installed, hub.update]).toEqual(['Not installed', 'Device hub: not installed. Show details', 'Not running', 'None', 'Update to v0.12.0']);
     expect([agent.label, agent.update]).toEqual(['v1.0.0', '']);
     expect(deviceTool('hub', null).label).toBe('Version unknown');
-    expect(Math.abs(labelWidth('Not installed') - 93.3)).toBeLessThan(6);
+    // KW-6: the popover is end-aligned by its `position-area`; no estimated label width offsets it.
+    expect('offset' in hub).toBe(false);
   });
   test('base branch refs carry their tag', () => {
     expect(branchRef({ name: 'main', current: true }, '/a')).toEqual({ value: 'main', label: 'main', search: 'main', badge: 'current', remote: false });
@@ -158,22 +159,40 @@ describe('device tools, refs, archive menu, look', () => {
     expect(branchRef({ name: 'wt', worktreePath: '/b' }, '/a').badge).toBe('worktree');
   });
   test('the archive context menu unarchives, or confirms a delete only while Delete confirmation is on', async () => {
+    // contract-keys-and-menu-bar X292: the menu is the panel's Contract popover (settings-archive.contract ArchiveMenu);
+    // its choice arrives as `archive-pick` with the row's scope, and no native menu is asked for.
     const client = fakeClient();
-    const calls: string[] = [];
-    let clicked: string | null = 'delete';
-    Object.assign(client, { restAccess: () => ({ call: async () => ({ clicked }) }), manageArchivedThread: async (_n: unknown, _s: unknown, op: string, scope: string) => { calls.push(`${op} ${scope}`); } });
-    await archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t1', 'Old thread');
-    expect(archiveConfirmation(as(client))).toEqual({ id: 'env1:p1:t1', title: 'Old thread' });
+    const calls: string[] = [], native: Obj[] = [];
+    Object.assign(client, { restAccess: () => ({ call: async (request: Obj) => { native.push(request); return {}; } }), manageArchivedThread: async (_n: unknown, _s: unknown, op: string, scope: string) => { calls.push(`${op} ${scope}`); } });
+    await archiveCommand(as(client), fakeNative, {} as never, 'archive-pick', 'env1:p1:t1', 'delete');
+    // sidebar-hover-archive-and-glyph G4-14b: the live store holds no archived thread, so the confirm says "this thread".
+    expect(archiveConfirmation(as(client))).toEqual({ id: 'env1:p1:t1', title: 'this thread' });
     await archiveCommand(as(client), fakeNative, {} as never, 'archive-delete', 'env1:p1:t1', '');
     expect(calls).toEqual(['delete-archived-thread env1:p1:t1']);
     (client.local.clientSettings as Obj).confirmThreadDelete = false;
-    await archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t2', 'Other');
-    clicked = 'unarchive';
-    await archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t3', 'Third');
-    clicked = null;
-    await archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t4', 'Fourth');
+    await archiveCommand(as(client), fakeNative, {} as never, 'archive-pick', 'env1:p1:t2', 'delete');
+    await archiveCommand(as(client), fakeNative, {} as never, 'archive-pick', 'env1:p1:t3', 'unarchive');
+    await archiveCommand(as(client), fakeNative, {} as never, 'archive-pick', 'env1:p1:t4', '');
     expect(calls).toEqual(['delete-archived-thread env1:p1:t1', 'delete-archived-thread env1:p1:t2', 'unarchive-thread env1:p1:t3']);
     expect(archiveConfirmation(as(client)).id).toBe('');
+    expect(native).toEqual([]);
+    await expect(archiveCommand(as(client), fakeNative, {} as never, 'archive-menu', 'env1:p1:t5', '')).rejects.toThrow('Unknown settings action');
+  });
+  test('the archive menu is the panel\'s one context popover: Unarchive, a separator, Delete with its trash', async () => {
+    const view = await Bun.file(new URL('./settings-archive.contract', import.meta.url)).text();
+    expect(view).toContain('column width="100%" position="relative" contextmenu=menuFor(thread.scope) contextPopover="archive-menu" testId=`archived-row-${thread.id}`');
+    const menu = view.slice(view.indexOf('component ArchiveMenu'));
+    const rows = menu.split('\n').map(line => line.trim()).filter(line => /^(button|hr|image|text) /.test(line));
+    expect(rows.map(line => line.split(' ')[0])).toEqual(['button', 'text', 'hr', 'button', 'image', 'text']);
+    expect(rows[0]).toContain('press=raw("rest:archive-pick", owner, "unarchive") popovertarget="archive-menu" popovertargetaction="hide" role="menuitem"');
+    expect(rows[3]).toContain('press=raw("rest:archive-pick", owner, "delete") popovertarget="archive-menu" popovertargetaction="hide" role="menuitem"');
+    expect(rows[4]).toBe('image "symbol:sf/trash" width=12 height=12 object-fit="contain"');
+    expect([rows[1], rows[5]].map(line => /^text "([^"]+)"/.exec(line)![1])).toEqual(['Unarchive', 'Delete']);
+    expect(menu).toContain('column id="archive-menu" popover="auto" position-try-fallbacks="none" role="menu"');
+    const panel = await import('./contract-action-fixture').then(m => m.contractComponent('settings-archive.contract', 'ArchivedPanel'));
+    const state = panel.state();
+    panel.call('menuFor', state, {}, ['env1:p1:t9']);
+    expect(state.menuOf).toBe('env1:p1:t9');
   });
   test('look follows chat width, diff colours, identification and themes', () => {
     const client = fakeClient();

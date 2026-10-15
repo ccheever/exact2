@@ -5,25 +5,19 @@
 //    machine" with the environment icon menu, the Local environment row, and while this machine can
 //    be managed the Version row (`serverVersion · displayUrl`, "Loading…", "Up to date", the update's
 //    progress; a desktop-managed server that cannot update from here gets the sentence instead).
-//    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts,
-//    which restarts the server through the same seam.
-//  - The switch (`applyLocalSetting`, one seam for every local setting): the reference persists the
-//    setting to desktop-settings.json (decision U7: the same file, written by the native side) and
-//    relaunches the app (decision U4). exact2 has no process relaunch (issue X45, exact2 #122 closed
-//    without one), so this is the stopgap: persist, then stop or start the embedded server in place
-//    and reconnect, keeping the window. A failure puts the setting back and shows its reason under
-//    the dialog's description (a write failure is the reference's DesktopSettingsWriteError text).
+//    Network access, its endpoints, Tailscale HTTPS and Authorized clients are connections-network.ts.
+//  - The switch persists desktop-settings.json (decision U7), then returns a relaunch request for
+//    Contract to dispatch (decision U4). A write failure stays under the dialog's description.
 // A refused development build (no T3_LOCAL_HOME / T3_LOCAL_PORT) draws no primary and shows the
 // refusal here only; a missing or failed runtime shows its reason here too.
-import { obj, str, type Obj } from './domain';
-import { ClientError, bridgeReply, type Native } from './protocol';
-import { parseLocalBackendStatus, writeDesktopSettings } from './local-backend';
-import { canManageLocalBackend, focusedOnPrimary, localEnvironmentEnabled, primary, primaryEntry, type LocalPrimary } from './local-primary';
-import { fleet, environmentKey } from './settings-b-fleet';
+import { obj, str } from './domain';
+import type { Native } from './protocol';
+import { writeDesktopSettings } from './local-backend';
+import { canManageLocalBackend, localEnvironmentEnabled, primary, type LocalPrimary } from './local-primary';
 import { versionMismatch } from './version-skew';
 import { desktopManagedOnly, DESKTOP_MANAGED_NOTE } from './server-installation';
 import { serverUpdateStageLabel, serverUpdateStateFor } from './server-update';
-import { placeholderRow, type SavedRowView, type Source } from './connections';
+import { placeholderRow, type ConnectionResult, type SavedRowView, type Source } from './connections';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
 
@@ -84,83 +78,16 @@ function project(source: Source | undefined, row: SavedRowView | null, local: Lo
 }
 export type ThisMachineView = ReturnType<typeof project>;
 
-type Result = { status: Obj | null; generation: number };
-async function call(native: Native, request: Obj) {
-  const reply = await bridgeReply(native, request);
-  if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
-  return reply;
-}
-
-/**
- * applyLocalSetting (U4 stopgap, see the header): one local setting change. Turning off hands the
- * focus away from the primary first (to the first switched-on saved environment, else none), then
- * stops the server; turning on starts it and, with nothing else focused, connects to it. Returns
- * the focused connection's new status for T3Client to adopt; a failure puts the setting back and is the
- * view's `error` (the dialog's inline text), not the command's.
- */
-export async function applyLocalSetting(client: T3Client, native: Native, change: { localEnvironmentEnabled: boolean } | { serverExposure: ServerExposureEnvelope }): Promise<Result> {
-  if ('serverExposure' in change) return restartWithExposure(client, native, change.serverExposure);
-  const enabled = change.localEnvironmentEnabled, before = localEnvironmentEnabled(client);
-  if (enabled === before && primary.status.enabled === enabled) return { status: null, generation: -1 };
-  applyingAny = before; held = last; failure = '';
-  let result: Result = { status: null, generation: -1 }, persisted = false;
-  const local = primaryEntry();
+/** Persist the Local environment setting before Contract can request the process relaunch. */
+export async function applyLocalSetting(client: T3Client, native: Native, change: { localEnvironmentEnabled: boolean }): Promise<ConnectionResult> {
+  applyingAny = localEnvironmentEnabled(client); held = last; failure = '';
   try {
-    // desktop:set-local-environment-enabled: DesktopAppSettings.setLocalEnvironmentEnabled persists first.
-    await writeDesktopSettings(native, { localEnvironmentEnabled: enabled }, client);
-    persisted = true;
-    if (!enabled) {
-      if (focusedOnPrimary(client)) {
-        let reply = await call(native, { op: 'disconnect', forget: false });
-        const next = fleet.saved.find(entry => entry.enabled !== false && str(entry.environmentId) && str(entry.origin));
-        if (next) {
-          fleet.forget(environmentKey(str(next.origin), str(next.environmentId)));
-          await native.later({ op: 'fleetStop', fleet: environmentKey(str(next.origin), str(next.environmentId)) }).catch(() => undefined);
-          reply = await call(native, { op: 'connect', origin: str(next.origin), credential: '' }).catch(() => reply);
-        }
-        result = { status: obj(reply.value), generation: reply.generation };
-      }
-      if (local) {
-        const key = environmentKey(str(local.origin), str(local.environmentId));
-        fleet.forget(key);
-        await native.later({ op: 'fleetStop', fleet: key }).catch(() => undefined);
-      }
-    }
-    const reply = await call(native, { op: 'localBackendSetEnabled', enabled });
-    client.localBackend = parseLocalBackendStatus(reply.value);
-    primary.update(client.localBackend, enabled);
-    if (enabled && primary.connectable && primary.target && (!client.environmentId || ['disconnected', 'error'].includes(client.connection))) {
-      const opened = await call(native, { op: 'connect', origin: primary.target.httpBaseUrl, primary: true });
-      result = { status: obj(opened.value), generation: opened.generation };
-    }
-    return result;
+    const result = await writeDesktopSettings(native, change, client);
+    return { status: null, generation: -1, ...(result.changed ? { relaunch: true } : {}) };
   } catch (error) {
-    if (persisted) await writeDesktopSettings(native, { localEnvironmentEnabled: before }, client).catch(() => undefined);
-    primary.update(primary.status, before);
     if (letGo(error)) throw error;
     // The dialog shows the reason and stays open; nothing else on the page names it.
     failure = error instanceof Error && error.message ? error.message : "Couldn't change this setting.";
     return { status: null, generation: -1 };
   } finally { applyingAny = null; held = null; }
-}
-
-/** The envelope fields a network change restarts the server with (DesktopBackendBootstrap `host`, `tailscaleServe*`). */
-export type ServerExposureEnvelope = { host: string; tailscaleServeEnabled: boolean; tailscaleServePort: number };
-/**
- * applyLocalSetting for Network access and Tailscale HTTPS: the
- * reference persists and relaunches (U4); the stopgap restarts the embedded server in place with the
- * new envelope (`localBackendRestart`: stop, start, wait until it answers) and reconnects the primary
- * wherever it was connected (the focus, or its fleet transport). A failure is the caller's to report.
- */
-async function restartWithExposure(client: T3Client, native: Native, envelope: ServerExposureEnvelope): Promise<Result> {
-  const reply = await call(native, { op: 'localBackendRestart', ...envelope });
-  client.localBackend = parseLocalBackendStatus(reply.value);
-  primary.update(client.localBackend, localEnvironmentEnabled(client));
-  const local = primaryEntry();
-  if (local) { const key = environmentKey(str(local.origin), str(local.environmentId)); fleet.forget(key); await native.later({ op: 'fleetStop', fleet: key }).catch(() => undefined); }
-  if (primary.connectable && primary.target && focusedOnPrimary(client)) {
-    const opened = await call(native, { op: 'connect', origin: primary.target.httpBaseUrl, primary: true });
-    return { status: obj(opened.value), generation: opened.generation };
-  }
-  return { status: null, generation: -1 };
 }

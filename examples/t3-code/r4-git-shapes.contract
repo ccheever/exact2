@@ -13,7 +13,7 @@ shape R4GitBranch
   value: string
   disabled: bool
   query: string
-  refs: list<R4GitRef>
+  refs: R4GitRef[]
   creatable: string
   status: string
   empty: string
@@ -22,10 +22,8 @@ shape R4GitBranch
   originShown: bool
   originOn: bool
   count: number
-  // A ref picked from the keyboard empties the open popover (r4-git-branch.ts).
-  picked: bool
   // lane r9-connect: "Checkout pull request" before the refs (0 or 1).
-  checkout: list<R9CheckoutItem>
+  checkout: R9CheckoutItem[]
 shape R4GitMenuItem
   id: string
   label: string
@@ -78,9 +76,9 @@ shape R4GitCard
   successDescription: string
   menuDisabled: bool
   menuOpen: bool
-  menu: list<R4GitMenuItem>
+  menu: R4GitMenuItem[]
   menuPublish: bool
-  notes: list<R4GitNote>
+  notes: R4GitNote[]
   dialog: string
   // The control that opened the dialog: the quick action, or the options menu's trigger (DialogFinalFocus).
   dialogFrom: string
@@ -88,7 +86,7 @@ shape R4GitCard
   commitBranch: string
   commitDefault: bool
   editing: bool
-  files: list<R4GitFile>
+  files: R4GitFile[]
   fileCount: number
   selectedCount: number
   allSelected: bool
@@ -100,8 +98,8 @@ shape R4GitCard
   confirmDescription: string
   confirmContinue: string
   publishStep: number
-  publishProviders: list<R4GitProvider>
-  publishRows: list<R4ProviderRow>
+  publishProviders: R4GitProvider[]
+  publishRows: R4ProviderRow[]
   publishProvider: string
   publishProviderLabel: string
   publishHost: string
@@ -121,6 +119,6 @@ shape R4GitCard
   publishUrl: string
   publishSummary: string
   envPick: bool
-  envOptions: list<R4EnvOption>
+  envOptions: R4EnvOption[]
   envCount: number
   branch: R4GitBranch

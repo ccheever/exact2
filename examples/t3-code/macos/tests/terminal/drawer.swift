@@ -391,6 +391,26 @@ final class TerminalDrawerTests: XCTestCase {
         XCTAssertEqual(text(view).filter { $0 == "[terminal] Process exited" }.count, 1)
     }
 
+    /// terminal-links-and-close G1-7: `TerminalWriteInput` bounds `data` at 65,536 UTF-16 units and the reference's client
+    /// refuses a longer write before sending it ("Schema validation failed", effect's sync encode); a system message's own
+    /// line ends are written as CRLFs, so a server's two-line message does not stair-step.
+    func testAnOversizedWriteIsRefusedBeforeSendingAndSystemLinesStartAtTheLeftEdge() throws {
+        try XCTSkipUnless(T3TerminalAssets.fileURL("terminal-host.js") != nil, "run terminal-host/build.mjs first")
+        let view = mount()
+        let session = try XCTUnwrap(view.session)
+        spin(until: { view.ready })
+        sessions.write(String(repeating: "x", count: 65_537), to: session, from: view)
+        XCTAssertEqual([session.writes, session.writeFailures], [1, 1])
+        // At the bound it goes on to the transport (here none is connected, so that is what it reports).
+        sessions.write(String(repeating: "x", count: 65_536), to: session, from: view)
+        XCTAssertEqual([session.writes, session.writeFailures], [2, 2])
+        view.systemMessage("Expected a value with a length of at most 65536\n  at [\"data\"]")
+        spin(until: { self.text(view).contains("  at [\"data\"]") })
+        XCTAssertEqual(text(view), ["[terminal] Schema validation failed", "[terminal] The server is not connected.",
+                                    "[terminal] Expected a value with a length of at most 65536", "  at [\"data\"]"])
+        XCTAssertEqual(T3TerminalView.crlf("a\nb\r\nc\n"), "a\r\nb\r\nc\r\n")
+    }
+
     /// The module's status reply carries every terminal's status; with a view shown it must stay JSON
     /// (an ArraySlice there failed the whole status read: "the reply was not JSON").
     func testTheStatusOfShownTerminalsIsJSON() {

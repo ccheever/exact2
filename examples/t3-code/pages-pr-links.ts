@@ -206,7 +206,11 @@ export function linkedThreadItems(client: T3Client, page: string, query: string)
     row: row({ key: item.value, op: 'thread', arg: focused ? item.threadId : fleetThreadId(item.environmentId, item.threadId), icon: 'message-square', title: item.title, description: item.description }) }));
 }
 
-/** ThreadPicker ("Choose a thread"): the panel's server's open threads, a linked one marked and not chosen again. */
+/**
+ * ThreadPicker ("Choose a thread"): the panel's server's open threads, a linked one marked and not chosen again. Its own
+ * dialog (PullRequestThreadLinks display="picker": max-w-md, no close button; palette.contract PaletteThreadPicker),
+ * the palette's page `pr-link-thread` under the panel `picker`: the palette's query, keys, highlight and Enter.
+ */
 export function threadPickerView(client: T3Client, query: string, busy: boolean): PaletteView {
   const context = stateOf(client).context;
   const environment = context ? prEnvironment(client, context.environmentId) : null;
@@ -219,7 +223,7 @@ export function threadPickerView(client: T3Client, query: string, busy: boolean)
     entry.index = entry.kind === 'disabled' ? -1 : index++; entry.top = top; entry.height = 12 + 20 + (candidate.project ? 16 : 0); top += entry.height;
     return entry;
   });
-  return { ...closedView, open: true, page: 'pr-link-thread', panel: 'list', label: 'Choose a thread', testId: 'pull-request-thread-picker', placeholder: 'Search threads or projects...',
+  return { ...closedView, open: true, page: 'pr-link-thread', panel: 'picker', label: 'Choose a thread', testId: 'pull-request-thread-picker', placeholder: 'Search threads or projects...',
     rows, count: index, autoHighlight: true, empty: rows.length ? '' : 'No active threads found.', enterLabel: 'Select', escapeLabel: 'Close', loading: pending };
 }
 
@@ -308,10 +312,10 @@ export function forgetPreviews(client: object): void { previews.delete(client); 
  * thread's surface; on the page, the page's selection (answered as `pr-select:<ref>`).
  */
 export async function openLink(client: T3Client, native: Native, page: boolean, value: string, openSurface: (url: string, target: string) => Promise<void>): Promise<string> {
-  const [kind = '', target = '', href = ''] = value.split('\n');
-  const gesture = obj((await bridgeReply(native, { op: 'composerSendIntent' }).catch(() => ({ ok: false, value: {} }))).value);
+  // The fourth line: the click's own modifiers (markdown.contract PrLinkRun `open`; contract-keys-and-menu-bar).
+  const [kind = '', target = '', href = '', held = ''] = value.split('\n');
   const browser = async (url: string) => { if (url) await bridgeReply(native, { op: 'remoteEditorsOpen', url }); return ''; };
-  if (str(gesture.modifiers)) return browser(href);
+  if (held) return browser(href);
   // No project to open it beside: an ordinary link, which follows "Open links in" (useOpenPrLink → useOpenLink; browser-links.ts).
   if (!target) { if (href) await openLinkByTarget(client, native, href); return ''; }
   let url = href;

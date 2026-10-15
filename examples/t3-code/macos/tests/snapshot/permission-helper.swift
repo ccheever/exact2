@@ -161,8 +161,16 @@ func runPermissionHelperChecks() {
     expect(helper.panel == nil && returned == 3, "Settings closing closes the helper and returns to the owner")
     open(); let first = helper.panel; open()
     expect(first?.isVisible == false && helper.panel !== first && stops == 4, "only one helper at a time; a new one releases the old")
-    granted = true; spin(1.2)
-    expect(helper.panel == nil && returned == 4 && finished == 4, "the grant is detected within a second and closes the helper")
+    // The grant poll must keep running during the helper's drag or an open menu, as the Settings watcher does.
+    // This timer only bounds a missing update; the test stops as soon as the helper closes, without a fixed sleep.
+    granted = true
+    var expired = false
+    let deadline = Timer(timeInterval: 3, repeats: false) { _ in expired = true }
+    RunLoop.main.add(deadline, forMode: .eventTracking)
+    while helper.panel != nil && !expired { RunLoop.main.run(mode: .eventTracking, before: .distantFuture) }
+    deadline.invalidate()
+    expect(helper.panel == nil && returned == 4 && finished == 4 && stops == 5, "the grant is detected and closes the helper during event tracking")
+    print("t3.g5b1: event-tracking grant poll closed the helper and released its watcher")
     granted = false; open(); owner.close()
     expect(helper.panel == nil && returned == 4 && finished == 5, "closing the owner window closes the helper without reopening it")
     helper.close()

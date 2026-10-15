@@ -3,7 +3,7 @@ import XCTest
 
 // Lane r8-keys: the reference menu bar over the host's (R8KeysMenus.swift), routed
 // keystrokes through real NSMenu key-equivalent lookup with the bar installed as
-// the main menu, and the surface launcher's focus and letters (R8KeysLauncher.swift)
+// the main menu, and the surface launcher's letters beside type-to-focus (T3Composer)
 // in a real window. Compiled with every file in modules/apple (T3Module included).
 
 private var acted: [(node: UInt32, action: UInt32)] = []
@@ -183,68 +183,13 @@ final class R8KeysTests: XCTestCase {
         NSApp.mainMenu = nil
     }
 
-    func testTheLauncherTakesFocusAndItsLetters() {
+    /// The launcher's letters are its rows' `aria-keyshortcuts`
+    /// (shell-panels.contract SurfaceRow), which Exact's session monitor presses (ShortcutsMac `perform`) wherever the
+    /// focus is but an input context, and its `autofocus` focuses it on mount. AppKit calls a window's local key monitors
+    /// in no fixed order, so the composer's type-to-focus (T3Composer.handle) must leave a launcher letter unconsumed
+    /// whether it runs before Exact's monitor or after it: the letter is pressed once and never typed into the composer.
+    func testTypeToFocusLeavesTheLaunchersLettersToItsShortcuts() {
         _ = NSApplication.shared
-        acted = []
-        let hooks = makeHooks()
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
-        editor.isEditable = true
-        window.contentView!.addSubview(editor)
-        let launcherView = LauncherView(frame: .zero)
-        window.contentView!.addSubview(launcherView)
-        window.makeFirstResponder(editor)
-        let launcher = R8KeysLauncher()
-        let element = ExactElement(hatch: .t3Launcher, id: "surface-chooser", node: 7, hatches: hooks)
-        element.view = launcherView
-        element.data = ExactData(["surface-launcher-keys": "FLD"])
-        launcher.install(element)
-        XCTAssertTrue(window.firstResponder === editor, "a launcher with no size yet waits")
-        launcherView.frame = NSRect(x: 220, y: 0, width: 260, height: 300) // laid out
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertTrue(acted.contains { $0.node == 7 && $0.action == 1 }, "focus() on mount, as focusOnMount does")
-        XCTAssertTrue(window.firstResponder === launcherView)
-        // Letters it answers, outside a typing context: with the focus on it they go on to Exact's key route,
-        // which runs its `key` handlers (a view's keyDown runs none), never to the view or to type-to-focus.
-        XCTAssertEqual(launcher.route(key("f", 3, [], window: window), typing: false), .pass)
-        XCTAssertEqual(launcher.route(key("L", 37, [.shift], window: window), typing: false), .pass)
-        XCTAssertEqual(launcherView.keys, [], "nothing is handed to the view's keyDown")
-        XCTAssertEqual(launcher.route(key("x", 7, [], window: window), typing: false), .none, "a letter it does not list types on")
-        XCTAssertEqual(launcher.route(key("f", 3, [], window: window), typing: true), .none, "the composer keeps its letters")
-        XCTAssertEqual(launcher.route(key("f", 3, [.command], window: window), typing: false), .none)
-        // From the bare window (focus lost to a stray click) the launcher takes the focus back and the key comes again,
-        // at the head of the queue, for Exact's route to hear at the launcher.
-        window.makeFirstResponder(nil)
-        let d = key("d", 2, [], window: window)
-        XCTAssertEqual(launcher.route(d, typing: false), .taken)
-        XCTAssertTrue(window.firstResponder === launcherView)
-        let again = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
-        XCTAssertEqual(again?.characters, "d", "posted again")
-        // The copy posted again is never posted a second time, and when the focus left meanwhile it goes nowhere
-        // (the reference's capture listener lets no launcher letter reach type-to-focus or a text field).
-        window.makeFirstResponder(nil)
-        XCTAssertEqual(launcher.route(again!, typing: false), .dropped)
-        XCTAssertNil(NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true))
-        XCTAssertEqual(launcher.route(key("l", 37, [], window: window, at: 50), typing: false), .taken)
-        let copy = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
-        window.makeFirstResponder(editor)
-        XCTAssertEqual(launcher.route(copy!, typing: true), .dropped, "the copy never lands in a text field the focus moved to")
-        XCTAssertEqual(launcher.route(key("l", 37, [], window: window, at: 51), typing: true), .none, "a new key there types on")
-        window.makeFirstResponder(launcherView)
-        launcherView.isHidden = true
-        XCTAssertEqual(launcher.route(d, typing: false), .none, "a hidden launcher answers nothing")
-        launcher.remove(element)
-        launcherView.isHidden = false
-        XCTAssertEqual(launcher.route(d, typing: false), .none)
-    }
-    /// AppKit calls a window's local key monitors in no fixed order (it changes as monitors
-    /// come and go: the panel's reopen did it). A real launcher letter must reach Exact's key route (ExactViewMac's
-    /// session monitor; the launcher's `key` handlers run only from there) with the launcher focused, whether the
-    /// composer's monitor (type-to-focus, T3Composer.handle) runs before Exact's or after it.
-    func testALauncherLetterReachesExactsKeyRouteInEitherMonitorOrder() {
-        _ = NSApplication.shared
-        acted = []
         let hooks = makeHooks()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -258,57 +203,55 @@ final class R8KeysTests: XCTestCase {
         field.view = text
         field.platform = text
         composer.install(field)
-        let launcher = R8KeysLauncher()
-        composer.launcher = launcher
         let element = ExactElement(hatch: .t3Launcher, id: "surface-chooser", node: 7, hatches: hooks)
         element.view = launcherView
         element.data = ExactData(["surface-launcher-keys": "BTFDL"])
-        launcher.install(element)
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertTrue(window.firstResponder === launcherView, "focused on mount")
-        // Exact's monitor (Presenter.routeKey): the `key` handlers at the first responder hear the key; the launcher's
-        // prevent a letter it answers, so the event goes no further.
-        var heard: [String] = []
+        composer.install(element)
+        // Exact's monitor: a launcher row's shortcut takes its letter, either case, by the physical key under a
+        // non-Latin source (Shortcut.matches); the event goes no further.
+        var pressed: [String] = []
         func exact(_ event: NSEvent) -> NSEvent? {
-            guard window.firstResponder === launcherView else { return event }
-            heard.append(event.characters ?? "")
+            let typed = event.charactersIgnoringModifiers ?? ""
+            let letter = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (R10Connect.physicalKeys[event.keyCode] ?? typed)
+            guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty, "BTFDL".contains(letter.uppercased()) else { return event }
+            pressed.append(letter.uppercased())
             return nil
         }
         func press(_ event: NSEvent, composerFirst: Bool) {
-            var next: NSEvent? = event
-            while let current = next {
-                if composerFirst { _ = composer.handle(current).flatMap(exact) } else { _ = exact(current).flatMap(composer.handle) }
-                next = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
-            }
+            if composerFirst { _ = composer.handle(event).flatMap(exact) } else { _ = exact(event).flatMap(composer.handle) }
         }
         var time: TimeInterval = 100 // each press its own timestamp, as a keyboard's
         for composerFirst in [false, true] {
-            heard = []
-            time += 1; press(key("f", 3, [], window: window, at: time), composerFirst: composerFirst)
-            XCTAssertEqual(heard, ["f"], "F reaches the launcher's key handlers once, composer's monitor first: \(composerFirst)")
-            // Focus lost to a stray click: the launcher takes it back and still hears the letter once.
-            window.makeFirstResponder(nil)
-            heard = []
-            time += 1; press(key("d", 2, [], window: window, at: time), composerFirst: composerFirst)
-            XCTAssertEqual(heard, ["d"], "D from the bare window, composer's monitor first: \(composerFirst)")
-            XCTAssertTrue(window.firstResponder === launcherView)
+            for responder in [nil, launcherView] as [NSResponder?] {
+                window.makeFirstResponder(responder)
+                pressed = []
+                time += 1; press(key("f", 3, [], window: window, at: time), composerFirst: composerFirst)
+                time += 1; press(key("L", 37, [.shift], window: window, at: time), composerFirst: composerFirst)
+                time += 1; press(key("ㅇ", 2, [], window: window, at: time), composerFirst: composerFirst) // Korean 2-Set's D key
+                XCTAssertEqual(pressed, ["F", "L", "D"], "each letter pressed once, composer's monitor first: \(composerFirst)")
+                XCTAssertEqual(text.string, "", "type-to-focus never takes a launcher letter")
+                XCTAssertNil(NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true), "nothing is posted again")
+            }
         }
-        // A rare race: the copy posted again comes back after the focus left the launcher once more. It goes
-        // nowhere: type-to-focus never types it into the composer, and it is not posted a third time.
+        XCTAssertEqual(launcherView.keys, [], "nothing is handed to the view's keyDown")
+        XCTAssertTrue(T3Composer.launcherLetter(key("f", 3, [], window: window), letters: "FLD", live: true))
+        XCTAssertFalse(T3Composer.launcherLetter(key("f", 3, [.command], window: window), letters: "FLD", live: true), "a ⌘ chord is not the launcher's")
+        XCTAssertFalse(T3Composer.launcherLetter(key("f", 3, [.option], window: window), letters: "FLD", live: true))
+        XCTAssertFalse(T3Composer.launcherLetter(key("f", 3, [], window: window), letters: "FLD", live: false))
+        // A letter the launcher does not list still goes to the composer (ChatView's type-to-focus), as does every
+        // letter once the launcher is hidden or gone.
         window.makeFirstResponder(nil)
-        time += 1
-        XCTAssertNil(composer.handle(key("d", 2, [], window: window, at: time)))
-        let copy = NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true)
-        XCTAssertEqual(copy?.characters, "d", "posted again")
-        window.makeFirstResponder(nil)
-        XCTAssertNil(composer.handle(copy!), "the copy is dropped")
-        XCTAssertNil(NSApp.nextEvent(matching: .keyDown, until: Date(), inMode: .default, dequeue: true))
-        XCTAssertEqual(text.string, "", "type-to-focus never takes a launcher letter")
-        XCTAssertEqual(launcherView.keys, [])
-        // A letter the launcher does not list still goes to the composer (ChatView's type-to-focus).
-        heard = []
         XCTAssertNil(composer.handle(key("x", 7, [], window: window, at: time + 1)))
         XCTAssertEqual(text.string, "x")
+        launcherView.isHidden = true
+        window.makeFirstResponder(nil)
+        XCTAssertNil(composer.handle(key("f", 3, [], window: window, at: time + 2)))
+        XCTAssertEqual(text.string, "xf")
+        launcherView.isHidden = false
+        composer.remove(element)
+        window.makeFirstResponder(nil)
+        XCTAssertNil(composer.handle(key("d", 2, [], window: window, at: time + 3)))
+        XCTAssertEqual(text.string, "xfd")
         composer.destroy()
     }
     func testMeasureReportsTheDrawnFrame() {
@@ -425,4 +368,4 @@ let suite = XCTestSuite(forTestCaseClass: R8KeysTests.self)
 suite.run()
 let run = suite.testRun!
 print("R8 keys tests: \(run.executionCount) run, \(run.totalFailureCount) failed")
-exit(run.executionCount == 6 && run.totalFailureCount == 0 ? 0 : 1)
+exit(run.executionCount == 5 && run.totalFailureCount == 0 ? 0 : 1)

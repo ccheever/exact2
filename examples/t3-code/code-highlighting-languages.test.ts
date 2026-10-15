@@ -155,10 +155,15 @@ describe('a long line under slicing always finishes (review: the per-line work l
     const line = 'let a = r#######"x"#######; let b = r#########"y"#########; let c = r########"z"########;';
     let result: ReturnType<typeof tokenizeLineWithin> = null, tries = 0;
     // A limit below zero lets each try compile one grammar regex; before the fix the second
-    // back-reference regex stopped every try at the same place.
-    while (!result && tries < 500) { result = tokenizeLineWithin(line, 'rust', null, -1); tries++; }
-    expect(result).not.toBeNull();
-    expect(result!.pieces).toEqual(tokenizeLine(line, 'rust', null).pieces);
+    // back-reference regex stopped every try at the same place. A try that stopped after a scan goes on from its progress.
+    let progress: Extract<typeof result, { progress: unknown }>['progress'] | null = null;
+    while ((!result || 'progress' in result) && tries < 500) {
+      result = tokenizeLineWithin(line, 'rust', null, -1, progress);
+      progress = result && 'progress' in result ? result.progress : null;
+      tries++;
+    }
+    expect(result && 'pieces' in result).toBe(true);
+    expect(result && 'pieces' in result ? result.pieces : []).toEqual(tokenizeLine(line, 'rust', null).pieces);
   });
   const sliced = (text: string, lang: string) => {
     resetHighlightSlicing();

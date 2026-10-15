@@ -147,8 +147,8 @@ describe('CO-3: a search highlights its first row a person can choose', () => {
   test('Return\'s target is any highlighted model row a person can choose, an open Legacy section\'s rows too', async () => {
     const picker = await block('model-picker.contract', 'component ModelPicker');
     const choosable = '(r.kind == "model" or r.kind == "legacy-model") and r.reason == ""';
-    expect(picker).toContain(`derive targetId = join(map(filter(catalog.models, (r) => r.index == highlight and ${choosable}), (r) => r.id), "")`);
-    expect(picker).toContain(`derive targetProvider = join(map(filter(catalog.models, (r) => r.index == highlight and ${choosable}), (r) => r.providerId), "")`);
+    expect(picker).toContain(`derive targetId = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.id).join("")`);
+    expect(picker).toContain(`derive targetProvider = catalog.models.filter((r) => r.index == highlight and ${choosable}).map((r) => r.providerId).join("")`);
     // The highlight reaches a legacy row only while its section is open: `count` holds the legacy rows then, and they follow the header.
     expect(picker).toContain('derive count = (legacyOpen ? catalog.count : catalog.count - catalog.legacyCount)');
     const catalog = modelCatalog(client(), 'claudeAgent', '');

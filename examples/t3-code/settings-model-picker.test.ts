@@ -180,7 +180,7 @@ describe('the picker\'s empty state (model-picker.contract)', () => {
     const empty = source.findIndex(line => line.includes('"No models found"') && line.includes('testId="model-empty"'));
     expect(source[list]).toContain('scroll flex=(count > 0 ? 1 : 0)');
     // The `when` that holds it sits at the scroll's own depth (ComboboxEmpty after ComboboxListVirtualized).
-    expect(source[empty - 1]!.trim()).toBe('when count == 0 and setupCount == 0');
+    expect(source[empty - 1]!.trim()).toBe('if count == 0 and setupCount == 0');
     expect(indent(source[empty - 1]!)).toBe(indent(source[list]!));
   });
 });

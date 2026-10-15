@@ -23,6 +23,7 @@ import { ageLabel, capabilities, canSnooze, isWoke, lastVisited, recedes, sectio
   snoozeWakeLabel, sortActive, sortByReturn, sortPinned, sortSettled, sortSnoozed, sortWorkingThreadsBySend, threadTimeLabel, topStatus, unseenCompletion,
   wokeAt, workingDuration, workingStartedAt, type SidebarSection } from './sidebar-model';
 import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR badge
+import { branchPrBadge, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12: the branch's pull request
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
 import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
@@ -66,7 +67,7 @@ export interface SidebarView {
   settledExpanded: boolean; snoozedExpanded: boolean; workingExpanded: boolean; showMore: number;
   emptyText: string; emptyAddProject: boolean; hasProjects: boolean; projectGroupCount: number; dragEnabled: boolean;
   scopeKey: string; scopeLabel: string; scopeMark: string; scopeInk: string; scopeSurface: string; scopeGlyph: ProjectGlyph; scopes: SidebarScope[];
-  scopeOpen: boolean; scopeQuery: string; scopeFirst: string; navigateKind: string; navigateProject: string;
+  scopeOpen: boolean; scopeQuery: string; scopeFirst: string;
   renameId: string; renameTitle: string; selectionCount: number; undoText: string; undoLabel: string; undoUntil: number;
   dialog: string; dialogTitle: string; dialogDescription: string; dialogMode: string; dialogDate: string; dialogTime: string; dialogAmount: string; dialogUnit: string; dialogError: string; dialogReturn: string; jumpHints: boolean;
   calendar: SnoozeCalendar;
@@ -167,6 +168,14 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
     : recede ? 'light-dark(#71717bb3, #818181b3)' : active || woke || status === 'input' ? FOREGROUND : unread ? SECONDARY : 'light-dark(#71717bb3, #818181b3)';
 }
 
+/** Sidebar.tsx prBadge: the thread's links (resolveThreadPullRequestBadge), else, with no current link, the pull request
+ * useLinkedThreadPullRequest reads for it (its branch's; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12). */
+function rowPrBadge(client: T3Client, thread: Obj): ReturnType<typeof sidebarPrBadge> {
+  const linked = sidebarPrBadge(thread);
+  if (linked.badge) return linked;
+  const pr = branchPullRequest(client, thread);
+  return pr ? branchPrBadge(pr) : linked;
+}
 function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[] }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
@@ -190,7 +199,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     providerDriver: str(instance?.driver), ...helpers.providerBadge(instance, providers), providerName: str(instance?.displayName),
     terminalCount, terminalLabel: terminalProcessLabel(terminalCount),
     age: section === 'settled' ? ageLabel(settledTimestamp(thread), now) : threadTimeLabel(thread, now),
-    ...sidebarPrBadge(thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts)
+    ...rowPrBadge(client, thread), // r5-panels: resolveThreadPullRequestBadge (r5-panels-pr.ts), else the branch's pull request
     section, status: pill?.label ?? '', selected: active, searchFirst: extra.searchFirst,
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
@@ -269,7 +278,6 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
       scopes: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity),
       scopeOpen: session.scopeOpen, scopeQuery: session.scopeQuery,
       scopeFirst: scopeItems(client, session.scopeQuery, scope?.key ?? '', scopes, helpers.projectIdentity)[0]?.key ?? '',
-      navigateKind: session.navigate.kind, navigateProject: session.navigate.projectId,
       renameId: session.renameId, renameTitle: session.renameTitle, selectionCount: session.selection.length,
       undoText: undo && live ? `${undo.action} ${undo.threadIds.length} ${undo.action === 'Discarded' ? 'draft' : 'thread'}${undo.threadIds.length === 1 ? '' : 's'},` : '', // r11-upstream: drafts (95edeb753b)
       undoUntil: undo && live ? undo.at + 5000 : 0, // lane r8-keys: the window hides the notice at this wall time (showThreadUndoNotice's 5 s)

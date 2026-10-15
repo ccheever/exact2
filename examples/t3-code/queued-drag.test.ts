@@ -15,7 +15,7 @@ import { contractComponent } from './contract-action-fixture';
 import type { T3Client } from './client';
 
 const control = contractComponent('composer-controls.contract', 'QueuedControl');
-const helpers = { min: Math.min, max: Math.max, floor: Math.floor, length: (list: unknown[]) => list.length };
+const helpers = { min: Math.min, max: Math.max, floor: Math.floor };
 
 /** Three queued runs behind the running turn, in the server's `order`. */
 function queue(client: T3Client, order: string[]) {

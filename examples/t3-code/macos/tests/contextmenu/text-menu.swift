@@ -31,23 +31,19 @@ private final class HostParagraph: NSView {
     override func selectAll(_ sender: Any?) { selections += 1 }
 }
 
-/// A text node as AppKit sees it for Services (ExactKit's answers `validRequestor` for its
-/// selection). AppKit's context-menu pop-up asks it once per service type while it builds the Services item.
+/// A selected paragraph's Services boundary (ExactKit's NodeView, TextSelectionMac.swift). The selected string goes
+/// to the service's pasteboard, not the general clipboard; read-only text accepts no return type.
 private final class ServicesRequestor: NSView, NSServicesMenuRequestor {
+    var selection = "selected"
     private(set) var servicesAsks = 0
     override func validRequestor(forSendType sendType: NSPasteboard.PasteboardType?, returnType: NSPasteboard.PasteboardType?) -> Any? {
         servicesAsks += 1
-        return sendType == .string ? self : super.validRequestor(forSendType: sendType, returnType: returnType)
+        return sendType == .string && returnType == nil && !selection.isEmpty ? self : super.validRequestor(forSendType: sendType, returnType: returnType)
     }
-    func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool { pboard.setString("selected", forType: .string) }
-}
-
-/// Closes a menu shortly after it opens, from the tracking loop.
-private final class MenuCloser: NSObject, NSMenuDelegate {
-    private(set) var opened = false
-    func menuWillOpen(_ menu: NSMenu) {
-        opened = true
-        RunLoop.main.add(Timer(timeInterval: 0.2, repeats: false) { _ in menu.cancelTrackingWithoutAnimation() }, forMode: .common)
+    func writeSelection(to pboard: NSPasteboard, types: [NSPasteboard.PasteboardType]) -> Bool {
+        guard types.contains(.string), !selection.isEmpty else { return false }
+        pboard.clearContents()
+        return pboard.setString(selection, forType: .string)
     }
 }
 
@@ -142,18 +138,33 @@ final class TextContextMenuTests: XCTestCase {
         XCTAssertEqual(other.ownMenus, 1)
     }
 
-    /// The shell's menu pops up without Services. DesktopWindow's template (Electron's menu) has
-    /// none; `NSMenu.popUpContextMenu` adds them for a view that answers `validRequestor` unless plug-ins are off.
-    func testTheShellsMenuPopsUpWithoutServices() {
+    /// R11-SEL: Electron's drawn menu adds Services to the shell's editing template over selected page text.
+    /// Inspect the actual menu during tracking: AppKit inserts Services without adding an item to `menu.items`.
+    func testSelectedPageTextOffersServicesAndWritesOnlyTheSelection() throws {
         let requestor = ServicesRequestor(frame: NSRect(x: 20, y: 120, width: 200, height: 40))
         window.contentView!.addSubview(requestor)
-        let menu = NSMenu()
-        menu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        let closer = MenuCloser()
-        menu.delegate = closer
-        T3TextContextMenu(agent: false).present(menu, rightClick(at: NSPoint(x: 60, y: 140)), requestor)
-        XCTAssertTrue(closer.opened, "the menu was shown (and closed by the test)")
-        XCTAssertFalse(menu.allowsContextMenuPlugIns, "no context-menu plug-ins (Services) on the shell's menu")
-        XCTAssertEqual(requestor.servicesAsks, 0, "AppKit built no Services item for the text node")
+        NSApp.registerServicesMenuSendTypes([.string], returnTypes: [])
+        let event = rightClick(at: NSPoint(x: 60, y: 140))
+        func present() throws -> [String] {
+            let menu = T3TextContextMenu.pageMenu(requestor, event, selected: !requestor.selection.isEmpty)
+            let reader = DrawnMenuReader()
+            menu.delegate = reader
+            T3TextContextMenu(agent: false).present(menu, event, requestor)
+            return try XCTUnwrap(reader.drawn, "the native menu opened and was read during tracking")
+        }
+        let selected = try present()
+        print("t3.r11sel: selected page text, drawn menu: \(selected)")
+        XCTAssertEqual(selected, ["Cut", "Copy", "Paste", "Select All", "Services"])
+        XCTAssertGreaterThan(requestor.servicesAsks, 0, "the selected text's services requestor is consulted")
+        let provider = try XCTUnwrap(requestor.validRequestor(forSendType: .string, returnType: nil) as? NSServicesMenuRequestor)
+        let board = NSPasteboard.withUniqueName()
+        defer { board.releaseGlobally() }
+        XCTAssertEqual(provider.writeSelection?(to: board, types: [.string]), true)
+        XCTAssertEqual(board.string(forType: .string), "selected")
+        XCTAssertNil(requestor.validRequestor(forSendType: .string, returnType: .string), "Services cannot replace read-only text")
+        requestor.selection = ""
+        let unselected = try present()
+        print("t3.r11sel: unselected page text, drawn menu: \(unselected)")
+        XCTAssertEqual(unselected, ["Cut", "Copy", "Paste", "Select All"], "no selection supplies no Services")
     }
 }

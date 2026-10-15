@@ -18,6 +18,8 @@ import { ClientError, type Files, type Native } from './protocol';
 import type { Obj } from './domain';
 import type { PanelState } from './r4-surfaces-panel';
 import { resetPrimary } from './local-primary-fixture';
+import { contractComponent } from './contract-action-fixture';
+import { contractFn } from './contract-fn-fixture';
 
 const work: BrowserProfile = { id: 'profile-work', name: 'Work', kind: 'persistent' };
 // The app's one primary (local-primary.ts) is module state another test file may leave set: these rows name their own
@@ -271,5 +273,48 @@ describe('the browser listing under a replaced command (clone: docs/agent-pitfal
     lose = true;
     await expect(browserProfilesLocal(client, module, storage, 'browser-profiles-sources', '')).rejects.toBeInstanceOf(ClientError);
     expect((await browserProfilesView(client, module)).sources.map(source => source.id)).toEqual(listed);
+  });
+});
+
+
+describe('Add profile keyboard opening', () => {
+  it('prepares sources once before showing and focusing, and ignores modified or repeated opens', async () => {
+    const component = contractComponent('browser-profiles.contract', 'BrowserProfilesSetting');
+    const kmOpenKey = await contractFn('menu-keys.contract', 'kmOpenKey', ['k']);
+    const kmArrow = await contractFn('menu-keys.contract', 'kmArrow', ['k']);
+    const kmTriggerKey = await contractFn('menu-keys.contract', 'kmTriggerKey', ['k'], { kmOpenKey, kmArrow });
+    const kmTriggerTarget = await contractFn('menu-keys.contract', 'kmTriggerTarget', ['items', 'k']);
+    const calls: unknown[][] = [];
+    const scope = {
+      kmTriggerKey, kmTriggerTarget,
+      menuItems: [{ id: 'browser-profiles-blank', label: 'Blank profile' }, { id: 'browser-import-source-safari', label: 'Safari' }],
+      preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']),
+      local: (...args: unknown[]) => calls.push(['local', ...args]),
+      showPopover: (...args: unknown[]) => calls.push(['showPopover', ...args]), focus: (id: string) => calls.push(['focus', id]),
+    };
+    const event = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
+    for (const key of ['ArrowDown', 'ArrowUp', 'Enter', ' ', 'Space']) {
+      calls.length = 0;
+      component.call('triggerKey', component.state(), scope, [key, event]);
+      expect(calls).toEqual([
+        ['preventDefault'], ['stopPropagation'], ['local', 'browser-profiles-sources', ''],
+        ['showPopover', 'browser-profiles-add-menu', { source: 'browser-profiles-add' }],
+        ['focus', key === 'ArrowUp' ? 'browser-import-source-safari' : 'browser-profiles-blank'],
+      ]);
+      calls.length = 0;
+      component.call('triggerKey', component.state(), scope, [key, { ...event, repeat: true }]);
+      expect(calls).toEqual([['preventDefault'], ['stopPropagation']]);
+      for (const modifier of ['metaKey', 'ctrlKey', 'altKey', 'shiftKey']) {
+        calls.length = 0;
+        component.call('triggerKey', component.state(), scope, [key, { ...event, [modifier]: true }]);
+        expect(calls).toEqual([]);
+      }
+    }
+    calls.length = 0;
+    component.call('triggerKey', component.state(), { ...scope, menuItems: [] }, ['ArrowUp', event]);
+    expect(calls).toEqual([
+      ['preventDefault'], ['stopPropagation'], ['local', 'browser-profiles-sources', ''],
+      ['showPopover', 'browser-profiles-add-menu', { source: 'browser-profiles-add' }],
+    ]);
   });
 });

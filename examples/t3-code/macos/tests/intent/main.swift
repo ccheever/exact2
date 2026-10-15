@@ -31,8 +31,16 @@ final class ComposerIntentTests: XCTestCase {
         XCTAssertTrue(intent.take().isEmpty, "only Return records a key gesture")
         intent.record(key(.command, repeating: true), at: 31)
         XCTAssertTrue(intent.take().isEmpty, "a held Return does not record again")
+        // contract-keys-and-menu-bar: a click's modifiers ride with its own press (MouseEvent), so the module records no
+        // pointer gesture; a click retires the Return gesture before it, so a later plain click never resolves a stale chord.
         intent.record(click(.command), at: 40)
-        XCTAssertEqual(intent.take(at: 40)["source"] as? String, "pointer")
+        XCTAssertTrue(intent.take(at: 40).isEmpty, "a click is its press's, not a recorded gesture")
+        intent.record(key(.command), at: 50)
+        intent.record(click([]), at: 50.5)
+        XCTAssertTrue(intent.take(at: 51).isEmpty, "a click retires the ⌘↩ before it")
+        intent.record(click([]), at: 60)
+        intent.record(key([.command, .option]), at: 60.5)
+        XCTAssertEqual(intent.take(at: 61)["modifiers"] as? String, "meta+alt", "a Return after the click is the gesture")
         intent.destroy()
     }
 

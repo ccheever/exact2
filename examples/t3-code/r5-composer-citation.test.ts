@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { citationJump, citedRow, revealCitation } from './r5-composer-citation';
 import { T3Client } from './client';
+import { chatLocal, timelineSnapshot, timelineView } from './timeline-presentation';
 import type { Native } from './protocol';
 
 const rows = [
@@ -33,6 +34,24 @@ describe('citation View source (AssistantCitationSource)', () => {
     await revealCitation(client, native, 't1', 'a1', () => rows);
     expect(calls.filter(call => call.op === 'timelineJump')).toEqual([{ ...citationJump(rows, 1), generation: -1 }]);
     await expect(revealCitation(client, native, 'gone', 'a1', () => rows)).rejects.toThrow('Thread no longer available');
+  });
+  // timeline-and-window-hooks KW-12b: while View source places its answer the snapshot says so, and ChatColumn restores
+  // no remembered position over it (timeline-anchor.test.ts); the flag clears once it lands or fails.
+  test('the snapshot reports a citation in flight, and only then', async () => {
+    const client = new T3Client();
+    Object.assign(client, { threadId: 't1', connection: 'connected' });
+    client.shell.threads = [{ id: 't1' }] as typeof client.shell.threads;
+    timelineView(client).lastRows = { threadId: 't1', rows };
+    const during: boolean[] = [];
+    const native = { available: true, watch() {}, async later(request: Record<string, unknown>) {
+      if (request.op === 'timelineJump') during.push(timelineSnapshot(client).citing);
+      return { ok: true, generation: request.generation, value: {} };
+    } } as unknown as Native;
+    expect(timelineSnapshot(client).citing).toBe(false);
+    await chatLocal(client, native, 'chip-citation', 't1', 'a2');
+    expect([during, timelineSnapshot(client).citing]).toEqual([[true], false]);
+    await expect(chatLocal(client, native, 'chip-citation', 'gone', 'a2')).rejects.toThrow('Thread no longer available');
+    expect(timelineSnapshot(client).citing).toBe(false);
   });
 });
 

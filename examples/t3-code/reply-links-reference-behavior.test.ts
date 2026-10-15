@@ -16,13 +16,13 @@ describe('a fragment link leaves the thread (RL-4)', () => {
   test('the window sends a fragment open on its own mutation and shows the draft as a new thread\'s, the composer focused', async () => {
     const app = await source('app.contract');
     // Every other link open stays on localChanged (it shows nothing new); a fragment's reply names `sidebar:new-thread`.
-    expect(app).toContain('    else if op == "link-open" and startsWith(value, "#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0)');
+    expect(app).toContain('    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0)');
     expect(app).toMatch(/mutation fragmentChanged as shape Change refreshes data then fragmentOpened\n {2}action fragmentOpened\n {4}match fragmentChanged\n {6}case some\(result\)\n {8}if result\.message == "sidebar:new-thread"\n {10}draftOwner = "__unset__"\n {10}jumpRequest = jumpRequest \+ 1\n {10}utilityPage = ""\n {10}focus\("composer"\)\n/);
     // The same as commandCompleted's handling of a new thread (the sidebar's New thread, a hand-off).
     expect(app).toMatch(/if result\.message == "sidebar:new-thread" or result\.message == "pr-handoff-next"\n {10}draftOwner = "__unset__"\n {10}jumpRequest = jumpRequest \+ 1\n {10}utilityPage = ""\n {10}focus\("composer"\)\n/);
     // Both the reply's link (FlowRuns) and a table cell's (ChatRuns) press `linkOpen("link", href)`, the window's chatLocal.
     const window = await source('app-window.contract');
-    expect(window).toMatch(/action linkOpen\(kind: string, href: string\)\n {4}chatLocal\("link-open", kind, href\)/);
+    expect(window).toContain('action linkOpen(kind: string, href: string, e: MouseEvent)\n    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)');
   });
 
   test('chatlocal:link-open with a fragment answers sidebar:new-thread with the most recently active project\'s draft open', async () => {
@@ -32,11 +32,12 @@ describe('a fragment link leaves the thread (RL-4)', () => {
       threads: [{ id: 'verify-timeline', projectId: 'fixture', updatedAt: '2026-10-05T00:00:00Z' }] };
     const calls: Obj[] = [];
     const native: Native = { available: true, watch() {}, later: async (input: unknown) => { calls.push(input as Obj); return { ok: true, generation: 0, value: {} }; } };
-    const result = await owner.command('chatlocal:link-open', 'link', '#notes', 0, native, files);
+    const result = await owner.command('chatlocal:link-open', 'link|', '#notes', 0, native, files);
     expect(result.message).toBe('sidebar:new-thread');
     expect([owner.threadId, owner.projectId]).toEqual(['', 'work']);
-    // The click's modifiers are read; nothing goes to the system browser or the module's opener.
-    expect(calls.map(call => call.op).filter(op => op !== 'devicePresentation')).toEqual(['composerSendIntent']);
+    // The click's modifiers ride with its press (contract-keys-and-menu-bar); nothing goes to the system browser, the
+    // module's opener or its gesture recorder.
+    expect(calls.map(call => call.op).filter(op => op !== 'devicePresentation')).toEqual([]);
     // A mailto link (in prose or a table cell) answers nothing and keeps the thread (RL-1, RL-5).
     owner.threadId = 'verify-timeline'; owner.projectId = 'fixture';
     expect((await owner.command('chatlocal:link-open', 'link', 'mailto:list@example.test', 0, native, files)).message).toBe('');

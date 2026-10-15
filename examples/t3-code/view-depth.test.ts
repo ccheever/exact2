@@ -65,6 +65,8 @@ class Parser {
     return { k: 'many', xs: [c, t, this.expr()] };
   }
   static OPS = [/or(?!\w)/y, /and(?!\w)/y, /==|!=|<=|>=|<|>/y, /\+|-/y, /\*|\/(?!\/)|%/y];
+  static METHODS = new Set(['isEmpty', 'toString', 'includes', 'startsWith', 'endsWith', 'trim', 'toLowerCase', 'slice',
+    'concat', 'indexOf', 'split', 'replaceAll', 'at', 'map', 'filter', 'join', 'toFixed']);
   binary(level: number): E {
     if (level === Parser.OPS.length) return this.unary();
     if (level === 2 && this.word('not')) return { k: 'one', x: this.binary(2) };
@@ -76,7 +78,16 @@ class Parser {
   postfix(): E {
     let x = this.primary();
     for (;;) {
-      if (this.s[this.p] === '.' && /[A-Za-z_]/.test(this.s[this.p + 1] ?? '')) { this.p++; this.take(/\w+/y); x = { k: 'one', x }; }
+      if (this.s[this.p] === '.' && /[A-Za-z_]/.test(this.s[this.p + 1] ?? '')) {
+        this.p++;
+        const name = this.take(/\w+/y)!;
+        // LLP 1116.015: the syntax parser lowers a method directly to a call with its receiver first.
+        if (this.s[this.p] === '(') {
+          if (!Parser.METHODS.has(name)) throw new Error(`unsupported method ${name}`);
+          this.p++;
+          x = { k: 'call', name, args: [x, ...this.list(')')] };
+        } else x = name === 'length' ? { k: 'call', name, args: [x] } : { k: 'one', x };
+      }
       else if (this.s[this.p] === '(') { this.p++; const args = this.list(')'); x = x.k === 'id' ? { k: 'call', name: x.name, args } : { k: 'many', xs: [x, ...args] }; }
       else if (this.s[this.p] === '[') { this.p++; const i = this.expr(); this.expect(']'); x = { k: 'many', xs: [x, i] }; }
       else return x;
@@ -226,7 +237,7 @@ function measure(dir: string) {
     const bytes = BELOW_LOWERING + sites * PER_SITE + nested * PER_LEVEL;
     if (bytes > peak.bytes) peak = { bytes, sites, levels: nested, at, route: [...route] };
   };
-  // One parent's children; `depth` is the parent's site depth. A `when` or `each` is a region site; each `else when`
+  // One parent's children; `depth` is the parent's site depth. An `if` or `for` is a region site; each `else if`
   // nests one more region in the previous link's else arm; a component use inlines its view with no site of its own.
   const block = (lines: Line[], file: string, depth: number, env: Env, fill: Fill) => {
     let chain = depth;
@@ -236,20 +247,20 @@ function measure(dir: string) {
       while (end < lines.length && lines[end]!.indent > head.indent) end++;
       const body = lines.slice(i + 1, end);
       const text = head.text;
-      const when = /^(else )?when (.*)$/.exec(text);
-      const each = /^each ([\w, ]+?) in (.*)$/.exec(text);
-      if (when) {
-        const region = when[1] ? chain + 1 : depth + 1;
-        site(region, exprs(head.at, () => [whole(when[2]!)]), env, head.at);
+      const branch = /^(else )?if (.*)$/.exec(text);
+      const loop = /^for ([\w, ]+?) in (.*)$/.exec(text);
+      if (branch) {
+        const region = branch[1] ? chain + 1 : depth + 1;
+        site(region, exprs(head.at, () => [whole(branch[2]!)]), env, head.at);
         route.push(head.at); block(body, file, region, env, fill); route.pop();
         chain = region;
       } else if (text === 'else') {
         block(body, file, chain, env, fill);
-      } else if (each) {
+      } else if (loop) {
         const inner = new Map(env);
-        for (const name of each[1]!.split(',')) inner.set(name.trim(), 1);
+        for (const name of loop[1]!.split(',')) inner.set(name.trim(), 1);
         site(depth + 1, exprs(head.at, () => {
-          const p = new Parser(each[2]!);
+          const p = new Parser(loop[2]!);
           const xs = [p.expr()];
           if (p.take(/key=/y)) xs.push(p.unary());
           if (!p.done()) throw new Error('left over after the key');
@@ -259,6 +270,9 @@ function measure(dir: string) {
         chain = depth + 1;
       } else if (text === 'children') {
         if (fill) block(fill.lines, fill.file, depth, fill.env, fill.fill);
+      } else if (text === '::placeholder') {
+        // A field's `::placeholder` part (KW-1): its declarations are the field's own values, at the field's site.
+        for (const line of body) site(depth, exprs(line.at, () => lineExprs(`part ${line.text}`)), env, line.at);
       } else if (/^[A-Z]/.test(text)) {
         const name = /^\w+/.exec(text)![0];
         const used = resolve(file, name);
@@ -295,7 +309,7 @@ describe('view depth under main\'s 2 MiB test thread', () => {
     const report = `${kib(peak.bytes)} at ${peak.at} (${peak.sites} sites, ${peak.levels} expression levels; deepest site ${deepest})\n`
       + `route: ${peak.route.filter(step => / [A-Z]/.test(step)).join(' > ')}\n`
       + 'Flatten as earlier fixes did: group lookup chains with includes(), move a lookup '
-      + 'into a fn, turn else-when chains into sibling whens; then confirm with the ulimit -s 2048 debug compile.';
+      + 'into a fn, turn else-if chains into sibling ifs; then confirm with the ulimit -s 2048 debug compile.';
     if (peak.bytes > BUDGET) throw new Error(`over ${kib(BUDGET)}: ${report}`);
     expect(peak.bytes).toBeLessThanOrEqual(BUDGET);
     expect(peak.sites).toBeGreaterThan(40); // the model still walks into the deep routes

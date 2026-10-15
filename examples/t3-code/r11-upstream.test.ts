@@ -117,8 +117,7 @@ describe('draft rows: context menu and discard behind Undo (95edeb753b)', () => 
     expect(toasts(client).map(toast => [toast.title, toast.description])).toContainEqual(['Path copied', '/other']);
     await sidebarCommand(client, native, files, 'draft-menu', 'p2', '');
     expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other', 'feature/x']);
-    expect(await sidebarCommand(client, native, files, 'draft-menu', 'p2', '')).toBe('sidebar:navigate');
-    expect(sidebarSession(client).navigate).toEqual({ kind: 'project-settings', projectId: 'p2' });
+    expect(await sidebarCommand(client, native, files, 'draft-menu', 'p2', '')).toBe('sidebar:project-settings:p2');
     const menu = calls.find(call => call.op === 'sidebarMenu')!.items as Obj[];
     expect(menu.map(item => item.label)).toEqual(['Copy', 'Project settings', undefined, 'Discard draft']);
   });

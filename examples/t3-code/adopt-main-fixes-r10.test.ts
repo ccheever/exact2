@@ -2,7 +2,9 @@
 // live-region groups (AXApplicationStatus, polite; AXApplicationAlert, assertive) and `dialog` as AXApplicationDialog,
 // so an explicit `aria-live` is written only where T3 Code (1e2ecbd975, MIT, see LICENSE-T3) writes one: the browser
 // profile removal error (IntegrationsSettings.tsx `<p aria-live="polite">`) and the toast viewport (Base UI's
-// Toast.Viewport: role "region", aria-live "polite"). The provider setup's status lines keep the reference's
+// Toast.Viewport: role "region", aria-live "polite"). The route keyboard transaction supplies dnd-kit's live
+// announcements through its mounted empty region (EnvironmentRoutesList's DndContext; LLP 1094 D9).
+// The provider setup's status lines keep the reference's
 // `role="status"` (ProviderSetupSection.tsx, ProviderAuthenticationSection.tsx); the Codex account description is plain
 // text there (CodexSetupSection.tsx accountDescription in a SettingsRow or CodexWelcomeCard description).
 import { expect, test } from 'bun:test';
@@ -13,9 +15,9 @@ const views = readdirSync(dir).filter(name => name.endsWith('.contract')).sort()
   .map(name => ({ name, lines: readFileSync(`${dir}/${name}`, 'utf8').split('\n') }));
 const lines = (file: string, needle: string) => views.find(v => v.name === file)!.lines.filter(l => l.includes(needle));
 
-test('an explicit aria-live only where the reference writes one', () => {
+test('an explicit aria-live only for the reference live regions and route announcements', () => {
   const live = views.flatMap(({ name, lines }) => lines.filter(l => /\baria-live=/.test(l) && !/^\s*\/\//.test(l)).map(l => `${name}: ${/testId=("[^"]*"|`[^`]*`)/.exec(l)?.[1]}`));
-  expect(live).toEqual(['browser-profiles.contract: "browser-profile-remove-error"', 'shell-toast.contract: "toast-region"']);
+  expect(live).toEqual(['browser-profiles.contract: "browser-profile-remove-error"', 'connections.contract: "environment-route-announcement"', 'shell-toast.contract: "toast-region"']);
   expect(lines('shell-toast.contract', 'testId="toast-region"')[0]).toContain('role="region" aria-live="polite" aria-label="Notifications"');
   expect(lines('shell-toast.contract', 'role="dialog" aria-label=toast.title')).toHaveLength(1);
 });

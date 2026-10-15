@@ -252,6 +252,82 @@ describe('the preview keys and ⇧⌘J', () => {
     expect(bare).toMatchObject({ visible: true, active: 'browser:tab-1' });
     expect(s.calls.filter(call => call.method === 'preview.open')).toEqual([]);
   });
+  it('G4-18: with two tabs, ⇧⌘J twice floats the selected loaded tab, then shows that same tab and session again', async () => {
+    const s = setup();
+    const { panelState, surfaceLocal } = await import('./r4-surfaces-panel');
+    const { floatingTabOf, browserMiniView } = await import('./browser-capture');
+    const { browserMiniSessions } = await import('./browser-surface');
+    const host = browserHost(s.client);
+    // A second, blank tab opened after the first (openPreviewSession's snapshot): it is the thread's newest session.
+    host.store.applyServerSnapshot(ref, snap(undefined, 'tab-2', { _tag: 'Idle' }));
+    const panel = panelState(s.client);
+    openBrowserIn(panel, 'tab-1', 'local:thread-1');
+    openBrowserIn(panel, 'tab-2', 'local:thread-1');
+    expect([panel.active, host.store.read(ref).activeTabId]).toEqual(['browser:tab-2', 'tab-2']);
+    // The person selects the loaded first tab (RightPanelTabs → activateRightPanelSurface).
+    await surfaceLocal(s.client, module, 'activate', 'browser:tab-1', '');
+    expect([panel.active, host.store.read(ref).activeTabId]).toEqual(['browser:tab-1', 'tab-1']);
+    const sessionsBefore = Object.keys(host.store.read(ref).sessions).sort(), nativeBefore = s.native.length;
+    /** The chord: the dispatch row previewToggleRow adds, run along the route it names (panel-close → panelUi("close") →
+     *  shelllocal:surface-hide; the command → shelllocal:surface-browser-show). */
+    const chord = async () => {
+      const rows: string[][] = [];
+      previewToggleRow((command, kind, target) => rows.push([command, kind, target]), s.client);
+      const [[, kind = '', target = ''] = []] = rows;
+      if (kind === 'panel-close') await surfaceLocal(s.client, module, 'hide', '', '');
+      else await surfaceLocal(s.client, module, target.replace(/^shelllocal:surface-/, ''), '', '');
+      return kind;
+    };
+    const mini = () => browserMiniView(s.client, scoped => browserMiniSessions(s.client, scoped), panel.visible ? panel.active.replace(/^browser:/, '') : null);
+    expect(await chord()).toBe('panel-close');
+    expect([panel.visible, floatingTabOf(s.client), mini().show, mini().tabId]).toEqual([false, 'tab-1', true, 'tab-1']);
+    expect(await chord()).toBe('command');
+    expect([panel.visible, panel.active, panel.surfaces.map(surface => surface.id)]).toEqual([true, 'browser:tab-1', ['browser:tab-1', 'browser:tab-2']]);
+    expect(mini().show).toBe(false); // shouldRenderPreviewMiniPlayer: the panel shows the floating tab
+    expect([host.store.read(ref).activeTabId, Object.keys(host.store.read(ref).sessions).sort()]).toEqual(['tab-1', sessionsBefore]);
+    expect(s.calls.filter(call => ['preview.open', 'preview.close'].includes(call.method))).toEqual([]);
+    expect(s.native.slice(nativeBefore).filter(request => request.op === 'browserClose')).toEqual([]);
+    // Closing a tab whose panel selection lands on another selects that one as the thread's session too
+    // (syncActivePreviewSurface): a third tab is closed while the first has the newest server answer, which the store
+    // alone would fall back to.
+    host.store.applyServerSnapshot(ref, snap(undefined, 'tab-3', { _tag: 'Idle' }));
+    openBrowserIn(panel, 'tab-3', 'local:thread-1');
+    host.store.updateServerSnapshot(ref, snap(undefined, 'tab-1'));
+    await surfaceLocal(s.client, module, 'activate', 'browser:tab-3', '');
+    await surfaceLocal(s.client, module, 'close', 'browser:tab-3', '');
+    expect(panel.active).toBe('browser:tab-2');
+    expect(host.store.read(ref).activeTabId).toBe('tab-2');
+  });
+  it('G4-18: the panel-close row presses panelUi("close"), which hides the panel through shelllocal:surface-hide', async () => {
+    const { value } = await import('./contract-action-fixture');
+    const lines = (await Bun.file(new URL('./settings-shortcuts.contract', import.meta.url)).text()).split('\n');
+    const at0 = lines.findIndex(line => line.includes('if item.kind == "panel-close"'));
+    expect(at0).toBeGreaterThan(0);
+    const row = lines[at0 + 1]!;
+    const pressed: unknown[][] = [];
+    value(row.trim().match(/press=(panel\(.*\))\)$/)![1]!, { panel: (...args: unknown[]) => pressed.push(args) });
+    expect(pressed).toEqual([['close', '']]);
+    const app = (await Bun.file(new URL('./app.contract', import.meta.url)).text()).split('\n');
+    const at = app.findIndex(line => line.startsWith('  action panelUi(what: string, id: string)'));
+    const send = app.slice(at, at + 8).find(line => line.includes('send localChanged = command('))!;
+    const sent: unknown[][] = [];
+    for (const open of [true, false]) {
+      value(send.trim().replace(/^send localChanged = /, ''), { what: 'close', id: '', data: { diffOpen: false }, rightPanel: false, shell: { panel: { open } }, command: (...args: unknown[]) => sent.push(args) });
+    }
+    expect(sent).toEqual([['shelllocal:surface-hide', '', '', 0], ['shelllocal:surface-hide', '', '', 0]]);
+  });
+  it('G4-18: another active surface, or no Browser tab, keeps ⇧⌘J opening a Browser tab', async () => {
+    const s = setup();
+    const { panelState } = await import('./r4-surfaces-panel');
+    const panel = panelState(s.client);
+    panel.surfaces = [{ id: 'files', kind: 'files', path: '', line: 0, reveal: 0 }, ...s.state.surfaces]; panel.active = 'files'; panel.visible = true;
+    const rows: string[][] = [];
+    previewToggleRow((command, kind, target) => rows.push([command, kind, target]), s.client);
+    expect(rows).toEqual([['preview.toggle', 'command', 'shelllocal:surface-browser-show']]);
+    await showPreview(s.client, module, panel);
+    expect(panel).toMatchObject({ visible: true, active: 'browser:tab-1' });
+    expect(s.calls.filter(call => call.method === 'preview.open')).toEqual([]);
+  });
 });
 
 describe('PreviewEmptyState', () => {

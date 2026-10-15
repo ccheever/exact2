@@ -139,10 +139,15 @@ export class T3Client {
   get projection(): Obj { return this.thread?.projection || {}; }
 
   private changed(): void { this.revision++; }
-  private ownedNative(native: Native, current: () => boolean): Native {
+  private ownedNative(native: Native, current: () => boolean, settingsChanged?: () => void): Native {
     return { available: native.available, watch: topic => native.watch(topic), later: async request => {
       if (!current()) throw new ClientError('This operation was superseded.', 'superseded');
       const result = await native.later(request);
+      // An accepted desktop write survives losing UI ownership; its stale handler still stops here.
+      if (settingsChanged && obj(request).op === 'desktopSettingsSet') {
+        const reply = obj(result);
+        if (reply.ok === true && typeof reply.generation === 'number' && obj(reply.value).changed === true) settingsChanged();
+      }
       if (!current()) throw new ClientError('This operation was superseded.', 'superseded');
       return result;
     } };
@@ -229,10 +234,8 @@ export class T3Client {
       for (const [key, value] of Object.entries(obj(saved.snapshotDrafts))) {
         next.snapshotDrafts[key] = arr(value).filter(image => /^[a-f0-9-]{36}$/i.test(str(image.id)) && image.mimeType === 'image/png' && num(image.sizeBytes) > 0 && num(image.sizeBytes) <= 10 * 1024 * 1024).slice(0, 100);
       }
-      for (const [key, value] of Object.entries(obj(saved.selections))) {
-        const selection = obj(value);
-        next.selections[key] = { projectId: str(selection.projectId), threadId: str(selection.threadId) };
-      }
+      // DesktopWindow loads '/' on every launch; _chat.index opens the most recently active
+      // project's draft. Selections are session state, while saved draft content still survives.
       for (const [key, value] of Object.entries(obj(saved.pending))) {
         const entry = obj(value);
         if (str(entry.method) && str(obj(entry.payload).commandId)) next.pending[key] = {
@@ -646,18 +649,20 @@ export class T3Client {
       threadId: str(payload.threadId), text: str(payload.text), uncertain: false }, beforeRequest);
   }
 
-  async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string }> {
-    if (!native?.available) return { revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
+  async command(op: string, id: string, value: string, n: number, native: Native | null | undefined, storage: Files, providers?: ProvidersRoute): Promise<{ revision: number; message: string; relaunch: boolean; routeReorder: number }> {
+    const routeReorder = op === 'environment-route-move' && value.includes('\n') ? n : 0;
+    if (!native?.available) return { routeReorder, relaunch: false, revision: ++this.revision, message: 'Open this app on macOS to connect to T3 Code.' };
     const local = ['draft', 'answer', 'choice', 'previous-question', 'search', 'sidebar', 'dismiss-error', 'close-diff', 'favorite-model', 'copy-message', 'grouping-mode', 'grouping-override', 'device-setting', 'setting-snapshot', 'remove-snapshot', 'snapshot-preview-sound', 'snapshot-shortcut-record', 'snapshot-shortcut-save', 'copy-diagnostic'].includes(op) || op.startsWith('restlocal:') || op.startsWith('chatlocal:') || op.startsWith('editorlocal:') || op.startsWith('shelllocal:') || op.startsWith('cclocal:') || op.startsWith('sidebarlocal:') || op.startsWith('themelocal:') || op.startsWith('pageslocal:') || op.startsWith('terminallocal:') || op.startsWith('terminalpanellocal:') || DIFF_LOCAL_OPS.includes(op);
     const epoch = local ? this.commandEpoch : ++this.commandEpoch;
+    const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     if (!local) {
       if (this.busy && this.pending) this.pending.uncertain = true;
       this.busy = true;
       this.historyLoading = false; this.diffLoading = false;
-      native = this.ownedNative(native, () => epoch === this.commandEpoch);
+      const settingsChanged = ['local-environment', 'network-access', 'tailscale-serve'].includes(op) ? () => { out.relaunch = true; } : undefined;
+      native = this.ownedNative(native, () => epoch === this.commandEpoch, settingsChanged);
     }
     let resultMessage = '';
-    const out: OpOut = { message: '', id, value, providers }; // an area's ops hand back their message (client-ops.ts)
     try {
       await this.load(storage);
       await this.raw(native, { op: 'devicePresentation', ...this.local.deviceSettings, appearanceMode: windowAppearanceMode(this), confirmQuit: quitMode(this.local), rootFontSize: clampInterfaceFontSize((this.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface) });
@@ -673,7 +678,7 @@ export class T3Client {
       shellSuccess(this, op, value, resultMessage, id);
     } catch (error) {
       ({ id, value } = out); // a group may have rewritten them (setting-snapshot's setup)
-      if (error instanceof ClientError && error.kind === 'superseded') return { revision: this.revision, message: '' };
+      if (error instanceof ClientError && error.kind === 'superseded') return { revision: this.revision, message: '', relaunch: out.relaunch === true, routeReorder };
       resultMessage = message(error);
       // These commands return their error to the owning form. Do not copy it
       // into the unrelated transcript banner or a later form.
@@ -682,7 +687,7 @@ export class T3Client {
       if (!this.pending?.uncertain && !formCommand) { if (!shellFailure(this, op, resultMessage)) this.error = resultMessage; else if (this.error === resultMessage) this.error = ''; }
       else if (formCommand && !this.pending?.uncertain && settingsFailure(this, op, id, value, resultMessage)) resultMessage = `toasted:${resultMessage}`;
     } finally { if (!local && epoch === this.commandEpoch) this.busy = false; this.changed(); }
-    return { revision: this.revision, message: resultMessage };
+    return { revision: this.revision, message: resultMessage, relaunch: out.relaunch === true, routeReorder };
   }
 
   /** handleNewThreadInActiveProject: the 'new-thread' op's switch to a draft in the current project. */

@@ -9,9 +9,9 @@ shape R9DevStand
 shape R9DevStandGroup
   id: string
   label: string
-  stands: list<R9DevStand>
+  stands: R9DevStand[]
 shape R9DevFolding
   kind: string
   enabled: bool
-  groups: list<R9DevStandGroup>
+  groups: R9DevStandGroup[]
   error: string

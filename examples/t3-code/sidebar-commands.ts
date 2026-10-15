@@ -17,6 +17,7 @@ import { snoozePresets } from './sidebar-presentation';
 import { sidebarDrop } from './sidebar-drop';
 import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pill';
 import { syncFavicons } from './r3-sidebar-glyph';
+import { syncBranchPullRequests } from './sidebar-branch-pr';
 import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
 import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
@@ -318,26 +319,26 @@ export function visitOpenThread(client: T3Client, nativeHandle: Native): void {
 }
 
 /**
- * The row press (`value` "click"): ⌘-click toggles the multi-selection and
- * ⇧-click extends it in sidebar order; a plain click clears it. "search"
- * opens a result and clears the search. True when the press only selected.
+ * The row press (`value` "click", "click:meta" or "click:shift": the press's own MouseEvent, sidebar-row.contract
+ * `openPress`): ⌘-click toggles the multi-selection and ⇧-click extends it in sidebar order; a plain click clears it.
+ * "search" opens a result and clears the search. True when the press only selected.
  */
-export async function sidebarSelecting(client: T3Client, nativeHandle: Native, id: string, value: string): Promise<boolean> {
+export async function sidebarSelecting(client: T3Client, _nativeHandle: Native, id: string, value: string): Promise<boolean> {
   const session = sidebarSession(client);
-  if (value === 'click') {
-    let flags: Obj = {};
-    try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
+  if (value === 'click' || value.startsWith('click:')) {
+    const flags = { command: value === 'click:meta', shift: value === 'click:shift' };
     // legacy-sidebar: ⇧-click ranges over the row's project list (rangeSelectTo(threadKey, orderedProjectThreadKeys)).
     const rows = legacyEnabled(client) ? legacyProjectOrder(client, id) : renderedRows(client, partition(client, wall(client))).map(entry => str(entry.thread.id));
     if (flags.command === true) {
-      session.selection = session.selection.includes(id) ? session.selection.filter(key => key !== id) : [...session.selection, id];
-      session.anchor = id;
+      const removing = session.selection.includes(id);
+      session.selection = removing ? session.selection.filter(key => key !== id) : [...session.selection, id];
+      if (!removing) session.anchor = id;
       return true;
     }
     if (flags.shift === true) {
-      const anchor = session.anchor || client.threadId, from = rows.indexOf(anchor), to = rows.indexOf(id);
-      session.selection = from < 0 || to < 0 ? [id] : rows.slice(Math.min(from, to), Math.max(from, to) + 1);
-      if (!session.anchor) session.anchor = anchor || id;
+      const from = rows.indexOf(session.anchor), to = rows.indexOf(id), missing = from < 0 || to < 0;
+      session.selection = [...new Set([...session.selection, ...(missing ? [id] : rows.slice(Math.min(from, to), Math.max(from, to) + 1))])];
+      if (missing) session.anchor = id;
       return true;
     }
   }
@@ -349,13 +350,15 @@ export async function sidebarSelecting(client: T3Client, nativeHandle: Native, i
 }
 /**
  * After each refresh (client.ts, awaited): a success pill's exit is scheduled
- * while this refresh's handle is live, and new projects' favicons are asked
- * for inside the refresh (a reply after its answer ended would be dropped).
+ * while this refresh's handle is live, and new projects' favicons and the
+ * linkless threads' branch pull requests are asked for inside the refresh (a
+ * reply after its answer ended would be dropped).
  */
 export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): Promise<void> {
   commitExpiredUndos(client); // r11-upstream: the notice's expiry repaint commits what can no longer be undone
   scheduleProviderPill(client, wall(client), delay => { void nativeHandle.later({ op: 'sidebarNotify', delay }).catch(() => undefined); });
   await syncFavicons(client, nativeHandle);
+  await syncBranchPullRequests(client, nativeHandle, wall(client)); // sidebar-hover-archive-and-glyph B12: a linkless thread's branch pull request
   await watchRowPorts(client, nativeHandle); // legacy-sidebar-full LS-2: the legacy rows' discovered ports
   await openPendingPort(client, nativeHandle); // a background row's port, once its thread is open here
 }
@@ -432,8 +435,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     const group = client.projectGroups().find(entry => entry.key === value), member = group?.members[0];
     session.scopeOpen = false; session.scopeQuery = '';
     if (!member) return '';
-    session.navigate = { kind: 'project-settings', projectId: str(member.id) };
-    return 'sidebar:navigate';
+    return `sidebar:project-settings:${str(member.id)}`;
   }
   if (op === 'open-draft') {
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, id); }
@@ -445,10 +447,9 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
   if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // r11-upstream (95edeb753b): a draft row's context menu; r12-sidebar: Shift+F10 anchors it to the row
   if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // r12-sidebar: a focused row's ContextMenu key
   if (op === 'new-thread-click') {
-    let flags: Obj = {};
-    try { flags = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarModifiers' })); } catch { flags = {}; }
-    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create.
-    if (flags.shift !== true && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
+    // routes/_chat.tsx chat.new: the legacy sidebar keeps the immediate contextual create; ⇧-click (`value` "shift", the
+    // press's own MouseEvent, app.contract sidebarNewThread) creates at once.
+    if (value !== 'shift' && client.projectGroups().length > 1 && !legacyEnabled(client)) return 'sidebar:palette-new-thread';
     try { await (client as unknown as Navigator).openDraft?.(nativeHandle, client.projectId); }
     catch (error) { toast(client, 'Could not create thread', error); return ''; }
     return 'sidebar:new-thread';
@@ -524,7 +525,7 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
     }
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
     case 'copy-thread-id': await copy(client, nativeHandle, id, 'Thread ID copied'); return '';
-    case 'project-settings': session.navigate = { kind: 'project-settings', projectId: str(thread.projectId) }; return 'sidebar:navigate';
+    case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
     case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // legacy-sidebar-full LS-5: Sidebar.tsx carries the branch the same way
     case 'archive':
       if (settings?.confirmThreadArchive) { session.dialog = { kind: 'archive', threadIds: [id], title: str(thread.title) }; return ''; }

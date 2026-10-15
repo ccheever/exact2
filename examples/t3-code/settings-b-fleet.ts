@@ -73,6 +73,7 @@ export class EnvironmentFleet {
   focusDropped = false;
   takeFocusDropped(): boolean { const dropped = this.focusDropped; this.focusDropped = false; return dropped; }
   private epoch = 0;
+  private retries = new WeakMap<FleetEntry, Set<'config' | 'shell'>>();
 
   /** The fleet's native view of one background environment. */
   static native(native: Native, key: string): Native {
@@ -156,6 +157,7 @@ export class EnvironmentFleet {
     }
     if (status.generation !== entry.generation) {
       entry.generation = status.generation; entry.synchronized = -1; entry.lastEvent = 0; entry.subscriptions = {}; entry.terminalMetadata = null; entry.terminalAttempted = false;
+      this.retries.delete(entry);
     }
     if (entry.phase !== 'connected') return;
     if (entry.synchronized !== entry.generation) await this.bootstrap(remote, entry);
@@ -181,7 +183,7 @@ export class EnvironmentFleet {
     entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id); // usage-pooled-view: hub sources, as the focused client asks
     entry.shell = applyShell(initialShell(), await this.call(remote, entry, { op: 'http', path: '/api/orchestration/shell' }));
     entry.subscriptions.shell = str((await this.call(remote, entry, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: { afterSequence: entry.shell.sequence } })).id);
-    if (generation === entry.generation) { entry.synchronized = generation; entry.error = ''; this.revision++; }
+    if (generation === entry.generation) { this.retries.delete(entry); entry.synchronized = generation; entry.error = ''; this.revision++; }
   }
 
   /** Each background transport already has its own inbox and generation; metadata uses that lifecycle. */
@@ -194,6 +196,8 @@ export class EnvironmentFleet {
   }
 
   private async drain(remote: Native, entry: FleetEntry): Promise<void> {
+    // pr-list-place-and-thread-picker PLS-1: a stream the transport scheduled to resubscribe on this session (`_retryDue`:
+    // the app became active again, T3Transport.applicationActive, or a failed stream's backoff came due).
     for (let pass = 0; pass < 8; pass++) {
       const batch = await this.call(remote, entry, { op: 'events', after: entry.lastEvent });
       if (batch.reset === true) { if (entry.lastEvent > 0) usageFleetReset(entry); entry.synchronized = -1; } // usage-replies.ts: an overflowed inbox may have dropped a reply
@@ -219,6 +223,16 @@ export class EnvironmentFleet {
           if (metadataEvent) { entry.terminalMetadata = applyTerminalMetadataStreamEvent(entry.terminalMetadata ?? [], metadataEvent); this.revision++; }
           continue;
         }
+        if (item._retryDue) {
+          if (key === 'config' || key === 'shell') {
+            // Keep the retry before acknowledging its event. Either the ack or subscribe reply can be superseded
+            // after native has applied it, so a later answer must retry until it adopts the new subscription id.
+            let retry = this.retries.get(entry);
+            if (!retry) { retry = new Set(); this.retries.set(entry, retry); }
+            retry.add(key);
+          }
+          continue;
+        }
         if (item._transportError || item._streamEnded) { entry.synchronized = -1; continue; }
         try {
           if (key === 'config') entry.config = applyConfig(entry.config, item);
@@ -231,6 +245,29 @@ export class EnvironmentFleet {
       const ack = through > 0 ? await this.call(remote, entry, { op: 'ack', through }) : {};
       if (through >= Math.max(num(batch.latest), num(ack.latest))) break;
     }
+    await this.resubscribe(remote, entry);
+  }
+
+  /**
+   * The reference's foreground resubscription (client-runtime state/shell.ts `foregroundResubscriptions`): on the same
+   * session the shell resumes from its in-memory cursor and keeps its snapshot, so the environment stays synchronized and
+   * every surface reading it (the Pull Requests page's server set, the sidebar's threads) keeps its rows. Before, the
+   * marker reached applyShell as a snapshot without a sequence, which threw and dropped the environment until a fresh
+   * bootstrap: on every return to the app the Pull Requests list emptied and came back at its top (PLS-1). A resubscription that fails asks for that bootstrap instead.
+   */
+  private async resubscribe(remote: Native, entry: FleetEntry): Promise<void> {
+    const retry = this.retries.get(entry);
+    if (!retry?.size || entry.synchronized !== entry.generation) return;
+    try {
+      if (retry.has('config')) {
+        entry.subscriptions.config = str((await this.call(remote, entry, { op: 'subscribe', key: 'config', method: 'subscribeServerConfig', payload: { usageLimitSources: true } })).id);
+        retry.delete('config');
+      }
+      if (retry.has('shell')) {
+        entry.subscriptions.shell = str((await this.call(remote, entry, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: { afterSequence: entry.shell.sequence } })).id);
+        retry.delete('shell');
+      }
+    } catch (error) { if (letGo(error)) throw error; entry.synchronized = -1; }
   }
 
   /** A switch flip or removal: re-read the catalog on the next pass. */

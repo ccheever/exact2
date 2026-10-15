@@ -83,6 +83,31 @@ interface Match { start: number; end: number; indices: ([number, number] | undef
  *  regexes it has compiled, and how much one-time work it may do. */
 let lineWork = 0, lineCompiled = 0, workLimit = Infinity;
 const OVER_LIMIT = new Error('over the line\'s work limit');
+/** chat-markdown-media-and-code KD-code-cpp-perf: Shiki stops a line after 500 ms (`tokenizeTimeLimit`, @shikijs/primitive;
+ *  vscode-textmate's _tokenizeString checks the time before each scan, keeps the tokens made so far and gives the next line
+ *  the stack where it stopped). A data module has no clock, so time is counted as regex work: a search costs the characters
+ *  it scanned (from its start to its match, or to the line's end) times its pattern's length. Measured in the pinned Hermes
+ *  over whole lines, about 1,500,000 units a millisecond where it costs most (a template-dense cpp line; minified JavaScript
+ *  and CSS run at that rate or faster). Over a measured corpus (205,144 lines) no line under 2,000 characters comes within
+ *  1/8 of the limit; the lines that reach it are minified bundles of 19,667 characters or more. */
+export const SCAN_UNITS_PER_MS = 1_500_000;
+/** Shiki's tokenizeTimeLimit, in scan units. */
+export const LINE_SCAN_LIMIT = 500 * SCAN_UNITS_PER_MS;
+let scanned = 0;
+/** The scan work done so far (scan units). */
+export const scanWork = (): number => scanned;
+/** A search whose rest of the line is longer than this is charged to the turn at its whole rest times its pattern before it
+ *  runs: cpp's function-definition regexes (11,675 characters) traverse the rest of a template-dense line on every search,
+ *  whatever they match (about 46 ms for 2,900 characters), which the characters to the match do not show. */
+const LONG_REST = 400;
+/** While a line runs under a turn's budget (tokenizeLineWithin): the turn's regex work so far (the long-rest searches' charges;
+ *  the slicer's character budget bounds the rest), its cap, and whether a search ran this turn. A search that would pass the cap, after another search of the
+ *  turn, suspends the line before it runs (OVER_TURN): the line goes on next turn from the scan it was in, whose finished
+ *  searches its memo keeps. */
+let turnSpent = 0, turnCap = Infinity, turnSearched = false;
+const OVER_TURN = new Error('over the turn\'s regex work');
+/** The turn's regex work charged by the last tokenizeLineWithin call (scan units). */
+export const turnWork = (): number => turnSpent;
 /** The entry's RegExp, compiled once and kept on the entry. A line stops before compiling a grammar
  *  regex that would pass its limit, once it has compiled one: those stay compiled, so each try gets
  *  further and a line retried from its start always finishes. A regex made from a begin match (`o`)
@@ -112,7 +137,17 @@ function exec(given: Rx, line: string, from: number): Match | null {
   // clip_search: the regex sees the line from `from` on (its \G became ^), offsets added back.
   const offset = rx.c && from ? from : 0, text = offset ? line.slice(offset) : line;
   re.lastIndex = from - offset;
+  let bound = 0;
+  if (turnCap !== Infinity) {
+    const rest = line.length - from + 1;
+    bound = rest > LONG_REST ? rest * rx.s.length : 0;
+    if (turnSearched && turnSpent + bound > turnCap) throw OVER_TURN;
+    turnSearched = true;
+    turnSpent += bound;
+  }
   const found = re.exec(text) as (RegExpExecArray & { indices?: ([number, number] | undefined)[] }) | null;
+  const units = ((found ? found.index + offset : line.length) - from + 1) * rx.s.length;
+  scanned += units;
   if (!found || !found.indices) return null;
   let indices = found.indices.map(at => at && offset ? [at[0] + offset, at[1] + offset] as [number, number] : at);
   if (rx.h || rx.t) {
@@ -179,11 +214,15 @@ interface Frame {
 }
 const END = -1;
 /** A regex's last search on the current line: the leftmost match from `from` stays the answer for
- *  any later start up to that match (none in between matched), unless the regex is sticky. */
+ *  any later start up to that match (none in between matched), unless the regex is sticky.
+ *  KD-code-cpp-perf: each line keeps its own (LineProgress.memo), which a capture's retokenizing (another string) no longer
+ *  clears: when it did, cpp's function-definition regexes searched the rest of a template-dense line again at every
+ *  template (2,960 characters: 6.2 s in Hermes; now 0.25 s, the same tokens). */
 let memoLine = '';
-const memo = new Map<Rx, { from: number; match: Match | null }>();
+type Memo = Map<Rx, { from: number; match: Match | null }>;
+let memo: Memo = new Map();
 function search(rx: Rx, line: string, pos: number): Match | null {
-  if (line !== memoLine) { memo.clear(); memoLine = line; }
+  if (line !== memoLine) { memo = new Map(); memoLine = line; }
   const known = memo.get(rx);
   if (known && known.from <= pos && !rx.c && !rx.f.includes('y') && (known.match === null || known.match.start >= pos)) return known.match;
   const match = exec(rx, line, pos);
@@ -326,7 +365,7 @@ function handleCaptures(line: string, first: boolean, frame: Frame, out: Output,
       const names = [...frame.content, ...scopeName(capture.n, line, match)];
       const content = [...names, ...scopeName(capture.c, line, match)];
       const inner: Frame = { rule: capture.r, parent: frame, enter: at[0], anchor: -1, eol: false, end: null, names, content };
-      tokenizeString(line.slice(0, at[1]), first && at[0] === 0, at[0], inner, out, false);
+      tokenizeString(line.slice(0, at[1]), first && at[0] === 0, at[0], inner, out);
       continue;
     }
     const names = scopeName(capture.n, line, match);
@@ -358,51 +397,57 @@ function hasSameRule(before: Frame, after: Frame): boolean {
   return false;
 }
 
-/** vscode-textmate's _tokenizeString: the frame after the line (or capture) is tokenized. */
-function tokenizeString(line: string, first: boolean, pos: number, frame: Frame, out: Output, lineStart: boolean): Frame {
-  const length = line.length;
-  let anchor = -1;
-  if (lineStart) ({ frame, pos, anchor, first } = checkWhile(line, first, frame, out));
-  for (;;) {
-    const found = scan(frame, line, pos, first, anchor);
-    if (!found) { out.produce(frame.content, length); return frame; }
-    const { match } = found;
-    const advanced = match.end > pos;
-    if (found.rule === END) {
-      const popped = frame, rule = ruleOf(popped.rule);
-      out.produce(frame.content, match.start);
-      const ending: Frame = { ...frame, content: frame.names };
-      handleCaptures(line, first, ending, out, rule.ec, match);
-      out.produce(ending.content, match.end);
-      frame = popped.parent!;
-      anchor = popped.anchor;
-      if (!advanced && popped.enter === pos) { frame = ending; out.produce(frame.content, length); return frame; }
-    } else {
-      const rule = ruleOf(found.rule);
-      out.produce(frame.content, match.start);
-      const before = frame;
-      const names = [...frame.content, ...scopeName(rule.n, line, match)];
-      let pushed: Frame = { rule: found.rule, parent: frame, enter: pos, anchor, eol: match.end === length, end: null, names, content: names };
-      if (rule.b !== undefined) {
-        handleCaptures(line, first, pushed, out, rule.bc, match);
-        out.produce(pushed.content, match.end);
-        anchor = match.end;
-        pushed = { ...pushed, content: [...names, ...scopeName(rule.c, line, match)] };
-        const closing = rule.e ?? rule.w;
-        if (closing !== undefined) {
-          const rx = REGEXES[closing]!;
-          pushed.end = rx.b ? resolveBackrefs(closing, line, match) : rx;
-        }
-        frame = pushed;
-        if (!advanced && hasSameRule(before, pushed)) { frame = before; out.produce(frame.content, length); return frame; }
-      } else {
-        handleCaptures(line, first, pushed, out, rule.mc, match);
-        out.produce(pushed.content, match.end);
-        if (!advanced) { frame = before.parent ?? before; out.produce(frame.content, length); return frame; }
+/** Where a line's (or a capture's) tokenizing stands: vscode-textmate's _tokenizeString loop variables. */
+interface Cursor { frame: Frame; pos: number; anchor: number; first: boolean }
+/** One scan of vscode-textmate's _tokenizeString loop at the cursor: false when the line (or capture) is done. */
+function scanStep(line: string, cursor: Cursor, out: Output): boolean {
+  const length = line.length, pos = cursor.pos;
+  let frame = cursor.frame;
+  const found = scan(frame, line, pos, cursor.first, cursor.anchor);
+  if (!found) { out.produce(frame.content, length); return false; }
+  const { match } = found;
+  const advanced = match.end > pos;
+  if (found.rule === END) {
+    const popped = frame, rule = ruleOf(popped.rule);
+    out.produce(frame.content, match.start);
+    const ending: Frame = { ...frame, content: frame.names };
+    handleCaptures(line, cursor.first, ending, out, rule.ec, match);
+    out.produce(ending.content, match.end);
+    cursor.frame = frame = popped.parent!;
+    cursor.anchor = popped.anchor;
+    if (!advanced && popped.enter === pos) { cursor.frame = ending; out.produce(ending.content, length); return false; }
+  } else {
+    const rule = ruleOf(found.rule);
+    out.produce(frame.content, match.start);
+    const before = frame;
+    const names = [...frame.content, ...scopeName(rule.n, line, match)];
+    let pushed: Frame = { rule: found.rule, parent: frame, enter: pos, anchor: cursor.anchor, eol: match.end === length, end: null, names, content: names };
+    if (rule.b !== undefined) {
+      handleCaptures(line, cursor.first, pushed, out, rule.bc, match);
+      out.produce(pushed.content, match.end);
+      cursor.anchor = match.end;
+      pushed = { ...pushed, content: [...names, ...scopeName(rule.c, line, match)] };
+      const closing = rule.e ?? rule.w;
+      if (closing !== undefined) {
+        const rx = REGEXES[closing]!;
+        pushed.end = rx.b ? resolveBackrefs(closing, line, match) : rx;
       }
+      cursor.frame = pushed;
+      if (!advanced && hasSameRule(before, pushed)) { cursor.frame = before; out.produce(before.content, length); return false; }
+    } else {
+      handleCaptures(line, cursor.first, pushed, out, rule.mc, match);
+      out.produce(pushed.content, match.end);
+      if (!advanced) { cursor.frame = before.parent ?? before; out.produce(cursor.frame.content, length); return false; }
     }
-    if (match.end > pos) { pos = match.end; first = false; }
   }
+  if (match.end > pos) { cursor.pos = match.end; cursor.first = false; }
+  return true;
+}
+/** vscode-textmate's _tokenizeString with no time limit (a capture's retokenizing): the frame after it. */
+function tokenizeString(line: string, first: boolean, pos: number, frame: Frame, out: Output): Frame {
+  const cursor: Cursor = { frame, pos, anchor: -1, first };
+  while (scanStep(line, cursor, out));
+  return cursor.frame;
 }
 
 // ── Theme ───────────────────────────────────────────────────────────────────────────────────
@@ -518,8 +563,12 @@ export const colorOf = (scopes: string[], name: 'light' | 'dark'): string => sty
 export type LineState = Frame | null;
 /** Whether a line has a character outside ASCII (its regexes then run in their Unicode \b forms). */
 export const unicodeText = (text: string): boolean => /[^\x00-\x7f]/.test(text);
-/** One line (without its "\n") after `state`: its scoped pieces and the state after it. */
-export function tokenizeLine(text: string, lang: string, state: LineState): { pieces: Piece[]; state: Frame } {
+/** A line being tokenized (KD-code-cpp-perf): its text with "\n", where its scan stands, its output so far, the scan work it
+ *  has done; opaque to callers, who hand it back to tokenizeLineWithin to go on. */
+export interface LineProgress { readonly text: string; readonly lang: string; readonly unicode: boolean; readonly cursor: Cursor; readonly out: Output; readonly memo: Memo; units: number; stopped: boolean }
+/** A tokenized line: its scoped pieces, the state after it, and whether it stopped at the time limit (the rest plain). */
+export interface LineResult { pieces: Piece[]; state: Frame; stopped: boolean }
+function startLine(text: string, lang: string, state: LineState): LineProgress {
   const first = state === null;
   rootLang = lang;
   unicodeLine = unicodeText(text);
@@ -535,20 +584,64 @@ export function tokenizeLine(text: string, lang: string, state: LineState): { pi
   }
   const line = text + '\n';
   const out = new Output(line, text.length);
-  frame = tokenizeString(line, first, 0, frame, out, true);
-  return { pieces: out.pieces, state: frame };
+  // vscode-textmate's clock starts after the line's while checks.
+  return { text: line, lang, unicode: unicodeLine, cursor: checkWhile(line, first, frame, out), out, memo: new Map(), units: 0, stopped: false };
+}
+/** Runs the line's scans: true when it is done (to its end, or stopped at LINE_SCAN_LIMIT with the rest plain), false when
+ *  the turn's regex work ran out (OVER_TURN): the progress is then as it was before the scan it was in, which goes on next
+ *  turn. A compile over the work limit (OVER_LIMIT) leaves it the same way and is thrown on. */
+function runLine(progress: LineProgress): boolean {
+  rootLang = progress.lang;
+  unicodeLine = progress.unicode;
+  const { cursor, out, text } = progress, base = scanned;
+  for (;;) {
+    if (progress.units + scanned - base > LINE_SCAN_LIMIT) {
+      progress.units += scanned - base;
+      progress.stopped = true;
+      out.produce([], text.length);
+      return true;
+    }
+    const saved = { ...cursor }, count = out.pieces.length, at = out.at;
+    memoLine = text;
+    memo = progress.memo;
+    let more: boolean;
+    try { more = scanStep(text, cursor, out); } catch (error) {
+      Object.assign(cursor, saved); out.pieces.length = count; out.at = at;
+      progress.units += scanned - base;
+      if (error === OVER_TURN) return false;
+      throw error;
+    }
+    if (!more) { progress.units += scanned - base; return true; }
+  }
+}
+const resultOf = (progress: LineProgress): LineResult =>
+  ({ pieces: progress.out.pieces, state: progress.cursor.frame, stopped: progress.stopped });
+
+/** One line (without its "\n") after `state`: its scoped pieces, the state after it, and whether it stopped at Shiki's time
+ *  limit (LINE_SCAN_LIMIT): then the pieces before the stop keep their scopes and the rest of the line is plain. */
+export function tokenizeLine(text: string, lang: string, state: LineState): LineResult {
+  const progress = startLine(text, lang, state);
+  runLine(progress);
+  return resultOf(progress);
 }
 
-/** code-highlighting-languages: tokenizeLine, or null when the line's one-time work (regexes compiled
- *  on first use) would pass `limit` units: the regexes compiled so far stay compiled and the line is
- *  tokenized again from its start later (a line leaves no other trace: `state` is only read). So a line
- *  that first meets a big list (asm's 280 Unicode forms, about 430 ms) spreads it over turns. */
-export function tokenizeLineWithin(text: string, lang: string, state: LineState, limit: number): { pieces: Piece[]; state: Frame } | null {
+/** code-highlighting-languages: tokenizeLine within a turn. `limit` bounds the line's one-time work (regexes compiled on first
+ *  use): a compile that would pass it stops the line, the regexes compiled so far stay compiled. KD-code-cpp-perf: `scanCap`
+ *  bounds the turn's regex work (turnWork), a search allowed past it only as the turn's first (`fresh`). Either stop answers
+ *  the line's progress, which a later call continues from (`progress`; `state` is then unused), or null when the line stopped
+ *  before its first scan (a while check): it starts again from `state` (a line only reads its start state). So a line that
+ *  first meets a big list (asm's 280 Unicode forms, about 430 ms) or a template-dense cpp line spreads over turns. */
+export function tokenizeLineWithin(text: string, lang: string, state: LineState, limit: number, progress: LineProgress | null = null, scanCap = Infinity, fresh = true): LineResult | { progress: LineProgress } | null {
   lineWork = work; lineCompiled = 0; workLimit = limit;
-  try { return tokenizeLine(text, lang, state); } catch (error) {
-    if (error === OVER_LIMIT) return null;
+  turnSpent = 0; turnCap = scanCap; turnSearched = !fresh;
+  let current = progress;
+  try {
+    current ??= startLine(text, lang, state);
+    return runLine(current) ? resultOf(current) : { progress: current };
+  } catch (error) {
+    if (error === OVER_LIMIT || error === OVER_TURN) return current ? { progress: current } : null;
     throw error;
-  } finally { workLimit = Infinity; }
+  } finally { workLimit = Infinity; turnCap = Infinity; }
 }
 
 /** The scoped pieces of `code` in a language this table holds (one piece per run, "\n" included). */

@@ -45,6 +45,7 @@ import { actOnHandoff, chooseActOn, emptyActOn, handoffServer, presentActOn } fr
 import { autolinkPullRequestMarkdown, changeRequestRepositoryUrl } from './pages-pr-links-logic';
 import { codeThreadContext, draftSelection, emptyCode, presentCode, prCodeLocal, readCode, threadCommand } from './pages-pr-code'; // pr-code-tab
 import { prSelectionHandoff } from './pages-pr-handoffs';
+import { openOnHostLabel } from './context-menus'; // contract-keys-and-menu-bar: the number's menu label
 
 /** `environmentId`: the server a background environment's row was listed on (pr-links-previews-and-routing); absent for the focused one. */
 export type PrSelection = { projectId: string; host: string; repository: string; number: number; environmentId?: string };
@@ -100,7 +101,7 @@ export function emptyDetail() {
     commentCount: 0, commentsLabel: 'Comments (0)', activityPending: false, activityError: '',
     ghost: emptyGhost(), summary: emptySummary(), timeline: emptyTimeline(), writes: emptyWrites(),
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
-    projectId: '', host: '', hostName: 'GitHub', linkMenu: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
+    projectId: '', host: '', hostName: 'GitHub', linkMenu: '', linkOpenLabel: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
     md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
     // pr-header-actions-and-stacks: the header's primary control, the More menu, the dialogs, the base branch's mark, the stack.
@@ -354,7 +355,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
     hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
-    linkMenu: `${str(detail.provider)} ${str(detail.url)}`, // context-menu-gaps: the number's right-click
+    linkMenu: `${str(detail.provider)} ${str(detail.url)}`, linkOpenLabel: openOnHostLabel(str(detail.provider)), // context-menu-gaps: the number's menu (PrLinkMenu)
     activityPending: options.activityPending === true, activityError: options.activityError ?? '',
   });
   view.reviewers = arr(activity?.reviewers ?? detail.reviewers).map(person).map(({ key, login, avatar, initial }) => ({ key, login, avatar, initial }));

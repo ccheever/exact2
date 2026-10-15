@@ -32,7 +32,7 @@ describe('right-panel terminals', () => {
 });
 
 import { T3Client } from './client';
-import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained, terminalPanelView } from './terminal-panel';
+import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained, terminalPanelView, terminalSurfaceCloseCopy } from './terminal-panel';
 import { emptyTerminalDrawerView } from './terminal-drawer-view';
 import { focusedTerminal } from './terminal-focus';
 import { panelState, surfaceLocal, surfaceStore } from './r4-surfaces-panel';
@@ -65,7 +65,8 @@ test('single surface close queues all names once; confirmed and bulk closes dele
   await addTerminalSurface(client, native);
   await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');
   await surfaceLocal(client, native, 'close', 'terminal:term-1', '');
-  expect(surfaceStore(client).terminalClose).toMatchObject({ serial: 1, title: 'Close 2 terminals?', body: 'This stops their running processes and clears their histories: "Terminal 1", "Terminal 2".' });
+  // ChatView.closeRightPanelSurface: the active terminal (the split's new one) first (G1-3 e).
+  expect(surfaceStore(client).terminalClose).toMatchObject({ serial: 1, title: 'Close 2 terminals?', body: 'This stops their running processes and clears their histories: "Terminal 2", "Terminal 1".' });
   expect(calls).toHaveLength(2);
   await surfaceLocal(client, native, 'close-confirmed', 'terminal:term-1', '');
   expect(calls.slice(2)).toEqual(['term-1', 'term-2'].map(terminalId => ({ method: 'terminal.close', payload: { threadId: 'thread', terminalId, deleteHistory: true } })));
@@ -165,4 +166,16 @@ test('panel split view shows the tab list and labels its actions with terminal-f
   expect(view).toMatchObject({ showTabs: true, direction: 'column', splitLabel: 'Split Terminal Horizontally (⌘D)' });
   expect(view.tabs.map(tab => [tab.id, tab.heading, tab.count, tab.closeLabel])).toEqual([
     ['term-1', 'Stacked', 2, 'Close Terminal 1'], ['term-2', '', 2, 'Close Terminal 2 (⌘W)']]);
+});
+test('the surface close confirm names its active terminal first, then the others in order (G1-3 e)', async () => {
+  const { client, native } = clientFixture();
+  await addTerminalSurface(client, native);
+  await terminalPanelLocal(client, native, 'split', 'env:thread|term-1', '');
+  await terminalPanelLocal(client, native, 'split', 'env:thread|term-2', '');
+  const surface = panelState(client).surfaces[0]!;
+  expect(surface.terminal).toMatchObject({ terminalIds: ['term-1', 'term-2', 'term-3'], activeTerminalId: 'term-3' });
+  expect(terminalSurfaceCloseCopy(client, surface).closeBody).toBe('This stops their running processes and clears their histories: "Terminal 3", "Terminal 1", "Terminal 2".');
+  activateTerminalPane(panelState(client), surface.id, 'term-2');
+  expect(terminalSurfaceCloseCopy(client, surface)).toEqual({ closeTitle: 'Close 3 terminals?',
+    closeBody: 'This stops their running processes and clears their histories: "Terminal 2", "Terminal 1", "Terminal 3".' });
 });

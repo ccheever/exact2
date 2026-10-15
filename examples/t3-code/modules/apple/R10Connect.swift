@@ -6,17 +6,23 @@ import AppKit
 ///   the command still waits (the pull request dialog's "Resolving pull request..." during its
 ///   450 ms debounce, r10-connect-timing.ts); `t3.pr` wakes the pull request panel's resource for
 ///   the read that follows the ghost it just showed (pr-conversation-and-refresh).
-/// - Select on open (hook `t3-select-on-open`): PullRequestThreadDialog focuses its field and
-///   selects its text in the frame after it opens (`focus(); select()`).
+/// (Select on open moved to Contract: PullRequestThreadDialog's field and the device tab's rename field
+/// call `focus` then `setSelectionRange` as they are first laid out, dialog-trap.contract FieldOpenSelect.)
 /// - Letter chords under a non-Latin source (keybindings.ts resolveEventKeys): when a ⌘/⌃ chord's
 ///   key reports another script (Korean 2-Set's ㅠ for B), the physical key's Latin letter
 ///   (KeyboardEvent.code) is the chord's key. exact2 #168 matches the declared chords
-///   (`aria-keyshortcuts`) and the host's command menu items that way; it does not reach the
-///   menu's standard and app-added items (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text),
-///   the terminal's web view, or this module's own key readers that read the event's characters
-///   (the composer's queued-edit chords, the SnapShot shortcut). So the event is still re-issued
-///   with that letter, and each of them matches it anywhere in the
-///   window. Composition keeps its own keys (the composer ends it first, R9Input.swift).
+///   (`aria-keyshortcuts`, the launcher's letters among them) and the host's command menu items
+///   that way (ShortcutsMac `Shortcut.matches`, `ShortcutMenu.performKeyEquivalent`); it does not
+///   reach the menu's standard and app-added items, which AppKit matches by the typed character
+///   (Copy, Cut, Paste, Undo, Redo, Select All, Quit, Hide, Minimize, Close Window, Reload, Paste
+///   as Text, Actual Size, Zoom In, Zoom Out), the terminal's web view, or this module's own key
+///   readers that read the event's characters (the composer's queued-edit chords, the SnapShot
+///   shortcut). So the event is still re-issued with that letter, and each of them matches it
+///   anywhere in the window (the keybinding recorder needs none: it binds the physical Latin
+///   letter by `KeyboardEvent.code`, key-recorder.contract). The re-issue is one event-level transform,
+///   not a per-route one: what contract-keys-and-menu-bar (X15) retired is the surface launcher's
+///   own re-post of its letters (R8KeysLauncher), now declared shortcuts matched by the physical
+///   key. Composition keeps its own keys (the composer ends it first, R9Input.swift).
 /// A row that slides under a still pointer (Settle, ⌘Z) is hovered by the host itself, which
 /// hit-tests a resting pointer after layout and scrolling as a browser does (exact2 #139).
 final class R10Connect {
@@ -40,43 +46,9 @@ final class R10Connect {
         DispatchQueue.main.async { changed(topic); reply(["ok": true, "generation": generation, "value": [:]]) }
     }
 
-    // MARK: Elements
-
-    func install(_ element: ExactElement) {
-        if element.hatch == .t3SelectOnOpen, element.isNew { selectOnOpen(element) }
-    }
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-    }
-
-    // MARK: Select on open
-
-    private func selectOnOpen(_ element: ExactElement) {
-        // After the batch that mounted it (autofocus runs there), as the reference's requestAnimationFrame,
-        // and once more a frame later: a remounted field's carried caret (R9Input) must not undo it.
-        for delay in [0.0, 0.05] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak element] in
-                guard let element, element.isLive else { return }
-                Self.selectAll(element)
-            }
-        }
-    }
-    /// Focus the field (when nothing else took it) and select all of its text.
-    @discardableResult
-    static func selectAll(_ element: ExactElement) -> Bool {
-        if let field = element.textField, let window = field.window {
-            if field.currentEditor() == nil { window.makeFirstResponder(field) }
-            guard let editor = field.currentEditor() else { return false }
-            editor.selectAll(nil)
-            return true
-        }
-        if let view = element.textView, let window = view.window {
-            if window.firstResponder !== view { window.makeFirstResponder(view) }
-            view.selectAll(nil)
-            return window.firstResponder === view
-        }
-        return false
     }
 
     // MARK: Chords by physical key

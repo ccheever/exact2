@@ -259,7 +259,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     expect(entries).toContain('max-height=`calc(min(${18 * rem}px, 50dvh) + ${opened}px)`');
     expect(entries).toContain('WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize, sized=entrySized)');
     // A running total: a report replaces that row's last one.
-    expect(entries).toContain('action entrySized(id: string, extra: number)\n    let previous = match first(filter(extras, (e) => e.id == id)) { case some(e) => e.extra, case none => 0 }\n    opened = max(0, opened - previous + extra)');
+    expect(entries).toContain('action entrySized(id: string, extra: number)\n    let previous = match first(extras.filter((e) => e.id == id)) { case some(e) => e.extra, case none => 0 }\n    opened = max(0, opened - previous + extra)');
     const entry = await component('timeline-work.contract', 'WorkEntry');
     // Only an open row adds; a shut one (a provider error's detail line included) reports 0.
     expect(entry).toContain('action rowSized(width: number, height: number)\n    sized(entry.id, expanded ? max(0, height - 1.5 * rem) : 0)');
@@ -272,7 +272,7 @@ describe('the timeline clock and the work rows in Contract (TH-4, TH-5, TH-6, TH
     const entry = await component('timeline-work.contract', 'WorkEntry');
     expect(entry).toContain('InspectorItem(item=item, codeSize=codeSize, open=linkOpen)');
     expect(entry).toContain('button press=command("turn-diff", entry.diffPath, entry.diffRunId, 0) testId=`work-open-diff-${entry.id}`');
-    expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string)\n    chatLocal("link-open", kind, href)');
+    expect(await source('app-window.contract')).toContain('action linkOpen(kind: string, href: string, e: MouseEvent)\n    chatLocal("link-open", `${kind}|${heldModifiers(e.metaKey, e.ctrlKey, e.altKey, e.shiftKey)}`, href)');
   });
   test('TH-10: every work-log image icon is muted but a live row’s highlight: opacity 0.7 here, brightness 0.6 in light in the hook', async () => {
     const line = await component('timeline-work.contract', 'WorkLine');

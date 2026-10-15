@@ -48,14 +48,14 @@ function harness() {
 describe('FU-1: a server thread with no messages docks the composer over the timeline\'s placeholder', () => {
   test('only a draft with an empty timeline is the hero (isDraftHeroState); the placeholder waits for the thread\'s detail', async () => {
     const column = await component('app-main.contract', 'ChatColumn');
-    expect(column).toContain('  derive hero = length(data.messages) == 0 and data.threadId == ""\n  derive overlaid = not hero\n');
-    expect(column).toContain('      when hero\n        column flex=1');
+    expect(column).toContain('  derive hero = data.messages.length == 0 and data.threadId == ""\n  derive overlaid = not hero\n');
+    expect(column).toContain('      if hero\n        column flex=1');
     // MessagesTimeline's empty state: text-sm text-muted-foreground/30, centred, not while the detail loads or a run works.
-    expect(column).toContain('      when length(data.messages) == 0 and data.threadId != ""\n');
-    expect(column).toContain('          when not data.threadLoading and not data.running\n            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)"');
+    expect(column).toContain('      if data.messages.length == 0 and data.threadId != ""\n');
+    expect(column).toContain('          if not data.threadLoading and not data.running\n            text "Send a message to start the conversation." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b4d, #8181814d)"');
     // The draft hero's spacer under the composer is the hero's alone, and the canvas measures the docked overlay.
-    expect(column).toContain('      when hero and data.connected and data.projectId != ""\n');
-    expect(line(await source('app.contract'), 'resource canvas = chatCanvas(')).toContain('length(data.messages) > 0 or data.threadId != ""');
+    expect(column).toContain('      if hero and data.connected and data.projectId != ""\n');
+    expect(line(await source('app.contract'), 'resource canvas = chatCanvas(')).toContain('data.messages.length > 0 or data.threadId != ""');
   });
 
   test('threadLoading is true from a server thread\'s selection until its detail arrives, never on a draft', () => {
@@ -170,7 +170,7 @@ describe('FU-3: ⌘↩ in a Files preview comment draft (as PA-12 in the Diff)',
     expect(app).toContain('  mutation fileCommentChanged as shape Change queue refreshes data');
     // The Code tab's gutter drags have their own queued send between the two, and so does a
     // Markdown fragment link's open (reply-links-reference-behavior RL-4).
-    expect(app).toContain('    if startsWith(op, "surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab\'s gutter drags and "+", in turn\n    else if op == "link-open" and startsWith(value, "#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // reply-links-reference-behavior RL-4 (fragmentOpened)\n    else\n      send localChanged = command(`chatlocal:${op}`');
+    expect(app).toContain('    if op.startsWith("surface-files-comment-")\n      send fileCommentChanged = command(`chatlocal:${op}`, id, value, 0)\n    else if op == "pr-code-drag" or op == "pr-code-begin"\n      send lineDragChanged = command(`chatlocal:${op}`, id, value, 0) // the Code tab\'s gutter drags and "+", in turn\n    else if op == "link-open" and value.startsWith("#")\n      send fragmentChanged = command(`chatlocal:${op}`, id, value, 0) // reply-links-reference-behavior RL-4 (fragmentOpened)\n    else\n      send localChanged = command(`chatlocal:${op}`');
     expect(line(app, '  action write(value: string)')).toBe('  action write(value: string)');
     expect(app).toContain('  action write(value: string)\n    draft = value\n    draftOwner = `${composerOwner}${data.requestKey}`\n    send localChanged = command("draft", "", value, 0)');
   });
@@ -275,8 +275,8 @@ describe('FU-5: Escape in the command palette over Settings closes only the pale
     expect(line(settings, 'derive escapeOwned =')).toContain(' or paletteOpen or ');
     expect(line(settings, 'SettingsNav(')).toContain('menuOpen=escapeOwned,');
     expect(line(await source('app-window.contract'), 'SettingsWindow(')).toContain('paletteOpen=paletteOpen');
-    // The palette's own Escape stays (its hidden close button), in both of its views.
+    // The palette's own Escape stays (its hidden close button), in each of its three views.
     const palette = await source('palette.contract');
-    expect(palette.split('\n').filter(text => text.includes('testId="palette-escape"') && text.includes('aria-keyshortcuts="Escape"'))).toHaveLength(2);
+    expect(palette.split('\n').filter(text => text.includes('testId="palette-escape"') && text.includes('aria-keyshortcuts="Escape"'))).toHaveLength(3);
   });
 });

@@ -2,7 +2,9 @@
 // 1e2ecbd975, MIT; see LICENSE-T3): FileBrowserPanel.tsx showEntryContextMenu with
 // fileContextMenu.ts useFileContextMenu.activate, and pullRequestLinkContextMenu.ts
 // showPullRequestLinkContextMenu. Items come from context-menus.ts; the module's
-// `contextMenu` op (T3ContextMenu.swift) shows them at the pointer and names the pick.
+// `contextMenu` op (T3ContextMenu.swift) shows the Files menus at the pointer and names the
+// pick; the pull request number's menu is a Contract context popover (pages-prs.contract
+// PrLinkMenu, contract-keys-and-menu-bar X292), whose row names its pick here.
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
@@ -10,7 +12,7 @@ import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { fileLink } from './composer-editor-menu';
 import { workspaceOf } from './r4-surfaces-panel';
-import { buildFileContextMenuItems, fileActionFailureTitle, fileContextMenuCapabilities, fileTreeContextMenuItems, menuItemIds, openOnHostLabel,
+import { buildFileContextMenuItems, fileActionFailureTitle, fileContextMenuCapabilities, fileTreeContextMenuItems, menuItemIds,
   pullRequestLinkContextMenuItems, resolveFileContextMenuAbsolutePath } from './context-menus';
 import type { MenuItem } from './sidebar-menu';
 
@@ -61,18 +63,14 @@ export async function filesTreeMenu(client: T3Client, native: Native, relativePa
 }
 
 /**
- * A pull request number's right-click (`pageslocal:pr-link-menu`, value = "<provider> <url>"):
- * Copy link, then Open on the host. The host is named by the caller: the number belongs to
- * whichever host it was read from.
+ * A pull request number's menu choice (`pageslocal:pr-link-pick` from the list, `chatlocal:pr-link-pick` from the detail
+ * header; value = "<choice>\n<provider> <url>", pages-prs.contract PrLinkMenu): Copy link, or Open on the host. The host is
+ * named by the row: the number belongs to whichever host it was read from.
  */
-export async function pullRequestLinkMenu(client: T3Client, native: Native, value: string): Promise<void> {
-  const space = value.indexOf(' ');
-  const provider = space < 0 ? '' : value.slice(0, space), url = space < 0 ? value : value.slice(space + 1);
-  if (!/^https?:\/\//i.test(url)) return;
-  let picked = '';
-  try { picked = await showContextMenu(client, native, pullRequestLinkContextMenuItems(openOnHostLabel(provider))); }
-  catch (error) { if (letGo(error)) throw error; return; } // a menu that could not show has already cost the right-click
-  if (!picked) return;
+export async function pullRequestLinkPick(client: T3Client, native: Native, value: string): Promise<void> {
+  const newline = value.indexOf('\n'), picked = newline < 0 ? '' : value.slice(0, newline), link = value.slice(newline + 1);
+  const space = link.indexOf(' '), url = space < 0 ? link : link.slice(space + 1);
+  if (!/^https?:\/\//i.test(url) || !pullRequestLinkContextMenuItems('').some(item => item.id === picked)) return;
   try {
     if (picked === 'copy-link') {
       const reply = await bridgeReply(native, { op: 'copyText', text: url });

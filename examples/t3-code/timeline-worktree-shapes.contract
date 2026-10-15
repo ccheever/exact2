@@ -10,7 +10,7 @@ shape SetupStage
   trailing: string
   startedMs: number
   endedMs: number
-  tail: list<SetupLine>
+  tail: SetupLine[]
 shape WorktreeSetupView
   id: string
   phase: string
@@ -22,8 +22,8 @@ shape WorktreeSetupView
   startedMs: number
   endedMs: number
   error: string
-  stages: list<SetupStage>
-  details: list<SetupLine>
+  stages: SetupStage[]
+  details: SetupLine[]
   detailsOpen: bool
   terminal: bool
   cancel: bool

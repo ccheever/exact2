@@ -15,7 +15,9 @@ import WebKit
 /// Part 2 (browser-stage.contract): `fit-scale` is the presentation scale of a fixed viewport that does not fit
 /// the panel (HostedBrowserWebview's `transform: scale()`): the box's bounds are its frame over that scale, so the
 /// web view lays out at the full viewport (times its zoom) and is drawn scaled into the box, and the page measures
-/// the viewport it asked for. `keys` (`chord=command` words) are the preview's chords (`when: previewFocus`): while
+/// the viewport it asked for. `page-size` (`<width>x<height>`, CSS px; empty in fill) is that viewport: the bounds
+/// are its `T3BrowserViewport.points` at the page's zoom, never the laid-out frame over the scale, whose rounding
+/// cost a pixel (browser-panel-parity G4-16). `keys` (`chord=command` words) are the preview's chords (`when: previewFocus`): while
 /// the page has the focus, or the URL field does (`chrome-focus`), a key monitor answers them before the menus do and
 /// sends the command as the node's `key` event; with the page focused, ⌘R (or Control-R) always refreshes, as
 /// Manager.ts `isPreviewRefreshShortcut` does. The page swallows the keys it handles otherwise, as Electron's guest does.
@@ -31,6 +33,10 @@ final class T3BrowserView: ExactNativeInstance {
     final class Host: NSView {
         override var isFlipped: Bool { true }
         var fitScale: CGFloat = 1 { didSet { if fitScale != oldValue { applyScale() } } }
+        /// A fixed viewport's CSS size (`page-size`), nil in fill.
+        var pageSize: NSSize? { didSet { if pageSize != oldValue { applyScale() } } }
+        /// The page the box shows (its zoom sizes a fixed viewport's bounds).
+        weak var page: WKWebView?
         private(set) var sized = false
         /// The layout's first size: the view makes or borrows its page then.
         var onSized: (() -> Void)?
@@ -41,17 +47,22 @@ final class T3BrowserView: ExactNativeInstance {
             applyScale()
             if first { onSized?() }
         }
+        /// The page's frame in the bounds: the bounds' size as set, since AppKit reads them back from the frame and the
+        /// scale with a rounding error (487.99999 for 488) that WebKit's whole-point truncation turns into a pixel.
+        private var pageFrame: NSRect = .zero
         func applyScale() {
             guard sized else { return }
             let scale = fitScale > 0.0001 && fitScale.isFinite ? fitScale : 1
-            let target = NSSize(width: frame.width / scale, height: frame.height / scale)
-            if bounds.size != target { setBoundsSize(target) }
-            for view in subviews where view.frame != bounds { view.frame = bounds }
+            let target = pageSize.map { T3BrowserViewport.points(width: Double($0.width), height: Double($0.height), zoom: Double(page?.pageZoom ?? 1)) }
+                ?? NSSize(width: frame.width / scale, height: frame.height / scale)
+            if pageFrame.size != target || bounds.size != target { setBoundsSize(target) }
+            pageFrame = NSRect(origin: bounds.origin, size: target)
+            for view in subviews where view.frame != pageFrame { view.frame = pageFrame }
         }
         override func layout() {
             super.layout()
             guard sized else { return }
-            for view in subviews { view.frame = bounds }
+            for view in subviews { view.frame = pageFrame }
         }
     }
 
@@ -88,6 +99,7 @@ final class T3BrowserView: ExactNativeInstance {
 
     private func apply() {
         host.fitScale = CGFloat(Double(props["fit-scale"] ?? "") ?? 1)
+        host.pageSize = Self.parseSize(props["page-size"] ?? "")
         previewKeys = Self.parseKeys(props["keys"] ?? "")
         let id = props["tab"] ?? ""
         guard !id.isEmpty else { return release() }
@@ -95,13 +107,15 @@ final class T3BrowserView: ExactNativeInstance {
         let next = sessions.ensure(id: id, url: props["url"] ?? "", profile: props["profile"] ?? "default", environment: props["environment"] ?? "", size: host.bounds.size)
         if session !== next { release() }
         session = next
+        host.page = next.web
         if next.web.superview !== host {
             next.web.removeFromSuperview()
-            next.web.frame = host.bounds
+            next.web.frame = host.bounds // applyScale below gives it its exact size
             next.web.autoresizingMask = [.width, .height]
             host.addSubview(next.web)
             sessions.parking.viewTook(next) // part 3: a page parked for a recording or the separate window comes back
         }
+        host.applyScale() // a fixed viewport at this page's zoom (a zoom change arrives as new props)
         sessions.publish()
     }
 
@@ -113,6 +127,7 @@ final class T3BrowserView: ExactNativeInstance {
             sessions.publish()
         }
         session = nil
+        host.page = nil
     }
 
     override func destroy() {
@@ -122,6 +137,13 @@ final class T3BrowserView: ExactNativeInstance {
     }
 
     // MARK: Preview keys (part 2)
+
+    /// `page-size`: `<width>x<height>` in CSS px, both above 0; nil otherwise (fill).
+    static func parseSize(_ value: String) -> NSSize? {
+        let parts = value.split(separator: "x").compactMap { Double($0) }
+        guard parts.count == 2, parts[0] > 0, parts[1] > 0, parts[0].isFinite, parts[1].isFinite else { return nil }
+        return NSSize(width: parts[0], height: parts[1])
+    }
 
     /// `chord=command` words (`Meta+r=refresh Meta+Plus=zoom-in`): the last `=` splits, so `Meta+==zoom-in` reads.
     static func parseKeys(_ value: String) -> [String: String] {

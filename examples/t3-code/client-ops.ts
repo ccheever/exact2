@@ -24,7 +24,7 @@ import { activationOps } from './desktop-activation'; // app-activation: `t3 app
 
 /** A provider write on the environment Settings › Providers shows, when that is not the focused one (providers-scope.ts). */
 export type ProvidersRoute = { host: ProviderHost; native(native: Native): Native; requireWrite(): void };
-export type OpOut = { message: string; id: string; value: string; providers?: ProvidersRoute | undefined };
+export type OpOut = { message: string; id: string; value: string; relaunch?: true; providers?: ProvidersRoute | undefined };
 export type OpGroup = (this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut) => Promise<boolean>;
 
 export const READ_OPS: OpGroup[] = [connectionOps, snapshotOps, settingsOps, composerOps, threadOps, sidebarOps, diffOps, laneOps, serverUpdateOps, terminalOps, terminalPanelOps, autoBalanceOps, activationOps];

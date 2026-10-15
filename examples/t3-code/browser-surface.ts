@@ -128,6 +128,12 @@ export function openBrowserIn(state: PanelState, tabId: string, threadKey: strin
   state.active = surface.id; state.visible = true;
   return surface;
 }
+/** ChatView activateRightPanelSurface / syncActivePreviewSurface (setActivePreviewTab): a Browser tab the panel selects
+ *  becomes its thread's active session, which ⇧⌘J shows again after hiding the panel (browser-panel-parity G4-18). */
+export function selectBrowserTab(client: T3Client, surface: Surface | undefined): void {
+  const ref = surface?.kind === 'browser' && surface.browser ? parseScopedThreadKey(surface.browser.threadKey) : null;
+  if (ref && surface?.browser) browserHost(client).store.setActiveTab(ref, surface.browser.tabId);
+}
 /** rightPanelStore.reconcileBrowserSurfaces: browser tabs follow the thread's sessions (new ones join at the end). */
 export function reconcileBrowserSurfaces(state: PanelState, tabIds: readonly string[], threadKey: string): boolean {
   const valid = new Set(tabIds.map(browserSurfaceId));

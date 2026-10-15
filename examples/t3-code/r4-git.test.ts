@@ -144,9 +144,8 @@ describe('branch picker (BranchToolbarBranchSelector)', () => {
     expect(includeRef('main', 'dev')).toBe(false);
     const client = { local: {}, threadId: '', draftKey: 'env:new:p1', projectId: 'p1', config: { settings: {} } } as unknown as T3Client;
     branchLocal(client, 'query', '', 'feat');
-    branchState(client).picked = true;
     branchLocal(client, 'open', 'branch', '');
-    expect(branchState(client)).toMatchObject({ open: 'branch', query: '', picked: false });
+    expect(branchState(client)).toMatchObject({ open: 'branch', query: '' });
   });
   test('a new worktree starts from origin by default, and the label says so', () => {
     const client = { local: { composerControls: { contexts: { 'env:new:p1': { envMode: 'worktree', branch: '', worktreePath: '' } } } }, threadId: '', draftKey: 'env:new:p1', projectId: 'p1',
@@ -201,5 +200,37 @@ describe('Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments)'
     expect(stripRunOn(client).envShow).toBe(false); // the module fleet is empty here: nothing else to run on
     const thread = { ...client, threadId: 't1' } as unknown as T3Client;
     await expect(runOnEnvironment(thread, native, 'b', source)).rejects.toThrow('A started thread keeps its environment.');
+  });
+});
+
+describe('Git branch Return dismissal', () => {
+  test('a disabled Git menu row still shows its reason without requesting focus', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const row = contractComponent('r4-git.contract', 'R4GitMenuRow'), state = row.state(), focused: string[] = [];
+    const scope = { item: { id: 'push', disabled: true }, keysId: 'details-git-options-keys', focus: (id: string) => focused.push(id) };
+    row.call('hover', state, scope, [true]);
+    expect(state.over).toBe(true);
+    expect(focused).toEqual([]);
+    row.call('hover', state, { ...scope, item: { id: 'push', disabled: false } }, [true]);
+    expect(focused).toEqual(['details-git-menu-push']);
+  });
+
+  test('accepted Return hides the actual popup, returns focus and dispatches once; an empty command does nothing', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const picker = contractComponent('r4-git.contract', 'R4BranchPicker');
+    for (const enterOp of ['shell:git-branch', 'shell:git-branch-create', 'chatlocal:git-pr-open', '']) {
+      const calls: unknown[][] = [], state = picker.state();
+      const scope = { git: { branch: { enterOp, enterValue: 'feature/audit' } },
+        hidePopover: (id: string) => calls.push(['hide', id]), focus: (id: string) => calls.push(['focus', id]),
+        act: (...args: unknown[]) => calls.push(['act', ...args]) };
+      picker.call('acceptedReturn', state, scope, []);
+      expect(calls).toEqual(enterOp ? [['hide', 'details-branch-menu'], ['focus', 'details-branch'], ['act', enterOp, 'enter', 'feature/audit']] : []);
+      expect(picker.drawn('testId="details-branch-picker"', state, scope)).toBe(true);
+    }
+    const source = await Bun.file(new URL('./r4-git.contract', import.meta.url)).text();
+    expect(source).toContain('input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=acceptedReturn');
+    expect(source).toContain('data-dialog-return="menu" focusin=dialogMenuEntered("details-branch-menu", "details-branch")');
+    expect(source).toContain('data-dialog-return="menu" focusin=dialogMenuEntered("details-git-options", "details-git-menu")');
+    expect(source).not.toContain('if not git.branch.picked');
   });
 });

@@ -1,72 +1,41 @@
 #if os(macOS)
 import AppKit
 
-/// The timeline minimap's native half (MessagesTimeline.tsx TimelineMinimap):
-/// which user turns (`hook="t3-turn"`, `data-turn`) are on screen in the
-/// transcript, the last one above it, and bringing a turn to 24pt under the
-/// top edge (`scrollToIndex({ viewOffset: 24, animated: true })`). A turn the
-/// virtualized list has not mounted is first approached by its row position,
-/// then placed exactly once its row exists.
+/// An assistant citation's jump target (r5-composer: AssistantCitationSource): the
+/// transcript and its answers (`hatch="t3-turn"`, `data-turn="cite:<id>"`), the
+/// answer brought min(120pt, a third of the viewport) under the top edge and kept
+/// there while the rows around it settle. An answer the virtualized list has not
+/// mounted is first approached by its row position, then placed exactly once its
+/// row exists. The minimap's turns on screen and its jumps are Contract's
+/// (`intersect=` and keyed `scrollIntoView` in app-main.contract, timeline-and-window-hooks).
 final class T3TimelineTurns {
     private weak var transcript: ExactElement?
-    private var observation: NSObjectProtocol?
     private var rows: [String: Weak] = [:]
-    private let changed: (String) -> Void
-    private var inView: [String] = []
-    private var above = ""
-    private var pending = false
     private struct Weak { weak var element: ExactElement? }
-    init(changed: @escaping (String) -> Void) { self.changed = changed }
-
-    var status: [String: Any] { ["turnsInView": inView, "turnAbove": above] }
+    /// Each jump's number: a newer jump or `cancel()` (a minimap jump, Contract's `scrollIntoView`) stops older retries.
+    private var placement = 0
 
     func install(_ element: ExactElement) {
-        if element.hatch == .t3Transcript, transcript !== element {
-            if let observation { NotificationCenter.default.removeObserver(observation) }
-            transcript = element
-            if let clip = element.scrollView?.contentView {
-                clip.postsBoundsChangedNotifications = true
-                observation = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in self?.schedule() }
-            }
-        }
+        if element.hatch == .t3Transcript { transcript = element }
         if element.hatch == .t3Turn, let id = element.data[.turn], !id.isEmpty {
             rows = rows.filter { $0.value.element != nil && $0.value.element !== element }
             rows[id] = Weak(element: element)
         }
-        schedule()
     }
     func remove(_ element: ExactElement) {
         if element === transcript { destroy(); return }
-        if element.hatch == .t3Turn { rows = rows.filter { $0.value.element != nil && $0.value.element !== element }; schedule() }
+        if element.hatch == .t3Turn { rows = rows.filter { $0.value.element != nil && $0.value.element !== element } }
     }
     func destroy() {
-        release()
-        if let observation { NotificationCenter.default.removeObserver(observation) }
-        observation = nil; transcript = nil
+        cancel()
+        transcript = nil
     }
-
-    /// Coalesces bounds and mount changes into one measurement per run-loop turn.
-    private func schedule() {
-        guard !pending else { return }
-        pending = true
-        DispatchQueue.main.async { [weak self] in self?.pending = false; self?.measure() }
-    }
+    /// Ends the placement in progress and its relayout hold, so another writer can move the transcript.
+    func cancel() { placement += 1; release() }
     /// A row's rect in the clip view's coordinates, the space its bounds scroll in.
     private func frame(of element: ExactElement, in scroll: NSScrollView) -> NSRect? {
         guard let view = element.view, view.window != nil, let document = scroll.documentView, view.isDescendant(of: document) else { return nil }
         return view.convert(view.bounds, to: scroll.contentView)
-    }
-    private func measure() {
-        guard let scroll = transcript?.scrollView else { return }
-        let visible = scroll.contentView.bounds
-        var next: [(String, NSRect)] = []
-        // r5-composer: `cite:` rows are assistant rows registered only as citation jump targets, never minimap turns.
-        for (id, row) in rows where !id.hasPrefix("cite:") { if let element = row.element, let rect = frame(of: element, in: scroll) { next.append((id, rect)) } }
-        let flipped = scroll.contentView.isFlipped
-        next.sort { flipped ? $0.1.minY < $1.1.minY : $0.1.minY > $1.1.minY }
-        let shown = next.filter { $0.1.intersects(visible) && $0.1.height > 0 }.map { $0.0 }
-        let before = next.last { flipped ? $0.1.minY <= visible.minY : $0.1.maxY >= visible.maxY }?.0 ?? ""
-        if shown != inView || before != above { inView = shown; above = before; changed("t3.status") }
     }
 
     /// A short wait for TypeScript flows that watch the projection settle
@@ -103,7 +72,7 @@ final class T3TimelineTurns {
         }
     }
 
-    /// Scrolls the transcript so the turn's row starts 24pt below its top edge.
+    /// Scrolls the transcript so the cited answer lands at its lead (24pt for any other row).
     func jump(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         let id = request["id"] as? String ?? ""
@@ -115,11 +84,12 @@ final class T3TimelineTurns {
         // (AssistantCitationSource), its `inset` the distance from the hooked row to the cited content.
         let inset = CGFloat(request["inset"] as? Double ?? 0)
         let lead: (NSClipView) -> CGFloat = request["lead"] as? String == "citation" ? { clip in min(120, clip.bounds.height / 3) - inset } : { _ in 24 }
-        release()
-        place(id: id, index: index, count: count, scroll: scroll, document: document, attempt: 0, lead: lead)
+        cancel()
+        place(id: id, index: index, count: count, scroll: scroll, document: document, attempt: 0, lead: lead, placement: placement)
         reply(["ok": true, "generation": generation, "value": ["id": id]])
     }
-    private func place(id: String, index: Int, count: Int, scroll: NSScrollView, document: NSView, attempt: Int, lead: @escaping (NSClipView) -> CGFloat = { _ in 24 }) {
+    private func place(id: String, index: Int, count: Int, scroll: NSScrollView, document: NSView, attempt: Int, lead: @escaping (NSClipView) -> CGFloat = { _ in 24 }, placement: Int) {
+        guard placement == self.placement else { return }
         let clip = scroll.contentView, flipped = clip.isFlipped
         let content = document.convert(document.bounds, to: clip)
         let minY = content.minY, maxY = max(content.minY, content.maxY - clip.bounds.height)
@@ -136,7 +106,7 @@ final class T3TimelineTurns {
         target = min(max(minY, target), maxY)
         let origin = NSPoint(x: clip.bounds.minX, y: target)
         let again = { [weak self] () -> Void in
-            self?.place(id: id, index: index, count: count, scroll: scroll, document: document, attempt: attempt + 1, lead: lead)
+            self?.place(id: id, index: index, count: count, scroll: scroll, document: document, attempt: attempt + 1, lead: lead, placement: placement)
         }
         if exact && attempt == 0 {
             // r5-composer: rows the scroll brings into view are measured as they mount, which moves the
@@ -145,6 +115,7 @@ final class T3TimelineTurns {
                 context.duration = 0.25
                 clip.animator().setBoundsOrigin(origin)
             }, completionHandler: { [weak self] in
+                guard placement == self?.placement else { return }
                 scroll.reflectScrolledClipView(clip)
                 self?.hold(id: id, scroll: scroll, document: document, lead: lead)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: again)
@@ -156,8 +127,8 @@ final class T3TimelineTurns {
             clip.setBoundsOrigin(origin)
             scroll.reflectScrolledClipView(clip)
         }
-        if exact && (!moved || attempt >= 8) { schedule(); if attempt == 1 || !moved { hold(id: id, scroll: scroll, document: document, lead: lead) }; return }
-        guard attempt < 8 else { schedule(); return }
+        if exact && (!moved || attempt >= 8) { if attempt == 1 || !moved { hold(id: id, scroll: scroll, document: document, lead: lead) }; return }
+        guard attempt < 8 else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: again)
     }
 }

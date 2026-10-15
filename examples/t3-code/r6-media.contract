@@ -15,11 +15,11 @@ component R6MediaBody
     att: R5Attachment
     local: action
   view
-    when att.preview == "pdf" or att.preview == "html"
+    if att.preview == "pdf" or att.preview == "html"
       box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
-    when att.preview == "audio"
+    if att.preview == "audio"
       column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="attachment-audio"
         video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"
-    when att.preview == "video"
+    if att.preview == "video"
       column flex=1 min-height=0 width="100%" align-items="center" justify-content="center" overflow="hidden" background-color="#000000" testId="attachment-video"
         video att.url controls=true playsinline=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" object-fit="contain" testId="attachment-video-player"

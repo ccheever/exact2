@@ -9,7 +9,8 @@ describe('RT-1: what #327 retires', () => {
   test('X51: the colour popover takes no press or retainFocus of its own (a press inside a popover stops at its top layer)', async () => {
     const picker = await source('theme-color-picker.contract');
     const popover = picker.split('\n').find(line => line.includes('testId=`theme-color-${row.id}-popover`'))!;
-    expect(popover).toContain('column id=`theme-color-${row.id}` popover="auto" key=popKey tabindex=-1 ');
+    // Painted (LLP 1115.002 D7.3's authored fallback row); KW-6: align="end" with Base UI's flips, no app-computed side.
+    expect(popover).toContain('column id=`theme-color-${row.id}` popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=popKey tabindex=-1 position="absolute" position-area="bottom span-left" margin-top="0.625rem" ');
     expect(popover).not.toMatch(/\bpress=|\bretainFocus=/);
     expect(picker).not.toContain('popPress');
   });

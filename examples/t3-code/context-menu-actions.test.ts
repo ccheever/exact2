@@ -8,7 +8,8 @@ import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import { T3Client } from './client';
 import { toasts } from './toast';
-import { filesTreeMenu, pullRequestLinkMenu } from './context-menu-actions';
+import { filesTreeMenu, pullRequestLinkPick } from './context-menu-actions';
+import { openOnHostLabel } from './context-menus';
 import { filesState, markdownFileMenu } from './r4-surfaces-files';
 import { resetRemoteEditorsForTests } from './remote-open';
 import { attachmentUrls, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView } from './timeline-attachments';
@@ -85,23 +86,40 @@ describe('Files tree row menu', () => {
   });
 });
 
+// contract-keys-and-menu-bar X292: the menu is a Contract context popover (pages-prs.contract PrLinkMenu): Copy link, then
+// Open on the row's host (context-menus.ts openOnHostLabel, in the row's `linkOpenLabel`); its row names the pick here.
 describe('Pull request number menu', () => {
   test('Copy link and Open on the named host', async () => {
-    const { owner, native, menu, calls, pick } = fixture();
-    pick('copy-link');
-    await pullRequestLinkMenu(owner, native, 'gitlab https://gitlab.com/a/b/-/merge_requests/7');
-    expect(menu()?.items).toEqual([{ id: 'copy-link', label: 'Copy link' }, { id: 'open-external', label: 'Open on GitLab' }]);
+    const { owner, native, menu, calls } = fixture();
+    await pullRequestLinkPick(owner, native, 'copy-link\ngitlab https://gitlab.com/a/b/-/merge_requests/7');
     expect(calls.find(call => call.op === 'copyText')?.text).toBe('https://gitlab.com/a/b/-/merge_requests/7');
-    pick('open-external');
-    await pullRequestLinkMenu(owner, native, 'github https://github.com/a/b/pull/7');
+    await pullRequestLinkPick(owner, native, 'open-external\ngithub https://github.com/a/b/pull/7');
     expect(calls.find(call => call.op === 'terminalOpenExternal')?.url).toBe('https://github.com/a/b/pull/7');
     expect(toasts(owner)).toEqual([]);
+    expect(menu()).toBeUndefined(); // no native menu
+    expect([openOnHostLabel('github'), openOnHostLabel('gitlab'), openOnHostLabel('azure-devops'), openOnHostLabel('')]).toEqual(['Open on GitHub', 'Open on GitLab', 'Open on Azure DevOps', 'Open on host']);
   });
 
-  test('shows nothing without a link', async () => {
-    const { owner, native, menu } = fixture();
-    await pullRequestLinkMenu(owner, native, 'github ');
-    expect(menu()).toBeUndefined();
+  test('does nothing without a link or for a row it does not have', async () => {
+    const { owner, native, calls } = fixture();
+    await pullRequestLinkPick(owner, native, 'copy-link\ngithub ');
+    await pullRequestLinkPick(owner, native, 'delete\ngithub https://github.com/a/b/pull/7');
+    await pullRequestLinkPick(owner, native, 'github https://github.com/a/b/pull/7');
+    expect(calls.filter(call => call.op === 'copyText' || call.op === 'terminalOpenExternal')).toEqual([]);
+  });
+
+  test('the popover lists Copy link, then the row\'s Open on <host>, each picking with the row\'s link', async () => {
+    const view = await Bun.file(new URL('./pages-prs.contract', import.meta.url)).text();
+    const menu = view.slice(view.indexOf('component PrLinkMenu'));
+    const rows = menu.split('\n').map(line => line.trim()).filter(line => line.startsWith('button ') || line.startsWith('text '));
+    expect(rows[0]).toContain('press=pick(`copy-link\\n${link}`) popovertarget=menuId popovertargetaction="hide" role="menuitem"');
+    expect(rows[1]).toStartWith('text "Copy link"');
+    expect(rows[2]).toContain('press=pick(`open-external\\n${link}`) popovertarget=menuId popovertargetaction="hide" role="menuitem"');
+    expect(rows[3]).toStartWith('text openLabel');
+    const list = (await import('./contract-action-fixture')).contractComponent('pages-prs.contract', 'PrList');
+    const state = list.state();
+    list.call('linkMenuFor', state, {}, ['gitlab https://gitlab.com/a/b/-/merge_requests/7', 'Open on GitLab']);
+    expect([state.linkMenuOf, state.linkMenuLabel]).toEqual(['gitlab https://gitlab.com/a/b/-/merge_requests/7', 'Open on GitLab']);
   });
 });
 

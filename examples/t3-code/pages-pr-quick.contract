@@ -11,9 +11,7 @@ use Tip from "./shell-tip.contract"
 use R6Check from "./r6-pr-shapes.contract"
 use KmItem from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
-use kmOpenKey from "./menu-keys.contract"
-use KeyMenuOpen from "./menu-keys.contract"
-use kmBump from "./menu-keys.contract"
+use kmTriggerKey, kmTriggerTarget from "./menu-keys.contract"
 
 keyframes pqSpin
   from rotate=0
@@ -45,7 +43,7 @@ shape PrChecksPopover
   loading: bool
   error: string
   empty: bool
-  rows: list<R6Check>
+  rows: R6Check[]
   collapsible: bool
   expanded: bool
 shape PrStackPopover
@@ -55,7 +53,7 @@ shape PrStackPopover
   notice: string
   noticeText: string
   retry: bool
-  layers: list<PqStackLayer>
+  layers: PqStackLayer[]
   base: string
   message: string
 
@@ -73,13 +71,13 @@ fn pqChecksTone(checks: string): string = checks == "failing" ? "light-dark(#e40
 // The group after the row's selection area: "Quick actions for pull request #N".
 component PrQuickActions
   props
-    actions: list<PrSpeedAction>
+    actions: PrSpeedAction[]
     number: number
     pending: bool
     act: action
   view
     row flex-shrink=0 align-items="center" gap="0.25rem" padding-right="0.75rem" role="group" aria-label=`Quick actions for pull request #${number}` testId=`pr-quick-${number}`
-      each item in actions key=item.key
+      for item in actions key=item.key
         PrQuickButton(item=item, number=number, pending=pending, act=act)
 
 // Button size="xs": variant "destructive-outline" for Close, "outline" for the rest; a spinner while it runs.
@@ -95,7 +93,7 @@ component PrQuickButton
   view
     Tip(label=item.tooltip, side="top", align="center", offset=20)
       button press=act("quick", item.value) hover=hover disabled=item.disabled aria-label=item.aria testId=`pr-quick-${number}-${item.key}` height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(item.destructive and over and not item.disabled ? "light-dark(#fb2c3652, #fb414a52)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(over and not item.disabled ? (item.destructive ? "light-dark(#fb2c360a, #fb414a0a)" : "light-dark(#f4f4f580, #ffffff0d)") : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(item.disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" flex-shrink=0
-        when pending
+        if pending
           box width="0.75rem" height="0.75rem" flex-shrink=0 display="flex" animation="pqSpin 1s linear infinite" aria-hidden=true
             svg width="0.75rem" height="0.75rem" viewBox="0 0 24 24" color=(item.destructive ? pqDanger() : pqInk()) fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
               path d="M21 12a9 9 0 1 1-6.219-8.56"
@@ -119,22 +117,23 @@ component PrRowChecks
       button press=control("quick-checks", rowRef) popovertarget=popId aria-label=label testId=`${popId}-trigger` width="0.875rem" height="0.875rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" cursor="pointer" title=""
         PgIcon(name=pqChecksIcon(checks), size=14, color=pqChecksTone(checks))
       // aria-modal: while it shows, its Escape is the popover's, not the page's Back (usage-and-pr-pages PG-7).
-      row id=popId popover="auto" aria-modal=true position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`
+      // PullRequestChecksPopover: PopoverPopup align="start" side="bottom", flipping near an edge.
+      row id=popId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" aria-modal=true position="absolute" margin-top="0.25rem" testId=`${popId}-layer`
         column width="20rem" box-sizing="border-box" padding="1rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a") role="dialog" aria-label=headline testId=popId
           text headline font-size="0.875rem" line-height="1.25rem" font-weight=500 color=pqInk() margin-bottom="0.5rem"
-          when popover.ref != rowRef or popover.loading
+          if popover.ref != rowRef or popover.loading
             text "Loading checks…" font-size="0.75rem" line-height="1rem" color=pqMuted() testId=`${popId}-loading`
           else
-            when popover.error != ""
+            if popover.error != ""
               text popover.error font-size="0.75rem" line-height="1rem" color=pqMuted()
             else
-              when popover.empty
+              if popover.empty
                 text "No checks reported" font-size="0.75rem" line-height="1rem" color=pqMuted()
               else
                 column width="100%" max-height="16rem" overflow-y="auto" gap="0.25rem" role="list"
-                  each check in popover.rows key=check.key
+                  for check in popover.rows key=check.key
                     PqCheckRow(check=check)
-                when popover.collapsible
+                if popover.collapsible
                   button press=control("quick-checks-all", rowRef) aria-expanded=popover.expanded testId=`${popId}-all` align-self="flex-start" margin-top="0.125rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                     text (popover.expanded ? "Show less" : "Show all") font-size="0.75rem" line-height="1rem" font-weight=500 color=pqInk()
 
@@ -151,41 +150,42 @@ component PrRowStack
     control: action
     select: action
   // fix-keyboard-focus: the stack menu's keyboard (menu-keys.contract).
-  state keyed = 0
-  state keyArmed = false
-  action keyArm(on: bool)
-    keyArmed = on
-  action keyOpened(last: bool)
-    keyed = kmBump(keyed, last)
-  derive layerItems = popover.ref != rowRef ? [] : concat((popover.retry ? [KmItem(id=`${popId}-retry`, label="Retry stack refresh")] : []), map(popover.layers, (layer) => KmItem(id=`${popId}-layer-${layer.number}`, label=layer.title)))
-  action triggerKey(k: string)
-    if kmOpenKey(k)
-      keyed = kmBump(keyed, false)
+  derive layerItems = popover.ref != rowRef ? [] : (popover.retry ? [KmItem(id=`${popId}-retry`, label="Retry stack refresh")] : []).concat(popover.layers.map((layer) => KmItem(id=`${popId}-layer-${layer.number}`, label=layer.title)))
+  action triggerKey(k: string, e: KeyboardEvent)
+    if kmTriggerKey(k) and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        control("quick-stack", rowRef)
+        showPopover(popId, source=`${popId}-trigger`)
+        let target = kmTriggerTarget(layerItems, k)
+        if target != ""
+          focus(target)
   view
     column position="relative" flex-shrink=0 pointer-events="auto"
       Tip(label=tip, side="top", align="center", offset=20)
-        button press=control("quick-stack", rowRef) popovertarget=popId key=triggerKey focus=keyArm(true) blur=keyArm(false) aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
+        button id=`${popId}-trigger` press=control("quick-stack", rowRef) popovertarget=popId key=triggerKey aria-label=ariaLabel testId=`${popId}-trigger` height="1rem" padding=0 border-width=0 background-color="#00000000" gap="0.25rem" display="flex" flex-direction="row" align-items="center" cursor="pointer"
           PgIcon(name="layers", size=12, color=pqMuted())
           text label font-size="0.75rem" line-height="1rem" color=pqMuted() white-space="nowrap" font-variant-numeric="tabular-nums"
-      KeyMenuOpen(menuId=popId, armed=keyArmed, opened=keyOpened)
-      row id=popId popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId=`${popId}-layer`
+      // PullRequestStackPopover: MenuPopup align="start", flipping near an edge.
+      row id=popId popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" testId=`${popId}-layer`
         column width="18rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffff, #121212)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=ariaLabel testId=popId
-          KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=keyed, gap="0px", modal=true)
+          KeyMenu(menuId=`${popId}-keys`, items=layerItems, keyed=0, gap="0px", modal=true)
             row width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" justify-content="space-between" align-items="center" gap="0.5rem"
               text (popover.ref == rowRef ? popover.label : "") font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
-              when popover.ref == rowRef and popover.noticeText != ""
+              if popover.ref == rowRef and popover.noticeText != ""
                 Tip(label=popover.notice, side="top", align="center", offset=20)
                   text popover.noticeText role="status" font-size="0.75rem" line-height="1rem" color=pqMuted() testId=`${popId}-notice`
-            when popover.ref != rowRef
+            if popover.ref != rowRef
               text "Loading stack…" padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted()
             else
-              when popover.message != ""
+              if popover.message != ""
                 text popover.message padding-left="0.5rem" padding-right="0.5rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-message`
-              when popover.retry
+              if popover.retry
                 PqStackItem(keysId=`${popId}-keys`, icon="", label="Retry stack refresh", detail="", state="", current=false, popId=popId, press=control("quick-stack-retry", rowRef), testId=`${popId}-retry`)
-              when length(popover.layers) > 0
+              if popover.layers.length > 0
                 column width="100%" max-height="20rem" overflow-y="auto"
-                  each layer in popover.layers key=layer.key
+                  for layer in popover.layers key=layer.key
                     PqStackItem(keysId=`${popId}-keys`, icon=pqIcon(layer.state), label=layer.title, detail=layer.detail, state=layer.state, current=layer.current, popId=popId, press=select(layer.ref), testId=`${popId}-layer-${layer.number}`)
                   text popover.base padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color=pqMuted() testId=`${popId}-base`
 
@@ -205,20 +205,20 @@ component PqStackItem
   state lit = false
   action hover(value: bool)
     if value
-      focus(`${testId}-km`)
+      focus(testId)
     else if lit
       focus(keysId)
   action focused(on: bool)
     lit = on
   view
     button id=testId press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem" aria-current=(current ? "true" : "") testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(lit ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      when icon != ""
+      if icon != ""
         PgIcon(name=icon, size=16, color=pqTone(state))
       column flex=1 min-width=0 align-items="flex-start"
         text label font-size="0.875rem" line-height="1.25rem" color=pqInk() width="100%" min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-        when detail != ""
+        if detail != ""
           text detail font-size="0.75rem" line-height="1rem" color=pqMuted() width="100%" min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-      when current
+      if current
         PgIcon(name="check", size=14, color=pqInk())
 
 // One check: its status (the spinner while it runs), its name (the host's description as its tooltip), the label and Details.
@@ -229,7 +229,7 @@ component PqCheckRow
     check: R6Check
   view
     row width="100%" height="1rem" gap="0.5rem" align-items="center" role="listitem"
-      when check.status == "pending"
+      if check.status == "pending"
         box width="0.875rem" height="0.875rem" flex-shrink=0 display="flex" animation="pqSpin 1s linear infinite" aria-label="Loading"
           svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#fe9a00" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
             path d="M21 12a9 9 0 1 1-6.219-8.56"
@@ -239,6 +239,6 @@ component PqCheckRow
         Tip(label=check.description, side="top", align="center", offset=20)
           text check.name min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=pqInk()
       text check.label flex-shrink=0 font-size="0.75rem" line-height="1rem" color=pqMuted()
-      when check.url != ""
+      if check.url != ""
         link cursor="pointer" href=check.url press=linkOpen("button", check.url) aria-label=`Details: ${check.name}` flex-shrink=0 text-decoration-line="none"
           text "Details" font-size="0.75rem" line-height="1rem" color="light-dark(#1b4ed8, #346bf1)"

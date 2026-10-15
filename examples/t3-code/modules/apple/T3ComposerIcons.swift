@@ -74,6 +74,7 @@ enum T3ComposerIcons {
             switch kind {
             case "file": return "pierre:" + token(for: chip.label)
             case "thread": return "messages-square"
+            case "terminal": return "terminal"
             case "preview-annotation": return "mouse-pointer-click" // browser-surface part 3: an Annotate chip
             case "image": return "image"
             case "video": return "film" // r4-composer: FileChipContent's FilmIcon

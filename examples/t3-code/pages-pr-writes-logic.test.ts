@@ -5,6 +5,7 @@
 // "pending reactions") and pullRequestReviewStore.test.ts ("pull request review drafts"; the store is
 // a plain object here, so `setState` is a fresh store).
 import { describe, expect, it } from 'bun:test';
+import { contractComponent, type Env } from './contract-action-fixture';
 import type { Obj } from './domain';
 import {
   PULL_REQUEST_REACTION_ORDER, PullRequestReviewStore, applyPendingPullRequestReactions, canEditPullRequestChangeRequest, canEditPullRequestComment, pullRequestReactionEmoji,
@@ -187,5 +188,112 @@ describe('pull request review drafts', () => {
     store.setSummary('review-a', 'Revised body');
     store.clearSummary('review-a', 'Submitted body');
     expect(store.summaries['review-a']).toBe('Revised body');
+  });
+});
+
+
+describe('remark focus and clipped body editing', () => {
+  const words = contractComponent('pages-pr-edit.contract', 'PrdWords');
+  const readProps = { collapse: true, open: false, previewing: false, draft: 'A long comment', saving: false, allowEmpty: false,
+    bodyId: 'saved-body', previewId: 'preview-body', frameId: 'remark-body', testId: 'remark', pencil: true, canEdit: true };
+
+  it('expands a tall body on descendant focus, without a write, and retains the after-body toggle', async () => {
+    const state = words.state(), calls: unknown[][] = [];
+    const scope = { ...readProps, act: (...args: unknown[]) => calls.push(['write', ...args]),
+      local: (...args: unknown[]) => calls.push(['local', ...args]), scrollIntoView: (...args: unknown[]) => calls.push(['scroll', ...args]) };
+    words.call('measured', state, scope, [300, 241]);
+    expect(words.derives(state, scope).held).toBe(true);
+    words.call('bodyFocused', state, scope, [{ target: '', relatedTarget: null }]);
+    expect(words.derives(state, scope).held).toBe(false);
+    expect(words.drawn('PrdShowFull(', state, scope)).toBe(true);
+    expect(calls).toEqual([]);
+    words.call('toggleFull', state, scope, []);
+    expect(words.derives(state, scope).held).toBe(true);
+    expect(calls).toEqual([['scroll', 'remark-body', { block: 'nearest' }]]);
+    calls.length = 0;
+    words.call('toggleFull', state, scope, []);
+    expect(words.derives(state, scope).held).toBe(false);
+    expect(calls).toEqual([]);
+    const text = await Bun.file(new URL('./pages-pr-edit.contract', import.meta.url)).text();
+    expect(text).toContain('column id=frameId focusin=bodyFocused');
+    expect(text.indexOf('PrdShowFull(expanded=')).toBeGreaterThan(text.indexOf('ChatMarkdown(document='));
+    expect(text).toContain('button press=press hover=hover aria-expanded=expanded aria-controls=controls');
+    expect(text).toContain('text (expanded ? "Show less" : "Show full comment")');
+  });
+
+  it('leaves noncollapsing descriptions, code-thread bodies and editor previews out of body expansion', () => {
+    for (const props of [{ ...readProps, collapse: false }, { ...readProps, open: true }]) {
+      const state = words.state();
+      words.call('measured', state, props, [300, 500]);
+      words.call('bodyFocused', state, props, [{ target: '', relatedTarget: null }]);
+      expect(state.expanded).toBe(false);
+      expect(words.derives(state, props).held).toBe(false);
+      expect(words.drawn('PrdShowFull(', state, props)).toBe(false);
+    }
+  });
+
+  for (const [file, owner] of [
+    ['pages-pr-summary.contract', 'PrdCommentCard'], ['pages-pr-summary.contract', 'PrdCollapsedComment'],
+    ['pages-pr-threads.contract', 'PrdThreadComment'],
+  ]) {
+    it(`${owner} keeps the pencil through anonymous descendant transitions and clears outside focus`, async () => {
+      const remark = contractComponent(file, owner), state = remark.state();
+      // Markdown links can have empty own IDs. Both boundary events fire on an internal transition.
+      remark.call('focusWithin', state, {}, [true, { target: '', relatedTarget: null }]);
+      expect(state.focused).toBe(true);
+      for (const target of ['', 'remark-edit', 'remark-preview', '']) {
+        remark.call('focusWithin', state, {}, [false, { target: '', relatedTarget: target }]);
+        remark.call('focusWithin', state, {}, [true, { target, relatedTarget: '' }]);
+        expect(state.focused).toBe(true);
+      }
+      remark.call('focusWithin', state, {}, [false, { target: '', relatedTarget: 'outside' }]);
+      expect(state.focused).toBe(false);
+      remark.call('hover', state, {}, [true]);
+      expect(state.over).toBe(true);
+      remark.call('hover', state, {}, [false]);
+      expect([state.over, state.focused]).toEqual([false, false]);
+      const source = await Bun.file(new URL(`./${file}`, import.meta.url)).text();
+      const body = source.split(`component ${owner}\n`)[1]?.split('\ncomponent ')[0];
+      expect(body).toContain('focusin=focusWithin(true) focusout=focusWithin(false)');
+      expect(body).toContain(owner === 'PrdThreadComment' ? 'hovered=(over or focused)' : 'shown=(over or focused)');
+      expect(body).not.toContain('startsWith(');
+    });
+  }
+
+  it('keeps the pencil mounted when hidden and preserves Escape and save-chord cleanup', async () => {
+    const state = words.state(), calls: unknown[][] = [];
+    const scope: Env = { ...readProps, open: true, saveDisabled: false, max: Math.max,
+      preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']),
+      save: () => calls.push(['save']), cancel: () => calls.push(['cancel']), edit: (text: string) => calls.push(['edit', text]),
+      local: (...args: unknown[]) => calls.push(['local', ...args]),
+    };
+    scope.letGo = () => words.call('letGo', state, scope, []);
+    scope.cancelNow = () => words.call('cancelNow', state, scope, []);
+    words.call('part', state, scope, [true]);
+    expect(calls).toEqual([['local', 'pr-escape-hold', 'remark', 'true']]);
+    calls.length = 0;
+    const chord = { metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, repeat: false };
+    words.call('keys', state, scope, ['Enter', chord]);
+    expect(calls).toEqual([['prevent'], ['stop'], ['save']]);
+    expect(state.keySaved).toBe(true);
+    calls.length = 0;
+    words.call('keysUp', state, scope, ['Enter']);
+    expect(calls).toEqual([['local', 'pr-escape-hold', 'remark', '']]);
+    expect([state.keySaved, state.inside]).toEqual([false, 0]);
+    for (const refused of [{ repeat: true }, { saveDisabled: true }, { saving: true, saveDisabled: true }]) {
+      calls.length = 0;
+      words.call('keys', state, { ...scope, ...refused }, ['Enter', { ...chord, repeat: 'repeat' in refused }]);
+      expect(calls).toEqual([['prevent'], ['stop']]);
+    }
+    calls.length = 0;
+    words.call('typed', state, scope, ['retry body']);
+    words.call('keys', state, scope, ['Escape', chord]);
+    expect(calls).toEqual([['edit', 'retry body'], ['local', 'pr-escape-hold', 'remark', 'true'], ['prevent'], ['cancel'], ['local', 'pr-escape-hold', 'remark', '']]);
+    calls.length = 0;
+    words.call('keys', state, { ...scope, saving: true }, ['Escape', chord]);
+    expect(calls).toEqual([]);
+    const text = await Bun.file(new URL('./pages-pr-edit.contract', import.meta.url)).text();
+    expect(text).toContain('if not open and pencil and canEdit\n            PrdEditButton(');
+    expect(text).toContain('opacity=(shown or focused ? 1 : 0)');
   });
 });

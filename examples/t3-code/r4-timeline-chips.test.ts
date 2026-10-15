@@ -80,7 +80,7 @@ describe('sent-message context chips', () => {
 describe('Markdown settings', () => {
   const client = (settings: object) => ({ local: { clientSettings: settings } }) as unknown as T3Client;
   test('code size clamps to 10–18, word wrap and the monospace family come from Settings → Appearance', () => {
-    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: 'monospace', codeSize: 18, wrap: false, chips: [], runCommands: [] });
+    expect(markdownEnv(client({ fontSizeCode: 22, wordWrap: false, fontFamilyCode: 'Menlo' }))).toEqual({ codeFont: '"Menlo", ui-monospace', codeSize: 18, wrap: false, chips: [], runCommands: [] });
     expect(markdownEnv(client({ fontSizeCode: 13, wordWrap: true, fontFamilyCode: '' }))).toEqual({ codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [], runCommands: [] });
     expect(markdownEnv({} as T3Client).codeSize).toBe(13);
   });

@@ -11,7 +11,7 @@ import { favoriteEditor } from './keyboard-dispatch';
 import { lastEditor } from './shell-details';
 import { resolvePathLinkTarget } from './terminal-links';
 import { letGo } from './let-go';
-import { openTerminalLinkInPreview, openUrlInPreview, resolveLinkTargetPreference } from './browser-links';
+import { openTerminalLinkInPreview, openUrlInPreview, resolveLinkTargetPreference, type TerminalLinkPreviewOpenError } from './browser-links';
 import { resolveBrowserOpenDefaults } from './browser-defaults';
 
 
@@ -128,8 +128,15 @@ export function terminalLinkTarget(message: Obj, preference: string, hasThread: 
   }
   return /^[a-z][a-z0-9+.-]*:/i.test(text) && !/^[a-z]:[\\/]/i.test(text) ? 'unsupported' : text ? 'path' : 'unsupported';
 }
-/** ThreadTerminalDrawer's link activation, including modifier escape and preferred editor. */
-export async function terminalLinkAction(client: T3Client, native: Native, message: Obj): Promise<void> {
+/** The server a terminal's path link opens in (TerminalViewport's `useOpenInPreferredEditor(environmentId, availableEditors)`):
+ *  its config's editors and its `shell.openInEditor`. Omitted, the focused environment's (the drawer's terminals). */
+export type TerminalLinkEnvironment = { config: Obj; request(method: string, payload: Obj): Promise<unknown> };
+/** What the reference logs and the clone keeps: an in-app open that failed before its system-browser fallback. */
+export type TerminalLinkReport = (error: TerminalLinkPreviewOpenError) => void;
+
+/** ThreadTerminalDrawer's link activation, including modifier escape and preferred editor. Every `TerminalViewport`
+ *  uses it: the thread drawer and right-panel terminals, and the welcome wizard's setup terminal (pages-welcome.ts). */
+export async function terminalLinkAction(client: T3Client, native: Native, message: Obj, options: { environment?: TerminalLinkEnvironment; report?: TerminalLinkReport } = {}): Promise<void> {
   const threadId = str(message.threadId) || client.threadId;
   const thread = client.shell.threads.find(thread => thread.id === threadId);
   const project = client.shell.projects.find(project => project.id === (str(thread?.projectId) || client.projectId));
@@ -144,7 +151,7 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
     const ref = { environmentId: str(message.environmentId) || client.environmentId, threadId };
     await openTerminalLinkInPreview({ url: str(message.text), threadRef: ref, forceBrowser: false, supported: native.available, preference: () => resolveLinkTargetPreference(client),
       defaults: () => resolveBrowserOpenDefaults(client), openPreview: async ({ input }) => openUrlInPreview(client, native, ref, input.url, input),
-      fallbackToBrowser: () => openTerminalLinkExternally(client, native, message, threadId) });
+      fallbackToBrowser: () => openTerminalLinkExternally(client, native, message, threadId), ...(options.report ? { report: options.report } : {}) });
     return;
   }
   try {
@@ -153,9 +160,11 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
       if (result.opened !== true) throw new ClientError('Unable to open link');
     } else {
       const cwd = str(message.cwd) || str(thread?.worktreePath) || str(project?.workspaceRoot);
-      const editor = favoriteEditor(client.config, lastEditor(client));
+      const editor = favoriteEditor(options.environment?.config ?? client.config, lastEditor(client));
       if (!editor) throw new ClientError('Unable to open path: no preferred editor is available.');
-      await client.restAccess(native).request('shell.openInEditor', { cwd: resolvePathLinkTarget(str(message.text), cwd), editor });
+      const payload = { cwd: resolvePathLinkTarget(str(message.text), cwd), editor };
+      if (options.environment) await options.environment.request('shell.openInEditor', payload);
+      else await client.restAccess(native).request('shell.openInEditor', payload);
     }
   } catch (error) {
     if (letGo(error)) throw error;

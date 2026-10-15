@@ -125,6 +125,7 @@ enum T3MediaActions {
         let point = anchored?.point ?? view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         menu.popUp(positioning: nil, at: point, in: view)
         let picked = withExtendedLifetime(owner) { owner.picked }
+        if picked == nil { T3MenuDismissal.arm(closedAt: ProcessInfo.processInfo.systemUptime) }
         // Focus returns to the media the menu was opened from (the window keeps its first responder).
         return ["id": picked.map { $0 as Any } ?? NSNull(), "shown": true]
     }
@@ -242,5 +243,79 @@ enum T3MediaActions {
     static func encode(_ image: CGImage) throws -> (data: Data, width: Int, height: Int) {
         guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { throw MediaError(message: notPng) }
         return (png, image.width, image.height)
+    }
+}
+
+/// G4-05 (chat-markdown-media-and-code): a secondary click while the media menu is open only closes it, as the reference's
+/// does (MediaActions `menuOpen`: Electron's menu takes the click, and the next `contextmenu` finds the menu still open). AppKit
+/// hands the click that dismissed the menu to the window after `popUp` returns, where the media's `contextmenu` opened the menu
+/// again at the new point (G4-05). For half a second after a menu closes with no pick, a secondary click made
+/// before it closed (by its timestamp) goes no further; a click made after it is a new one.
+enum T3MenuDismissal {
+    private static var monitor: Any?
+    private static var generation = 0
+    static func arm(closedAt: TimeInterval, for seconds: TimeInterval = 0.5) {
+        disarm()
+        generation += 1
+        let armed = generation
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .leftMouseDown]) { event in
+            guard T3TextContextMenu.isSecondaryClick(event), event.timestamp <= closedAt else { return event }
+            disarm()
+            return nil
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { if generation == armed { disarm() } }
+    }
+    static func disarm() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+}
+
+/// G4-09 (chat-markdown-media-and-code): the media a press elsewhere leaves focused. A media node (MediaActions,
+/// MediaPreviewActions: hook `t3-media` with `data-media-kind="actions"`) takes the focus from a click (tabindex 0), and AppKit
+/// leaves it there when the next press lands on something that takes none (a tab, a toolbar button, a text): the ContextMenu key
+/// or Shift+F10 then opened that media's menu with the timeline seemingly focused (G4-09). A page's mousedown
+/// moves the focus off an element it does not land on, so no reference path does that. Here, once such a press has gone through
+/// (what it pressed may take the focus itself), the media still holding the focus lets it go, and a key reaches no stale media.
+final class T3MediaFocus {
+    private final class Held { weak var view: NSView?; init(_ view: NSView) { self.view = view } }
+    private var held: [Held] = []
+    private var monitor: Any?
+
+    func install(_ element: ExactElement) {
+        guard element.hatch == .t3Media, element.data[.mediaKind] == "actions", let view = element.view else { return }
+        add(view)
+    }
+    func remove(_ element: ExactElement) {
+        guard let view = element.view else { return }
+        held.removeAll { $0.view == nil || $0.view === view }
+    }
+    /// A media node's view (also what the AppKit test registers).
+    func add(_ view: NSView) {
+        held.removeAll { $0.view == nil || $0.view === view }
+        held.append(Held(view))
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            self?.pressed(event)
+            return event
+        }
+    }
+    func destroy() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        held.removeAll()
+    }
+    /// The media node whose focus `responder` is (the node or a view inside it), if any.
+    func media(holding responder: NSResponder?) -> NSView? {
+        guard let view = responder as? NSView else { return nil }
+        return held.compactMap(\.view).first { view === $0 || view.isDescendant(of: $0) }
+    }
+    func pressed(_ event: NSEvent) {
+        guard let window = event.window, let focus = window.firstResponder as? NSView, let media = media(holding: focus),
+              !media.bounds.contains(media.convert(event.locationInWindow, from: nil)) else { return }
+        DispatchQueue.main.async { [weak window, weak focus] in
+            guard let window, let focus, window.firstResponder === focus else { return }
+            window.makeFirstResponder(nil)
+        }
     }
 }

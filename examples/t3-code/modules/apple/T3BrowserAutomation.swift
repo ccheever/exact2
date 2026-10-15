@@ -715,8 +715,18 @@ final class T3BrowserAutomationMessages: NSObject, WKScriptMessageHandler {
 /// A fixed viewport (freeform or a device preset, its size resolved by the data module) is browser-surface part 2's:
 /// a page the panel shows is sized by its stage (BrowserStage in browser-stage.contract, T3BrowserView.Host) from the
 /// tab's snapshot; a page no stage holds (another thread shown, the panel hidden, not shown yet) is sized here, at
-/// `width × zoom` by `height × zoom` points as the stage sizes it, so the page measures the viewport either way.
+/// the same `points(width:height:zoom:)` the stage's box gives it, so the page measures the viewport either way.
 enum T3BrowserViewport {
+    /// The web view size at which a page at `zoom` reports `innerWidth × innerHeight` = `width × height` CSS px
+    /// (browser-panel-parity G4-16). WebKit drops a frame's fractional points, then floors points over the page zoom
+    /// (measured on macOS 26: 487.5 points at 125% is 389 px, 488 is 390), so each side is `width × zoom` rounded up to
+    /// a whole point: exact at every zoom of 100% and above. Under 100% a point holds more than a pixel and some sizes
+    /// have no exact point size (391 px at 50%: 195 points is 390, 196 is 392), a WebKit limit the page then shows.
+    static func points(width: Double, height: Double, zoom: Double) -> NSSize {
+        let z = zoom > 0 && zoom.isFinite ? zoom : 1
+        func side(_ css: Double) -> CGFloat { CGFloat(max(1, (css * z - 1e-6).rounded(.up))) }
+        return NSSize(width: side(width), height: side(height))
+    }
     static func size(_ setting: [String: Any]) -> (width: Int, height: Int)? {
         guard setting["_tag"] as? String != "fill", let width = (setting["width"] as? NSNumber)?.intValue, let height = (setting["height"] as? NSNumber)?.intValue,
               width > 0, height > 0 else { return nil }
@@ -730,8 +740,7 @@ enum T3BrowserViewport {
     }
     static func hold(_ setting: [String: Any]?, _ session: T3BrowserSession) {
         guard let setting, let size = size(setting), !(session.web.superview is T3BrowserView.Host) else { return }
-        let zoom = CGFloat(session.zoomFactor)
-        let target = NSSize(width: CGFloat(size.width) * zoom, height: CGFloat(size.height) * zoom)
+        let target = points(width: Double(size.width), height: Double(size.height), zoom: session.zoomFactor)
         if session.web.frame.size != target { session.web.setFrameSize(target) }
     }
     /// isPreviewViewportReady: Fill is whatever the panel gives; a fixed size matches within a pixel.

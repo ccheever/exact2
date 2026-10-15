@@ -14,7 +14,7 @@ shape EditorRow
 shape EditorGroup
   id: string
   title: string
-  rows: list<EditorRow>
+  rows: EditorRow[]
 shape EditorView
   open: bool
   title: string
@@ -25,8 +25,9 @@ shape EditorView
   appearance: string
   advanced: bool
   filter: string
-  rows: list<EditorRow>
-  groups: list<EditorGroup>
+  rows: EditorRow[]
+  groups: EditorGroup[]
+  allRows: EditorRow[]
   canSave: bool
   session: string
 
@@ -57,14 +58,24 @@ shape ImportView
   query: string
   sort: string
   sortLabel: string
-  sorts: list<ImportSort>
+  sorts: ImportSort[]
   searching: bool
   error: string
   searched: bool
   pendingUpdate: string
   pendingUpdateName: string
-  results: list<ThemeExtension>
+  results: ThemeExtension[]
   status: string
   fileName: string
   json: string
-  popular: list<string>
+  popular: string[]
+
+// Scene query results: the live mounted nodes using each editable color family.
+shape ThemeUse
+  id: string
+  frame: Geometry
+shape ThemeRoleUsage
+  role: string
+  label: string
+  primaryIds: string[]
+  nodes: ThemeUse[]

@@ -25,7 +25,7 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     const settings = await component('app-settings.contract', 'SettingsWindow');
     const owned = line(settings, 'derive escapeOwned =');
     // A field owns Escape only while it has the focus (its onKeyDown hears it); popups, menus and the recorder while shown.
-    for (const owner of ['settingsMenu != ""', 'modelsOpen', 'settingsRestoreOpen', 'settingsEscapeHeld', 'snapshotSetupOpen',
+    for (const owner of ['settingsMenu != ""', 'themeInspecting', 'modelsOpen', 'settingsRestoreOpen', 'settingsEscapeHeld', 'snapshotSetupOpen',
       '(settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter")))',
       '(settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search")',
       '(settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))']) expect(owned).toContain(owner);
@@ -84,13 +84,13 @@ describe('Escape belongs to its owner, then to Settings\' Back', () => {
     // audit-wave-followups FU-4: through the provider link visit it was opened on (audit-wave-followups.test.ts).
     expect(line(settings, 'ProvidersPanel(')).toContain('ui=providerUiWindow, modelAdding=modelAddingLive)');
     // The field counts only while its key is on the page (a removed instance or a successful add takes it away).
-    expect(line(settings, 'derive modelAddingShown =')).toContain('modelAddingLive != "" and length(filter(providerPage.editors, (shown) => includes(map(shown.modelBlocks, (models) => models.key), modelAddingLive))) > 0');
+    expect(line(settings, 'derive modelAddingShown =')).toContain('modelAddingLive != "" and providerPage.editors.filter((shown) => shown.modelBlocks.map((models) => models.key).includes(modelAddingLive)).length > 0');
     expect(settings).toContain('  action providerUiWindow(what: string, value: string)\n    if what == "model-adding"\n      modelAdding = value\n      modelAddingVisit = providerVisit\n      escapeFocusSet("custom-model-slug", false)\n    else\n      if what == "slug-focus"\n        escapeFocusSet("custom-model-slug", value == "true")\n      else\n        if what == "select"\n          modelAdding = ""\n        providerUi(what, value)');
     // A route change unmounts the section (isAdding resets), so the window forgets the open field.
     expect(settings).toContain('  action coreNavigate(route: string)\n    settingsEscapeHeld = false\n    modelAdding = ""');
     // Leaving Settings unmounts the window's view state, so a reopened Providers (a provider link included) starts closed.
     const window = await source('app-window.contract');
-    expect(window).toContain('        when settingsOpen\n          SettingsWindow(settingsOpen=settingsOpen, ');
+    expect(window).toContain('        if settingsOpen\n          SettingsWindow(settingsOpen=settingsOpen, ');
   });
 
   test('a Settings dialog makes the page inert, so its own Escape closes only it (S2-1)', async () => {
@@ -109,15 +109,15 @@ describe('the keybinding recorder owns every key while it records (S1-3, S1-4)',
   test('the recording field is the window\'s modal scope, and leaving it stops recording', async () => {
     const capture = await component('settings-keybindings.contract', 'CaptureField');
     expect(line(capture, 'testId="keybinding-recording"')).toContain('aria-modal=true');
-    const recorder = line(capture, 't3-key-recorder');
-    expect(recorder).toContain('change=capture(original) blur=capture(original, "blur")');
+    const recorder = line(capture, 'KeyRecorder(');
+    expect(recorder).toContain('capture=capture(original), cancel=capture(original, "blur")');
     const app = await source('app.contract');
     expect(app).toContain('    keybindingKey = value == "escape" ? original : (value == "blur" ? keybindingKey : value)\n    keybindingRecording = false');
   });
 
   test('the app\'s shortcut buttons and their menu items stay while it records (the reference\'s menu does not change)', async () => {
     // The recording row's aria-modal keeps every shortcut button outside it from hearing a key (Shortcuts.swift
-    // shortcutAdmits), and the recorder view's performKeyEquivalent takes a ⌘ chord before the main menu does.
+    // shortcutAdmits), and the recorder's capture handler prevents a ⌘ chord's default, so the main menu never sees it.
     const window = await source('app-window.contract');
     expect(line(window, 'ShortcutDispatch(')).toContain('ShortcutDispatch(items=shortcuts, ');
   });
