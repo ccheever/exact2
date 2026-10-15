@@ -766,30 +766,6 @@ final class NavigationBarIOSTests: XCTestCase {
         nav.popViewController(animated: true)
         until("detail ended") { log().contains("hatch route \(key): ended") }
     }
-}
-
-/// An app's delegate: a cross-fade, interactive when asked.
-private final class Transitions: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
-    var interactive = false, animated = false, shown = 0
-    let interaction = UIPercentDrivenInteractiveTransition()
-    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
-                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? { self }
-    func navigationController(_ nav: UINavigationController,
-                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
-        interactive ? interaction : nil
-    }
-    func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) { shown += 1 }
-    func transitionDuration(using context: UIViewControllerContextTransitioning?) -> TimeInterval { 0.2 }
-    func animateTransition(using context: UIViewControllerContextTransitioning) {
-        animated = true
-        guard let to = context.viewController(forKey: .to), let view = context.view(forKey: .to) else { return context.completeTransition(false) }
-        view.frame = context.finalFrame(for: to)
-        view.alpha = 0
-        context.containerView.addSubview(view)
-        UIView.animate(withDuration: transitionDuration(using: context), animations: { view.alpha = 1 }) { _ in
-            context.completeTransition(!context.transitionWasCancelled)
-        }
-    }
     func testExplicitGroupsSplitGlassWithoutChangingButtonOrderOrDefaultGrouping() throws {
         let presenter = Presenter()
         defer { presenter.reset() }
@@ -822,6 +798,32 @@ private final class Transitions: NSObject, UINavigationControllerDelegate, UIVie
         XCTAssertNotEqual(shape[0].source, plain[0].source, "regrouping invalidates the projected bar")
         XCTAssertEqual(presenter.navigation.barItems(plain, route).count, 4)
     }
+
+}
+
+/// An app's delegate: a cross-fade, interactive when asked.
+private final class Transitions: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
+    var interactive = false, animated = false, shown = 0
+    let interaction = UIPercentDrivenInteractiveTransition()
+    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
+                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? { self }
+    func navigationController(_ nav: UINavigationController,
+                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        interactive ? interaction : nil
+    }
+    func navigationController(_ nav: UINavigationController, didShow controller: UIViewController, animated: Bool) { shown += 1 }
+    func transitionDuration(using context: UIViewControllerContextTransitioning?) -> TimeInterval { 0.2 }
+    func animateTransition(using context: UIViewControllerContextTransitioning) {
+        animated = true
+        guard let to = context.viewController(forKey: .to), let view = context.view(forKey: .to) else { return context.completeTransition(false) }
+        view.frame = context.finalFrame(for: to)
+        view.alpha = 0
+        context.containerView.addSubview(view)
+        UIView.animate(withDuration: transitionDuration(using: context), animations: { view.alpha = 1 }) { _ in
+            context.completeTransition(!context.transitionWasCancelled)
+        }
+    }
+
 
 }
 #endif
