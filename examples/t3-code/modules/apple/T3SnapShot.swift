@@ -63,10 +63,15 @@ final class T3SnapShot {
         var loaded = false
         init(view: NSView, contain: Bool) {
             self.view = view
-            image = NSView(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
+            image = PassiveImage(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
             image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = contain ? 0 : 9
             view.addSubview(image, positioned: .below, relativeTo: nil)
         }
+    }
+    /// The tile's picture takes no clicks: they go to the node it paints, which a plain `NSView` (no first mouse)
+    /// would keep from the first click into a window that is not key.
+    private final class PassiveImage: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
     private var tiles: [String: Tile] = [:]
     private var deferredAcks = Set<String>()
@@ -79,10 +84,12 @@ final class T3SnapShot {
         for (id, tile) in tiles where tile.view === view { tile.image.removeFromSuperview(); tiles.removeValue(forKey: id) }
     }
     /// `contain:<id>` shows the draft image whole (object-contain, up to 2048 px), not the shelf's square thumbnail: a
-    /// preview annotation's screenshot (`w-full object-contain`). `fit:<id>` is the same at most at its natural size (an
-    /// image's CSS pixels are its pixels): a composer image chip's expanded preview (ExpandedImageDialog's `max-w`/`max-h`).
+    /// preview annotation's screenshot (`w-full object-contain`). `preview:<id>` is the same for a composer image chip's
+    /// expanded preview, its own key since a tile is kept per key and a second view under one key takes the picture from
+    /// the first. `fit:<id>` is that preview's at most at its natural size (an image's CSS pixels are its pixels), for an
+    /// image whose size was not read (ExpandedImageDialog's `max-w`/`max-h`).
     func installTile(id: String, view: NSView) {
-        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:")
+        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:") || id.hasPrefix("preview:")
         let file = contain ? String(id[id.index(after: id.firstIndex(of: ":")!)...]) : id
         guard UUID(uuidString: file) != nil else { return }
         if tiles[id]?.view === view { return }

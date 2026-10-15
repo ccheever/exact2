@@ -17,7 +17,8 @@ const lines = (file: string, needle: string) => views.find(v => v.name === file)
 
 test('an explicit aria-live only for the reference live regions and route announcements', () => {
   const live = views.flatMap(({ name, lines }) => lines.filter(l => /\baria-live=/.test(l) && !/^\s*\/\//.test(l)).map(l => `${name}: ${/testId=("[^"]*"|`[^`]*`)/.exec(l)?.[1]}`));
-  expect(live).toEqual(['browser-profiles.contract: "browser-profile-remove-error"', 'connections.contract: "environment-route-announcement"', 'shell-toast.contract: "toast-region"']);
+  // composer-chip-image.contract: ZoomableImage's sr-only "N% zoom" (aria-live="polite").
+  expect(live).toEqual(['browser-profiles.contract: "browser-profile-remove-error"', 'composer-chip-image.contract: "chip-image-zoom"', 'connections.contract: "environment-route-announcement"', 'shell-toast.contract: "toast-region"']);
   expect(lines('shell-toast.contract', 'testId="toast-region"')[0]).toContain('role="region" aria-live="polite" aria-label="Notifications"');
   expect(lines('shell-toast.contract', 'role="dialog" aria-label=toast.title')).toHaveLength(1);
 });
