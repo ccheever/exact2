@@ -80,6 +80,10 @@ struct Read {
     layers: Vec<Layer>,
     unused: Vec<(usize, String)>,
     written: BTreeMap<(String, Option<String>), BTreeSet<String>>,
+    /// Each axis and its values, in the order the source gives them (a
+    /// theme group's, a collection's modes by name, a modifier's default
+    /// first): the first value the default.
+    dims: Vec<(String, Vec<String>)>,
 }
 
 impl Read {
@@ -94,7 +98,16 @@ impl Read {
 
     /// An axis value's scope, its written names kept.
     fn axis(&mut self, axis: &str, value: &str) -> Scope {
-        let (a, v) = (ident(axis), ident(value));
+        // An ungrouped theme's axis is `theme`, written as nothing.
+        let (a, v) = (
+            ident(if axis.is_empty() { "theme" } else { axis }),
+            ident(value),
+        );
+        match self.dims.iter_mut().find(|(n, _)| *n == a) {
+            Some((_, vs)) if !vs.contains(&v) => vs.push(v.clone()),
+            Some(_) => {}
+            None => self.dims.push((a.clone(), vec![v.clone()])),
+        }
         self.written
             .entry((a.clone(), None))
             .or_default()
@@ -161,6 +174,25 @@ fn is_token(node: &Value) -> bool {
         .is_some_and(|m| m.contains_key("$value") || legacy(m))
 }
 
+/// Whether a node is a token in `root`: one with a value, or a whole `$ref`
+/// to a token or to anything that is no group (chains followed).
+fn token_like(root: &Value, node: &Value) -> bool {
+    let mut at = node;
+    for _ in 0..64 {
+        if is_token(at) {
+            return true;
+        }
+        let Some(r) = at.get("$ref").and_then(Value::as_str) else {
+            return false;
+        };
+        match target(root, r) {
+            Some(next) if next.is_object() => at = next,
+            _ => return true,
+        }
+    }
+    true
+}
+
 /// A JSON Pointer's segments, `~1` and `~0` decoded.
 fn pointer_segments(pointer: &str) -> Vec<String> {
     pointer
@@ -195,16 +227,19 @@ fn extended(
         if stack.iter().any(|s| s == name) {
             return Err(format!("a cycle of `{key}` through `{name}`"));
         }
+        if stack.len() > 64 {
+            return Err(format!("`{key}` chains deeper than 64 at `{name}`"));
+        }
         let Some(inherited) = target(root, name).and_then(Value::as_object) else {
             return Err(format!("`{key}` names `{name}`, which is not there"));
         };
-        if is_token(&Value::Object(inherited.clone())) {
-            continue;
+        if token_like(root, &Value::Object(inherited.clone())) {
+            return Err(format!("`{key}` names `{name}`, a token, not a group"));
         }
         stack.push(name.to_string());
         let base = extended(root, inherited, stack)?;
         stack.pop();
-        deep(&mut merged, &base);
+        deep(root, &mut merged, &base);
         if merged.get("$type").is_none() {
             if let Some(t) = inherited.get("$type") {
                 merged.insert("$type".into(), t.clone());
@@ -216,19 +251,20 @@ fn extended(
         .filter(|(k, _)| *k != "$extends" && *k != "$ref")
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    deep(&mut merged, &own);
+    deep(root, &mut merged, &own);
     Ok(merged)
 }
 
-/// `over` merged into `into`: groups into groups, anything else replacing.
-fn deep(into: &mut Map<String, Value>, over: &Map<String, Value>) {
+/// `over` merged into `into`: groups into groups, anything else (a token,
+/// a whole-token alias, a value) replacing.
+fn deep(root: &Value, into: &mut Map<String, Value>, over: &Map<String, Value>) {
     for (k, v) in over {
         match (into.get_mut(k), v) {
             (Some(Value::Object(a)), Value::Object(b))
-                if !is_token(&Value::Object(a.clone())) && !is_token(v) =>
+                if !token_like(root, &Value::Object(a.clone())) && !token_like(root, v) =>
             {
                 let b = b.clone();
-                deep(a, &b);
+                deep(root, a, &b);
             }
             _ => {
                 into.insert(k.clone(), v.clone());
@@ -260,7 +296,7 @@ fn tokens(file: &str, tree: &Value) -> Result<Vec<Def>, String> {
         // A whole-token `$ref`: to a token, a `$value` or anything not a
         // group, it is an alias.
         if let Some(r) = map.get("$ref").and_then(Value::as_str) {
-            let to_group = target(root, r).is_some_and(|t| t.is_object() && !is_token(t));
+            let to_group = target(root, r).is_some_and(|t| t.is_object() && !token_like(root, t));
             if !map.contains_key("$value") && !to_group {
                 out.push(Def {
                     file: file.to_string(),
@@ -508,7 +544,7 @@ fn studio(
             let scope = match (members.len(), scheme(&names)) {
                 (1, _) => Scope::Base,
                 (_, true) => Scope::Scheme(is_dark(theme)),
-                _ => out.axis(if group.is_empty() { "theme" } else { group }, theme),
+                _ => out.axis(group, theme),
             };
             for (set, status) in t["selectedTokenSets"].as_object().into_iter().flatten() {
                 if matches!(status.as_str(), Some("enabled" | "source")) {
@@ -540,8 +576,9 @@ struct Doc<'a> {
 }
 
 impl Doc<'_> {
-    /// `path` from this document's directory, normalised.
-    fn relative(&self, path: &str) -> String {
+    /// `path` from this document's directory, normalised; one leaving the
+    /// sources' root is an error.
+    fn relative(&self, path: &str) -> Result<String, String> {
         let dir = self.name.rsplit_once('/').map_or("", |(d, _)| d);
         let mut parts: Vec<&str> = match dir {
             "" => Vec::new(),
@@ -551,12 +588,14 @@ impl Doc<'_> {
             match seg {
                 "" | "." => {}
                 ".." => {
-                    parts.pop();
+                    parts
+                        .pop()
+                        .ok_or_else(|| format!("`{path}` leaves the sources"))?;
                 }
                 s => parts.push(s),
             }
         }
-        parts.join("/")
+        Ok(parts.join("/"))
     }
 }
 
@@ -575,11 +614,24 @@ fn deref<'a>(
     let Some(r) = node.get("$ref").and_then(Value::as_str) else {
         return Ok((doc, node.clone()));
     };
+    // Sibling keys written here keep this document: a `sources` among them
+    // is read where it was written.
+    if node.get("sources").is_some() {
+        let (_, mut value) = deref(files, doc, &serde_json::json!({ "$ref": r }), depth)?;
+        if let (Some(over), Some(obj)) = (node.as_object(), value.as_object_mut()) {
+            for (k, v) in over {
+                if k != "$ref" {
+                    obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+        return Ok((doc, value));
+    }
     let (file, pointer) = r.split_once('#').map_or((r, ""), |(f, p)| (f, p));
     let held = match file {
         "" => doc,
         f => {
-            let path = doc.relative(f);
+            let path = doc.relative(f)?;
             let (n, v) = files
                 .iter()
                 .find(|(n, _)| *n == path)
@@ -602,6 +654,17 @@ fn deref<'a>(
     Ok((owner, value))
 }
 
+/// The root document's set a reference names, decoded, if it names one.
+fn root_set(doc: Doc, r: &str, top: &str) -> Option<String> {
+    let (file, pointer) = r.split_once('#')?;
+    let held = match file {
+        "" => doc.name.to_string(),
+        f => doc.relative(f).ok()?,
+    };
+    let segs = pointer_segments(pointer.strip_prefix('/')?);
+    (held == top && segs.len() == 2 && segs[0] == "sets").then(|| segs[1].clone())
+}
+
 /// A Resolver Module document.
 fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, String> {
     let top = Doc { name, value: doc };
@@ -611,6 +674,7 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
     fn expand(
         files: &[(String, Value)],
         doc: Doc,
+        top: &str,
         src: &Value,
         stack: &mut Vec<String>,
         reached: &mut BTreeSet<String>,
@@ -619,14 +683,17 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
         if depth > 16 {
             return Err("sets nest too deep".into());
         }
+        let mut pushed = false;
         if let Some(r) = src.get("$ref").and_then(Value::as_str) {
             let key = format!("{}{r}", doc.name);
             if stack.contains(&key) {
                 return Err(format!("a cycle of sets through `{r}`"));
             }
             stack.push(key);
-            if let Some(set) = r.strip_prefix("#/sets/") {
-                reached.insert(set.to_string());
+            pushed = true;
+            // A set of the root document, by its decoded name.
+            if let Some(name) = root_set(doc, r, top) {
+                reached.insert(name);
             }
         }
         let (owner, tree) = deref(files, doc, src, 0)?;
@@ -634,13 +701,13 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
             Some(srcs) => {
                 let mut out = Vec::new();
                 for s in srcs {
-                    out.extend(expand(files, owner, s, stack, reached, depth + 1)?);
+                    out.extend(expand(files, owner, top, s, stack, reached, depth + 1)?);
                 }
                 out
             }
             None => tokens(owner.name, &tree)?,
         };
-        if src.get("$ref").is_some() {
+        if pushed {
             stack.pop();
         }
         Ok(out)
@@ -654,9 +721,9 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
         if let Some(set) = entry
             .get("$ref")
             .and_then(Value::as_str)
-            .and_then(|r| r.strip_prefix("#/sets/"))
+            .and_then(|r| root_set(top, r, name))
         {
-            reached.insert(set.to_string());
+            reached.insert(set);
         }
         let label = entry
             .get("$ref")
@@ -693,7 +760,7 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
                 let mut found = Vec::new();
                 for src in sources {
                     found.extend(
-                        expand(files, owner, src, &mut Vec::new(), &mut reached, 0)
+                        expand(files, owner, name, src, &mut Vec::new(), &mut reached, 0)
                             .map_err(|e| format!("{name}: {e}"))?,
                     );
                 }
@@ -704,7 +771,7 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
             let mut found = Vec::new();
             for src in sources {
                 found.extend(
-                    expand(files, owner, src, &mut Vec::new(), &mut reached, 0)
+                    expand(files, owner, name, src, &mut Vec::new(), &mut reached, 0)
                         .map_err(|e| format!("{name}: {e}"))?,
                 );
             }
@@ -721,9 +788,21 @@ fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, 
         if reached.contains(set) {
             continue;
         }
-        let found = expand(files, top, node, &mut Vec::new(), &mut BTreeSet::new(), 0)
-            .map_err(|e| format!("{name}: {e}"))?;
-        out.unused(found, "in a set the resolution order never reaches");
+        // Not part of the resolution: a set that does not read is reported
+        // as one row, and the rest go on.
+        match expand(files, top, name, node, &mut Vec::new(), &mut reached, 0) {
+            Ok(found) => out.unused(found, "in a set the resolution order never reaches"),
+            Err(why) => out.unused(
+                vec![Def {
+                    file: name.to_string(),
+                    path: format!("sets.{set}"),
+                    ty: None,
+                    value: Value::String(why.clone()),
+                    refused: Some(why),
+                }],
+                "a set the resolution order never reaches, which does not read",
+            ),
+        }
     }
     Ok(out)
 }
@@ -879,6 +958,9 @@ impl Resolve<'_> {
                 Some(Ok(target)) if visiting.contains(&target) => {
                     Err(format!("a cycle of aliases through `{{{target}}}`"))
                 }
+                Some(Ok(_)) if visiting.len() > 256 => {
+                    Err("an alias chain longer than 256".to_string())
+                }
                 Some(Ok(target)) => {
                     visiting.insert(target.clone());
                     let inner = self.seen(&target, visiting);
@@ -956,7 +1038,7 @@ pub fn import(
         .layers
         .iter()
         .any(|l| l.scopes.iter().any(|s| matches!(s, Scope::Scheme(_))));
-    let mut axes: Vec<(String, Vec<String>)> = Vec::new();
+    let mut axes: Vec<(String, Vec<String>)> = read.dims.clone();
     for l in &read.layers {
         for scope in &l.scopes {
             if let Scope::Axis(a, v) = scope {
@@ -1078,6 +1160,21 @@ pub fn import(
             for l in read.layers.iter().filter(|l| active(t, &l.scopes)) {
                 for &i in l.defs.iter().filter(|i| !unused.contains(i)) {
                     w.insert(defs[i].path.as_str(), i);
+                }
+            }
+            // A token and a group at one path: the later layer's stands,
+            // the other's tokens go (a token replaces a group, a group a
+            // token).
+            let paths: Vec<(&str, usize)> = w.iter().map(|(p, i)| (*p, *i)).collect();
+            for (p, i) in &paths {
+                for (q, j) in &paths {
+                    let under =
+                        q.len() > p.len() && q.starts_with(p) && q.as_bytes()[p.len()] == b'.';
+                    if under && j < i {
+                        w.remove(q);
+                    } else if under && i < j {
+                        w.remove(p);
+                    }
                 }
             }
             w

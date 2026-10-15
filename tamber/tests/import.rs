@@ -1180,3 +1180,49 @@ fn dtcg_round_two_resolver_documents_figma_case_and_existing_axes() {
         "tamber-import-tuples"
     );
 }
+
+#[test]
+fn dtcg_round_three_theme_order_chains_and_replaced_groups() {
+    use exact_tamber::import::dtcg;
+    // Calm selects no set and comes first: it is still the default.
+    let single = r##"{
+      "base": { "c": { "a": { "value": "#010101", "type": "color" } } },
+      "loud": { "c": { "a": { "value": "#020202", "type": "color" } } },
+      "$themes": [
+        { "name": "Base", "group": "core", "selectedTokenSets": { "base": "enabled" } },
+        { "name": "Calm", "group": "brand", "selectedTokenSets": {} },
+        { "name": "Loud", "group": "brand", "selectedTokenSets": { "loud": "enabled" } }
+      ],
+      "$metadata": { "tokenSetOrder": ["loud", "base"] }
+    }"##;
+    let import = dtcg::import(
+        &dtcg_files(&[("t.json", single)]),
+        "ts",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    let text = accepted(EMPTY, &import);
+    assert!(text.contains("  brand = calm | loud\n"), "{text}");
+    // A whole-token $ref chain; a later token replacing an earlier group.
+    let tokens = r##"{
+      "c": { "$type": "color", "x": { "$value": "#0a0a0a" } },
+      "b": { "$ref": "#/c/x" },
+      "a": { "$ref": "#/b" }
+    }"##;
+    let over = r##"{ "g": { "$type": "color", "$value": "#0b0b0b" } }"##;
+    let under = r##"{ "g": { "$type": "color", "inner": { "$value": "#0c0c0c" } } }"##;
+    let files = dtcg_files(&[("1.json", under), ("2.json", over), ("tokens.json", tokens)]);
+    let import = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ds.a"), "ds.b");
+    assert_eq!(token_value(&text, "ds.g"), "#0b0b0b");
+    assert!(!text.contains("ds.g.inner ="), "{text}");
+    // A reference leaving the sources is an error.
+    let out = r##"{ "resolutionOrder": [ { "$ref": "../colors.json" } ] }"##;
+    let files = dtcg_files(&[("r.json", out), ("colors.json", "{}")]);
+    assert!(dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).is_err());
+}
