@@ -3,7 +3,7 @@
 // live host's DOM at the same URL once the runtime is ready. A difference
 // names the view. What the browser owns after layout — a symbol's sized
 // source, a surface's pixel size, focus — is left out of both sides.
-import { test, expect } from 'bun:test';
+import { afterAll, test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -166,20 +166,16 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
-    `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
-    '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
-  { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
-  const lines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
-  const exited = new Promise((ok) => child.on('exit', ok));
+  const { cdp, lines } = await browser();
+  lines.length = 0;
+  // A browser context of its own: no cookie, storage, cache or history of another test's
+  const { browserContextId } = await cdp.send('Target.createBrowserContext');
   try {
-    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
     const tab = async (scripts, onNew) => {
-      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+      const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank', browserContextId });
       const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
       const call = (method, params) => cdp.send(method, params, sessionId);
+      await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: 'light' }] }); // the light look these checks expect, in whatever appearance this machine has
       await call('Page.enable');
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
@@ -209,12 +205,37 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     };
     await drive(tab);
   } finally {
-    try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await Promise.race([exited, Bun.sleep(2000)]);
+    await cdp.send('Target.disposeBrowserContext', { browserContextId }).catch(() => {});
     server?.close();
-    rmSync(profile, { recursive: true, force: true });
   }
 }
+
+/** The file's one Chrome, launched at its first document and again after it exits (Bun kills it when a test times out): a
+ * launch per test cost 0.17 s each. `lines` holds the stderr received since the current test reset it, which can include the
+ * end of the previous test's. */
+let launched = null;
+function browser() {
+  if (launched) return launched;
+  const started = launched = (async () => {
+    const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
+    const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
+      `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
+      '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
+    { detached: true, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe'] });
+    const lines = [];
+    child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) lines.push(l); });
+    const exited = new Promise((ok) => child.on('exit', ok));
+    exited.then(() => { if (launched === started) launched = null; });
+    const close = async () => {
+      try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+      await Promise.race([exited, Bun.sleep(2000)]);
+      rmSync(profile, { recursive: true, force: true });
+    };
+    return { cdp: new Cdp(child.stdio[3], child.stdio[4]), lines, close };
+  })();
+  return started;
+}
+afterAll(async () => { if (launched) await (await launched).close(); });
 
 const settled = 'new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))';
 

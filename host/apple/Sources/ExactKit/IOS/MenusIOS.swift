@@ -253,45 +253,16 @@ final class MenuHost {
             button.isEnabled = !v.disabled
             if v.disabled || v.ariaUnavailable { button.accessibilityTraits.insert(.notEnabled) }
             else { button.accessibilityTraits.remove(.notEnabled) }
-            // One menu per invoker and press shape, kept across batches: it
-            // reads its rows each time it opens, so a batch (a poll's answer,
-            // every second) has nothing to change in it, and replacing it
-            // would reload a menu that is open — UIKit shows its "Loading…"
-            // row again each time.
-            let hasPress = v.handlers.contains("press")
+            // One menu per invoker, kept across batches: it reads its rows
+            // each time it opens, so a batch (a poll's answer, every second)
+            // has nothing to change in it, and replacing it would reload a
+            // menu that is open — UIKit shows its "Loading…" row again each time.
             // The popover's `aria-label` titles the menu ("Open location in").
             let heading = pop.props["accessibilityLabel"] ?? ""
-            let shape = "\(target)|\(hasPress)|\(heading)"
+            let shape = "\(target)|\(heading)"
             if menuShapes[v.id] != shape || button.menu == nil {
                 menuShapes[v.id] = shape
-                button.menu = UIMenu(title: heading, children: [
-                    UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
-                        // The invoker this menu was built for, not a successor
-                        // that took its id or its recycled view, and still
-                        // able to act.
-                        func current() -> NodeView? {
-                            guard let v, v.incarnation == token, self?.presenter?.views[v.id] === v, self?.eligible(v) == true else { return nil }
-                            return v
-                        }
-                        guard let self, let presenter = self.presenter, let invoker = current() else { return completion([]) }
-                        // Its press applies in this call; then what it invokes now.
-                        if hasPress { presenter.press(invoker.id) }
-                        guard let invoker = current(), let invocation = presenter.invocation(of: invoker), invocation.opens else { return completion([]) }
-                        if self.isConfirmation(invocation.target) {
-                            // Retargeted to a confirmation: it presents in place
-                            // of this menu, if neither it nor the invoker has
-                            // since become another node's.
-                            completion([])
-                            let target = invocation.target, targetToken = target.incarnation
-                            DispatchQueue.main.async {
-                                guard let invoker = current(), target.incarnation == targetToken, presenter.views[target.id] === target else { return }
-                                _ = self.openConfirmation(from: invoker, popover: target, modal: invocation.action == .showModal, dispatchPress: false)
-                            }
-                            return
-                        }
-                        completion(self.items(of: invocation.target))
-                    }
-                ])
+                button.menu = UIMenu(title: heading, children: [pullDown(of: v)])
             }
         }
         for (id, b) in overlays where !live.contains(id) {
@@ -369,7 +340,35 @@ final class MenuHost {
     }
 
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
-    func eligible(_ node: NodeView, inertBoundary: UIView? = nil) -> Bool {
+    /// `inBar`: the node is a bar item's button, which the page hides while
+    /// the bar shows it: that hiding, and only that, does not count.
+    /// A pull-down's rows, read as UIKit opens it: the invoker's press applies
+    /// (synchronously), then what the surviving invoker opens now, as HTML
+    /// runs a button's listeners before its invocation; a confirmation or
+    /// dialog the press retargeted it to presents in place of the menu. Only
+    /// the invoker it was built for acts, and only while it is eligible.
+    func pullDown(of v: NodeView, inBar: Bool = false) -> UIDeferredMenuElement {
+        UIDeferredMenuElement.uncached { [weak self, weak v, token = v.incarnation] completion in
+            func current() -> NodeView? {
+                guard let v, v.incarnation == token, self?.presenter?.views[v.id] === v, self?.eligible(v, inBar: inBar) == true else { return nil }
+                return v
+            }
+            guard let self, let presenter = self.presenter, let invoker = current() else { return completion([]) }
+            if invoker.handlers.contains("press") { presenter.press(invoker.id) }
+            guard let invoker = current(), let invocation = presenter.invocation(of: invoker), invocation.opens else { return completion([]) }
+            if self.isConfirmation(invocation.target) {
+                completion([])
+                let target = invocation.target, targetToken = target.incarnation
+                DispatchQueue.main.async {
+                    guard let invoker = current(), target.incarnation == targetToken, presenter.views[target.id] === target else { return }
+                    _ = self.openConfirmation(from: inBar ? nil : invoker, popover: target, modal: invocation.action == .showModal, dispatchPress: false)
+                }
+                return
+            }
+            completion(self.items(of: invocation.target))
+        }
+    }
+    func eligible(_ node: NodeView, inertBoundary: UIView? = nil, inBar: Bool = false) -> Bool {
         guard live(node), !node.disabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
@@ -378,7 +377,7 @@ final class MenuHost {
             // also survives the invoker subsequently becoming inert.
             if view === inertBoundary { checksInert = false }
             if let n = view as? NodeView, n.disabled || (checksInert && n.props["inert"] == "true") { return false }
-            if view.isHidden {
+            if view.isHidden, !(inBar && presenter?.navigation.hiddenForBar(view) == true) {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
             }

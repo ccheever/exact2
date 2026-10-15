@@ -43,6 +43,7 @@ pub mod gradient;
 pub mod grouped;
 pub mod handoff;
 pub mod id;
+pub mod invocation;
 pub mod kernel;
 pub mod layout;
 pub mod motion;
@@ -78,6 +79,7 @@ pub use generated::*;
 pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection, TextFont, TextLook};
 pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
+pub use invocation::Invocation;
 pub use kernel::{
     BlockAxis, HostBlock, HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint,
 };

@@ -18,6 +18,7 @@ import { resolve } from 'node:path';
 import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { standIns } from './stand-ins.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB_JS = resolve(ROOT, 'host/web-js');
@@ -29,7 +30,7 @@ const CONTRACT = `component Hold
   state low = ""
   state heard = ""
   action hush(value: string)
-    low = toLowerCase(value)
+    low = value.toLowerCase()
     heard = \`\${heard}[\${value}]\`
   view
     column width=320 align-items="flex-start"
@@ -49,22 +50,9 @@ const page = `<!doctype html><meta charset="utf-8"><div id="exact-root">
   window.ready = true;
 </script>`;
 const REAL = ['rt.js', 'font-family.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js'];
-const STUBS = {
-  'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'],
-  'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
-  'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'],
-  'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'],
-};
-// A module the runtime came to import after this list was written (observers.js did, with `intersect=`) is stood in
-// for by the names the real modules take from it, so a new import does not leave the page unable to load.
-const taken = name => [...new Set(REAL.flatMap(real => [...readFileSync(resolve(WEB_JS, real), 'utf8').matchAll(/(?:import|export)\s*\{([^}]*)\}\s*from\s*['"]\.\/([\w-]+\.js)['"]/g)]
-  .filter(m => m[2] === name).flatMap(m => m[1].split(',').map(n => n.trim().split(/\s+as\s+/)[0]).filter(Boolean))))];
-const stand = names => names.map(n => `export const ${n} = () => {};`).join('\n');
+const STUBS = standIns(REAL);
 const module = name => REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
-  : STUBS[name] ? stand(STUBS[name]) + (name === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : '')
-  : taken(name).length ? stand(taken(name))
-  : null;
+  : STUBS.get(name) ?? null;
 
 /** The stand-in page in headless Chrome: `drive(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
 async function inChrome(drive) {
@@ -99,8 +87,9 @@ async function inChrome(drive) {
 }
 
 const at = t => `document.querySelector('[data-testid="${t}"]')`;
-/** The field's text, what the app heard, and how many compositions began and ended in it. */
-const shown = (evaluate, t = 'low') => evaluate(`new Promise(ok => setTimeout(() => ok([${at(t)}.value, ${at('log')}.textContent, window.began, window.ended]), 30))`);
+/** The field's text, what the app heard, and how many compositions began and ended in it, read two frames and a task after
+ * the IME's event: when the page has rendered what it did. */
+const shown = (evaluate, t = 'low') => evaluate(`new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => ok([${at(t)}.value, ${at('log')}.textContent, window.began, window.ended])))))`);
 const mark = (call, text) => call('Input.imeSetComposition', { text, selectionStart: text.length, selectionEnd: text.length });
 async function focus(evaluate, call, t) {
   await call('Emulation.setFocusEmulationEnabled', { enabled: true });

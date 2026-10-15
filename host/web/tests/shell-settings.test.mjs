@@ -73,6 +73,7 @@ async function inChrome(test) {
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     const call = (method, params) => cdp.send(method, params, sessionId);
+    await prefer(call, {});
     const evaluate = async (expression) => {
       const reply = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
       if (reply.exceptionDetails) throw new Error(reply.exceptionDetails.exception?.description ?? reply.exceptionDetails.text);
@@ -88,7 +89,8 @@ async function inChrome(test) {
   }
 }
 const css = (evaluate, id, property, pseudo) => evaluate(`css(${JSON.stringify(id)}, ${JSON.stringify(property)}${pseudo ? `, ${JSON.stringify(pseudo)}` : ''})`);
-const prefer = (call, features) => call('Emulation.setEmulatedMedia', { features: Object.entries(features).map(([name, value]) => ({ name, value })) });
+// The light look these checks expect, in whatever appearance this machine has, unless `features` say otherwise
+const prefer = (call, features) => call('Emulation.setEmulatedMedia', { features: Object.entries({ 'prefers-color-scheme': 'light', ...features }).map(([name, value]) => ({ name, value })) });
 const opaque = (color) => /^rgb\(/.test(color);
 
 check(`a material the host paints honours the person's settings: opaque with Reduce Transparency, the browser's own controls under forced colours`, () => inChrome(async (evaluate, call) => {
