@@ -13,6 +13,7 @@ use std::process::ExitCode;
 mod build;
 mod diff;
 mod tamber;
+mod tamber_serve;
 mod verify;
 mod vocab;
 

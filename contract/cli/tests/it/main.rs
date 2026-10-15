@@ -122,6 +122,7 @@ mod symbols;
 mod tamber;
 mod tamber_cli;
 mod tamber_scheme;
+mod tamber_serve;
 mod tests_decl;
 mod text_item;
 mod text_selection;
