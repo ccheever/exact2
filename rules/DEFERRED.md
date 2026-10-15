@@ -999,6 +999,14 @@ an app to AppDrop without a stub profile; refused for apps with GPU modules,
 whose baked digests a re-signer would break. No AppDrop adapter is added; the
 distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.
 
+**AppDrop lane, 2026-10-14 (Eliot; Charlie's waiver or a take still owed):**
+`deploy.appdrop.url` makes an iOS binary row of `exact deploy --yes` build the
+`--archive --unsigned` `.ipa` against the stream's release record and publish it
+as that AppDrop link's next revision, and the install page offers the link.
+Unblocks sending one install link whose app stays current: bundles over the
+air, binaries through AppDrop. The EAS adapter, signed distribution IPAs and
+automatic provisioning stay deferred.
+
 **Admitted (Charlie, 2026-10-12, issue-fix ruling 5; take waived):**
 "intersect=: admit now — intersect=action {isIntersecting, intersectionRatio},
 intersect-margin, root = nearest scroller, threshold 0, fires on mount + enter/leave".

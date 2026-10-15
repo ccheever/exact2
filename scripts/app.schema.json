@@ -615,6 +615,15 @@
         "brownfield": {
           "type": "boolean"
         },
+        "appdrop": {
+          "description": "The AppDrop share link (https://appdrop.app/d/<id>) an iOS binary change publishes a new version to, after the streams (`scripts/deploy-appdrop.mjs`). Its update key stays out of app.json: $APPDROP_MANAGE_KEY, or the one the appdrop CLI saved. The install page offers it for iOS when install.ios names no methods.",
+          "type": "object",
+          "required": ["url"],
+          "properties": {
+            "url": { "type": "string", "pattern": "^https://[^/]+/d/[A-Za-z0-9]+/?$" }
+          },
+          "additionalProperties": false
+        },
         "signing": {
           "type": "object",
           "properties": {

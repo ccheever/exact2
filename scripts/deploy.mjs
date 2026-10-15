@@ -55,6 +55,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
+import { appdropPlan, publishAppdrop, renderAppdrop } from './deploy-appdrop.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
@@ -1092,7 +1093,7 @@ export function renderTable(table) {
       : row.changes.map((c) => `${c.name} ${c.change}${c.note ? ` (${c.note})` : ''}`).join(', ');
     out.push(line('', detail, `bundle seq ${row.seq}`));
   }
-  const binaries = table.rows.filter((r) => r.action === 'binary');
+  const binaries = table.rows.filter((r) => r.action === 'binary' && !(r.kind === 'binary' && r.platform === 'ios' && table.appdrop?.action === 'upload'));
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); independently safe bundle rows still publish`);
   out.push(...renderReach(table.reach));
   return out.join('\n');
@@ -1354,7 +1355,8 @@ async function deployCaptured(opts, capsule) {
   log(`compatibility ids: ${Object.entries(compat).map(([p, c]) => `${p} ${c.id}`).join(', ')}`);
 
   const table = await classify({ app, opts, origin, channel, snapshot, release, web: webRoot, bundle, compat, builds, platforms, wantOrigin });
-  if (!opts.json) console.log(renderTable(table));
+  table.appdrop = appdropPlan(app, table, builds);
+  if (!opts.json) console.log(renderTable(table) + (table.appdrop ? `\n${renderAppdrop(table.appdrop)}` : ''));
 
   if (!opts.yes) {
     if (opts.json) console.log(JSON.stringify(table));
@@ -1376,6 +1378,7 @@ async function deployCaptured(opts, capsule) {
     }
     const name = `${row.platform ?? '?'} ${row.kind} ${row.compatibilityId.slice(0, 8)}`;
     if (row.action === 'unavailable') { failed.push({ platform: row.platform, compatibilityId: row.compatibilityId, error: row.reason }); log(`  ${name}: unavailable — ${row.reason}`); continue; }
+    if (row.kind === 'binary' && row.platform === 'ios' && table.appdrop) continue; // its carrier is AppDrop, after the streams
     if (row.action === 'binary') { refused.push({ platform: row.platform, compatibilityId: row.compatibilityId, reason: row.reason }); log(`  ${name}: refused — ${row.reason}`); continue; }
     try {
       const result = await publishStream({ origin, row, bundle: bundle.platforms?.[row.platform] ?? bundle, compat: row.receipt?.compat ?? compat[row.platform], app, signer, release, snapshot: table.snapshot, opts, log, build:builds[row.platform] });
@@ -1386,11 +1389,18 @@ async function deployCaptured(opts, capsule) {
       log(`  ${name}: failed — ${e.message}; ${e.headOutcomeUnknown ? 'the head outcome is unknown and must be inspected' : "this release's head is not visible"}`);
     }
   }
+  if (table.appdrop) {
+    const stream = { channel, compatibilityId: table.appdrop.compatibilityId };
+    const ios = [...published, ...failed].find((p) => p.platform === 'ios' && p.compatibilityId === stream.compatibilityId);
+    const record = ios?.action === 'published' ? release : ios && !ios.error ? (await latestRecord(origin, app, stream))?.release : null;
+    try { published.push(await publishAppdrop({ plan: table.appdrop, app, exactRoot, run, receipt: record ? resolve(origin.dir, streamPath(stream), 'releases', `${record}.json`) : null, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), log })); }
+    catch (e) { failed.push({ kind: 'appdrop', platform: 'ios', error: e.message }); log(`  appdrop: failed — ${e.message}`); }
+  }
   const outcome = { ...table, dryRun: false, published, refused, failed };
   if (opts.json) console.log(JSON.stringify(outcome));
   else {
     const heads = published.filter((p) => p.kind === 'stream' && p.action === 'published');
-    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
+    console.log(`published ${release}: ${heads.length} head${heads.length === 1 ? '' : 's'}${published.some((p) => p.kind === 'origin' && p.action === 'published') ? ', the web root' : ''}${published.some((p) => p.kind === 'appdrop' && p.action === 'published') ? ', an AppDrop version' : ''}${refused.length ? `; ${refused.length} refused (binary)` : ''}${failed.length ? `; ${failed.length} FAILED` : ''}`);
   }
   return failed.length ? 1 : 0;
 }

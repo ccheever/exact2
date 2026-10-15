@@ -18,6 +18,7 @@ import { isAbsolute, join, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { copyStaticTreeIfPresent, webEnvelope } from '../host/web/serve.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
+import { appdropLink, appdropPlan, renderAppdrop } from './deploy-appdrop.mjs';
 import { canonicalBytes, classify, classifyArtifacts, cohortReceipt, defaultRelease, deployRun, inspectHead, materializeSnapshot, portableAssetNames, publishStream, renderTable, snapshotOf as capturedSnapshotOf, streamHead } from './deploy.mjs';
 import { blobPath, DirectoryOrigin, HttpsOrigin, OriginUnavailable, sha256 } from './origin.mjs';
 // Minimal compiler receipts for origin protocol fixtures below; capability
@@ -949,4 +950,26 @@ async function rejects(action, matches) {
       && shown[4].includes('"Records your takes."') && shown[4].endsWith('declared by app.ts')
       && none.length === 1,
     shown.join('\n'));
+}
+
+{
+  // The AppDrop lane: only an iOS binary row owes AppDrop a version, and a binary goes up once.
+  const state = mkdtempSync(join(tmpdir(), 'exact-appdrop-'));
+  process.env.EXACT_APPDROP_STATE = join(state, 'appdrop.json');
+  const app = { manifest: { deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/' } } } };
+  const builds = { ios: { binary: { sha256: 'a'.repeat(64) } } };
+  const binary = { rows: [{ kind: 'binary', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'binary' }] };
+  const bundleOnly = { rows: [{ kind: 'stream', platform: 'ios', compatibilityId: 'c'.repeat(64), action: 'bundle' }] };
+  const first = appdropPlan(app, binary, builds);
+  writeFileSync(process.env.EXACT_APPDROP_STATE, JSON.stringify({ 'https://appdrop.app/d/k3m9x2p7qa': { binary: 'a'.repeat(64), revision: 4 } }));
+  const again = appdropPlan(app, binary, builds);
+  let refused = '';
+  try { appdropLink({ deploy: { appdrop: { url: 'https://appdrop.app/d/k3m9x2p7qa/manage#secret' } } }); } catch (e) { refused = e.message; }
+  delete process.env.EXACT_APPDROP_STATE; rmSync(state, { recursive: true, force: true });
+  result('an iOS binary row uploads a new AppDrop version once; bundle rows and an update link in app.json do not',
+    first?.action === 'upload' && first.url === 'https://appdrop.app/d/k3m9x2p7qa' && first.id === 'k3m9x2p7qa'
+      && again?.action === 'current' && renderAppdrop(again).includes('revision 4 already') && renderAppdrop(first).endsWith('upload (after the streams)')
+      && appdropPlan(app, bundleOnly, builds) === null && appdropPlan({ manifest: {} }, binary, builds) === null
+      && refused.includes('share link'),
+    JSON.stringify({ first, again, refused }));
 }

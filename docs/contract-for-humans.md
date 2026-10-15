@@ -1553,7 +1553,12 @@ dry run, which expects a committed tree (or `--dirty`); publication uses `--yes`
 an origin, a signing key, and the configured signed streams. Read
 [LLP 1030.000](../llp/1030.000-dev-server-as-deployer.rfc.md) before changing
 trust or publishing. Writing Contract does not require inventing a deployment
-service.
+service. To share an iOS app through AppDrop, name its share link in
+`deploy.appdrop.url`: a deploy whose table has an iOS binary row builds the
+unsigned `.ipa` and publishes it as the link's next version after the streams
+(`$APPDROP_MANAGE_KEY`, or the key the appdrop CLI saved, authorizes it), and
+the install page offers the link for iOS. Bundle-only changes go over the air
+and never reach AppDrop.
 
 ## Where to go next
 
