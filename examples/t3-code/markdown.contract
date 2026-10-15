@@ -23,6 +23,8 @@ shape ChatRun
   // Every run of a link: the whole link's text (markdown.rs link_labels), the link node's name on its first word, the
   // mark that hides its other words; "" elsewhere and on a link that starts with a code span (it draws no link node).
   label: string
+  // A media run inside a link's text: the link's destination (MarkdownAnchor's `<a>` around the `<img>`); "" elsewhere.
+  link: string
 shape ChatCell
   id: string
   runs: ChatRun[]
@@ -171,8 +173,12 @@ fn tokenAt(tokens: CodeToken[], id: string): number = tokens.slice(0, max(0, tok
 fn citeMarks(ms: number, me: number, at: number, size: number): bool = ms >= 0 and me > at and ms < at + size
 
 // Occurrence ids come from the same parsed blocks/runs that draw the images. Shared URLs keep separate entries.
+// An image inside a link's text is the link's to press (expandableMarkdownImageProps returns early inside an `<a>`).
 fn galleryImage(href: string, chips: ChipView[]): bool = chips.filter((chip) => chip.kind == "media" and chip.href == href and chip.size == "image" and chip.icon != "blocked").length > 0
-fn markdownGalleryIds(blocks: ChatBlock[], chips: ChipView[]): string[] = blocks.map((block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : (block.flow and not ["code", "table", "table-row", "rule"].includes(block.kind) ? block.runs.filter((run) => run.kind == "media" and galleryImage(run.href, chips)).map((run) => `${block.id}-${run.id}`).join("\n") : "")).join("\n").split("\n").filter((id) => id != "")
+fn galleryRun(run: ChatRun, chips: ChipView[]): bool = run.kind == "media" and run.link == "" and galleryImage(run.href, chips)
+// A table's images, row by row and cell by cell (TableCell's node ids).
+fn tableGalleryIds(block: ChatBlock, chips: ChipView[]): string = block.rows.map((row) => row.cells.map((cell) => cell.runs.filter((run) => galleryRun(run, chips)).map((run) => `${block.id}-${row.id}-${cell.id}-${run.id}`).join("\n")).join("\n")).join("\n")
+fn markdownGalleryIds(blocks: ChatBlock[], chips: ChipView[]): string[] = blocks.map((block) => block.kind == "image" ? (galleryImage(block.href, chips) ? block.id : "") : block.kind == "table" ? tableGalleryIds(block, chips) : (block.flow and not ["code", "table-row", "rule"].includes(block.kind) ? block.runs.filter((run) => galleryRun(run, chips)).map((run) => `${block.id}-${run.id}`).join("\n") : "")).join("\n").split("\n").filter((id) => id != "")
 
 component ChatMarkdown
   props
@@ -438,12 +444,12 @@ component BlockBody
           text flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(block.header ? "0.55rem" : "0.45rem") padding-bottom=(block.header ? "0.55rem" : "0.45rem") font-size="0.75rem" line-height=1.625 color=prose
             ChatRuns(runs=cell.runs, size=12, weight=(block.header ? 600 : 400), ms=-1, me=-1)
     if block.kind == "table"
-      MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
+      MarkdownTable(block=block, prose=prose, fit=fit, wrapDefault=wrapDefault, chips=chips, urls=urls, local=local, copied=(copiedText == block.markdown or copiedText == block.csv ? copiedNonce : 0))
     if block.kind == "image"
       // An image line draws through its media chip (media-views.ts markdownMediaChips).
       if chips.filter((c) => c.kind == "media" and c.href == block.href).length > 0
         for chip in chips.filter((c) => c.kind == "media" and c.href == block.href) key=chip.id
-          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
+          MarkdownMedia(alt=block.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)
       else
         image block.href aria-label=block.text max-width="100%" object-fit="contain"
     if block.kind == "quote"
@@ -620,10 +626,15 @@ component FlowRuns
         // An image inside a line of text (ChatMarkdownImage, not
         // standalone), or the only content of its paragraph, list item or quote (standalone: its `icon`), through its
         // media chip (media-views.ts markdownInlineImages); a surface with no media chips (a pull request's text) keeps
-        // its alt text.
+        // its alt text. One inside a link's text (`run.link`) sits in the link, whose press and menu are the link's; the
+        // link's favicon leads it when the image starts the link.
         if run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
           for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
-            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)
+        // With no media chip (a pull request's text) an image inside a link's text is the link's word, its alt text.
+        if run.kind == "media" and run.link != "" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length == 0
+          link href=run.link press=linkOpen("link", run.link) contextmenu=linkMenu(run.link) aria-label=(run.label != "" ? run.label : run.text) cursor="pointer" text-decoration-line="none" flex-shrink=0
+            text run.text white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color="light-dark(#1447e6, #50a2ff)"
         // A pull request link in a pull request's text (its chip names the card's target).
         if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0)
           for chip in chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href) key=chip.id
@@ -631,12 +642,15 @@ component FlowRuns
         // Prose, an emptied anchor's text, and a mailto, irc or xmpp link's later words: no href of their own, so a click
         // follows nothing (the link node above is the link); a link's words keep its pointer (an emptied anchor has no
         // `label`, and an `<a>` with no href shows none).
-        if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
+        if not run.mono and not (run.kind == "file" or chipAccent(run.kind) != "") and run.kind != "break" and not ((run.kind == "link" or run.kind == "link-start") and chips.filter((chip) => chip.kind == "pr-link" and chip.href == run.href).length > 0) and run.kind != "link-start" and not (run.kind == "link" and pressLink(run.href)) and not (run.kind == "media" and (run.link != "" or chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0))
           if ms < 0
             text run.text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
           else
             text id=`cite-${source}-${blockId}-${run.id}` selectionchange=cite(blockId, run.id) aria-hidden=(run.kind == "link" and run.label != "") cursor=(run.kind == "link" and run.label != "" ? "pointer" : "auto") white-space="pre" flex-shrink=0 font-size=size line-height="1.421875rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant text-decoration-line="none" color=(run.kind == "link" ? "light-dark(#1447e6, #50a2ff)" : color)
               MarkedText(value=run.text, at=runAt(runs, run.id), ms=ms, me=me)
+
+// Whether a run starts its link: the run before it is not the same link's word or image.
+fn linkLeads(runs: ChatRun[], id: string, link: string): bool = runs.slice(max(0, runs.map((r) => r.id).indexOf(id) - 1), max(0, runs.map((r) => r.id).indexOf(id))).filter((r) => r.href == link or r.link == link).length == 0
 
 // A pull request link in a pull request's text (ChatMarkdown's anchor with
 // PullRequestLinkPreview, pullRequestMarkdown.logic.ts autolinks): its press asks the panel to open it
@@ -1054,6 +1068,9 @@ component MarkdownTable
     prose: string
     fit: bool
     wrapDefault: bool
+    // A cell's images draw through their media chips (ChatMarkdownImage in the `td`).
+    chips: ChipView[]
+    urls: AttachmentUrl[]
     local: action
     copied: number
   state flipped = false
@@ -1068,7 +1085,7 @@ component MarkdownTable
             row width="100%" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" role="row"
               for cell in tableRow.cells key=`${cell.id}\t${cell.runs.map((part) => part.text).join("")}`
                 for column in block.columns.filter((entry) => entry.id == cell.id) key=column.id
-                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose)
+                  TableCell(cell=cell, column=column, header=tableRow.header, expanded=expanded, prose=prose, chips=chips, urls=urls, local=local, nodePrefix=`${block.id}-${tableRow.id}-${cell.id}`)
       row width="100%" margin-top="0.125rem" align-items="center" justify-content="space-between"
         Tip(label=(expanded ? "Collapse table cells" : "Expand table cells"), side="top", align="start", offset=28)
           TableIconButton(label=(expanded ? "Collapse table cells" : "Expand table cells"), icon=(expanded ? "minimize" : "maximize"), pressed=expanded, press=toggleExpanded, testId=`table-expand-${block.id}`)
@@ -1086,40 +1103,51 @@ component TableCell
     header: bool
     expanded: bool
     prose: string
+    chips: ChipView[]
+    urls: AttachmentUrl[]
+    local: action
+    // The cell's table block, row and column: its images' node ids (markdownGalleryIds).
+    nodePrefix: string
   view
     column flex-grow=column.grow flex-shrink=0 min-width=0 padding-left="0.75rem" padding-right="0.75rem" padding-top=(header ? "0.55rem" : "0.45rem") padding-bottom=(header ? "0.55rem" : "0.45rem") box-sizing="border-box" justify-content="center" role=(header ? "columnheader" : "cell")
-      if cell.runs.filter((part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "").length > 0
-        // A code span keeps its bordered box (inline spans paint backgrounds only).
-        CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), shown=true, justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"))
-      if not (cell.runs.filter((part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "").length > 0) and (header or not expanded)
+      if cellBoxes(cell.runs)
+        // A code span keeps its bordered box (inline spans paint backgrounds only); an image is its picture.
+        CellRuns(runs=cell.runs, weight=(header ? 600 : 400), color=prose, nowrap=(header or not expanded), justify=(column.align == "center" ? "center" : column.align == "right" ? "flex-end" : "flex-start"), chips=chips, urls=urls, local=local, nodePrefix=nodePrefix)
+      if not cellBoxes(cell.runs) and (header or not expanded)
         // One line, cut with an ellipsis at the column's edge (text-overflow: ellipsis).
         text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 line-clamp=1 color=prose text-align=column.align
           ChatRuns(runs=cell.runs, size=12, weight=(header ? 600 : 400), ms=-1, me=-1)
-      if not (cell.runs.filter((part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "").length > 0) and not (header or not expanded)
+      if not cellBoxes(cell.runs) and not (header or not expanded)
         text width=0 min-width="100%" font-size="0.75rem" line-height=1.625 overflow-wrap="anywhere" color=prose text-align=column.align
           ChatRuns(runs=cell.runs, size=12, weight=400, ms=-1, me=-1)
       box height=0 overflow="hidden" aria-hidden=true
         if column.capped
           box width="22.5rem" height=0
-        if not column.capped and column.sizer.filter((part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "").length > 0
-          CellRuns(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, nowrap=true, shown=false, justify="flex-start")
-        if not column.capped and not (column.sizer.filter((part) => part.mono or part.kind == "file" or chipAccent(part.kind) != "").length > 0)
+        if not column.capped and cellBoxes(column.sizer)
+          CellSizer(runs=column.sizer, weight=(column.header ? 600 : 400), color=prose, chips=chips, urls=urls)
+        if not column.capped and not cellBoxes(column.sizer)
           text max-width=(expanded and column.header ? "6250rem" : "22.5rem") font-size="0.75rem" line-height=1.625 white-space="nowrap" opacity=0
             ChatRuns(runs=column.sizer, size=12, weight=(column.header ? 600 : 400), ms=-1, me=-1)
 
-// A cell holding code spans: its runs side by side, each code span 12pt SF
-// Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line.
+// Whether a cell draws run by run: a code span, a chip or an image is a box of its own.
+fn cellBoxes(runs: ChatRun[]): bool = runs.filter((part) => part.mono or part.kind == "file" or part.kind == "media" or chipAccent(part.kind) != "").length > 0
+
+// A cell holding code spans, chips or images: its runs side by side, each code span 12pt SF
+// Mono in its 1pt-bordered, 5.6pt-padded box on the cell's 19.5pt line, an image inline (ChatMarkdownImage, not standalone).
 component CellRuns
   props
     runs: ChatRun[]
     weight: number
     color: string
     nowrap: bool
-    shown: bool
     justify: string
+    chips: ChipView[]
+    urls: AttachmentUrl[]
+    local: action
+    nodePrefix: string
   view
-    // Shown, it fills its cell as TableCell's text does; as a sizer it asks for its runs, capped at 24rem.
-    row width=(shown ? 0 : "auto") min-width=(shown ? "100%" : 0) max-width=(shown ? "6250rem" : "22.5rem") min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible") opacity=(shown ? 1 : 0)
+    // It fills its cell as TableCell's text does.
+    row width=0 min-width="100%" max-width="6250rem" min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible")
       for run in runs key=run.id
         if run.mono
           text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
@@ -1127,8 +1155,39 @@ component CellRuns
           FileChip(run=run)
         if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
           ContextChipBox(run=run)
-        if not run.mono and run.kind != "file" and chipAccent(run.kind) == ""
+        if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0
+          for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href) key=chip.id
+            MarkdownMedia(alt=run.text, kind=chip.size, access=chip.icon, target=chip.target, tip=chip.tip, source=chip.detail, urls=urls, local=local, standalone=false, link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${nodePrefix}-${run.id}`)
+        if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href).length > 0)
           text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space=(nowrap ? "pre" : "pre-wrap") font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
+
+// A column's sizing cell (the widest cell's runs, unseen, asking for their width capped at 24rem): an image is the same
+// picture, so the column takes its width; no preview, menu or node id of its own.
+component CellSizer
+  props
+    runs: ChatRun[]
+    weight: number
+    color: string
+    chips: ChipView[]
+    urls: AttachmentUrl[]
+  view
+    row width="auto" min-width=0 max-width="22.5rem" min-height="1.21875rem" flex-wrap="nowrap" align-items="center" overflow="hidden" opacity=0
+      for run in runs key=run.id
+        if run.mono
+          text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-width=1 border-style="solid"
+        if not run.mono and run.kind == "file"
+          FileChip(run=run)
+        if not run.mono and run.kind != "file" and chipAccent(run.kind) != ""
+          ContextChipBox(run=run)
+        if not run.mono and run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0
+          for chip in chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked") key=chip.id
+            if chip.icon == "direct"
+              image chip.target aria-hidden=true flex-shrink=0 max-width="22.5rem" max-height="30rem" object-fit="contain"
+            else
+              for entry in urls.filter((entry) => entry.id == chip.target and entry.url != "") key=entry.id
+                image entry.url aria-hidden=true flex-shrink=0 max-width="22.5rem" max-height="30rem" object-fit="contain"
+        if not run.mono and run.kind != "file" and chipAccent(run.kind) == "" and not (run.kind == "media" and chips.filter((chip) => chip.kind == "media" and chip.href == run.href and chip.size == "image" and chip.icon != "blocked").length > 0)
+          text run.text min-width=0 font-size="0.75rem" line-height=1.625 white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color=color
 
 // The footer's icon-xs buttons: ghost-muted, or "secondary" while pressed.
 component TableIconButton

@@ -33,6 +33,9 @@ component MediaFailedFrame
 // with the label in it when it fails. An image inside a line of text
 // has a zero-size status span while it loads and ChatMarkdownImageFallback's chip when it fails. A video is
 // ChatMarkdownVideo (MediaVideoPlayer) either way: the 16:9 slot, the player, its failure slot with Retry video.
+// `link`: inside a link's text (MarkdownAnchor's `<a>` around the `<img>`), where the settled image has no preview of its
+// own (expandableMarkdownImageProps returns early inside an `<a>`): the link node around it, named `linkLabel`, takes the
+// press and the menu, a web link's favicon first when `favicon` (the image starts the link).
 component MarkdownMedia
   inject
     galleryIds: string[]
@@ -46,6 +49,9 @@ component MarkdownMedia
     urls: AttachmentUrl[]
     local: action
     standalone: bool
+    link: string
+    linkLabel: string
+    favicon: bool
     // The document the image belongs to (its chips' owner), whose images the expanded preview steps through, and the
     // occurrence's node id (owner, block, run).
     owner: string
@@ -70,12 +76,14 @@ component MarkdownMedia
     if access != "blocked" and not refused and url == ""
       box width=(standalone or kind == "video" ? "100%" : "0px") max-width="40rem" aspect-ratio="16 / 9" border-radius="0.5rem" background-color="light-dark(#f4f4f599, #ffffff0a)" role="status" aria-label=(kind == "video" ? "Loading video" : "Loading image")
     if access != "blocked" and not refused and url != ""
-      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)
+      MarkdownMediaBody(url=url, alt=alt, kind=kind, tip=tip, source=source, original=(access == "direct" and (target.startsWith("http:") or target.startsWith("https:"))), local=local, standalone=standalone, link=link, linkLabel=linkLabel, favicon=favicon, open=local("image-md-open", target, `${owner}\n${nodeId}\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)
 
 // ChatMarkdownImage / ChatMarkdownVideo once the URL is known. A video that fails shows
 // MediaVideoPlayer's slot: Retry video loads it again; the open link is "Open original" for an
 // authored web URL (OpenMediaLink), else "Open in browser" with the signed URL.
 component MarkdownMediaBody
+  inject
+    linkOpen: action
   props
     url: string
     alt: string
@@ -85,6 +93,9 @@ component MarkdownMediaBody
     original: bool
     local: action
     standalone: bool
+    link: string
+    linkLabel: string
+    favicon: bool
     // Opens the expanded image dialog on this image (timeline-attachments.ts `image-md-open`), and the button's id.
     open: action
     nodeId: string
@@ -94,6 +105,10 @@ component MarkdownMediaBody
     failed = true
   action retry
     failed = false
+  // Inside a link: a right click on the picture is MediaActions' (its menu, at the pointer), as the `<span>` around the
+  // `<img>` takes it before the `<a>`.
+  action linkedMenu
+    local("media-menu", source, "pointer")
   // ChatMarkdownImage failedSrc: the URL whose picture reported `error` (exact2 #121).
   state brokenUrl = ""
   action imageBroke(reason: string)
@@ -119,7 +134,16 @@ component MarkdownMediaBody
           MediaFailedFrame(alt=alt)
         if kind != "video" and not standalone
           MediaUnavailableLabel(alt=alt, video=false)
-    // The settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps).
-    if kind != "video" and not (brokenUrl != "" and brokenUrl == url)
+    // The settled image is the button "Preview <alt>" (ChatMarkdownImage's <img> with expandableMarkdownImageProps), or
+    // inside a link the image alone in MediaActions.
+    if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link != ""
+      link href=link press=linkOpen("link", link) contextmenu=linkedMenu aria-label=linkLabel title="" cursor="pointer" text-decoration-line="none" display="flex" flex-direction="row" flex-shrink=1 min-width=0 max-width="100%" align-items="flex-start" testId="markdown-linked-image"
+        if favicon
+          box width="0.875rem" height="1.421875rem" margin-left="0.21875rem" margin-right="0.175rem" padding-top="0.28125rem" box-sizing="border-box" flex-shrink=0
+            // Lucide's globe, as the link's first word draws it (TimelineIcon "globe").
+            svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="light-dark(#1447e6, #50a2ff)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+              path d="M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"
+        image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
+    if kind != "video" and not (brokenUrl != "" and brokenUrl == url) and link == ""
       MediaPreviewActions(source=source, tip=tip, label=`Preview ${alt.trim() != "" ? alt.trim() : "image"}`, open=open, local=local, testId="markdown-image-actions", nodeId=nodeId)
         image url aria-label=alt error=imageBroke max-width="100%" max-height="30rem" object-fit="contain" border-radius="0.5rem" testId="markdown-media-image"
