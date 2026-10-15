@@ -334,6 +334,7 @@ extension NodeView {
     package override func isAccessibilitySelectorAllowed(_ selector: Selector) -> Bool {
         selector == #selector(accessibilityPerformShowMenu) ? showMenuTarget != nil : super.isAccessibilitySelectorAllowed(selector)
     }
+    package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     private var showMenuTarget: NodeView? {
         guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
               let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
@@ -342,6 +343,15 @@ extension NodeView {
 }
 
 extension NSView {
+    /// VoiceOver's order, `AXChildrenInNavigationOrder`, as the children
+    /// `AXChildren` serves: the order the author wrote, as a browser serves
+    /// the DOM's. AppKit's own sorts them by frame, so a chip laid over a
+    /// textarea's top-left corner was read before the textarea.
+    /// `NSAccessibilityElement` (a paragraph's runs) does not formally adopt
+    /// the protocol the property is typed with; the cast is only nominal.
+    var treeNavigationOrder: [any NSAccessibilityElementProtocol]? {
+        accessibilityChildren()?.map { unsafeBitCast($0 as AnyObject, to: (any NSAccessibilityElementProtocol).self) }
+    }
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
     /// or 2 (mixed); `role` when `pressed` is nil.
     func setAccessibilityToggle(_ pressed: String?, else role: NSAccessibility.Role) {
