@@ -397,23 +397,24 @@ into are in the section above.
 
 **Fails:**
 
-- While a confirm dialog, the keybinding recorder, a save panel, the colour picker or a
-  Connections "More actions" menu is open, the window's accessibility tree is one empty scroll
-  area, so VoiceOver reads "empty, scroll area" and no slider value. The cause is not found yet.
-- Terminal, Korean 2-Set: ⌃C while ㅎ composes prints `ㅎ^C` and ends the program, and ⌥Return
-  while 한 composes sends Escape and runs the line; the reference commits the syllable alone and
-  hands ⌥Return to the input method. Composed text is drawn on the line below the prompt.
-- The composer's file preview: Tab stays on "Disable word wrap" (Shift-Tab reaches Close); a
-  `target="_blank"` link in an HTML file opens nothing; after a backdrop click the accessibility
-  focus is the window, not the prompt.
-- After Escape on a remove-confirm dialog the focus is the window, not its "More actions" trigger.
-- VoiceOver: VO-Right skips the composer's chips (and the Appearance preview's skill chip);
-  VO-Space on a file chip opens it only on the second press.
-- The composer's image preview does not move between images with ← and →.
-- The legacy sidebar: a thread's machine glyph shows no tooltip; Mark unread shows no change;
-  its thread menu has no Archive item (to compare with the reference).
-- The font picker's search field is not focused when the picker opens.
-- A hover action on a sidebar row once answered "The server returned HTTP 404".
+- While an `aria-modal` view is shown (the keybinding recorder, a Connections "More actions"
+  menu or another key-scoped menu, the colour picker, the font picker, an `alertdialog`), another
+  process reads the window as one empty scroll area. VoiceOver says "empty, scroll area" and reads
+  no slider value. The host calls an AppKit accessibility getter while it serves the request, and
+  AppKit then drops the reply
+  ([`issues/20261015-macos-an-open-aria-modal-empties.md`](../../issues/20261015-macos-an-open-aria-modal-empties.md)).
+  The app needs `aria-modal` to keep keys inside these surfaces, so it cannot avoid this. Once
+  the host is fixed, the app's Base UI-modal dialogs (Add environment, the remove confirms, the
+  file preview) should become `aria-modal` too, so that VoiceOver reads them as dialogs and hides
+  the page behind them as the reference does. The remove confirm read correctly in agent mode;
+  recheck which dialog the session saw as empty.
+- VoiceOver: the prompt's chips (and the Appearance sample's) are now the text area's siblings
+  and are reached by VO-Right, each with its name and role. A chip on the text area's first line
+  whose centre lies left of the text area's centre is read before the text area, because the Mac
+  host leaves navigation order to AppKit's geometric sort
+  ([`issues/20261015-macos-voiceover-s-navigation-order-is.md`](../../issues/20261015-macos-voiceover-s-navigation-order-is.md)).
+  One accessibility press opens a chip (checked with AXPress from another process). VoiceOver
+  itself has not checked either since the change.
 - Return on a focused row does nothing in most painted menus (the pull request pages, Usage,
   the Files crumbs, the Browser's own menus, the snapshot sounds and others). The Mac host gives
   Return to a dialog's default button only (`host/apple/Sources/ExactKit/Mac/NativeButtonsMac.swift`,
@@ -423,6 +424,33 @@ into are in the section above.
   menu ([`issues/20261015-macos-return-on-a-focused-menu.md`](../../issues/20261015-macos-return-on-a-focused-menu.md)).
 - An accessibility press lands once but answers an error
   ([`issues/20261013-macos-axpress-on-a-button-whose.md`](../../issues/20261013-macos-axpress-on-a-button-whose.md)).
+
+**Not failures** (the reference does the same):
+
+- The legacy sidebar's thread machine glyph has no pointer tooltip, and neither does the
+  reference's. Its meta slot is `pointer-events-none` and fades out on hover
+  (LegacySidebar.tsx:489-493, 903-920); 'Lane Second' is only the glyph's accessible name.
+- Mark unread changes nothing on a thread with no completed run: the server refuses it and the
+  reference stays silent. On a completed thread the row gains the green 'Completed' label.
+- The legacy thread menu has no Archive item, in the reference too (LegacySidebar.tsx:2241-2264).
+  One row archives from its hover button, a selection from 'Archive (n)'.
+
+**Fixed, not checked with real input or VoiceOver:**
+
+- Terminal, Korean 2-Set: a key pressed while text composes reaches the input method once,
+  through WebKit, and the terminal never encodes it. This includes ⌃ chords, which AppKit routes
+  through key equivalents ahead of keyDown. ⌃C commits the syllable alone, and a second ⌃C is the
+  shell's. ⌥Return no longer sends Escape or a line break, so typed text stays inline. These pass
+  in the AppKit tests, which dispatch keys in NSApplication's order against a model of the input
+  method. The behaviour under the real input method, the Hanja list, and whether the reference's
+  ⌃L clears while composing are still to be checked by real input.
+- The font picker's search now has the focus as the picker opens. Typing lights the first match,
+  ↓/↑ move the highlight and Return picks. It is checked by tests and an agent drive; real keys
+  and VoiceOver are still to check.
+- The 'HTTP 404' after a hover Settle came from parking the open thread when the next card
+  belonged to another environment. That card now opens in its own environment, and a thread the
+  shell does not hold no longer fetches its detail. It is checked by tests and an agent drive
+  with `tools/second-environment`; one real pointer run is still to do.
 
 **Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
 Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
@@ -435,7 +463,21 @@ legacy sidebar's background rows, project menu and a Finder drop onto a backgrou
 **Not checked yet:** the device player (needs a device), Reduce motion and trackpad momentum,
 the thread, pull request, review comment and annotation chips by pointer, every chip kind by
 VO-Space, the context popover and progress bars under VoiceOver, the branch's PR glyph, bold
-and italic font faces, the permission helper's real grant (the user's), and a tailnet.
+and italic font faces, the permission helper's real grant (the user's), and a tailnet. Also:
+
+- The composer's file and image previews after the 2026-10-15 fixes (checked by tests and an
+  agent drive only): Tab and Shift-Tab pass over their buttons with Keyboard Navigation off and
+  wrap through them with it on; a backdrop click gives the focus back to the prompt; in an HTML
+  preview a `target="_blank"` link opens the default browser, a `_top` link does nothing and a
+  link to the page's own section scrolls the frame; ← and → step through the draft's images;
+  VoiceOver stays inside the open preview.
+- Escape on "Remove from this device…" and on "Delete action?" by a person's keys (agent drives
+  and AX reads pass); Escape on a git dialog or the Merge confirmation over the thread-details
+  popover in a narrow window.
+- VO-Right through the composer's chips and VO-Space on each chip kind.
+- Tab in the legacy Rename project dialog once the accessibility tree no longer collapses under
+  a modal popup (the same cause as the first item under Fails: while an `aria-modal` popup is
+  open, no element is exposed).
 
 **Checked by tests and agent drives only:** Home's choice of the most recent project across
 environments (driven with `tools/second-environment`), and Settings › Projects for a project
@@ -450,6 +492,11 @@ tailnet, and a server older than the client for the machines-update popover's bu
 `issues/20261014-macos-a-focused-button-that-becomes.md`,
 `issues/20261014-macos-a-reinserted-autofocus-node-is.md` and
 `issues/20261014-macos-aria-hidden-on-an-ancestor.md`. The app works around the last three.
+`issues/20261015-macos-a-clicked-button-with-a.md`: a clicked `button` with a `tabindex` takes
+the focus on the Mac. The composer's previews work around it with `retainFocus` on their
+backdrops; the timeline's image, video and diagram previews still lose the focus to their
+backdrop on a click. `issues/20261015-macos-an-open-aria-modal-empties.md` and
+`issues/20261015-macos-voiceover-s-navigation-order-is.md` are the two VoiceOver failures above.
 `issues/20261010-pointer-events-reach-ancestors.md` waits for a decision; until then the app
 forwards presses to the window itself.
 
