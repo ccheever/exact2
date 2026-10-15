@@ -207,6 +207,63 @@ final class AlertMacTests: XCTestCase {
         XCTAssertNil(p.alerts.presented)
     }
 
+    /// A press handler that changes its own button's action: what the surviving
+    /// button invokes after the handler runs, as HTML resolves it.
+    func testAPressHandlerThatChangesItsButtonsActionRunsTheLiveInvocation() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        trigger.handlers.insert("press")
+        trigger.props["popovertargetaction"] = "hide"
+        p.onPress = { _ in trigger.props["popovertargetaction"] = "show" }
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "the handler made it a show, and the show ran")
+    }
+
+    /// HTML's dialog `close` does nothing to a dialog showing as a popover.
+    func testADialogCloseDoesNothingToADialogShownAsAPopover() throws {
+        let p = fixture(popover: true), trigger = try XCTUnwrap(p.views[2])
+        try XCTUnwrap(p.views[3]).props["semanticTag"] = "dialog"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "opened as a popover")
+        trigger.props["commandfor"] = "ask"
+        trigger.props["command"] = "close"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "a dialog close leaves the popover up")
+    }
+
+    /// HTML's popover commands do nothing to a dialog opened by `show-modal`.
+    func testPopoverCommandsDoNothingToADialogShownModally() throws {
+        let p = fixture(), trigger = try XCTUnwrap(p.views[2])
+        try XCTUnwrap(p.views[3]).props["popover"] = "auto"
+        p.press(2)
+        XCTAssertNotNil(p.alerts.presented, "opened modally")
+        trigger.props["command"] = "hide-popover"
+        p.press(2)
+        p.menus.action("hidePopover", ["ask"])
+        XCTAssertNotNil(p.alerts.presented, "popover commands leave it open")
+    }
+
+    /// A row closes a dialog in the mode it shows in, as HTML's commands
+    /// do: `close` a modal one, `hide-popover` a popover. An action that
+    /// would not close it leaves no alert shape.
+    func testAlertRowsCloseADialogInTheModeItShowsIn() throws {
+        let asPopover = fixture(popover: true)
+        try XCTUnwrap(asPopover.views[3]).props["semanticTag"] = "dialog"
+        XCTAssertNotNil(asPopover.alerts.plan(of: try XCTUnwrap(asPopover.views[3]), popover: true), "hide rows close a popover")
+        XCTAssertNil(asPopover.alerts.plan(of: try XCTUnwrap(asPopover.views[3]), popover: false), "and not a modal dialog")
+        let modal = fixture()
+        try XCTUnwrap(modal.views[3]).props["popover"] = "auto"
+        XCTAssertNotNil(modal.alerts.plan(of: try XCTUnwrap(modal.views[3]), popover: false), "close rows close a modal dialog")
+        XCTAssertNil(modal.alerts.plan(of: try XCTUnwrap(modal.views[3]), popover: true), "and not a popover")
+        // What the row invokes decides: a command-only hide closes it, and a
+        // `commandfor` naming another element governs over its `popovertarget`.
+        let p = fixture(popover: true), pop = try XCTUnwrap(p.views[3]), cancel = try XCTUnwrap(p.views[30])
+        try XCTUnwrap(p.views[1]).props["id"] = "page"
+        cancel.props = ["commandfor": "ask", "command": "hide-popover"]
+        XCTAssertNotNil(p.alerts.plan(of: pop, popover: true), "a command-only hide closes it")
+        cancel.props = ["commandfor": "page", "command": "hide-popover", "popovertarget": "ask", "popovertargetaction": "hide"]
+        XCTAssertNil(p.alerts.plan(of: pop, popover: true), "its commandfor governs: it closes nothing")
+    }
+
     /// The default (LLP 1115.000 D7.3): exactly one `filled`, non-destructive
     /// button answers Return and is the one AppKit draws so; with several, or
     /// only a destructive one, nothing is.
@@ -229,15 +286,15 @@ final class AlertMacTests: XCTestCase {
         window.close()
         // What the alert would show, with no sheet put up for each.
         let several = fixture(label: "Keep which?", actions: ["Mine", "Theirs"], props: [:], filled: [10, 11])
-        XCTAssertNil(try XCTUnwrap(several.alerts.plan(of: try XCTUnwrap(several.views[3]))).defaultRow, "several: emphasis alone never picks among actions")
+        XCTAssertNil(try XCTUnwrap(several.alerts.plan(of: try XCTUnwrap(several.views[3]), popover: false)).defaultRow, "several: emphasis alone never picks among actions")
         window.close()
         let destructive = fixture(filled: [10])
-        XCTAssertNil(try XCTUnwrap(destructive.alerts.plan(of: try XCTUnwrap(destructive.views[3]))).defaultRow, "a filled destructive button is not a default")
+        XCTAssertNil(try XCTUnwrap(destructive.alerts.plan(of: try XCTUnwrap(destructive.views[3]), popover: false)).defaultRow, "a filled destructive button is not a default")
         window.close()
         // Emphasis on the cancel: AppKit gives a cancel Escape and never
         // Return, and a button has one key, so the alert has no Return default.
         let cautious = fixture(filled: [30])
-        let safe = try XCTUnwrap(cautious.alerts.plan(of: try XCTUnwrap(cautious.views[3])))
+        let safe = try XCTUnwrap(cautious.alerts.plan(of: try XCTUnwrap(cautious.views[3]), popover: false))
         XCTAssertNil(safe.defaultRow)
         XCTAssertEqual(safe.rows.map(\.cancel), [false, true])
     }
@@ -268,13 +325,13 @@ final class AlertMacTests: XCTestCase {
         ]
         for (name, make) in menus {
             let p = make()
-            XCTAssertNil(p.alerts.plan(of: try XCTUnwrap(p.views[3])), name)
+            XCTAssertNil(p.alerts.plan(of: try XCTUnwrap(p.views[3]), popover: true), name)
             XCTAssertNotNil(p.menus.confirmation(of: try XCTUnwrap(p.views[3]), from: try XCTUnwrap(p.views[2])), "\(name): the menu's to present")
             window.close()
         }
         // An action that does not also close it is no alert's button.
         let open = fixture(props: [10: ["command": "request-close"]])
-        XCTAssertNil(open.alerts.plan(of: try XCTUnwrap(open.views[3])))
+        XCTAssertNil(open.alerts.plan(of: try XCTUnwrap(open.views[3]), popover: false))
     }
 
     /// LLP 1115.000 D13.4: an alert has no outside, and `NSAlert` has none:
@@ -297,7 +354,7 @@ final class AlertMacTests: XCTestCase {
 
         let light = fixture(closedby: "any")
         let dialog = try XCTUnwrap(light.views[3])
-        XCTAssertNil(light.alerts.plan(of: dialog), "not an alert: an alert has no outside")
+        XCTAssertNil(light.alerts.plan(of: dialog, popover: false), "not an alert: an alert has no outside")
         light.press(2)
         XCTAssertNil(light.alerts.presented)
         XCTAssertTrue(light.dialogs.active === dialog, "the dialog itself")

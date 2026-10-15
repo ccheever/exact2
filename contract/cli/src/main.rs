@@ -12,6 +12,7 @@ use std::process::ExitCode;
 
 mod build;
 mod diff;
+mod tamber;
 mod verify;
 mod vocab;
 
@@ -26,7 +27,8 @@ const USAGE: &str = "usage:
   contract test <file.test.contract>
   contract lean <file.contract> [--components] [--name <ident>] [-o <file.lean>]
   contract verify <file.contract> [--types] [--prove <Module>]
-  contract vocab [--json] [--all] [<name> …]";
+  contract vocab [--json] [--all] [<name> …]
+  contract tamber check <app> | eval <app> [--mode <axis>=<value>] | ir <app> [-o <tamber.json>] | fmt <app> [--check]  (<app>: a directory, app.contract or file.tamber; a flag before or after it)";
 
 #[cfg(windows)]
 fn main() -> ExitCode {
@@ -61,6 +63,7 @@ fn run() -> ExitCode {
         Some("lean") => lean(&args[1..]),
         Some("verify") => verify::run(&args[1..]),
         Some("vocab") => vocab::run(&args[1..]),
+        Some("tamber") => tamber::run(&args[1..]),
         Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
         Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
         _ => {

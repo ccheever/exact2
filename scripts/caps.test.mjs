@@ -62,6 +62,12 @@ function run(dir) {
   return { out: r.stdout + r.stderr, code: r.status };
 }
 
+// A one-package Cargo workspace, `app`, beside the rules
+const PACKAGE = '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n';
+// (with this checkout's toolchain, which a directory outside it would not select)
+const crate = (files) => ({ 'rules/RULES.md': GOOD_RULES, 'Cargo.toml': '[workspace]\nmembers = ["app"]\nresolver = "2"\n',
+  'rust-toolchain.toml': readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../rust-toolchain.toml'), 'utf8'), ...files });
+
 const cases = [
   ['missing rules file fails', {}, 'rules:missing'],
   ['unparseable budget fails closed', { 'rules/RULES.md': '# Rules\n\nno budgets here at all\n' }, 'budget:words'],
@@ -108,6 +114,20 @@ const cases = [
     null],
   ['vendored source is not held to the line cap',
     { 'rules/RULES.md': GOOD_RULES, 'vendor/brotli/enc.c': 'x\n'.repeat(9000), 'src/ok.js': 'const a = 1;\n' }, null],
+  ['a package without tests that skips its harnesses passes',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false\nbench = false\n[[bin]]\nname = "tool"\npath = "src/main.rs"\ntest = false\nbench = false\n',
+      'app/src/lib.rs': 'pub fn f() {}\n', 'app/src/main.rs': 'fn main() {}\n' }), null],
+  ['a package without tests that builds a harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false\n', 'app/src/lib.rs': 'pub fn f() {}\n', 'app/src/main.rs': 'fn main() {}\n' }),
+    'tests:empty-harness'],
+  ['a package with tests builds its harnesses unmarked',
+    crate({ 'app/Cargo.toml': PACKAGE, 'app/src/lib.rs': '#[test]\nfn t() {}\n' }), null],
+  ['a platform-gated test under a skipped harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[lib]\ntest = false # no tests yet\nbench = false\n', 'app/src/lib.rs': 'pub fn f() {}\n',
+      'app/src/more.rs': '#[cfg(all(\n    test,\n    windows\n))]\nmod tests {}\n' }), 'tests:unbuilt'],
+  ['an attribute macro test under a skipped harness fails',
+    crate({ 'app/Cargo.toml': PACKAGE + '[[bin]]\nname = "app"\npath = "src/main.rs"\ntest = false\nbench = false\n',
+      'app/src/main.rs': '#[tokio::test]\nasync fn t() {}\n' }), 'tests:unbuilt'],
   ['a recipe over 3,072 bytes fails',
     { 'rules/RULES.md': GOOD_RULES, 'docs/recipes/money.md': 'x'.repeat(3073) }, 'cap:recipe'],
   ['a recipe of exactly 3,072 bytes passes',

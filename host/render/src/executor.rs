@@ -34,9 +34,18 @@ impl Executor {
             Arc::new(ibex2::host::Host::new)
         } else {
             Arc::new(|| {
-                ibex2::host::Host::with_transport(Box::new(
+                let host = ibex2::host::Host::with_transport(Box::new(
                     ibex2::transport::RustlsHttpTransport::new(),
-                ))
+                ));
+                // Under conformance's network (`EXACT_NET_PROXY`) a Mac's sockets are the
+                // portable ones too, which take the run's proxy; the platform's do not
+                if cfg!(target_vendor = "apple") && std::env::var_os("EXACT_NET_PROXY").is_some() {
+                    host.with_socket_transport(Box::new(
+                        ibex2::transport::websocket::TcpSocketTransport::new(),
+                    ))
+                } else {
+                    host
+                }
             })
         };
         let host = transport();

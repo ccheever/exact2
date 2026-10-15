@@ -5,6 +5,7 @@ import {chromium,refuseStale,webChanges} from '../../../scripts/agent-launch.mjs
 import {resolve} from 'node:path';
 import {resolveApp} from '../../../scripts/app.mjs';
 import {jsTargetBuild} from '../serve.mjs';
+import {need} from '../../../scripts/coverage.mjs';
 const app=resolveApp('caltrain');
 const dist=resolve(process.env.EXACT_WEB_DIST ?? new URL('../dist',import.meta.url).pathname);
 const {unavailable:browserUnavailable}=chromium();
@@ -19,9 +20,8 @@ try {
   if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web build is stale')) throw error;
   unavailable=error.message;
 }
-if(unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? test.skip : test;
-check(`Caltrain web frame-only stack remains a plain column${unavailable ? ` — ${unavailable}` : ''}`,async()=>{
+const check = need(browserUnavailable ? 'chrome' : 'fixture', unavailable);
+check(`Caltrain web frame-only stack remains a plain column`,async()=>{
   const s=await open({host:'web'});
   try {
     await s.clock('settle');await s.tap('deck-toggle');await s.clock('settle');

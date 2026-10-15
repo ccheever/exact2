@@ -50,21 +50,25 @@ final class PopoverNativeMacTests: XCTestCase {
     func testDynamicFallbacksChangePresentationWithoutClosingOrLosingFocus() throws {
         let f = try SheetFixture(page: """
         component Proof
-          state flips = "unset"
+          state flips = none
           action enable
-            flips = "flip-block, flip-inline, flip-block flip-inline"
+            flips = some("flip-block, flip-inline, flip-block flip-inline")
           action reset
-            flips = "unset"
+            flips = none
+          action clear
+            flips = some("unset")
           view
             column width="100%" height="100%" box-sizing="border-box" padding=8 justify-content="flex-end" align-items="flex-end"
               button testId="open" popovertarget="pop" width=80 height=32 appearance="none"
                 text "Open"
-              column id="pop" testId="pop" popover="auto" position="absolute" position-area="bottom span-right" position-try-fallbacks=flips width=322 height=122 box-sizing="border-box" margin=0 padding=0
+              column id="pop" testId="pop" popover="auto" position="absolute" position-area="bottom span-right" position-try-fallbacks=(match flips { case some(value) => value, case none => none }) width=322 height=122 box-sizing="border-box" margin=0 padding=0
                 input testId="field" value="draft text" width=200 height=24
                 button testId="enable" press=enable
                   text "Use flips"
                 button testId="reset" press=reset
                   text "Use platform"
+                button testId="clear" press=clear
+                  text "Explicit unset"
         """, size: CGSize(width: 420, height: 600))
         fixture = f
         f.window.setFrameOrigin(NSPoint(x: 200, y: 120))
@@ -75,6 +79,7 @@ final class PopoverNativeMacTests: XCTestCase {
         let entry = try XCTUnwrap(p.menus.entries.first)
         let native = try XCTUnwrap(entry.native)
         XCTAssertNil(pop.style["position_try_fallbacks"])
+        XCTAssertFalse(pop.wrote("position_try_fallbacks"))
         let field = try XCTUnwrap(try f.node("field").field)
         XCTAssertTrue(try XCTUnwrap(native.window).makeFirstResponder(field))
         let selection = NSRange(location: 2, length: 4)
@@ -94,8 +99,21 @@ final class PopoverNativeMacTests: XCTestCase {
         XCTAssertEqual(field.stringValue, "draft text")
         XCTAssertNil(p.blocks.used[pop.id])
 
+        try f.press("clear")
+        XCTAssertEqual(pop.style["position_try_fallbacks"]?.string, "none")
+        XCTAssertTrue(pop.wrote("position_try_fallbacks"), "explicit unset keeps the authored declaration")
+        XCTAssertNil(entry.native, "an explicitly cleared fallback row still chooses painted presentation")
+        XCTAssertTrue(p.menus.isOpen(pop) && p.menus.entries.first === entry)
+        XCTAssertTrue(pop.window === f.window && pop.superview === entry.layer && !pop.isHidden)
+        XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)
+        XCTAssertTrue((f.window.firstResponder as? NSTextView)?.delegate === field)
+        XCTAssertEqual(field.stringValue, "draft text")
+        XCTAssertNil(p.blocks.used[pop.id])
+
         try f.press("reset")
         let restored = try XCTUnwrap(entry.native, "removing the row restores platform presentation while open")
+        XCTAssertNil(pop.style["position_try_fallbacks"])
+        XCTAssertFalse(pop.wrote("position_try_fallbacks"))
         XCTAssertTrue(restored !== native && restored.popover.isShown)
         XCTAssertTrue(pop.superview === restored.content && p.menus.isOpen(pop))
         XCTAssertEqual(try XCTUnwrap(field.currentEditor() as? NSTextView).selectedRange(), selection)

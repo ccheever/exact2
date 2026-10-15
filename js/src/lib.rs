@@ -57,6 +57,8 @@ mod door;
 mod engine;
 mod native;
 mod paired;
+#[cfg(all(test, exact_js_engine))]
+mod phase_cost_tests;
 mod pure;
 mod source;
 mod storage;

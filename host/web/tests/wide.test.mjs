@@ -14,14 +14,14 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
-const style = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0];
+const style = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0];
 const chevron = '<img data-symbol-source="symbol:forward-chevron" alt="" style="width:17px;height:17px">';
 const abs = 'position:absolute;inset:0;display:flex;flex-direction:column';
 // A route of rows (`rows` true: each row draws the disclosure), as the hosts write a `list` of `button`s; `inner` after it.
@@ -120,6 +120,25 @@ check('appearance none keeps authored root tabs across selection and restores th
   expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2')]`)).toEqual([true, true]);
   await evaluate(`document.getElementById('bar').style.appearance = 'none'; select(10)`);
   expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
+}), 30000);
+
+check('retained root tabs yield to changed authored placement and restore without losing selection', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {
+  const samples = [];
+  for (const [id, property, changed, restored] of [
+    ['nav', 'display', 'block', 'flex'],
+    ['bar', 'position', 'absolute', 'relative'],
+    ['nav', 'flexDirection', 'row', 'column'],
+    ['bar', 'flexDirection', 'column', 'row'],
+  ]) {
+    for (const value of [changed, restored]) {
+      samples.push(await evaluate(`document.getElementById(${JSON.stringify(id)}).style[${JSON.stringify(property)}] = ${JSON.stringify(value)}; select(2); [document.getElementById('nav').hasAttribute('data-exact-sidebar'), shown('r2'), shown('t1')]`));
+    }
+  }
+  expect(samples).toEqual(Array.from({ length: 4 }, () => [[false, true, false], [true, true, false]]).flat());
+  await size(390);
+  expect(await evaluate(`document.getElementById('nav').hasAttribute('data-exact-sidebar')`)).toBe(false);
+  await size(1280);
+  expect(await evaluate(`[document.getElementById('nav').hasAttribute('data-exact-sidebar'), box('bar'), shown('r2')]`)).toEqual([true, [0, 0, 240, 800], true]);
 }), 30000);
 
 check('a list whose rows push is beside its detail on a wide window, and pushes on a phone', () => inChrome(page(tabs(BAR)), async (evaluate, size) => {

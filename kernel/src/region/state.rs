@@ -798,7 +798,7 @@ fn validate(arena: &NodeArena, b: ContentRegion) -> Result<(), LayoutError> {
     if !attached {
         return Err(bad());
     }
-    let s = arena.style(b.owner.index);
+    let s = arena.effective_style(b.owner.index);
     let sized = |v: Dimension| {
         matches!(v,Dimension::Points(x) if x>=0.) || matches!(v,Dimension::Percent(x) if x>=0.)
     };
@@ -862,7 +862,7 @@ fn flex_height_independent(arena: &NodeArena, owner: u32) -> bool {
         return false;
     }
     let root = arena.style(parent);
-    let s = arena.style(owner);
+    let s = arena.effective_style(owner);
     let definite = |d| {
         matches!(d, Dimension::Points(n) | Dimension::Percent(n)
         if n.is_finite() && n >= 0.)
@@ -904,17 +904,14 @@ fn publish(
         let Some(s) = arena.resolve(f.node) else {
             continue;
         };
-        let frame = if arena.is_inline_run(s) {
-            Frame::default()
-        } else {
-            f.frame
-        };
+        let inline = arena.is_inline_run(s);
+        let frame = if inline { Frame::default() } else { f.frame };
         let moved = !arena.frame(s).bits_eq(frame) || arena.flags(s).has(NodeFlags::CREATED);
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
         let inset = facts.insets.get(&f.node).copied().unwrap_or_default();
-        arena.set_inset(s, Some(inset));
+        arena.set_inset(s, (!inline).then_some(inset));
         if let Some(&content) = facts.field_content.get(&f.node) {
             arena.field_content.insert(s, content);
         } else {

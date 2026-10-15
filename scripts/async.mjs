@@ -11,9 +11,10 @@
  * the UIKit XCTests on a simulator and the tvOS compile (`build.mjs --tvos
  * --no-install`) for any range beyond documentation-only edits,
  * the
- * Contract semantics' proofs and differential run (`semantics/README.md`) for a
- * range that changes the Contract language or an implementation it is checked
- * against (`contractTouched`), then
+ * Contract semantics (`semantics/README.md`) as four checks — the Lean proofs,
+ * the extracted VM's proofs, the differential run against the Lean semantics
+ * and the web JS target's against the runner — each skipped when its inputs
+ * are those of a run that passed (scripts/async-inputs.mjs), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
  * moves with the load). A failure that the previous commit did not have is filed with
@@ -25,6 +26,11 @@
  *   bun scripts/async.mjs --once          check what is pending, then exit
  *   bun scripts/async.mjs --from <rev>    start after <rev> instead of the tip
  *   bun scripts/async.mjs --worktree <dir> --interval <s> --branch <ref>
+ *   bun scripts/async.mjs --explain [<rev>]   the semantics checks at <rev> (default
+ *                                         the branch tip): run or skip, and what changed
+ *
+ * The semantics checks' fingerprints and outcomes are kept in
+ * <worktree>/target/async/fingerprints/<check>/ (scripts/async-inputs.mjs).
  *
  * --branch (default origin/main) checks another line of history; the
  * worktree is the script's own and is checked out with --force.
@@ -45,6 +51,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadavg } from 'node:os';
 import { basename, resolve } from 'node:path';
+import { INPUTS, Inputs, Store, checkEnv, decide, outcomeOf } from './async-inputs.mjs';
 import { main as issue } from './issue.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -71,11 +78,13 @@ const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
 // The second lane: tvOS uses Caltrain (its TypeScript-free build needs no
 // Hermes) and installs it on an Apple TV simulator, which the first lane's
-// compile does not; Linux and Windows compile their target-only branches and one app each.
+// compile does not; Linux and Windows compile their target-only branches:
+// Windows with Windows Desk, Linux with every app (`*-linux` is the host and
+// each `apps/<app>/linux`), Zig compiling Hermes's C++ bindings too.
 export function tierTwoChecks() {
   return [
     ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
-    ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', 'exact-linux', '-p', 'caltrain-linux']],
+    ['linux', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_unknown_linux_gnu=zig cc -target x86_64-linux-gnu', 'CXX_x86_64_unknown_linux_gnu=zig c++ -target x86_64-linux-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-unknown-linux-gnu', '-p', '*-linux']],
     ['windows', 'env', ['CRATE_CC_NO_DEFAULTS=1', 'CC_x86_64_pc_windows_gnu=zig cc -target x86_64-windows-gnu', 'cargo', 'check', '--locked', '--keep-going', '--target', 'x86_64-pc-windows-gnu', '-p', 'exact-windows', '-p', 'windows-desk']],
   ];
 }
@@ -83,40 +92,43 @@ export const tvosCompile = ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host
 export const gameCheck = ['game', 'cargo', ['test', '--manifest-path', 'game/Cargo.toml', '--workspace', '--locked', '--lib', '--bins', '--tests', '--no-fail-fast']];
 export function glueTests(root) {
   const files = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: root, onlyFiles: true })].sort().map(file => `./${file}`);
-  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs'];
+  return [...files, './scripts/app.test.mjs', './scripts/deploy-paths.test.mjs', './scripts/async-inputs.test.mjs', './scripts/coverage.test.mjs'];
 }
 export function checks(sha, since, selection = {}) {
   if (TIER === 2) return tierTwoChecks();
   const lane = selection.lane ?? laneTests();
   const apple = selection.apple ?? appleTouched(sha, since);
-  const contract = selection.contract ?? contractTouched(sha, since);
   const glue = selection.glue ?? glueTests(WT);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
-    ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    // This commit's web builds for the tests that drive one (below): Caltrain wasm with every
+    // capability linked (the document, placement, motion, focusout and no-GPU tests) and JS,
+    // and Fieldnotes as the dev loop builds it (its Rust drive, in `test`).
+    prepareCheck,
+    ['test', 'env', ['EXACT_REQUIRED=1', `EXACT_FIELDNOTES_DIST=${resolve(DISTS, 'fieldnotes')}`, 'cargo', 'test', ...workspace, '--tests', '--no-fail-fast']],
     gameCheck,
-    ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
+    ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
     ['caps', 'bun', ['scripts/caps.mjs']],
     ['boot', 'bun', ['scripts/boot.mjs']],
     // Every web host unit test (LLP 1012.001.000 D9; Charlie, 2026-09-30)
     // and the source capture fixtures, in the existing async glue step.
-    ['glue', 'env', ['EXACT_GLUE_FAST=1', 'bun', 'test', ...glue]],
+    ['glue', 'env', ['EXACT_GLUE_FAST=1', ...required, ...distEnv, 'bun', 'test', ...glue]],
     // This document proof builds Weatherlight's wasm target. Keep it out of
     // glue's seconds loop while retaining it in the asynchronous lane.
-    ['web-build-test', 'bun', ['test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
+    ['web-build-test', 'env', [...required, 'bun', 'test', './host/web/tests/document.test.mjs', '--test-name-pattern', "a TypeScript app's served document"]],
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
-    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over the
-    // wasm Caltrain dist conformance just built; a missing dist fails it.
-    ['web-ax-test', 'env', [`EXACT_WEB_DIST=${resolve(STATE_DIR, 'conform-wasm', 'caltrain')}`, 'EXACT_AX_REQUIRED=1', 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
+    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over this
+    // commit's Caltrain dists; a missing dist fails it.
+    ['web-ax-test', 'env', [...required, ...distEnv, 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
-    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
-    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
+    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
+    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
@@ -126,43 +138,37 @@ export function checks(sha, since, selection = {}) {
     // and signed, installed on nothing (Charlie, 2026-10-12): it needs the tvOS
     // SDK and Rust's tvOS simulator target, and no simulator. Tier 2 installs.
     ...(apple ? [tvosCompile] : []),
-    // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
-    // Lean project builds with every proof checked (the app proofs among
-    // them, over embeddings `difftest apps` checks are current), then the runner against
-    // the semantics over the scripted corpus and a fixed random sweep (fixed
-    // seeds, so a divergence is attributed to the commit that made it), and
-    // the compiler's bytecode on the Lean VM model against the same,
-    // and the Lean type checker against the Rust one on those programs and mutants,
-    // and component expansion against the Lean expander and the component-level semantics.
-    // The corpus and the explored programs also run on the web JS target (`--js`,
-    // the second implementation, against the runner), and a smaller random sweep.
-    // A `sorry` fails it: a proof that is not there is not checked. Every
-    // part runs whatever the one before it found.
-    ...(contract ? [['semantics', 'sh', ['-c', [
-      'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
-      'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
-      'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
-      // The shipped VM machine extracted (Charon, Aeneas) and proved against
-      // Contract/Vm.lean (semantics/vm-extract/README.md); skips, naming the
-      // tool, where Charon or Aeneas is not installed.
-      'sh semantics/vm-extract/check.sh || failed=1',
-      'cargo run -q -p contract-difftest -- apps || failed=1',
-      'cargo run -q -p contract-difftest -- corpus --js || failed=1',
-      'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract --js || failed=1',
-      'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
-      'cargo run -q -p contract-difftest -- random --seed 1 --count 500 --js-only || failed=1',
-      'cargo run -q -p contract-difftest -- lowering-corpus || failed=1',
-      'cargo run -q -p contract-difftest -- lowering --seed 1 --count 300 || failed=1',
-      'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
-      'cargo run -q -p contract-difftest -- types --seed 1 --count 100 || failed=1',
-      'cargo run -q -p contract-difftest -- expansion semantics/corpus --seed 1 --count 200 || failed=1',
-      'exit $failed',
-    ].join('\n')]]] : []),
+    ...semanticsChecks(),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
 
 const changedPaths = (sha, since, diff) => diff(['diff', '--name-only', since ?? `${sha}^`, sha], WT).split('\n').filter(Boolean);
+
+// The lane owns the coverage of its checks (scripts/coverage.mjs): a missing
+// prerequisite (a browser, a toolchain, a built fixture) fails a test instead
+// of skipping it.
+const required = ['EXACT_REQUIRED=1'];
+const DISTS = resolve(STATE_DIR, 'dists');
+export const prepareCheck = ['prepare', 'sh', ['-c', [
+  `rm -rf ${JSON.stringify(DISTS)} && mkdir -p ${JSON.stringify(DISTS)}`,
+  `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-wasm'))} bun host/web/build.mjs caltrain-web --wasm`,
+  `EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'caltrain-js'))} bun host/web/build.mjs caltrain-web`,
+  `EXACT_WEB_LINK=all EXACT_WEB_DIST=${JSON.stringify(resolve(DISTS, 'fieldnotes'))} bun host/web/build.mjs fieldnotes-web`,
+].join(' && ')]];
+const distEnv = [`EXACT_WEB_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_WEB_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
+  `EXACT_NO_GPU_WASM_DIST=${resolve(DISTS, 'caltrain-wasm')}`, `EXACT_NO_GPU_JS_DIST=${resolve(DISTS, 'caltrain-js')}`,
+  `EXACT_MOTION_DIST=${resolve(DISTS, 'caltrain-wasm')}`];
+
+/** Settings a check inherits from the lane's own environment that change what it tests. */
+export const ENV_DROPPED = ['EXACT_UPDATE_TRUST', 'CARGO_TARGET_DIR', 'EXACT_WEB_BROWSER', 'EXACT_JS_ENGINE', 'EXACT_JS_GPU_SURFACES',
+  'EXACT_WEB_LINK', 'EXACT_WEB_DIST', 'EXACT_WEB_JS_DIST', 'EXACT_NO_GPU_WASM_DIST', 'EXACT_NO_GPU_JS_DIST',
+  'EXACT_NO_GPU_CHROME', 'EXACT_MOTION_DIST', 'EXACT_GLUE_FAST', 'EXACT_REQUIRED'];
+export const laneEnv = base => {
+  const env = { ...base, HERMES_LEAN_SYS_OFFLINE: '1' };
+  for (const k of Object.keys(env)) if (ENV_DROPPED.includes(k) || k.startsWith('EXACT_AGENT')) delete env[k];
+  return env;
+};
 
 export function appleTouched(sha, since, diff = git) {
   const paths = changedPaths(sha, since, diff);
@@ -174,19 +180,39 @@ export function appleTouched(sha, since, diff = git) {
   return paths.some(path => path && !documentation(path));
 }
 
-// Difftest observes the kernel's tree and uses the runner's dependencies too.
-// Skip host presentation and documentation edits, but include every local
-// dependency and the toolchain inputs that can change the checked program.
-const CONTRACT_DIRS = ['semantics/', 'contract/', 'runner/', 'plan/', 'route/', 'num/',
-  'kernel/', 'canvas/', 'color/', 'grants/', 'motion/', 'svg-filter/', 'textflow/',
-  'vendor/', 'host/web-js/', 'host/web/', 'scripts/', '.cargo/'];
-const CONTRACT_INPUTS = new Set(['Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', 'package.json', 'bun.lock']);
-export function contractTouched(sha, since, diff = git) {
-  return changedPaths(sha, since, diff).some(path => CONTRACT_INPUTS.has(path) ||
-    (path.startsWith('apps/') && path.endsWith('.contract')) || CONTRACT_DIRS.some(dir => path.startsWith(dir)));
+// The Contract semantics (semantics/README.md; Charlie, 2026-10-03), four
+// checks, each with its inputs (scripts/async-inputs.mjs). A `sorry` fails
+// `lean`: a proof that is not there is not checked. The sweeps' seeds are
+// fixed, so a divergence is attributed to the commit that made it. Every part
+// of a check runs whatever the one before it found.
+const difftest = args => `cargo run -q -p contract-difftest -- ${args} || failed=1`;
+const script = lines => ['sh', ['-c', ['failed=0', ...lines, 'exit $failed'].join('\n')]];
+/** The semantics' environment (lake on PATH), with `extra`. */
+const semanticsEnv = (base, extra) => checkEnv({ ...base, PATH: `${base.HOME}/.elan/bin:${base.PATH}` }, extra);
+export function semanticsChecks(base = process.env) {
+  const env = semanticsEnv(base);
+  return [
+    ['lean', ...script([
+      'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
+      'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
+    ]), { env, inputs: INPUTS.lean }],
+    // Exits 77 (UNAVAILABLE: not a pass, not a failure) where Charon or Aeneas is missing.
+    ['vm-extract', 'sh', ['semantics/vm-extract/check.sh'], { env, inputs: INPUTS['vm-extract'] }],
+    ['difftest', ...script([
+      'apps', 'corpus', 'explore contract/corpus apps/*/app.contract', 'random --seed 1 --count 5000', 'lowering-corpus',
+      'lowering --seed 1 --count 300', 'numbers --count 200000', 'types --seed 1 --count 100',
+      'expansion semantics/corpus --seed 1 --count 200',
+    ].map(difftest)), { env: semanticsEnv(base, { DIFFTEST_CACHE: '1' }), inputs: INPUTS.difftest }],
+    ['difftest-js', ...script([
+      'corpus --js-only', 'explore contract/corpus apps/*/app.contract --js-only', 'random --seed 1 --count 500 --js-only',
+    ].map(difftest)), { env, inputs: INPUTS['difftest-js'] }],
+  ];
 }
 
-export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos', 'semantics']) {
+/** What the semantics checks read at the worktree's checkout, read once for all four. */
+const semanticsInputs = () => new Inputs(WT, semanticsEnv(process.env));
+
+export function retainSkippedFailures(previous, result, conditionalNames = ['lane', 'ios', 'ios-touch', 'tvos']) {
   const conditional = new Set(conditionalNames);
   result.failures.push(...previous.filter(f => {
     const name = f.split(': ', 1)[0];
@@ -195,7 +221,7 @@ export function retainSkippedFailures(previous, result, conditionalNames = ['lan
 }
 
 /** Every failure a log names, as stable strings (compared across commits). */
-function failures(name, log, status) {
+export function failures(name, log, status) {
   const found = new Set();
   for (const m of log.matchAll(/error: could not compile `([^`]+)` \(([^)]+)\)/g)) found.add(`${name}: ${m[1]} (${m[2]}) does not compile`);
   // A failing binary ends with cargo's stable `-p <package> --test <target>`.
@@ -218,8 +244,12 @@ function failures(name, log, status) {
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
+  // A bun step that selected no test passed on nothing (`-t` matching none exits 0).
+  if (/^bun test v/m.test(log) && /matched 0 tests|had no matches|^Ran 0 tests/m.test(log)) found.add(`${name}: ran no tests`);
   // difftest: a case that diverged (on the JS target too), failed an expectation or was refused.
   for (const m of log.matchAll(/^(DIVERGE|DIVERGE-JS|ERROR-JS|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
+  // difftest apps: an app embedding that is not what the compiler makes of the app now.
+  for (const m of log.matchAll(/^STALE \S*?(semantics\/Apps\/\S+?):/gm)) found.add(`${name}: STALE ${m[1]}`);
   // difftest types: the two checkers disagreed on a program or a mutant.
   for (const m of log.matchAll(/^LEAN (ACCEPTS|REFUSES) (.+?) \(/gm)) found.add(`${name}: LEAN ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^error: (\S+\.lean):\d+:\d+: (.*)$/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
@@ -259,19 +289,35 @@ async function check(sha, since) {
   mkdirSync(dir, { recursive: true });
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
-  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
-  delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
+  const env = laneEnv(process.env);
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
   if (installed.status !== 0) result.failures.push(`install: bun install --frozen-lockfile exit ${installed.status}`);
-  for (const [name, command, args] of checks(sha, since)) {
+  const store = new Store(resolve(STATE_DIR, 'fingerprints'));
+  let inputs;
+  for (const [name, command, args, opts] of checks(sha, since)) {
+    const ran = { command: [command, ...args].join(' ') };
+    let gated = null;
+    if (opts) {
+      const start = performance.now();
+      gated = await decide(store, inputs ??= semanticsInputs(), name, command, args, opts);
+      Object.assign(ran, gated.error ? { gateError: gated.error } : { fingerprint: gated.fp.digest, changed: gated.changed },
+        { gateSeconds: (performance.now() - start) / 1000 });
+      if (gated.passed) {
+        result.checks[name] = { ...ran, skipped: `inputs of ${gated.passed.sha?.slice(0, 12)}'s pass` };
+        continue;
+      }
+    }
     const logPath = resolve(dir, `${name}.log`), fd = openSync(logPath, 'w');
     const load = loadavg()[0], start = performance.now();
-    const r = await run(command, args, env, fd);
+    const r = await run(command, args, opts?.env ?? env, fd);
     closeSync(fd);
     const seconds = (performance.now() - start) / 1000, log = readFileSync(logPath, 'utf8');
-    result.checks[name] = { command: [command, ...args].join(' '), status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
-    result.failures.push(...failures(name, log, r.status));
+    result.checks[name] = { ...ran, status: r.status, seconds, load, ...(r.hung ? { hung: true } : {}) };
+    const outcome = gated && outcomeOf(r.status, r.hung);
+    if (gated?.fp) store.record(name, gated.fp, outcome, { sha });
+    // A check that could not run here found nothing.
+    if (outcome !== 'unavailable') result.failures.push(...failures(name, log, r.status));
     if (r.hung) {
       const slow = [...new Set([...log.matchAll(/^test (\S+) has been running for over 60 seconds/gm)].map(m => m[1]))];
       result.failures.push(...(slow.length ? slow.map(t => `${name}: ${t} hung`) : [`${name}: hung past ${HANG_MS / 60000} min`]));
@@ -283,7 +329,7 @@ async function check(sha, since) {
 
 function file(result, fresh, since) {
   const short = result.sha.slice(0, 8);
-  const timing = Object.entries(result.checks).map(([n, c]) => `${n} ${c.seconds.toFixed(0)} s (exit ${c.status}, load ${c.load.toFixed(0)})`).join(' · ');
+  const timing = Object.entries(result.checks).map(([n, c]) => c.skipped ? `${n} skipped (${c.skipped})` : `${n} ${c.seconds.toFixed(0)} s (exit ${c.status}, load ${c.load.toFixed(0)})`).join(' · ');
   const what = since ? `that ${since.slice(0, 8)} (the last commit it checked) did not have, from a commit in ${since.slice(0, 8)}..${short}` : `that ${short}'s parent did not have`;
   const body = [`The tier ${TIER} async lane found ${fresh.length} failure(s) ${what}:`, '',
     ...fresh.map(f => `- ${f}`), '', `Commit: ${short} ${result.subject}`, `Checks: ${timing}`,
@@ -322,6 +368,18 @@ if (import.meta.main) {
   mkdirSync(STATE_DIR, { recursive: true });
   const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
   if (option('--from')) state.last = git(['rev-parse', option('--from')]);
+  if (process.argv.includes('--explain')) {
+    const at = process.argv[process.argv.indexOf('--explain') + 1];
+    git(['fetch', '-q', 'origin']);
+    const sha = git(['rev-parse', at && !at.startsWith('--') ? at : BRANCH]);
+    git(['checkout', '--detach', '--force', sha], WT);
+    const store = new Store(resolve(STATE_DIR, 'fingerprints')), inputs = semanticsInputs();
+    for (const [name, command, args, opts] of semanticsChecks()) {
+      const { error, passed, changed } = await decide(store, inputs, name, command, args, opts);
+      console.log(`${name}: ${error ? `run (the gate failed: ${error})` : passed ? 'skip' : `run (changed: ${changed.join(', ')})`}`);
+    }
+    process.exit(0);
+  }
   const interval = Number(option('--interval', TIER === 2 ? 3600 : 300)) * 1000;
   for (;;) {
     await once(state);

@@ -2,7 +2,7 @@
 // on this Mac, a test class to an `xctest` process; on a simulator, the
 // `.xctestrun` xcodebuild wrote, without the Thread Performance Checker.
 import { spawn, spawnSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 
@@ -48,6 +48,51 @@ export async function macTests(pkg, scratch, env) {
   if (failed.length) throw new Error(`swift tests failed:\n  ${failed.join('\n  ')}`);
 }
 
+/** The iOS tests `build-for-testing` wrote in `products`, run on the simulator `udid` in three
+ *  runs that always all run; throws the first that failed. Most run bare in the xctest agent.
+ *  Those that need what only an app gives (a window scene to present in, UIKit's accessibility
+ *  runtime; `hostedTests`) run hosted in an app with one scene (`hostSource`, built here) with the
+ *  accessibility runtime on for that run alone. The Canvas 2D GPU module's own run apart with it
+ *  loaded (`canvasGpu`): loaded, every canvas draws on the GPU, and the others read the Core
+ *  Graphics path a runner without it draws. `runApple` and `run` are build.mjs's: they throw on
+ *  failure, and `runApple` refuses a mixed deployment target. */
+export function iosTestRuns({ pkg, products, destination, udid, env, canvasGpu, hostSource, triple, runApple, run }) {
+  const bare = withoutPerformanceChecker(products), host = resolve(products, 'ExactTestHost.app');
+  rmSync(host, { recursive: true, force: true });
+  mkdirSync(host, { recursive: true });
+  writeFileSync(resolve(host, 'Info.plist.json'), JSON.stringify({ CFBundleIdentifier: 'com.exact.testhost', CFBundleExecutable: 'ExactTestHost', CFBundleName: 'ExactTestHost',
+    CFBundlePackageType: 'APPL', CFBundleVersion: '1', CFBundleShortVersionString: '1.0', CFBundleSupportedPlatforms: ['iPhoneSimulator'], MinimumOSVersion: '17.0',
+    LSRequiresIPhoneOS: true, UIDeviceFamily: [1, 2], UILaunchScreen: {}, UIApplicationSceneManifest: { UIApplicationSupportsMultipleScenes: false } }));
+  run('plutil', ['-convert', 'xml1', '-o', resolve(host, 'Info.plist'), resolve(host, 'Info.plist.json')]);
+  rmSync(resolve(host, 'Info.plist.json'));
+  runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-target', triple, hostSource, '-o', resolve(host, 'ExactTestHost')]);
+  const hosted = hostedIn(products, bare, 'ExactTestHost.app');
+  run('codesign', ['-s', '-', '--force', '--deep', host], { stdio: 'ignore' });
+  const hostedOnly = hostedTests(resolve(pkg, 'tests/ExactKitTests')), gpuTests = 'ExactKitTests/Canvas2DGpuStressTests';
+  const testRun = (xctestrun, selection, runEnv) => {
+    try {
+      runApple('xcodebuild', ['test-without-building', '-xctestrun', xctestrun, '-destination', destination, '-collect-test-diagnostics', 'never',
+        '-parallel-testing-enabled', 'YES', '-parallel-testing-worker-count', '2', ...selection], { cwd: pkg, stdio: 'inherit', env: runEnv });
+      return null;
+    } catch (e) { return e; }
+  };
+  const bareRun = testRun(bare, [gpuTests, ...hostedOnly].map(t => `-skip-testing:${t}`), env);
+  // UIKit loads its accessibility code only for an assistive technology or automation
+  // (AgentAccessibility.axRuntimeLoaded): on for the hosted run, then as it was.
+  read('xcrun', ['simctl', 'bootstatus', udid, '-b']);
+  const ax = ['com.apple.Accessibility', 'ApplicationAccessibilityEnabled'], before = read('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', ...ax]);
+  let hostedRun = null;
+  try {
+    run('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', ...ax, '-bool', 'true']);
+    hostedRun = hostedOnly.length ? testRun(hosted, hostedOnly.map(t => `-only-testing:${t}`), env) : null;
+  } finally {
+    read('xcrun', ['simctl', 'spawn', udid, 'defaults', ...(before.status === 0 ? ['write', ...ax, '-bool', before.stdout.trim() === '1' ? 'true' : 'false'] : ['delete', ...ax])]);
+  }
+  const gpuRun = testRun(bare, [`-only-testing:${gpuTests}`], { ...env, TEST_RUNNER_EXACT_CANVAS_GPU_DYLIB: canvasGpu });
+  const failed = bareRun ?? hostedRun ?? gpuRun;
+  if (failed) throw failed;
+}
+
 /** The newest `.xctestrun` `build-for-testing` wrote in `products`, as
  *  `exact-tests.xctestrun` beside it without the Thread Performance Checker:
  *  the scheme Xcode makes for the package inserts it (libRPAC), and it
@@ -76,4 +121,48 @@ export function withoutPerformanceChecker(products) {
   const written = read('plutil', ['-convert', 'xml1', '-o', xctestrun, json]);
   if (written.status !== 0) throw new Error(`plutil ${json}: ${written.stderr}`);
   return xctestrun;
+}
+
+/** `xctestrun` with its tests hosted in `app` (an iOS app bundle beside it in
+ *  `products`), as Xcode runs app-hosted unit tests: the bundle is copied into
+ *  the app's PlugIns and injected into it at launch. Returns the new file's path. */
+export function hostedIn(products, xctestrun, app) {
+  const converted = read('plutil', ['-convert', 'json', '-o', '-', xctestrun]);
+  if (converted.status !== 0) throw new Error(`plutil ${xctestrun}: ${converted.stderr}`);
+  const plan = JSON.parse(converted.stdout);
+  for (const configuration of plan.TestConfigurations ?? []) for (const target of configuration.TestTargets ?? []) {
+    const bundle = target.TestBundlePath.replace('__TESTROOT__', products), name = bundle.split('/').pop();
+    mkdirSync(resolve(products, app, 'PlugIns'), { recursive: true });
+    rmSync(resolve(products, app, 'PlugIns', name), { recursive: true, force: true });
+    cpSync(bundle, resolve(products, app, 'PlugIns', name), { recursive: true });
+    Object.assign(target, { TestHostPath: `__TESTROOT__/${app}`, TestBundlePath: `__TESTHOST__/PlugIns/${name}`, IsAppHostedTestBundle: true, DependentProductPaths: [`__TESTROOT__/${app}`] });
+    const env = target.TestingEnvironmentVariables ??= {};
+    env.DYLD_INSERT_LIBRARIES = ['__PLATFORMS__/iPhoneSimulator.platform/Developer/usr/lib/libXCTestBundleInject.dylib', env.DYLD_INSERT_LIBRARIES].filter(Boolean).join(':');
+    env.XCInjectBundleInto = 'unused';
+  }
+  const hosted = resolve(products, 'exact-tests-hosted.xctestrun'), json = `${hosted}.json`;
+  writeFileSync(json, JSON.stringify(plan));
+  const written = read('plutil', ['-convert', 'xml1', '-o', hosted, json]);
+  if (written.status !== 0) throw new Error(`plutil ${json}: ${written.stderr}`);
+  return hosted;
+}
+
+/** The tests in `dir` that need what only an app gives them, `ExactKitTests/<Class>/<test>`:
+ *  those that throw `missing("scene", …)` (a presentation completes only in a scene's
+ *  window) or `missing("accessibility", …)` (UIKit's accessibility runtime), which run
+ *  hosted. Each must say so in the test method itself, so a helper's need is not missed. */
+export function hostedTests(dir) {
+  const tests = new Set();
+  for (const file of readdirSync(dir).filter(f => f.endsWith('.swift'))) {
+    const lines = readFileSync(resolve(dir, file), 'utf8').split('\n');
+    let className = null, func = null;
+    lines.forEach((line, i) => {
+      className = /class (\w+)\s*:\s*XCTestCase/.exec(line)?.[1] ?? className;
+      func = /\bfunc (\w+)\s*\(/.exec(line)?.[1] ?? func;
+      if (!/missing\("(scene|accessibility)"/.test(line)) return;
+      if (!className || !func?.startsWith('test')) throw new Error(`${file}:${i + 1}: missing(scene or accessibility) outside a test method (${func ?? 'none'}); say it in the test so the test runs hosted`);
+      tests.add(`ExactKitTests/${className}/${func}`);
+    });
+  }
+  return [...tests].sort();
 }

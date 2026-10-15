@@ -3,26 +3,26 @@
 use super::*;
 
 impl Parser {
+    /// `if cond`, with `else if` and `else` as an action's (@ref LLP 1116.015 D1).
     #[inline(never)]
-    pub(super) fn node_when(&mut self, span: Span) -> R<Node> {
+    pub(super) fn node_if(&mut self, span: Span) -> R<Node> {
         self.next();
         let cond = self.expr()?;
         self.newline()?;
-        let then = self.required_block(span, "when", |p| p.node())?;
+        let then = self.required_block(span, "if", |p| p.node())?;
         let mut otherwise = Vec::new();
         if self.at_ident("else") {
             self.next();
-            // `else when` is an `else` whose one node is the next
-            // `when`, as `else if` is in an action.
-            if self.at_ident("when") {
+            // `else if` is an `else` whose one node is the next `if`.
+            if self.at_ident("if") {
                 otherwise = vec![self.node()?];
-            } else if self.at_ident("if") {
+            } else if self.at_ident("when") {
                 return self.err(
                     "syntax-else-keyword",
-                    "a view branches with `when`; `if` is an action's: write `else when`",
+                    "a view branches with `if`: write `else if`",
                 );
             } else {
-                self.after_else("when")?;
+                self.after_else("if")?;
                 otherwise = self.required_block(span, "else", |p| p.node())?;
             }
         }
@@ -34,8 +34,9 @@ impl Parser {
             span,
         })
     }
+    /// `for x in xs key=…`, or `for x, i in xs key=…` (@ref LLP 1116.015 D1).
     #[inline(never)]
-    pub(super) fn node_each(&mut self, span: Span) -> R<Node> {
+    pub(super) fn node_for(&mut self, span: Span) -> R<Node> {
         self.next();
         let var = self.named_ident(span)?;
         let index = if self.at_punct(",") {
@@ -46,6 +47,17 @@ impl Parser {
         };
         self.expect_word("in")?;
         let list = self.expr()?;
+        // @ref LLP 1116.014 D1 — the edit, with the variable the author named. The
+        // parser knows no item type, so the field is described, not named.
+        if !self.at_ident("key") {
+            return self.err(
+                "syntax-expected",
+                format!(
+                    "add `key={var}.<its id field>`, a field no two items share: a `for` keeps \
+                     each row's state by its key"
+                ),
+            );
+        }
         self.expect_word("key")?;
         self.expect_punct("=")?;
         let key = self.expr()?;

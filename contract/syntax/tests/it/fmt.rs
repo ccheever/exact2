@@ -90,7 +90,7 @@ component A
             case none // none statement
                 n=2
     view
-        when n > 0
+        if n > 0
             button "Go" press=go // header attribute
                 testId="go" // continued attribute
                 aria-label="A very long aria label that will make this element need attribute wrapping" // last attribute
@@ -210,7 +210,7 @@ fn nested_multiline_values_stay_stable_when_attribute_wrapping_adds_a_level() {
 
 #[test]
 fn an_empty_list_is_spelled_without_a_space() {
-    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear\n    picked = [   ]\n  state picked = []\n  view\n    text join(xs, \",\")\n";
+    let src = "component A\n  state flag = true\n  derive xs = flag ? [ ] : []\n  action clear\n    picked = [   ]\n  state picked = []\n  view\n    text xs.join(\",\")\n";
     let after = preserved(src);
     assert!(!after.contains("[ "), "{after}");
     assert_eq!(after.matches("[]").count(), 4, "{after}");
@@ -236,7 +236,7 @@ fn an_empty_list_is_spelled_without_a_space() {
 #[test]
 fn authored_test_steps_and_nested_types_keep_their_values() {
     let src = r#"shape Record
-  values:list<option<string>>
+  values:option<string>[]
 fn choose(x:option<number>):number = match x { case some(n) => n, case none => -1 }
 test "é test"
   tap "open" // click
@@ -250,7 +250,7 @@ test "é test"
   screenshot "result.png"
 "#;
     let after = preserved(src);
-    assert!(after.contains("values: list<option<string>>"));
+    assert!(after.contains("values: option<string>[]"));
     let original = contract_syntax::parse(src).unwrap();
     let formatted = contract_syntax::parse(&after).unwrap();
     assert_eq!(
@@ -304,14 +304,14 @@ fn a_provide_section_spaces_like_bindings() {
 fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
     // `text (on ? "yes" : "no")` is a tag and its expression, not a call `text(…)`;
     // a call inside a positional stays tight (authoring bench, LLP 1087).
-    let src = "component A\n  state on = false\n  view\n    column\n      text (on ? \"yes\" : \"no\") testId=\"a\"\n      text toString(max(1, 2))\n";
+    let src = "component A\n  state on = false\n  view\n    column\n      text (on ? \"yes\" : \"no\") testId=\"a\"\n      text max(1, 2).toString()\n";
     let after = preserved(src);
     assert!(
         after.contains("      text (on ? \"yes\" : \"no\") testId=\"a\"\n"),
         "{after}"
     );
     assert!(
-        after.contains("      text toString(max(1, 2))\n"),
+        after.contains("      text max(1, 2).toString()\n"),
         "{after}"
     );
 }

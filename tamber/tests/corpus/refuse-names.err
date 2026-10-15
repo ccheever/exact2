@@ -1,0 +1,12 @@
+7:13: tamber-unknown-token: `brand.missing` is no token, dial, role or CSS colour
+8:13: tamber-var: a token is named bare (`surface.card`), not through `var()` (LLP 1121 D3)
+9:3: tamber-cycle: a cycle: cycle.a → cycle.b → cycle.a
+11:3: tamber-cycle: a cycle: self → self
+12:3: tamber-cycle: a cycle: -exact-label → -exact-label
+14:3: tamber-duplicate: `twice` is declared twice (line 13)
+16:3: tamber-duplicate: `secondary-label` is declared twice (line 15)
+17:3: tamber-duplicate: `accent` is a dial's name
+18:3: tamber-name-reserved: `white` is a CSS word; name the token otherwise
+19:3: tamber-name-reserved: `inherit` is a CSS word; name the token otherwise
+20:3: tamber-unknown-role: `-exact-nonesuch` names no role
+25:3: tamber-unknown-token: `not.declared` is no token this design declares

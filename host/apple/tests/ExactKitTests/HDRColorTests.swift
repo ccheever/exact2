@@ -309,23 +309,61 @@ final class HDRColorTests: XCTestCase {
     }
     #endif
 
+    func testARejectedDrawnFormatDoesNotRequestRepeatedRedraws() throws {
+        let layer = RejectingDrawnFormatLayer()
+        for attempt in 0..<2 {
+            XCTAssertFalse(layer.applyDrawnRange(headroom: 4, limit: "constrained"), "a rejected HDR hint changed no storage")
+            XCTAssertEqual(layer.requestedFormats, Array(repeating: .RGBA16Float, count: attempt * 2 + 1))
+            if #available(iOS 26, macOS 26, tvOS 26, *) {
+                XCTAssertEqual(layer.contentsHeadroom, 4)
+                XCTAssertEqual(layer.preferredDynamicRange, .constrainedHigh)
+            }
+            XCTAssertFalse(layer.applyDrawnRange(headroom: 0, limit: "constrained"))
+            if #available(iOS 26, macOS 26, tvOS 26, *) {
+                XCTAssertEqual(layer.contentsHeadroom, 0, "SDR drawing clears a rejected HDR request's metadata")
+                XCTAssertEqual(layer.preferredDynamicRange, .standard)
+            }
+            XCTAssertFalse(layer.applyDrawnRange(headroom: 1, extended: true, limit: "no-limit"), "a rejected wide-colour hint changed no storage")
+            XCTAssertEqual(layer.requestedFormats, Array(repeating: .RGBA16Float, count: attempt * 2 + 2))
+        }
+        XCTAssertEqual(layer.contentsFormat, .RGBA8Uint)
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        layer.backgroundColor = CGColor(colorSpace: space, components: [4, 4, 4, 1])
+        XCTAssertFalse(layer.applyDrawnRange(headroom: 0, limit: "no-limit"))
+        if #available(iOS 26, macOS 26, tvOS 26, *) {
+            XCTAssertEqual(layer.contentsHeadroom, 0)
+            XCTAssertEqual(layer.preferredDynamicRange, .high, "the layer-painted HDR fill still needs its range")
+        }
+        XCTAssertEqual(layer.requestedFormats.count, 4, "SDR does not request a format this layer never accepted")
+    }
+
     /// What a view draws itself: an HDR colour makes its backing store half
     /// float, its layer saying the headroom; back to SDR, eight bits again.
-    func testADrawnHDRColourGetsAHalfFloatStore() {
+    func testADrawnHDRColourGetsAHalfFloatStore() throws {
+        let halfFloat = try HDRPlatformProbe.declined("drawn HDR backing store", {
+            try HDRPlatformProbe.requireContentsFormat(.RGBA16Float)
+        }) == nil
         let layer = CALayer()
-        XCTAssertTrue(layer.applyDrawnRange(headroom: 4, limit: "constrained"))
-        XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
+        let changed = layer.applyDrawnRange(headroom: 4, limit: "constrained")
+        if halfFloat {
+            XCTAssertTrue(changed)
+            XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
+        }
         if #available(iOS 26, macOS 26, tvOS 26, *) {
             XCTAssertEqual(layer.preferredDynamicRange, .constrainedHigh)
             XCTAssertEqual(layer.contentsHeadroom, 4, accuracy: 0.001)
         }
         XCTAssertFalse(layer.applyDrawnRange(headroom: 4, limit: "constrained"), "no change, no redraw")
-        XCTAssertTrue(layer.applyDrawnRange(headroom: 0, limit: "constrained"))
+        let restored = layer.applyDrawnRange(headroom: 0, limit: "constrained")
+        if halfFloat { XCTAssertTrue(restored) }
         XCTAssertEqual(layer.contentsFormat, .RGBA8Uint)
+        let gray = try HDRPlatformProbe.declined("preserving a gray backing store", {
+            try HDRPlatformProbe.requireContentsFormat(.gray8Uint)
+        }) == nil
         let other = CALayer()
         other.contentsFormat = .gray8Uint
         XCTAssertFalse(other.applyDrawnRange(headroom: 0, limit: nil), "a format it didn't set is left alone")
-        XCTAssertEqual(other.contentsFormat, .gray8Uint)
+        if gray { XCTAssertEqual(other.contentsFormat, .gray8Uint) }
     }
     func testGradientLayersPreserveWideAndHDRStops() throws {
         guard #available(iOS 26, macOS 26, tvOS 26, *) else { throw XCTSkip("layer range needs 26") }
@@ -344,8 +382,13 @@ final class HDRColorTests: XCTestCase {
                 XCTAssertEqual(layer.preferredDynamicRange, range)
             }
             let drawn = CALayer()
-            XCTAssertTrue(drawn.applyDrawnRange(headroom: ColorRange.headroom(color), extended: ColorRange.needsExtendedComponents(color), limit: "no-limit"))
-            XCTAssertEqual(drawn.contentsFormat, .RGBA16Float)
+            let changed = drawn.applyDrawnRange(headroom: ColorRange.headroom(color), extended: ColorRange.needsExtendedComponents(color), limit: "no-limit")
+            if try HDRPlatformProbe.declined("drawn gradient \(components): half-float store", {
+                try HDRPlatformProbe.requireContentsFormat(.RGBA16Float)
+            }) == nil {
+                XCTAssertTrue(changed)
+                XCTAssertEqual(drawn.contentsFormat, .RGBA16Float)
+            }
             XCTAssertEqual(drawn.preferredDynamicRange, .high)
         }
     }
@@ -365,6 +408,7 @@ final class HDRColorTests: XCTestCase {
         #if os(macOS)
         node.applyLayerPaint()
         #else
+        node.applyBoxLayer()
         node.applyGradientLayer()
         #endif
         node.applyColorRanges()
@@ -372,14 +416,30 @@ final class HDRColorTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(node.boxGradient).toneMapMode, .automatic, "wide but SDR")
         let conic: BatchValue = ["conic": [0, 50, 0, 50, 0], "space": "srgb-linear", "stops": [0, 1.225, -0.042, -0.02, 1, 1, 1.225, -0.042, -0.02, 1]]
         node.applyStyle(["background_image": .array([conic, linear]), "dynamic_range_limit": "no-limit"])
+        #if os(iOS) || os(tvOS)
+        // UIKit selects the drawn box during the layer's display pass.
+        node.applyBoxLayer()
+        #endif
         node.applyColorRanges()
         #if os(macOS)
         let layer = try XCTUnwrap(node.layer)
         #else
         let layer = node.layer
         #endif
-        XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
+        if try HDRPlatformProbe.declined("drawn box gradient: half-float store", {
+            try HDRPlatformProbe.requireContentsFormat(.RGBA16Float)
+        }) == nil {
+            XCTAssertEqual(layer.contentsFormat, .RGBA16Float)
+        }
         XCTAssertEqual(layer.preferredDynamicRange, .high)
     }
 
+}
+
+private final class RejectingDrawnFormatLayer: CALayer {
+    var requestedFormats: [CALayerContentsFormat] = []
+    override var contentsFormat: CALayerContentsFormat {
+        get { .RGBA8Uint }
+        set { requestedFormats.append(newValue) }
+    }
 }

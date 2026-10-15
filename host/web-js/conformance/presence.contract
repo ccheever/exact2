@@ -32,9 +32,9 @@ component Presence
           text "Toggle"
         button press=drop testId="drop"
           text "Drop"
-      when shown
+      if shown
         text "First" testId="first" class=Row
       text "Second" testId="second" class=Row
-      when third
+      if third
         text "Third" testId="third" class=Springy
       text "Fourth" testId="fourth" class=Springy

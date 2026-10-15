@@ -453,7 +453,10 @@ impl Wide {
                 return oklab_to_linear(v[0], v[1] * h.cos(), v[1] * h.sin());
             }
             Space::Rec2100Pq => mul(&REC2020_TO_XYZ, v.map(|e| pq_nits(e) / 203.0)),
-            Space::Rec2100Hlg => mul(&REC2020_TO_XYZ, v.map(|e| hlg_linear(e) / hlg_linear(0.75))),
+            Space::Rec2100Hlg => mul(
+                &REC2020_TO_XYZ,
+                v.map(|e| (hlg_linear(e.abs()) / hlg_linear(0.75)).copysign(e)),
+            ),
             Space::Rec2100Linear => mul(&REC2020_TO_XYZ, v),
         };
         mul(&XYZ_TO_SRGB, xyz)
@@ -629,6 +632,38 @@ fn pq_nits(e: f64) -> f64 {
     );
     let p = e.max(0.0).powf(1.0 / m2);
     10000.0 * ((p - c1).max(0.0) / (c2 - c3 * p)).powf(1.0 / m1)
+}
+
+/// Extended linear sRGB in a Rec. 2100 space's components, the inverse of
+/// [`Wide::linear_srgb`] there (HDR reference white, 203 cd/m², is 1); `None`
+/// for another space.
+pub fn rec2100_from_linear_srgb(space: Space, v: [f64; 3]) -> Option<[f64; 3]> {
+    let linear = from_xyz65(Space::Rec2020, to_xyz65_from_srgb(v));
+    Some(match space {
+        Space::Rec2100Linear => linear,
+        Space::Rec2100Pq => linear.map(|l| {
+            let (m1, m2) = (2610.0 / 16384.0, 2523.0 / 4096.0 * 128.0);
+            let (c1, c2, c3) = (
+                3424.0 / 4096.0,
+                2413.0 / 4096.0 * 32.0,
+                2392.0 / 4096.0 * 32.0,
+            );
+            let y = (l * 203.0 / 10000.0).max(0.0).powf(m1);
+            ((c1 + c2 * y) / (1.0 + c3 * y)).powf(m2)
+        }),
+        // Signed, as the decode is: an extended component keeps its sign.
+        Space::Rec2100Hlg => linear.map(|l| {
+            let (a, b, c) = (0.17883277, 0.28466892, 0.55991073);
+            let scene = (l * hlg_linear(0.75)).abs();
+            let e = if scene <= 1.0 / 12.0 {
+                (3.0 * scene).sqrt()
+            } else {
+                a * (12.0 * scene - b).ln() + c
+            };
+            e.copysign(l)
+        }),
+        _ => return None,
+    })
 }
 
 /// BT.2100 HLG's inverse OETF: a signal to scene-linear light, 0–1.

@@ -10,9 +10,9 @@ shape Post
 
 component Blog
   resource post = post(params(nav, "post")) as shape Post else emptyPost()
-  resource comments = comments(params(nav, "post")) as shape list<string>
+  resource comments = comments(params(nav, "post")) as shape string[]
   view
     column testId="blog"
       text post.title testId="title"
       text (failed(post) ? "failed" : pending(post) ? "loading" : "ready") testId="state"
-      text `${length(comments)} comments` testId="comments"
+      text `${comments.length} comments` testId="comments"

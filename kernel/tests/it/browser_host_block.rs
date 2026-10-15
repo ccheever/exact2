@@ -196,3 +196,65 @@ fn subtrees_in_host_blocks_match_chrome() {
         wrong.len()
     );
 }
+
+/// Modal-route fitting: explicit sizes keep their CSS dimensions, including
+/// percentages, math and min/max precedence. Chrome 155.0.8059.80, 2026-10-14,
+/// in a 400×200 block; automatic axes alone receive a border-box ceiling.
+#[test]
+fn route_fit_keeps_authored_sizes_and_css_constraints() {
+    let cases = [
+        ("auto", "", "width:160px;height:80px", [0.0, 0.0, 160.0, 80.0], [0.0, 0.0, 160.0, 80.0]),
+        ("fixed", "width:480px;height:300px", "width:160px;height:80px", [0.0, 0.0, 480.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("width-only", "width:480px", "width:160px;height:80px", [0.0, 0.0, 480.0, 80.0], [0.0, 0.0, 160.0, 80.0]),
+        ("height-only", "height:300px", "width:160px;height:80px", [0.0, 0.0, 160.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("percent", "width:125%;height:150%", "width:160px;height:80px", [0.0, 0.0, 500.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("calc", "width:calc(100% + 80px);height:calc(100% + 100px)", "width:160px;height:80px", [0.0, 0.0, 480.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("minimum", "min-width:480px;min-height:300px", "width:160px;height:80px", [0.0, 0.0, 480.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("maximum", "width:480px;height:300px;max-width:360px;max-height:140px", "width:160px;height:80px", [0.0, 0.0, 360.0, 140.0], [0.0, 0.0, 160.0, 80.0]),
+        ("min-over-max", "min-width:480px;min-height:300px;max-width:320px;max-height:100px", "width:160px;height:80px", [0.0, 0.0, 480.0, 300.0], [0.0, 0.0, 160.0, 80.0]),
+        ("content-box", "width:480px;height:300px;padding:20px;border-width:2px;border-style:solid;box-sizing:content-box", "width:160px;height:80px", [0.0, 0.0, 524.0, 344.0], [22.0, 22.0, 160.0, 80.0]),
+        ("border-box", "width:480px;height:300px;padding:20px;border-width:2px;border-style:solid;box-sizing:border-box", "width:160px;height:80px", [0.0, 0.0, 480.0, 300.0], [22.0, 22.0, 160.0, 80.0]),
+        ("auto-edges", "padding:20px;border-width:2px;border-style:solid", "width:480px;height:300px", [0.0, 0.0, 400.0, 200.0], [22.0, 22.0, 480.0, 300.0]),
+        ("percent-edges", "width:480px;height:300px;padding:5%;border-width:2px;border-style:solid", "width:160px;height:80px", [0.0, 0.0, 524.0, 344.0], [22.0, 22.0, 160.0, 80.0]),
+        ("mixed", "width:50%;height:calc(50% - 10px)", "width:160px;height:80px", [0.0, 0.0, 200.0, 90.0], [0.0, 0.0, 160.0, 80.0]),
+    ];
+    let mut wrong = Vec::new();
+    for (name, css, child, route, child_frame) in cases {
+        let authored = format!("position:absolute;left:0;right:0;top:0;bottom:0;{css}");
+        let mut k = lay_out_with(
+            props(&rows("width:800px;height:600px")),
+            vec![(2, 1, rows(&authored)), (3, 2, rows(child))],
+            &[],
+            &[],
+        );
+        let ownership = (
+            k.node(2).unwrap().style.mask,
+            k.node(2).unwrap().style.written,
+        );
+        k.set_host_block(
+            2,
+            Some(HostBlock {
+                width: BlockAxis::Fit(400.0),
+                height: BlockAxis::Fit(200.0),
+            }),
+        )
+        .unwrap();
+        k.compute_layout(1, OFFER).unwrap();
+        wrong.extend(mismatches(name, &k, &[(2, route), (3, child_frame)]));
+        if k.host_block_size(2) != Some((route[2], route[3])) {
+            wrong.push(format!(
+                "{name}: used {:?}, Chrome {route:?}",
+                k.host_block_size(2)
+            ));
+        }
+        assert_eq!(
+            (
+                k.node(2).unwrap().style.mask,
+                k.node(2).unwrap().style.written
+            ),
+            ownership
+        );
+        assert_eq!(published(&k), fresh(&k), "{name}: rehydrated fitting block");
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

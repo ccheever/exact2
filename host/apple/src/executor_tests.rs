@@ -11,6 +11,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Every file body counts against the process's `MAX_READERS`, so the tests
+/// that send them take turns rather than refuse each other.
+pub(super) fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: Mutex<()> = Mutex::new(());
+    TURN.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Default)]
 struct Fixture {
     state: Mutex<(usize, bool, Vec<String>)>,
@@ -468,18 +475,10 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
         .unwrap();
     }
     fixture.wait_held(2);
-    // Until the host forgets their tickets (`Core::forget`), old work keeps
-    // its reservations: the next generation gets explicit refusals.
+    // Old tickets keep admission full until drained or forgotten.
+    let read = || Request::get("https://example.test/read").independent_http(4096);
     for ticket in 128..256 {
-        assert!(core
-            .run(
-                job(
-                    ticket,
-                    Request::get("https://example.test/read").independent_http(4096)
-                ),
-                None
-            )
-            .is_err());
+        assert!(core.run(job(ticket, read()), None).is_err());
     }
     core.run(
         job(
@@ -492,14 +491,7 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
     let old = collect(&core, &woke, 129);
     assert_eq!(old.iter().filter(|(ticket, _)| *ticket < 128).count(), 128);
     for ticket in 128..256 {
-        core.run(
-            job(
-                ticket,
-                Request::get("https://example.test/read").independent_http(4096),
-            ),
-            None,
-        )
-        .unwrap();
+        core.run(job(ticket, read()), None).unwrap();
     }
     let current = collect(&core, &woke, 128);
     assert!(current
@@ -507,6 +499,12 @@ fn a_full_new_cohort_recovers_only_after_old_outcomes_are_drained() {
         .all(|(ticket, outcome)| (128..256).contains(ticket)
             && matches!(outcome, Outcome::Response(Response { status: 200, .. }))));
     let state = core.shared.state.lock().unwrap();
+    // Draining can precede the async finisher's physical releases (LLP 1120 D5).
+    let (state, _) = core
+        .shared
+        .ready
+        .wait_timeout_while(state, Duration::from_secs(5), |s| !s.running.is_empty())
+        .unwrap();
     assert_eq!(state.counts, [0, 0]);
     assert_eq!(state.bytes, [0, 0]);
 }

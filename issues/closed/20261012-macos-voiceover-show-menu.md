@@ -71,11 +71,6 @@ development build has no hardened runtime).
 | C2: Chrome, read from source (not run because of the lock) | Chromium `58d4d3e64`, Blink `212fee7ea` | — | `browser_accessibility_cocoa.mm` `SupportsShowMenuAction()` is true for every web content node, so `AXShowMenu` is listed. `accessibilityPerformShowMenu` → `ShowContextMenu` → Blink `AXObject::OnNativeShowContextMenuAction()` → `ShowNonLocatedContextMenu(element, kKeyboard)`, which fires `contextmenu` at the element | (the reference) | record C3 |
 | C3: the macOS host read from another process while unlocked (the X78 record) | macOS | main `474999b9f` | a `link href` node is an `AXLink` whose only action is `AXPress` (that link had no `contextmenu`) | — | record C4 |
 
-Record (the contract, the commands and their output, the oracle's source, and the code read):
-https://raw.githubusercontent.com/ccheever/exact2/e0fe7119e6533851572e1b2d0baa0ec0a65d8b09/fw-issues-20261012-x84/x84-record.txt.
-The probe's source:
-https://raw.githubusercontent.com/ccheever/exact2/cf6dd83c55ebc7b476dd1d6da8d2542805bbbb49/fw-issues-20261012-x84/x84-showmenu-probe.m.txt.
-
 Not run: VoiceOver itself; `AXShowMenu` from another process (blocked by the lock); Chrome's show menu (read from
 source); iOS, Linux and Windows; a `contextPopover` node (the same dispatch as `contextmenu`, read from code).
 

@@ -3,15 +3,6 @@
 //! padding, its face never painted as children; `type` refuses it.
 
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
-
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
 
 #[test]
 fn a_native_button_presses_is_sized_and_takes_no_value() {
@@ -38,7 +29,7 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
     std::fs::create_dir_all(&dir).unwrap();
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 300.),
         1.,
         dir.clone(),
@@ -46,11 +37,11 @@ fn a_native_button_presses_is_sized_and_takes_no_value() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let id = |p: &Presenter<NoData>, t: &str| {
+    let id = |p: &Presenter<()>, t: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
     };
-    let count = |p: &Presenter<NoData>| {
+    let count = |p: &Presenter<()>| {
         let k = p.host().kernel();
         let node = k.node(id(p, "count")).unwrap();
         node.text_runs()
@@ -117,7 +108,7 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
     std::fs::create_dir_all(&dir).unwrap();
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 300.),
         1.,
         dir.clone(),
@@ -125,7 +116,7 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let id = |p: &Presenter<NoData>, t: &str| {
+    let id = |p: &Presenter<()>, t: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
     };
@@ -171,7 +162,7 @@ fn empty_invoker_targets_still_run_the_press_handler() {
         let plan = contract::compile(&source).unwrap();
         let (mut p, err) = Presenter::boot_with(
             &plan.encode(),
-            NoData,
+            (),
             (400., 300.),
             1.,
             std::path::PathBuf::new(),
@@ -206,7 +197,7 @@ fn disabled_buttons_keep_authored_accent_fill() {
 "##).unwrap();
     let (mut p, err) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 300.),
         1.,
         std::path::PathBuf::new(),
@@ -214,7 +205,7 @@ fn disabled_buttons_keep_authored_accent_fill() {
     )
     .unwrap();
     assert!(err.is_none(), "{err:?}");
-    let sample = |p: &mut Presenter<NoData>, name: &str| {
+    let sample = |p: &mut Presenter<()>, name: &str| {
         let k = p.host().kernel();
         let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
         let shot = p.frame();
@@ -247,7 +238,7 @@ fn native_and_bare_buttons_ring_on_focus_without_a_handler() {
 "##).unwrap();
     let (mut p, err) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 300.),
         1.,
         std::path::PathBuf::new(),
@@ -255,18 +246,18 @@ fn native_and_bare_buttons_ring_on_focus_without_a_handler() {
     )
     .unwrap();
     assert!(err.is_none(), "{err:?}");
-    let sample = |p: &mut Presenter<NoData>, name: &str| {
+    let sample = |p: &mut Presenter<()>, name: &str| {
         let k = p.host().kernel();
         let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
         let shot = p.frame();
         let c = shot.pixel(f.x as u32 + 60, f.y as u32).unwrap();
         [c.red(), c.green(), c.blue(), c.alpha()]
     };
-    let focus = |p: &mut Presenter<NoData>, action: &str| {
+    let focus = |p: &mut Presenter<()>, action: &str| {
         let k = p.host().kernel();
         let id = k.node_by_key(k.find_by_test_id(action)[0]).unwrap().id;
         p.tap(id).unwrap();
-        p.run_commands(NoData::default);
+        p.run_commands(<()>::default);
     };
     for dark in [false, true] {
         p.set_system_scheme(dark);

@@ -303,7 +303,9 @@ function createPresence(root) {
       el.setAttribute('data-exiting', '');
       el.setAttribute('aria-hidden', 'true');
       el.inert = true;
-      for (const n of [el, ...el.querySelectorAll('[id]')]) n.removeAttribute('id');
+      // The outgoing transition keeps its IDs and ends at the logically removed root.
+      for (const n of [el, ...el.querySelectorAll('[id]')]) { n.exactExitId = n.id; n.removeAttribute('id'); }
+      el.addEventListener('focusout', event => event.stopPropagation());
       tracked.delete(el);
       // Its authored transitions do not animate it out of flow: the ghost
       // takes its box at once (and a transition still running ends there).

@@ -66,6 +66,7 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    weak var headerField: UITextField?
     #if os(iOS)
     /// A number input's stepper (`NumberStepperIOS.swift`).
     var stepper: FieldStepper?
@@ -180,6 +181,8 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }
+    var selectionField: UITextField? { headerField ?? field }
     /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
     var toldText: String? { get { extras?.toldText } set { if newValue != nil || extras != nil { more.toldText = newValue } } }
     /// A `value` that arrived while text was marked, applied when the composition ends.
@@ -257,12 +260,13 @@ extension NodeView {
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
-    /// `systemBackground` (tvOS has none; white stands in).
+    /// `systemBackground` (tvOS has none; white stands in) — or the theme's
+    /// where it replaces the page's ground (LLP 1095 D4).
     package static var platformBackground: UIColor {
         #if os(tvOS)
-        return .white
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .white)
         #else
-        return .systemBackground
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
         #endif
     }
 }

@@ -1,6 +1,111 @@
 use super::*;
 
 #[test]
+fn complex_svg_attributes_stay_omitted_across_state_and_segment_changes() {
+    for length in [
+        "env(viewport-segment-height 1 0)",
+        "calc(env(viewport-segment-height 1 0) + 10%)",
+        "min(env(viewport-segment-height 1 0), 50%)",
+        "max(5px, env(viewport-segment-height 1 0))",
+        "clamp(1px, env(viewport-segment-height 1 0), 100px)",
+        "env(viewport-segment-height 1 0, 25%)",
+        "ENV(viewport-segment-height 1 0, 25%)",
+        "env(safe-area-inset-top)",
+        "calc(10vh + 10px)",
+        "min(10vw, 50%)",
+        "max(5px, 10vw)",
+        "clamp(1px, 10vw, 100px)",
+    ] {
+        let plan = contract::compile(&format!(
+            r##"
+component App
+  state finite = false
+  action toggle
+    finite = not finite
+  view
+    column
+      button "Toggle" testId="toggle" press=toggle
+      svg width=200 height=400
+        defs
+          radialGradient id="gradient" testId="gradient" cx=(finite ? "0px" : "{length}")
+            stop offset="0%" stop-color="#14b8a6"
+        svg testId="static" height="{length}"
+        svg testId="nested" height=(finite ? "0px" : "{length}")
+          rect width="100%" height="100%" fill="url(#gradient)"
+"##
+        ))
+        .unwrap();
+        exact_web::link(exact_web_capabilities::ALL);
+        let flat = exact_runner::Viewport::sized(800.0, 600.0);
+        let (mut host, first) =
+            Host::boot(&plan.encode(), caltrain_data::Caltrain, flat, "/").unwrap();
+        let first: serde_json::Value = serde_json::from_str(&first).unwrap();
+        let ids: Vec<_> = [
+            ("static", "height"),
+            ("nested", "height"),
+            ("gradient", "cx"),
+        ]
+        .into_iter()
+        .map(|(test_id, attr)| {
+            let op = first["ops"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|op| op["props"]["data-testid"] == test_id)
+                .unwrap();
+            assert!(op["props"][attr].is_null(), "{length}: {op}");
+            (op["id"].clone(), attr)
+        })
+        .collect();
+        let folded = exact_runner::Viewport {
+            fold: exact_runner::Fold {
+                cols: 2,
+                ..Default::default()
+            },
+            ..flat
+        };
+        for viewport in [folded, flat] {
+            let batch: serde_json::Value =
+                serde_json::from_str(&host.resize(viewport, 0.0)).unwrap();
+            assert!(
+                batch["ops"].as_array().unwrap().is_empty(),
+                "{length}: {batch}"
+            );
+            for finite in [true, false] {
+                let button = view_with_test_id(&host, "toggle");
+                let batch: serde_json::Value =
+                    serde_json::from_str(&host.dispatch(button, Event::Press)).unwrap();
+                for (id, attr) in &ids[1..] {
+                    let op = batch["ops"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|op| op["op"] == "props" && &op["id"] == id)
+                        .unwrap();
+                    if finite {
+                        assert_eq!(op["set"][attr], "0", "{length}: {batch}");
+                    } else {
+                        assert_eq!(op["clear"], serde_json::json!([attr]), "{length}: {batch}");
+                    }
+                }
+                let document = exact_web::document::project(host.runner()).unwrap();
+                assert!(
+                    !document.root.contains("env("),
+                    "{length}: {}",
+                    document.root
+                );
+                assert_eq!(
+                    document.root.contains("cx=\"0\""),
+                    finite,
+                    "{}",
+                    document.root
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn style_rows_lower_to_css_by_their_names() {
     use exact_kernel::{StyleId, StyleProps, StyleValue};
     let mut s = StyleProps::default();
@@ -399,4 +504,129 @@ fn a_negative_calculation_on_a_size_reaches_the_browser_clamped() {
     .unwrap();
     let (css, _) = css_text(&s, &[]);
     assert!(css.contains("width:0vw;"), "{css}");
+}
+
+#[test]
+fn explicit_clears_emit_css_unset_instead_of_removing_the_declaration() {
+    let plan = contract::compile(
+        r##"style Colored
+  color="#abcdef"
+style Empty
+  opacity=1
+component App
+  state clear = true
+  action toggle
+    clear = not clear
+  view
+    main navigationKey="/" color="#123456"
+      button "Toggle" testId="toggle" press=toggle
+      header color="inherit" testId="static"
+        text "Heading"
+      header color=(clear ? "unset" : "#abcdef") testId="bound"
+        text "Heading"
+      header class=(clear ? Empty : Colored) testId="class"
+        text "Heading"
+      input placeholder="Hint" testId="placeholder"
+        ::placeholder
+          color=(clear ? "unset" : "#abcdef")
+"##,
+    )
+    .unwrap();
+    exact_web::link(exact_web_capabilities::ALL);
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&first).unwrap();
+    let id = |name| {
+        parsed["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["props"]["data-testid"] == name)
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap() as u32
+    };
+    let css = |batch: &str, node| {
+        let batch: serde_json::Value = serde_json::from_str(batch).unwrap();
+        batch["ops"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == node && op.get("css").is_some())
+            .unwrap()["css"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
+    assert!(css(&first, id("static")).contains("color:unset;"));
+    assert!(css(&first, id("bound")).contains("color:unset;"));
+    assert!(!css(&first, id("class")).contains("color:"));
+    assert!(css(&first, id("placeholder")).contains("--exact-placeholder-color:initial;"));
+    let set = host.dispatch(id("toggle"), Event::Press);
+    assert!(
+        css(&set, id("bound")).contains("color:rgba(171,205,239,1);"),
+        "{set}"
+    );
+    assert!(
+        css(&set, id("placeholder")).contains("--exact-placeholder-color:rgba(171,205,239,1);"),
+        "{set}"
+    );
+    let cleared = host.dispatch(id("toggle"), Event::Press);
+    assert!(css(&cleared, id("bound")).contains("color:unset;"));
+    assert!(!css(&cleared, id("class")).contains("color:"));
+    assert!(css(&cleared, id("placeholder")).contains("--exact-placeholder-color:initial;"));
+}
+
+#[test]
+fn explicit_clears_preserve_special_host_row_contracts() {
+    use exact_kernel::{StyleId::*, StyleMask, StyleProps, StyleValue};
+    for (id, expected, skipped) in [
+        (TextColor, "color:unset;", false),
+        (TextBoxEdge, "text-box-edge:unset;", false),
+        (
+            PlaceholderColor,
+            "--exact-placeholder-color:initial;",
+            false,
+        ),
+        (
+            TintColor,
+            "--exact-tint:var(--exact-symbol, var(--exact-accent, AccentColor));",
+            false,
+        ),
+        (
+            AccentColor,
+            "accent-color:unset;--exact-accent:unset;",
+            false,
+        ),
+        (ControlSize, "--exact-control-font-size:medium;", false),
+        (ExitAnimation, "", false),
+        (RotateAxis, "", false),
+        (SymbolRendering, "", true),
+    ] {
+        let style = StyleProps {
+            written: StyleMask::of(id),
+            ..Default::default()
+        };
+        let (css, warnings) = css_text(&style, &[]);
+        assert_eq!(css, expected, "{id:?}");
+        assert_eq!(warnings.iter().any(|w| w.row == id), skipped, "{id:?}");
+    }
+    let mut style = StyleProps::default();
+    style.set_dynamic(Scale, &StyleValue::Number(2.0)).unwrap();
+    style.written.set(PressScale);
+    assert_eq!(css_text(&style, &[]).0, "scale:2;");
+    style.clear(StyleMask::of(Scale));
+    style
+        .set_dynamic(PressScale, &StyleValue::Number(0.95))
+        .unwrap();
+    style.written.set(Scale);
+    let css = css_text(&style, &[]).0;
+    assert!(css.contains("--exact-scale:1;"), "{css}");
+    assert!(css.contains("scale:calc("), "{css}");
+    assert!(!css.contains("--exact-press:unset"), "{css}");
 }

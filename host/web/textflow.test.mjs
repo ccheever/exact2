@@ -6,8 +6,7 @@ import { chromium } from '../../scripts/agent-launch.mjs';
 import { timerWake, createTimerScheduler } from './timer-glue.js';
 
 const { executable: chrome, unavailable: browserUnavailable } = chromium();
-if (browserUnavailable) console.warn(`SKIP: ${browserUnavailable}`);
-const browserTest = browserUnavailable ? (name, ...args) => test.skip(`${name} — ${browserUnavailable}`, ...args) : test;
+const browserTest = need('chrome', browserUnavailable);
 
 test('plain agent layout prints web fragment ranges, shapes and refusal reasons', () => {
   const node = { id: 7, type: 'Text', flow_shapes: [{ kind: 'Circle', cx: 40, cy: 30, r: 12 }],
@@ -108,6 +107,7 @@ test('worst fragment array is linear and a stable 1000-frame geometry touches no
 // Minimal DOM test double: exercises the actual controller and its phase order,
 // not browser line layout. Real metrics/selection remain an orchestrator check.
 import { createTextFlow } from './textflow-glue.js';
+import { need } from '../../scripts/coverage.mjs';
 function controllerFixture({ trim = false, clamp = false, empty = false, ascent = () => [16, 4], paragraph = { id: 2, definite: true } } = {}) {
   const events = [], frames = new Map(), timers = new Map(), fontEvents = new Map(); let serial = 0, paused = false, time = 0, interval = 16;
   const defaults = { ...style, fontFamily: 'serif', fontStyle: 'normal', fontWeight: '400', letterSpacing: '0px',

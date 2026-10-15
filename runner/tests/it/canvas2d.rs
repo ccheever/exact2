@@ -20,7 +20,7 @@ const SOURCE: &str = "component App
     show = false
   view
     column
-      when show
+      if show
         canvas surface=spark(n) width=100 height=50 testId=\"c\"
       canvas surface=globe(n) testId=\"g\"
 ";

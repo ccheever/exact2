@@ -216,7 +216,7 @@ final class TextFlowTests: XCTestCase {
         let text = "office affinity fi ffi fl"
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text,
             attributes: [.font: font, .ligature: 2]))
-        guard CTLineGetGlyphCount(line) < text.utf16.count else { throw XCTSkip("ligature font unavailable") }
+        guard CTLineGetGlyphCount(line) < text.utf16.count else { throw missing("fonts", "ligature font unavailable") }
         let table = TextFlowSource.advances(line, text: text)
         XCTAssertEqual(Double(table.reduce(0, +)), CTLineGetTypographicBounds(line, nil, nil, nil), accuracy: 0.01)
         var starts = Set<Int>()

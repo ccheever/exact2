@@ -13,6 +13,8 @@ use super::{
 use exact_kernel::{Kernel, SortedMap, ViewId};
 use exact_plan::Plan;
 
+pub use super::element::attribute_rows;
+
 /// An element as the live host would create it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Parts {

@@ -27,7 +27,7 @@ component Child
   derive twin = a + a
   derive branch = ready ? a + a : "fallback"
   derive through = ready ? twin : "through fallback"
-  derive short = ready and length(a) + length(a) > 0
+  derive short = ready and a.length + a.length > 0
   derive arm = match o { case some(n) => a + a, case none => "arm fallback" }
   view
     column

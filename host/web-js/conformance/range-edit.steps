@@ -5,3 +5,8 @@ tap append
 tap start
 tap select
 tap refused
+tap editor
+type editor key ArrowLeft
+type editor key x
+type editor paste PASTE
+type editor key Backspace

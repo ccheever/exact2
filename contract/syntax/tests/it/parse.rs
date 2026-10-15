@@ -13,8 +13,8 @@ component App
   state stationId = none
   state query = ""
   derive selected = match stationId { case some(id) => id, case none => "mv" }
-  resource board = departures(selected) as shape list<Departure>
-  derive count = length(board)
+  resource board = departures(selected) as shape Departure[]
+  derive count = board.length
 
   action selectStation(id)
     stationId = some(id)
@@ -28,8 +28,8 @@ component App
   view
     column gap=16 testId="main"
       text `${count} trains` font-size=24 font-weight=700
-      when query == "" and count > 0
-        each d in board key=d.id
+      if query == "" and count > 0
+        for d in board key=d.id
           Row(dep=d, press=selectStation)
       else
         text "searching"
@@ -270,11 +270,11 @@ fn if_when_and_their_explicit_else_need_non_empty_blocks() {
             4,
         ),
         (
-            "component A\n  view\n    when true\n    text \"always\"\n",
+            "component A\n  view\n    if true\n    text \"always\"\n",
             3,
         ),
         (
-            "component A\n  view\n    when true\n      text \"then\"\n    else\n    text \"always\"\n",
+            "component A\n  view\n    if true\n      text \"then\"\n    else\n    text \"always\"\n",
             3,
         ),
     ];
@@ -301,7 +301,7 @@ fn rejections_carry_stable_ids_and_spans() {
             2,
         ),
         (
-            "component A\n  view\n    when x\n      text \"a\"\n   text \"b\"\n",
+            "component A\n  view\n    if x\n      text \"a\"\n   text \"b\"\n",
             "syntax-bad-dedent",
             5,
         ),

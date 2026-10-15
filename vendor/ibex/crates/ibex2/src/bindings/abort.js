@@ -8,6 +8,7 @@
   var objectFreeze = Object.freeze;
   var useEvents = typeof global.EventTarget === "function" && typeof global.Event === "function";
   var EventCtor = global.Event;
+  var timerSet = typeof global.setTimeout === "function" ? global.setTimeout : null;
   var fireTrustedEvent = global.__ibex2_fire_trusted_event;
   delete global.__ibex2_fire_trusted_event;
   var setEventAbortHooks = global.__ibex2_set_event_abort_hooks;
@@ -159,11 +160,11 @@
   AbortSignal.timeout = function (milliseconds) {
     var delay = +milliseconds;
     if (!isFinite(delay) || delay < 0 || delay > Number.MAX_SAFE_INTEGER) throw new TypeError("invalid timeout");
-    if (typeof global.setTimeout !== "function") {
+    if (timerSet === null) {
       throw new DOMException("AbortSignal.timeout requires the TIMERS group", "NotSupportedError");
     }
     var signal = create();
-    global.setTimeout(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
+    timerSet(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
     return signal;
   };
   AbortSignal.any = function (values) {

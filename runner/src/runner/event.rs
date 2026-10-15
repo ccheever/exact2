@@ -138,15 +138,18 @@ pub enum ControlValue {
     Field(String, super::FieldSelection),
     /// A scripted range replacement: one noncancelable insertReplacementText input.
     Replacement(String, super::FieldSelection),
+    /// A native or browser edit with its InputEvent metadata.
+    Edit(String, super::FieldSelection, super::InputDetails),
 }
 
 impl ControlValue {
     /// The value as the action receives it.
     pub(super) fn value(&self) -> Value {
         match self {
-            Self::Text(text) | Self::Field(text, _) | Self::Replacement(text, _) => {
-                Value::str(text)
-            }
+            Self::Text(text)
+            | Self::Field(text, _)
+            | Self::Replacement(text, _)
+            | Self::Edit(text, ..) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
             Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
@@ -212,6 +215,10 @@ pub enum Event {
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
+    /// The field's selection, including a collapsed caret.
+    FieldSelectionChange(String, super::FieldSelection),
+    /// The proposed edit, before the host changes its buffer.
+    BeforeInput(String, super::FieldSelection, super::InputDetails),
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -1084,7 +1091,10 @@ impl<D: DataSource> Runner<D> {
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
-                Event::SelectionChange { .. } => "selectionchange",
+                Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
+                    "selectionchange"
+                }
+                Event::BeforeInput(..) => "beforeinput",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -1094,7 +1104,25 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
+        let blur = matches!(event, Event::Blur);
+        let path = blur.then(|| self.capture_blur_focus(view));
+        let outgoing = matches!(event, Event::Focusout { .. })
+            .then(|| self.detached_focus_target(view))
+            .flatten();
+        let commands = self.commands.len();
         let result = self.dispatch_inner(view, event, &mut what);
+        if let Some(path) = path {
+            self.finish_blur_focus(view, path);
+        }
+        if let Some(target) = outgoing {
+            if result.is_err()
+                || self.commands[commands..]
+                    .iter()
+                    .any(|c| c.name == "stopPropagation")
+            {
+                self.detached_focus.retain(|(id, _)| *id != target);
+            }
+        }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
         result
@@ -1109,7 +1137,14 @@ impl<D: DataSource> Runner<D> {
         if let Some(event) = event.invalid_payload() {
             return Err(RunnerError::InvalidEvent { event });
         }
-        let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
+        let (node, frames) = self
+            .find(view)
+            .or_else(|| {
+                matches!(event, Event::Focusout { .. })
+                    .then(|| self.take_detached_focus(view))
+                    .flatten()
+            })
+            .ok_or(RunnerError::UnknownView(view))?;
         // Events without a listener do nothing: a picker's `cancel` (LLP
         // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
         if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {
@@ -1141,26 +1176,40 @@ impl<D: DataSource> Runner<D> {
         let (control, record) = match (&event, control) {
             (Event::Input(v) | Event::Change(v), Some(p)) => {
                 let reported = match v {
-                    ControlValue::Field(_, s) | ControlValue::Replacement(_, s) => Some(*s),
+                    ControlValue::Field(_, s)
+                    | ControlValue::Replacement(_, s)
+                    | ControlValue::Edit(_, s, _) => Some(*s),
                     _ => None,
                 };
                 let record = self.input_record(
                     view,
                     &p,
                     reported,
+                    match v {
+                        ControlValue::Edit(_, _, edit) => Some(edit),
+                        _ => None,
+                    },
                     matches!(v, ControlValue::Replacement(..)),
                 );
                 (Some(p), Some(record))
             }
-            (Event::FieldSelect(text, s), _) => (
+            (Event::FieldSelect(text, s) | Event::FieldSelectionChange(text, s), _) => (
                 None,
-                Some(self.input_record(view, &Value::str(text), Some(*s), false)),
+                Some(self.input_record(view, &Value::str(text), Some(*s), None, false)),
+            ),
+            (Event::BeforeInput(text, s, edit), _) => (
+                None,
+                Some(self.input_record(view, &Value::str(text), Some(*s), Some(edit), false)),
             ),
             _ => (None, None),
         };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::FieldSelect(..) => (EventKind::Select, record.clone(), "select"),
+            Event::FieldSelectionChange(..) => {
+                (EventKind::Selectionchange, None, "selectionchange")
+            }
+            Event::BeforeInput(..) => (EventKind::Beforeinput, None, "beforeinput"),
             Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
@@ -1264,7 +1313,10 @@ impl<D: DataSource> Runner<D> {
         // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
-            Event::Input(_) | Event::Change(_) => record,
+            Event::Input(_)
+            | Event::Change(_)
+            | Event::FieldSelectionChange(..)
+            | Event::BeforeInput(..) => record,
             Event::Scroll(s)
                 if self.plan.action(handler.action).params.len as usize > args.len() + 2 =>
             {

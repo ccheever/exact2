@@ -31,8 +31,8 @@ component App
       text `${maxd}` testId="maxd"
       text `${inv}` testId="inv"
       text `${cents}` testId="cents"
-      text toString(123.456) testId="ts"
-      text toString(0.000001234) testId="ts2"
+      text (123.456).toString() testId="ts"
+      text (0.000001234).toString() testId="ts2"
       button "grow" press=grow testId="grow"
       button "shrink" press=shrink testId="shrink"
 

@@ -153,6 +153,25 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     } else {
         format!("{required} to {}", params.len())
     };
+    if contract_syntax::idioms::is_method(name) && !params.is_empty() {
+        // `x.slice(…)` counts what is in its parentheses (LLP 1116.015 D2).
+        let rest = &params[1..];
+        let required = required.saturating_sub(1);
+        let count = if required == rest.len() {
+            rest.len().to_string()
+        } else {
+            format!("{required} to {}", rest.len())
+        };
+        return format!(
+            "`.{name}(…)` takes {count} argument(s), given {}; expected `{}.{name}({})`",
+            given.saturating_sub(1),
+            match params[0].contains(' ') {
+                true => format!("({})", params[0]),
+                false => params[0].clone(),
+            },
+            rest.join(", ")
+        );
+    }
     format!(
         "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
@@ -940,6 +959,23 @@ pub(super) fn check_command(
     if name == "setRootFontSize" {
         return root_font_size_args(args, scope, shapes, span);
     }
+    // @ref LLP 1121 D5 — an axis and its value; lowering checks literal
+    // ones against the design's axes.
+    if name == "setMode" {
+        let [axis, value] = args else {
+            return err("type-set-mode", "`setMode(axis, value)` takes an axis of the app's design and one of its values: `setMode(\"dark-style\", \"dim\")`", span);
+        };
+        for a in [axis, value] {
+            if !matches!(infer(a, scope, shapes)?, Ty::String) {
+                return err(
+                    "type-set-mode",
+                    "`setMode(axis, value)` takes two strings: `setMode(\"dark-style\", \"dim\")`",
+                    a.span(),
+                );
+            }
+        }
+        return Ok(());
+    }
     if matches!(name, "playSound" | "playSounds" | "stopSounds") {
         return sounds::args(name, args, scope, shapes, span);
     }
@@ -976,10 +1012,11 @@ pub(super) fn check_command(
     Ok(())
 }
 
-/// `setRootFontSize(px)`, a number of CSS pixels, or `setRootFontSize("medium")`,
-/// CSS's keyword for the host's own size (LLP 1069.000 D3). A size the
-/// source spells as zero or less is refused here; a computed one, when it
-/// runs.
+/// `setRootFontSize(px)`, a number of CSS pixels, `setRootFontSize("125%")`,
+/// a percentage of the host's size that follows it (LLP 1121 D6), or
+/// `setRootFontSize("medium")`, CSS's keyword for the host's own size (LLP
+/// 1069.000 D3). A size the source spells as zero or less, or a string that
+/// is neither, is refused here; a computed one, when it runs.
 fn root_font_size_args(
     args: &[Expr],
     scope: &Scope,
@@ -987,9 +1024,9 @@ fn root_font_size_args(
     span: Span,
 ) -> Result<(), TypeError> {
     let fits = match args {
-        [Expr::Str(s, _)] => s == "medium",
+        [Expr::Str(s, _)] => s == "medium" || exact_num::css_percent(s).is_some(),
         [Expr::Number(n, _)] => *n > 0.0,
-        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number | Ty::String),
         _ => false,
     };
     if fits {
@@ -997,7 +1034,7 @@ fn root_font_size_args(
     }
     err(
         "type-root-font-size",
-        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), or `setRootFontSize(\"medium\")` for the host's own size",
+        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), `setRootFontSize(\"125%\")` a percentage of the host's size above 0, which keeps following it, or `setRootFontSize(\"medium\")` for the host's own size",
         span,
     )
 }
@@ -1047,7 +1084,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(Ty::Bool) => {}
                     Ok(_) => sink.push(TypeError {
                         id: "type-condition",
-                        message: "`when` needs a bool".into(),
+                        message: "`if` needs a bool".into(),
                         span: cond.span(),
                     }),
                     Err(e) => sink.push(e),
@@ -1064,12 +1101,12 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 ..
             } => {
                 let item = match infer(list, scope, shapes) {
-                    // `each x in []`: nothing says what `x` would be.
+                    // `for x in []`: nothing says what `x` would be.
                     Ok(Ty::List(item)) if !item.is_complete() => {
                         sink.push(TypeError {
                             id: "type-cannot-infer",
                             message: format!(
-                                "cannot infer what `{}` holds: `each` needs a typed list, and `[]` shows nothing",
+                                "cannot infer what `{}` holds: `for` needs a typed list, and `[]` shows nothing",
                                 var
                             ),
                             span: list.span(),
@@ -1080,7 +1117,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                     Ok(lt) => {
                         sink.push(TypeError {
                             id: "type-each-list",
-                            message: format!("`each` needs a list, given `{lt}`"),
+                            message: format!("`for` needs a list, given `{lt}`"),
                             span: list.span(),
                         });
                         continue;

@@ -94,12 +94,6 @@ already, so the key goes to the focused box.
 | Control: Tab and Shift+Tab from Tab stops | macOS; the last drive also on the web | main `474999b9f` | `before` Tab → `first`, `first` Tab → `last`, `last` Tab → `after`, `after` Shift+Tab → `last`, `first` Shift+Tab → `before` (the box is skipped) | — | record |
 | Hand-built AppKit: Before, Box (a custom `NSView` that accepts first responder, holding First and Last), After. Box is made first responder, then a Tab key event goes through `NSWindow.sendEvent` | macOS 26.6.2, `swiftc` | — | AppKit's own loop, Box a key view or not: Tab → First, Shift+Tab → Before. An explicit loop that leaves Box's `nextKeyView` nil: Tab stays on Box, with or without an `initialFirstResponder`. The same loop with Box's `nextKeyView` set to First: Tab → First | — | record (oracle source beside it) |
 
-![X79: Tab from a focused tabindex=-1 box, Exact web in Chrome and macOS](https://raw.githubusercontent.com/ccheever/exact2/fd65b9a4a734e9631d92189b430ad94a659a117d/fw-issues-20261010i/x79-tab-from-unstopped-focus-web-macos.png)
-
-Record (contract, commands, both drives, the controls, the AppKit oracle):
-https://raw.githubusercontent.com/ccheever/exact2/fd65b9a4a734e9631d92189b430ad94a659a117d/fw-issues-20261010i/x79-record.txt
-(oracle source: `fw-issues-20261010i/x79-appkit-oracle.swift.txt` at the same commit).
-
 Not run: #327's head, a focused `dialog` that is no stop (`acceptsFirstResponder` admits `semanticTag == "dialog"`),
 a `tabindex=-1` box inside an open modal `dialog` or a popover, positive `tabindex` values around the box, iPadOS
 with a hardware keyboard, Linux, and real hardware input (the agent's key events were used).

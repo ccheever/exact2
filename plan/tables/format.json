@@ -124,7 +124,7 @@
         {
           "name": "owner",
           "codec": "opt:arms",
-          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — an `each` row, a `when` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
+          "_comment": "@ref LLP 1017.000 (child state): the arm whose instance owns this slot — a `for` row, an `if` or `match` arm. The slot is created, its init evaluated in that arm's frames, when the arm instance is created, and dropped with it. None: a root slot."
         },
         {
           "name": "late",
@@ -359,7 +359,7 @@
         {
           "name": "keyed",
           "codec": "bool",
-          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as an `each` key is) re-arms the timer from the commit's time."
+          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as a `for` key is) re-arms the timer from the commit's time."
         },
         {
           "name": "key",
@@ -618,6 +618,53 @@
       ]
     },
     {
+      "name": "theme",
+      "_comment": "@ref LLP 1095 D4: the app's `theme`, one row an entry: its name, the role it overrides as a row writes it (`-exact-secondary-label`, `Canvas`; empty for none), and the colour text it stands for, which names no entry. A colour string naming an entry or an overridden role reads that text, in the compiler and when the runner sets a row.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "role",
+          "codec": "str"
+        },
+        {
+          "name": "value",
+          "codec": "str"
+        },
+        {
+          "name": "slices",
+          "codec": "range:theme_slices",
+          "_comment": "@ref LLP 1121 D5, D7: a token that varies by an app axis has one slice per full app tuple, in tuple order (mixed radix over `axes`, the first axis most significant); `value` is the default tuple's. Empty for a token that does not vary."
+        }
+      ]
+    },
+    {
+      "name": "theme_slices",
+      "_comment": "@ref LLP 1121 D5: one token's colour text for one full app tuple; a `theme` row's `slices` range names its own.",
+      "fields": [
+        {
+          "name": "value",
+          "codec": "str"
+        }
+      ]
+    },
+    {
+      "name": "axes",
+      "_comment": "@ref LLP 1121 D5: the app's axes in declaration order, each with its values joined by `|`, the first the default. `-exact-mode` pins a node's value per axis; the window's are `setMode`'s.",
+      "fields": [
+        {
+          "name": "name",
+          "codec": "str"
+        },
+        {
+          "name": "values",
+          "codec": "str"
+        }
+      ]
+    },
+    {
       "name": "hatches",
       "_comment": "@ref LLP 1075.003.000.001 §4.3: each hatch word app.json declares, with the platforms whose module handles it as a mask (bit 0 ios, 1 tvos, 2 macos, 3 web, 4 linux, 5 windows, 6 android; a plain list is every bit). A host calls a word only where its bit is set, so a platform taken off a word stops being called with the next bundle.",
       "fields": [
@@ -757,7 +804,8 @@
       "focusout",
       "close",
       "toggle",
-      "scrollend"
+      "scrollend",
+      "beforeinput"
     ]
   },
   "_opcodes": "The expression VM: a stack machine over values with a small locals stack (`BindLocal` pops into it, `LoadLocal` copies from it, `DropLocal` pops it) for names an inline `match` binds and the item and index a `Map`/`Filter` callback binds. Each opcode names its operand layout; the decoder validates framing and every index operand. `depth` operands count enclosing instance scopes (0 = innermost). Type inference guarantees stack discipline; the VM still traps, never UB.",
@@ -1008,7 +1056,7 @@
       "operands": [
         "u16"
       ],
-      "_comment": "LLP 1062 D8: the position (a number from 0) of the `each` row `depth` scopes out, as `each item, i in list` names it."
+      "_comment": "LLP 1062 D8: the position (a number from 0) of the `for` row `depth` scopes out, as `for item, i in list` names it."
     },
     {
       "name": "Map",

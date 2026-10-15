@@ -4,17 +4,9 @@
 use super::look::{self, Inputs, Layout};
 use super::shape;
 use super::*;
-use exact_runner::{DataError, Value};
+use exact_runner::Value;
 use std::cell::RefCell;
 use std::rc::Rc;
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// A page with a field and the buttons that open each surface; an alert, a
 /// three-action alert, an alert whose author wrote `closedby="any"`, a
@@ -61,9 +53,9 @@ component App
     nav = push(nav, "/detail")
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 align-items="flex-start"
-          when e.name == "home"
+          if e.name == "home"
             input value=name input=type testId="field" width=200 height=30
             button press=ask testId="ask" height=30
               text "Ask"
@@ -86,7 +78,7 @@ component App
                 text "Hold me"
               button popovertarget="menu" aria-label="More" id="trigger" testId="more" width=40 height=40
                 image "symbol:more"
-          when e.name == "detail"
+          if e.name == "detail"
             text "Detail" testId="detail"
             button press=ask testId="ask-detail" height=30
               text "Ask"
@@ -153,10 +145,10 @@ impl SurfacePainter for Pixels {
     }
 }
 
-fn boot() -> Presenter<Nothing> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(APP),
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -168,7 +160,7 @@ fn boot() -> Presenter<Nothing> {
 }
 
 /// A presenter whose shell makes windows, and the pictures it recorded.
-fn windowed() -> (Presenter<Nothing>, Rc<RefCell<Vec<Pixmap>>>) {
+fn windowed() -> (Presenter<()>, Rc<RefCell<Vec<Pixmap>>>) {
     let mut p = boot();
     let pictures = Rc::new(RefCell::new(Vec::new()));
     p.serve_requests();
@@ -176,7 +168,7 @@ fn windowed() -> (Presenter<Nothing>, Rc<RefCell<Vec<Pixmap>>>) {
     (p, pictures)
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let kernel = p.host().kernel();
     kernel
         .node_by_key(kernel.find_by_test_id(name)[0])
@@ -185,7 +177,7 @@ fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
 }
 
 /// The node whose HTML `id` is `name`.
-fn named(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn named(p: &Presenter<()>, name: &str) -> ViewId {
     let kernel = p.host().kernel();
     kernel.node_by_key(kernel.find_by_id(name)[0]).unwrap().id
 }
@@ -194,21 +186,21 @@ fn near(a: f32, b: f32) -> bool {
     (a - b).abs() < 0.01
 }
 
-fn text(p: &Presenter<Nothing>, name: &str) -> String {
+fn text(p: &Presenter<()>, name: &str) -> String {
     let node = p.host().kernel().node(id(p, name)).unwrap();
     node.text_runs().iter().map(|r| &*r.text).collect()
 }
 
 /// Tap `name` as a person does and run the commands its action issued.
-fn tap(p: &mut Presenter<Nothing>, name: &str) -> Result<String, String> {
+fn tap(p: &mut Presenter<()>, name: &str) -> Result<String, String> {
     let view = id(p, name);
     let result = p.tap(view);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     result
 }
 
 /// Touch the open surface's row for `name` and lift there.
-fn choose(p: &mut Presenter<Nothing>, name: &str) {
+fn choose(p: &mut Presenter<()>, name: &str) {
     let node = id(p, name);
     let shown = p.surface().expect("a surface is open");
     let (serial, target) = (shown.serial, shown.targets.iter().find(|t| t.node == node));
@@ -216,12 +208,12 @@ fn choose(p: &mut Presenter<Nothing>, name: &str) {
     for action in [0, 1] {
         p.surface_event(serial, action, x + w / 2.0, y + h / 2.0, 0.0);
     }
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
 }
 
 /// The surface statements among the shell's requests: what it is (0 closed,
 /// 1 an alert, 2 a menu) by serial, with the frame and the stream's count.
-fn told(p: &mut Presenter<Nothing>) -> Vec<(u32, i32, [i32; 4], i32)> {
+fn told(p: &mut Presenter<()>) -> Vec<(u32, i32, [i32; 4], i32)> {
     p.tell_shell();
     let words = p.take_requests().unwrap_or_default();
     let (mut out, mut at) = (Vec::new(), 0);
@@ -242,11 +234,11 @@ fn told(p: &mut Presenter<Nothing>) -> Vec<(u32, i32, [i32; 4], i32)> {
     out
 }
 
-fn journal(p: &Presenter<Nothing>) -> Vec<String> {
+fn journal(p: &Presenter<()>) -> Vec<String> {
     p.host().runner().journal().map(str::to_owned).collect()
 }
 
-fn says(p: &Presenter<Nothing>, what: &str) -> usize {
+fn says(p: &Presenter<()>, what: &str) -> usize {
     journal(p).iter().filter(|l| l.contains(what)).count()
 }
 
@@ -365,7 +357,7 @@ fn process_relaunch_is_refused_in_the_journal() {
         let plan = contract::compile(src).unwrap();
         let (mut p, error) = Presenter::boot_with(
             &plan.encode(),
-            Nothing,
+            (),
             (400., 400.),
             1.,
             PathBuf::new(),
@@ -486,7 +478,7 @@ fn an_alert_opens_by_show_modal_and_by_a_command_and_each_button_does_its_own() 
     let shut = id(&p, "shut");
     assert!(p.host_mut().dispatch_at(shut, Event::Press, 0.0).is_none());
     assert!(p.after_commit().is_none());
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_none());
 
     // Three buttons are an alert too; a chooser is refused, in the journal.
@@ -533,7 +525,7 @@ fn a_hosted_field_cannot_take_the_focus_under_an_open_surface() {
     // An alert opens, from the button that holds the focus.
     assert!(p.host_mut().dispatch_at(ask, Event::Press, 1.0).is_none());
     assert!(p.after_commit().is_none());
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_some());
     assert_eq!(p.focus(), None);
     p.tell_shell();
@@ -579,7 +571,7 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
     let ask = id(&p, "ask");
     assert!(p.host_mut().dispatch_at(ask, Event::Press, 0.0).is_none());
     assert!(p.after_commit().is_none());
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_some());
     // The focus moved in: the field lost it, and the keyboard goes.
     assert_eq!(p.focus(), None);
@@ -589,7 +581,7 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
         words.windows(5).any(|w| w == [6, w[1], 2, 0, 0]),
         "the keyboard is put away: {words:?}"
     );
-    // Nothing of the page is hit, pressed or typed into.
+    // () of the page is hit, pressed or typed into.
     let poke = id(&p, "poke");
     let at = p.rect_of(poke).map(|r| (r.0 + 5.0, r.1 + 5.0)).unwrap();
     assert_eq!(p.hit(at.0, at.1), None);
@@ -623,7 +615,7 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
     for dismiss in [0, 1] {
         assert!(p.host_mut().dispatch_at(ask, Event::Press, 5.0).is_none());
         assert!(p.after_commit().is_none());
-        p.run_commands(|| Nothing);
+        p.run_commands(|| ());
         let serial = p.surface().expect("open").serial;
         match dismiss {
             0 => p.key_down("Escape", 6.0),
@@ -645,7 +637,7 @@ fn the_page_is_inert_under_an_alert_and_the_focus_moves_in_and_back() {
 #[test]
 fn an_alerts_outside_is_its_closedby_written_or_implied() {
     let (mut p, _) = windowed();
-    let flags = |p: &mut Presenter<Nothing>| {
+    let flags = |p: &mut Presenter<()>| {
         p.tell_shell();
         let words = p.take_requests().unwrap_or_default();
         let (mut found, mut at) = (None, 0);
@@ -959,7 +951,7 @@ fn the_dialog_and_the_menu_keep_materials_metrics() {
 /// with no top layer says so, and never leaves the section out.
 #[test]
 fn a_driver_reads_the_open_surface_from_state_and_taps_a_row_by_its_node() {
-    let state = |p: &mut Presenter<Nothing>| -> serde_json::Value {
+    let state = |p: &mut Presenter<()>| -> serde_json::Value {
         serde_json::from_str(&crate::agent::handle(p, r#"{"op":"state"}"#)).unwrap()
     };
     let mut desktop = boot();
@@ -985,16 +977,16 @@ fn a_driver_reads_the_open_surface_from_state_and_taps_a_row_by_its_node() {
     // The node the state names is the one a tap chooses.
     let tapped = crate::agent::handle(&mut p, &format!(r#"{{"op":"tap","id":{delete}}}"#));
     assert!(tapped.contains("\"surface\""), "{tapped}");
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert_eq!(text(&p, "said"), "removed");
     assert!(state(&mut p)["surface"].is_null());
 }
 
 #[test]
 fn a_driver_reveals_a_row_of_the_surface_and_opens_a_context_menu_by_its_node() {
-    let ask = |p: &mut Presenter<Nothing>, request: String| -> serde_json::Value {
+    let ask = |p: &mut Presenter<()>, request: String| -> serde_json::Value {
         let reply = crate::agent::handle(p, &request);
-        p.run_commands(|| Nothing);
+        p.run_commands(|| ());
         serde_json::from_str(&reply).unwrap()
     };
     // A host with no shell refuses a context menu's popover, as it did.
@@ -1081,23 +1073,23 @@ fn popover_commands_use_the_existing_surface_and_report_toggles() {
     let args = [exact_plan::Value::str("menu")];
     p.popover_command("showPopover", &args);
     p.popover_command("showPopover", &args);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_some());
     assert_eq!(
         p.host.runner().slot("toggled"),
         Some(&exact_plan::Value::str("closed>open"))
     );
     p.popover_command("hidePopover", &args);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_none());
     assert_eq!(
         p.host.runner().slot("toggled"),
         Some(&exact_plan::Value::str("open>closed"))
     );
     p.popover_command("showPopover", &args);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     p.key_down("Escape", 3.0);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert!(p.surface().is_none());
     assert_eq!(
         p.host.runner().slot("toggled"),
@@ -1105,7 +1097,7 @@ fn popover_commands_use_the_existing_surface_and_report_toggles() {
     );
     p.popover_command("togglePopover", &args);
     p.popover_command("togglePopover", &args);
-    p.run_commands(|| Nothing);
+    p.run_commands(|| ());
     assert_eq!(
         p.host.runner().slot("toggled"),
         Some(&exact_plan::Value::str("closed>closed"))

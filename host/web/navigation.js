@@ -9,12 +9,14 @@ const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
+// Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
-  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
-    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+  const all = [...(nav?.getElementsByTagName("*") ?? [])];
+  const owns = el => { for (let p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute("navigationKey")) return p === nav; return false; };
+  for (const list of all.filter(el => el.getAttribute("role") === "tablist" && owns(el))) {
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
-      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
-      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
+      .map(tab => all.find(panel => panel.getAttribute("id") === tab.getAttribute("aria-controls")))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && owns(panel));
     if (panels.length) return [list, panels];
   }
   return [null, []];
@@ -38,17 +40,16 @@ function splitOf([r]) {
   splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
 }
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
-const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
-  || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
- * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
- * `unselected`; the agent's `inactive`). */
-export function unselected(nav) {
+const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical"
+  && (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]);
+/** Routes and panels excluded from input or document fields. Only input keeps a visible split list live. */
+function unselectedWithin(nav, keepList) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
   const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
-  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  const beside = keepList && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
+export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -277,6 +278,7 @@ export const navigation = {
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
+      nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
       nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
@@ -662,8 +664,8 @@ export function deferredFulfill(fulfill, inflight) {
 }
 // An admission refusal answers its ticket Refused (kind 2) with the reason, in its incarnation.
 export const refusal = (op, incarnation) => [incarnation, op.ticket, 2, 0, "", new TextEncoder().encode(op.message)];
-export function focusController({ready, elements, inert}) {
-  const processed = new WeakSet();
+export function focusController({ready, elements, inert, removed = el => !el.isConnected}) {
+  const processed = new WeakSet(), outgoing = new WeakMap();
   let pointerTarget = null, restarting = false;
   const autofocus = () => {
     if (restarting || !ready()) return;
@@ -687,7 +689,15 @@ export function focusController({ready, elements, inert}) {
     const el = id != null && nodes.get(id)?.type === kept.type ? view(id) : null;
     if (el?.isConnected && el.getClientRects().length && !inert(el) && !el.matches(':disabled')) el.focus({preventScroll: true});
   };
-  return {autofocus, keep, restart, press(event, el, dispatch) {
+  return {autofocus, keep, restart,
+    detached(el, event) { const pending = outgoing.get(event.target); if (!pending || pending.event && pending.event !== event) return false; pending.event = event; const held = pending.path.delete(el); if (!pending.path.size) outgoing.delete(event.target); return held; },
+    blur(el, dispatch) {
+      const path = []; for (let at = el; at; at = at.parentElement) path.push(at);
+      dispatch();
+      // Only the subtree detached by this blur hears the following DOM focusout.
+      const pending = new Set(); for (const at of path) { if (!removed(at)) break; if (at.exactHandlers?.includes("focusout")) pending.add(at); }
+      if (pending.size) outgoing.set(el, { path: pending, event: null });
+    }, press(event, el, dispatch) {
     event.stopPropagation();
     const canvas = el.closest('[data-gpu-input]');
     const previous = pointerTarget;
@@ -758,7 +768,6 @@ export function environment() {
     ...foldEnv(),
   };
 }
-
 // @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
 // and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
 // are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
@@ -782,8 +791,8 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
-let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is reserved. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);
@@ -816,7 +825,6 @@ export function preferFold(request) {
   (globalThis.exact ??= {}).foldSubstitute = next;
   return foldEnv();
 }
-
 // @ref LLP 1061 D4, LLP 1069.000 D1: media facts ride each boot and resize.
 // Bits 0–4: motion, transparency, contrast (more|less), dark; 5–7: coarse|none pointer, no hover.
 const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"];
@@ -826,7 +834,6 @@ const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
 // bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
 // showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
@@ -850,23 +857,22 @@ export function pageReporter(agent, platform = globalThis) {
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
-    if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
+    if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
-
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
-// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
-// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
-const APP_ROOT = "exact-root-font-size";
+// @ref LLP 1069.000 D3, LLP 1121 D6 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over the root element's own size (the browser's setting, or the agent's
+// `prefer root-font-size`), which can change beneath it; a percentage is a share of that size which follows it (CSS's `125%` of `medium`, or of the agent's substitute); `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here, by the runner's grammar (exact_num's `css_percent`) and its share, `host * ratio` as an f32 above 0.
+const APP_ROOT = "exact-root-font-size", PERCENT = /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i;
 export function appRootFontSize(value, say, platform = globalThis) {
-  const doc = platform.document;
+  const doc = platform.document, host = platform.getComputedStyle ? beneathApp(platform, () => parseFloat(platform.getComputedStyle(doc.documentElement).fontSize) || 16) : 16;
   let rule = doc.getElementById(APP_ROOT);
   if (value === "medium") return void rule?.remove();
-  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  const ratio = typeof value === "string" && PERCENT.test(value) ? parseFloat(value) / 100 : NaN, share = Math.fround(host * ratio), px = typeof value === "number" && Math.fround(value) > 0 && Number.isFinite(Math.fround(value));
+  if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
-  rule.textContent = `:root{font-size:${value}px!important}`;
+  rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -913,7 +919,6 @@ function beneathApp(platform, read) {
   rule.disabled = true;
   try { return read(); } finally { rule.disabled = false; }
 }
-
 // The page launch owns its seed, a whole number below 2^32 on every host (LLP 1116.005 D5); a new runner during
 // development reuses it. Agent facts are supplied by the drive, never by the browser's environment.
 export function placeReporter(params, platform = globalThis) {
@@ -928,7 +933,6 @@ export function placeReporter(params, platform = globalThis) {
     return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
   };
 }
-
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
 // 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
 // because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
@@ -958,7 +962,6 @@ export function launchLocation(platform = globalThis) {
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-
 let pagePlace;
 export function reportPlace() {
   pagePlace ??= placeReporter(launched());
@@ -1115,14 +1118,13 @@ export function setFieldRangeText(el, args, log) {
   catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
   el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
-// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
-// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
-// decides, and one that refuses snaps a checkbox or a radio group back.
+// Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
+function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
-  // HTML's `change`: a text field's value committed, on blur or Enter.
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
   on("input", (e) => {
     const value = el.value;
@@ -1133,7 +1135,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then

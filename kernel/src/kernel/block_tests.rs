@@ -457,3 +457,88 @@ fn block_limits_and_padding_resolve_math_in_the_window_environment() {
         assert_eq!((child.x, child.y), padding);
     }
 }
+
+#[test]
+fn route_fitting_tracks_retained_sizes_clears_and_its_own_basis() {
+    let mut k = laid_out(small());
+    let fit = |width, height| {
+        Some(HostBlock {
+            width: BlockAxis::Fit(width),
+            height: BlockAxis::Fit(height),
+        })
+    };
+    k.set_host_block(3, fit(400.0, 200.0)).unwrap();
+    k.compute_layout(1, OFFER).unwrap();
+    assert_eq!(k.host_block_size(3), Some((150.0, 40.0)));
+    let size = StyleMask::of(StyleId::Width).union(StyleMask::of(StyleId::Height));
+    let own_size = |width, height| {
+        let mut op = style(3, &[(StyleId::Width, width), (StyleId::Height, height)]);
+        if let Op::SetStyle { patch, .. } = &mut op {
+            patch.written = patch.mask;
+        }
+        op
+    };
+    let changed = |k: &mut Kernel, ops: &[Op], expected| {
+        k.apply(0, k.epoch() + 1, ops).unwrap();
+        let receipt = k.compute_layout(1, OFFER).unwrap();
+        assert_eq!(k.host_block_size(3), Some(expected));
+        assert!(receipt
+            .updated
+            .iter()
+            .all(|key| matches!(k.node_by_key(*key).unwrap().id, 3 | 4)));
+    };
+    changed(&mut k, &[own_size(n(480.0), n(300.0))], (480.0, 300.0));
+    changed(
+        &mut k,
+        &[own_size(
+            StyleValue::Percent(125.0),
+            StyleValue::Percent(150.0),
+        )],
+        (500.0, 300.0),
+    );
+    k.set_host_block(3, fit(200.0, 100.0)).unwrap();
+    changed(&mut k, &[], (250.0, 150.0));
+    // Clearing an authored dimension returns to fitting, while its
+    // declaration intent remains distinct from removing the row.
+    changed(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 3,
+            mask: size,
+            written: true,
+        }],
+        (150.0, 40.0),
+    );
+    assert_eq!(
+        k.node(3).unwrap().style.mask.intersect(size),
+        StyleMask::EMPTY
+    );
+    assert_eq!(k.node(3).unwrap().style.written.intersect(size), size);
+    changed(&mut k, &[own_size(n(480.0), n(300.0))], (480.0, 300.0));
+    changed(
+        &mut k,
+        &[own_size(StyleValue::Auto, StyleValue::Auto)],
+        (150.0, 40.0),
+    );
+    changed(
+        &mut k,
+        &[Op::ClearStyle {
+            id: 3,
+            mask: size,
+            written: false,
+        }],
+        (150.0, 40.0),
+    );
+    assert_eq!(
+        k.node(3).unwrap().style.written.intersect(size),
+        StyleMask::EMPTY
+    );
+    let work = k.tree().work;
+    k.set_host_block(3, fit(200.0, 100.0)).unwrap();
+    assert!(k.compute_layout(1, OFFER).unwrap().updated.is_empty());
+    assert_eq!(
+        k.tree().work,
+        work,
+        "an unchanged block does no layout work"
+    );
+}

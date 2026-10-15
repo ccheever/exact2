@@ -115,6 +115,10 @@ final class MenuHost: NSObject {
     init(presenter: Presenter) { self.presenter = presenter }
 
     func isOpen(_ node: NodeView) -> Bool { entries.contains { $0.popover === node } }
+    /// Open as a popover, here or as the alert a confirmation becomes
+    func showsAsPopover(_ node: NodeView) -> Bool { isOpen(node) || presenter?.alerts.isOpenAsPopover(node) == true }
+    /// Open by `show-modal`, which HTML's popover commands leave open
+    private func showsModally(_ node: NodeView) -> Bool { presenter?.alerts.isOpen(node) == true && !showsAsPopover(node) }
     /// `entry` out of the open popovers while `body` runs (PopoversMac.swift).
     func apart(_ entry: Entry, _ body: () -> Void) {
         guard let index = entries.firstIndex(where: { $0 === entry }) else { return body() }
@@ -177,16 +181,12 @@ final class MenuHost: NSObject {
         presenter.syncAccessibility()
         presenter.shortcuts.sync()
     }
-    /// Capture identity before app code runs; a replacement with the same id
-    /// must never receive an old invoker's deferred presentation.
-    private func invocation(_ source: NodeView) -> (name: String, action: String)? {
-        if let name = source.props["popovertarget"], !name.isEmpty { return (name, source.props["popovertargetaction"] ?? "toggle") }
-        guard let name = source.props["commandfor"], !name.isEmpty else { return nil }
-        switch source.props["command"] {
-        case "show-popover": return (name, "show")
-        case "toggle-popover": return (name, "toggle")
-        default: return nil
-        }
+    /// The popover `source` shows, hides or toggles, as HTML resolves it
+    /// (`Invocation`); nil for a dialog's commands, which `DialogHost` runs.
+    private func popoverInvocation(_ source: NodeView) -> Invocation? {
+        guard let invocation = presenter?.invocation(of: source),
+              [.show, .hide, .toggle].contains(invocation.action) else { return nil }
+        return invocation
     }
     /// A native invoker anchors to its actual button frame, including AppKit's
     /// alignment insets, rather than the node's layout box (D13); a run of
@@ -203,24 +203,25 @@ final class MenuHost: NSObject {
         }
         return source.convert(source.bounds, to: view)
     }
+    /// What activating `source` does once its own handler has run: the
+    /// surviving button's invocation then, as HTML resolves the target after
+    /// the event's listeners (a handler may retarget it, or give it one).
     func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
         guard let presenter, source.isButton, !source.disabled, !source.inert,
               fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
-              let invocation = invocation(source),
-              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == invocation.name }) else { return nil }
-        let (name, action) = invocation
-        return { [weak self, weak source, weak pop] in
-            guard let self, let source, let pop, self.live(source), self.live(pop),
-                  self.invocation(source)?.name == name, pop.props["id"] == name,
-                  self.invocation(source)?.action == action,
-                  !source.inert, !source.disabled else { return }
-            if action == "hide" || (action != "show" && self.isOpen(pop)) { self.close(pop) }
+              popoverInvocation(source) != nil || source.handlers.contains("press") else { return nil }
+        return { [weak self, weak source] in
+            guard let self, let source, self.live(source), !source.inert, !source.disabled,
+                  let invocation = self.popoverInvocation(source), self.live(invocation.target),
+                  !self.showsModally(invocation.target) else { return }
+            let pop = invocation.target
+            if invocation.action == .hide || (invocation.action == .toggle && self.isOpen(pop)) { self.close(pop) }
             // AppKit closed it with this very click on its invoker: a toggle leaves it closed.
-            else if action == "show" || !self.closedByThisClick(source) { self.show(pop, from: source) }
+            else if invocation.action == .show || !self.closedByThisClick(source) { self.show(pop, from: source) }
         }
     }
     func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
-        invocation(source)?.name == pop.props["id"] && invocation(source)?.action != "hide"
+        popoverInvocation(source).map { $0.opens && $0.target === pop } ?? false
     }
     /// `source` can still open `pop` in this presenter's window: live,
     /// enabled, not inert, shown (or a toolbar's), and, for an invoker, pointing at it.
@@ -246,7 +247,8 @@ final class MenuHost: NSObject {
         let sourceId = args.count > 1 ? args[1] as? String : nil
         let source = sourceId.flatMap { id in presenter.views.values.first { $0.props["id"] == id } }
         if sourceId != nil && source == nil { presenter.session?.log("\(name) refused: no source has that id"); return }
-        let open = isOpen(pop) || presenter.alerts.isOpen(pop)
+        if showsModally(pop) { presenter.session?.log("\(name) ignored: \(id) is open as a modal dialog"); return }
+        let open = showsAsPopover(pop)
         if name == "hidePopover" || name == "togglePopover" && open { close(pop) }
         else if !open { show(pop, from: source) }
     }
@@ -270,7 +272,7 @@ final class MenuHost: NSObject {
         // A confirmation in the alert shape is the platform's alert, a sheet
         // on the window (LLP 1115.000 D7.6, AlertsMac.swift); a chooser is
         // the menu below.
-        if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source) { return }
+        if isConfirmation(pop), presenter.alerts.isOpen(pop) || presenter.alerts.present(pop, from: source, popover: true) { return }
         let entry = Entry(pop, source: source, previous: focusOwner(window), run: run)
         presentations[pop.id, default: 0] += 1
         revalidate()
@@ -494,8 +496,10 @@ final class MenuHost: NSObject {
             guard entry.value != "manual" else { return false }
             guard let hit else { return false }
             if contains(entry.popover, hit) { return true }
+            // An eligible invoker of it: a press there toggles it, and is not outside it.
             return sequence(first: hit, next: { self.parent(of: $0) }).contains {
-                ($0 as? NodeView)?.props["popovertarget"] == entry.popover.props["id"]
+                guard let node = $0 as? NodeView, !node.disabled, !node.inert else { return false }
+                return self.popoverInvocation(node)?.target === entry.popover
             }
         })?.popover.id
         if event.type == .leftMouseDown || event.type == .rightMouseDown {
@@ -538,14 +542,14 @@ final class MenuHost: NSObject {
         }
     }
     /// LLP 1021 §5, "Submenus": the popover `row` opens as a submenu, a
-    /// menu-shaped one (D3) its `popovertarget` names to toggle or show,
+    /// menu-shaped one (D3) it shows or toggles (`Invocation`),
     /// not a confirmation, and not already on `path` (the popovers from the
     /// presented one down to `row`'s): a row that names one of those is an
     /// item, as one opening any other popover is.
     func submenu(of row: NodeView, path: [NodeView]) -> NodeView? {
-        guard let presenter, row.isButton, let name = row.props["popovertarget"], row.props["popovertargetaction"] != "hide",
-              let sub = presenter.carrying("popover").first(where: { $0.props["id"] == name }),
-              !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub) else { return nil }
+        guard let invocation = popoverInvocation(row), invocation.opens else { return nil }
+        let sub = invocation.target
+        guard !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub) else { return nil }
         return sub
     }
     /// `pop`'s button menu, opened from `source` (nil for a context menu,
@@ -559,14 +563,13 @@ final class MenuHost: NSObject {
     }
     // MARK: A window toolbar's menu item (LLP 1115.002 D2)
 
-    /// The popover a toolbar's menu item shows for `source`: the one its
-    /// `popovertarget` names to show or toggle, when it is a button menu's
-    /// shape (D3) and no confirmation.
+    /// The popover a toolbar's menu item shows for `source`: the one it
+    /// shows or toggles (`Invocation`), when it is a button menu's shape (D3)
+    /// and no confirmation.
     func toolbarPopover(of source: NodeView) -> NodeView? {
-        guard let presenter, source.isButton, let invocation = invocation(source), invocation.action != "hide",
-              let pop = presenter.carrying("popover").first(where: { $0.props["id"] == invocation.name }),
-              pop.props["popover"] != nil, !isConfirmation(pop), isMenuShaped(pop) else { return nil }
-        return pop
+        guard let invocation = popoverInvocation(source), invocation.opens,
+              !isConfirmation(invocation.target), isMenuShaped(invocation.target) else { return nil }
+        return invocation.target
     }
     /// The menu of a toolbar's menu item for `source`. AppKit pops it up
     /// from its own item, so nothing here tracks it: it is empty until it
@@ -591,8 +594,18 @@ final class MenuHost: NSObject {
             presenter.commitPendingEdit()
             presenter.onPress?(source.id)
         }
-        guard live(source), let pop = toolbarPopover(of: source), connected(pop), !pop.inert,
-              pop.style["display"]?.string != "none" else { return }
+        guard live(source), !source.inert, !source.disabled else { return }
+        guard let pop = toolbarPopover(of: source) else {
+            // Its handler made it invoke something other than a menu: that
+            // runs as a press would run it, after the empty menu.
+            DispatchQueue.main.async { [weak self, weak presenter, weak source] in
+                guard let self, let presenter, let source else { return }
+                presenter.dialogs.command(source, fromNativeMenu: true)?()
+                self.command(source, fromNativeMenu: true)?()
+            }
+            return
+        }
+        guard connected(pop), !pop.inert, pop.style["display"]?.string != "none" else { return }
         // An open auto popover closes for it, as for any other shown.
         for entry in entries.reversed() where entry.value != "manual" { close(entry.popover, restoreFocus: false) }
         presentations[pop.id, default: 0] += 1

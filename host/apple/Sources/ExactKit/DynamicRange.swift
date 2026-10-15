@@ -109,16 +109,22 @@ extension CALayer {
         if toneMapMode != mode { toneMapMode = mode }
     }
 
-    /// A view's own drawing in an HDR colour gets a half-float backing store.
-    /// Answers whether the format changed, so the view draws again.
+    /// Ask for a half-float backing store for HDR drawing. `contentsFormat`
+    /// is a hint: only an actual format change needs the view to draw again.
     func applyDrawnRange(headroom h: Float, extended: Bool = false, limit: String?) -> Bool {
         let hdr = h > 1 || extended
         let format: CALayerContentsFormat = hdr ? .RGBA16Float : .RGBA8Uint
+        let previous = contentsFormat
         // Only a store this made half float goes back to eight bits.
-        let changed = contentsFormat != format && (hdr || contentsFormat == .RGBA16Float)
-        if changed { contentsFormat = format }
-        if hdr || changed { applyDynamicRange(hdr: hdr, headroom: hdr ? max(1, h) : 0, limit: limit) }
-        return changed
+        let requested = previous != format && (hdr || previous == .RGBA16Float)
+        if requested { contentsFormat = format }
+        if hdr {
+            applyDynamicRange(hdr: true, headroom: max(1, h), limit: limit)
+        } else {
+            if #available(iOS 26, macOS 26, tvOS 26, *), contentsHeadroom != 0 { contentsHeadroom = 0 }
+            applyColorRange(limit: limit)
+        }
+        return contentsFormat != previous
     }
 
     /// Where a text raster's headroom is kept, so a later limit can re-ask.

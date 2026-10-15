@@ -30,3 +30,10 @@ fn pin_font() {
         std::env::set_var("EXACT_FONT", "DejaVu Sans");
     });
 }
+
+/// Caltrain's plan, compiled and baked once for the binary: its boots each make their own
+/// presenter, data source and images from the same bytes.
+fn caltrain_plan() -> &'static [u8] {
+    static PLAN: std::sync::OnceLock<Vec<u8>> = std::sync::OnceLock::new();
+    PLAN.get_or_init(|| caltrain::build().unwrap().encode())
+}

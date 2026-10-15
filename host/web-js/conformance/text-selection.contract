@@ -3,7 +3,7 @@ component SelectionRange
   state count = 0
   action heard(s: Selection)
     picked = s.text
-    count = length(s.rects)
+    count = s.rects.length
   action choose
     setSelectionRange("p1", 0, 5)
   action clear

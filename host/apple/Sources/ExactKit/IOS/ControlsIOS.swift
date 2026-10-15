@@ -187,6 +187,9 @@ final class ControlHost: NSObject {
         return made
     }
 
+    /// Asks for the face of `id` again at the next sync.
+    func faceChanged(_ id: UInt32) { faces.removeValue(forKey: id) }
+
     /// `contents`: a control's viewless contents may have changed (a batch
     /// with `controls`, or a sync outside any batch); `touched`, the nodes
     /// the batch changed.

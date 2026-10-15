@@ -36,14 +36,14 @@ shape Snapshot
   revision: number
   connected: bool
   notice: string
-  threads: list<Thread>
+  threads: Thread[]
   id: string
   name: string
   initials: string
   color: string
   model: string
   draft: string
-  messages: list<Message>
+  messages: Message[]
   typing: bool
   busy: bool
   error: string

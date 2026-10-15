@@ -390,3 +390,29 @@ fn equal_hues_take_a_full_turn_for_longer() {
     let (mid, _) = mix(&c, &c, 0.5, how);
     assert!(close(mid, wide("oklch(0.7 0.1 210)").linear_srgb(), 1e-6));
 }
+
+#[test]
+fn rec2100_components_round_trip_through_linear_srgb() {
+    for space in [Space::Rec2100Linear, Space::Rec2100Pq, Space::Rec2100Hlg] {
+        for c in [
+            [0.2, 0.5, 0.7],
+            [0.9, 0.1, 0.4],
+            [0.58, 0.58, 0.58],
+            [-0.05, 0.3, 0.3],
+        ] {
+            if space == Space::Rec2100Pq && c[0] < 0.0 {
+                continue; // PQ's decode has no negative signal
+            }
+            let w = Wide {
+                space,
+                c,
+                alpha: 1.0,
+            };
+            let back = crate::rec2100_from_linear_srgb(space, w.linear_srgb()).unwrap();
+            for i in 0..3 {
+                assert!((back[i] - c[i]).abs() < 1e-9, "{space:?} {c:?} -> {back:?}");
+            }
+        }
+    }
+    assert_eq!(crate::rec2100_from_linear_srgb(Space::Srgb, [0.0; 3]), None);
+}

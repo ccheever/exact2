@@ -25,6 +25,7 @@ mod auth;
 #[path = "canvas2d.rs"]
 mod canvas2d;
 pub mod fonts;
+mod mode;
 mod scale;
 pub(crate) use fonts::{decode_plan, plan_font_catalog};
 use fonts::{font_catalog, font_faces, font_names, font_names_for_runner};
@@ -279,6 +280,7 @@ impl exact_kernel::TextMeasurer for BrowserMeasures {
 /// engine's tree only if a layout is ever asked for, and links no text
 /// measurer of its own (LLP 1047 §6).
 pub(crate) fn browser_kernel() -> Kernel {
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     exact_kernel::style::wide::set_available(|wide| !wide.space.is_hdr());
     Kernel::on_demand(Box::new(BrowserMeasures))
 }
@@ -456,6 +458,12 @@ impl<D: DataSource> Host<D> {
     ) -> Result<(Host<D>, String), HostError> {
         let mut runner = runner;
         runner.set_device_links(links.device);
+        // @ref LLP 1095 D4 — the theme's reach into the host's own sheet (a
+        // new runner's page drops the last one's, glue.js).
+        let theme = exact_kernel::style::roles::theme_css();
+        if !theme.is_empty() {
+            batch.theme(&theme);
+        }
         let font_names = font_names_for_runner(&runner);
         let font_catalog = font_catalog(&font_faces(runner.plan()));
         let mut host = Host {
@@ -1366,7 +1374,7 @@ impl<D: DataSource> Host<D> {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
-                svg_props(kernel, &node, &mut props);
+                svg_props(self.runner.kernel(), &node, &mut props);
                 let css = host_css(kernel, &node, css, tag);
                 let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);

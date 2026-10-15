@@ -23,6 +23,7 @@ export function appVerbs(name, dir, { host = 'web', game = false } = {}) {
     android: ['scripts/agent-android.mjs', 'build', name],
     update: ['scripts/exact.mjs', 'new', dir, '--update'],
     contract: ['scripts/exact.mjs', 'contract'],
+    tamber: ['scripts/exact.mjs', 'tamber'],
     hatch: ['scripts/exact.mjs', 'hatch'],
     ...game ? {} : { pattern: ['scripts/exact.mjs', 'pattern'] },
     feedback: ['scripts/feedback.mjs'],

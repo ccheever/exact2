@@ -15,7 +15,7 @@ pub mod faults;
 mod field;
 mod fonts;
 pub mod foresee;
-pub use field::{FieldSelection, SelectionDirection};
+pub use field::{FieldSelection, InputDetails, SelectionDirection};
 mod host_kinds;
 mod pointer;
 pub use pointer::{DropEvent, PointerEvent, WheelEvent};
@@ -26,7 +26,10 @@ mod reorder_group;
 pub use intersect::Intersection;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
+mod mode;
 mod root_font;
+mod sounds;
+mod theme;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
     KeyboardEvent, ScrollEvent,
@@ -72,6 +75,7 @@ pub use queue::QUEUE_BOUND;
 pub mod router;
 pub use lists::{ListTextPolicy, ListTextPosition};
 mod settlement;
+mod split;
 mod surface_record;
 mod time;
 mod viewport;
@@ -79,6 +83,7 @@ mod writes;
 pub use carry::Carried;
 pub use checkpoint::Checkpoint;
 pub use router::{routing, RouterChange, Routing};
+pub use split::StackSplit;
 
 use crate::instance::{Ids, InstanceError, InstanceStep, SurfaceUpdate, Tree, Update};
 use crate::request::{Answer, Dispatch, Outcome, Request, RequestOut};
@@ -339,13 +344,15 @@ struct Timer {
     next_ms: f64,
     /// Whether the task's gate holds (always, for `mount`).
     armed: bool,
-    /// The key it was armed with (`key=`), as `each` compares keys.
+    /// The key it was armed with (`key=`), as `for` compares keys.
     key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
     /// … and which virtual frame after it is next.
     k: u32,
 }
+
+type FocusPath = Vec<(ViewId, NodesId, Vec<Frame>)>;
 
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
@@ -355,6 +362,7 @@ pub struct Runner<D: DataSource> {
     sites: crate::instance::SiteIndex,
     inspection_digest: std::cell::OnceCell<String>,
     action_binding_origin: std::rc::Rc<()>,
+    detached_focus: Vec<(ViewId, FocusPath)>,
     data: D,
     kernel: Kernel,
     slots: Vec<Value>,
@@ -798,12 +806,16 @@ impl<D: DataSource> Runner<D> {
             Some(routing) => routing(&plan)?,
             None => None,
         };
+        let launched_place = crate::time::launch_place();
+        // A refused boot puts back the overrides it took (a session still running keeps its own).
+        let (mut restore, replaced) = crate::bridge::RestoreOverrides::set(&plan);
         let mut runner = Runner {
             sites: crate::instance::SiteIndex::linked(&plan, links.keyframes),
             strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
             action_binding_origin: std::rc::Rc::new(()),
+            detached_focus: Vec::new(),
             data,
             kernel,
             slots: Vec::new(),
@@ -868,7 +880,7 @@ impl<D: DataSource> Runner<D> {
             viewport,
             page: Default::default(),
             time: crate::time::launch_time(),
-            place: Default::default(),
+            place: launched_place.clone().unwrap_or_default(),
             surface_records: Default::default(),
             surface_refusals: Default::default(),
             links,
@@ -1051,6 +1063,13 @@ impl<D: DataSource> Runner<D> {
             let line = format!("{why}; nothing is granted");
             runner.log(line);
         }
+        if replaced {
+            // @ref LLP 1121 §10 — the overridden roles are the thread's until
+            // per-session tables (stage 5): a second plan with other ones
+            // takes them over from the first, which is said, not silent.
+            runner.log("theme: this plan's role overrides replace another plan's on this thread; a session still running the other now shows these (per-session tables are owed)".to_string());
+        }
+        restore.0 = None;
         Ok(runner)
     }
 
@@ -1237,7 +1256,7 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// The plan site a view was instantiated from and the instance path to
-    /// it — the `each` keys and active arms crossed — for `layout <node>`
+    /// it — the `for` keys and active arms crossed — for `layout <node>`
     /// (LLP 1035.002 D6). `None` for a view the instance tree does not own.
     pub fn site_of(&self, view: ViewId) -> Option<(NodesId, Vec<InstanceStep>)> {
         self.tree.as_ref().and_then(|t| t.site(view))

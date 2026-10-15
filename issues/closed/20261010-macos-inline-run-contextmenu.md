@@ -91,11 +91,6 @@ in Chrome.
 | The same drive, web | Exact web (JS target) in Chrome 155.0.8059.39 | main `42fd5d99e` | `run contextmenu=1`, `run press=1`, `node contextmenu=1`, `link contextmenu=1` | (the reference) | image (left), record |
 | `tap run contextmenu` (aimed at the run itself) | macOS / web | main `42fd5d99e` | macOS: `delivery: "host-activation", native: "inline-text"`, `run contextmenu=0`. Web: a right-click at the run, `run contextmenu=1` | macOS delivers a secondary click at the run | record |
 
-![X77: a contextmenu on an inline run, Exact web in Chrome and macOS](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x77-inline-run-contextmenu-web-macos.png)
-
-Record (contract, commands, both drives, the agent's run target):
-https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x77-record.txt
-
 Not run: #327's head, `contextPopover` on a run, a run that wraps across lines, the ContextMenu key on a
 focused link run, iOS (a long press), Linux, and real hardware input (the agent's secondary click was used).
 

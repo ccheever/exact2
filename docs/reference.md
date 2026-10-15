@@ -33,8 +33,9 @@ Simulator, plus tvOS devices and the arm64 tvOS Simulator. Exact selects
 Ibex's English `intl` tier on Linux and Windows, not `intl-all-locales`; Apple
 keeps Hermes's OS-backed Intl. A Rust-only app needs no engine at run time.
 `exact setup` installs the host bundle and, on macOS, the iOS and tvOS Simulator
-bundles. `exact setup --check` runs Ibex's own offline resolver validation over that
-same set. A signed iOS device build names its separate one-time target command.
+bundles, and the iOS device bundle where Xcode's iphoneos SDK is installed.
+`exact setup --check` runs Ibex's own offline resolver validation over that
+same set.
 
 ### Windows TypeScript
 
@@ -510,7 +511,7 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
 `grants` string. The TypeScript module always receives `storage`, including
-when no storage grants are declared. Once storage is available, ungranted
+if no storage grants are declared. Once storage is available, ungranted
 operations reject with `Unavailable` and code `denied`, without loading the
 browser storage adapters. A drive without a scratch store still gets `agent`
 for app-storage operations; `doc:/` handles do not need that store.
@@ -834,7 +835,7 @@ the platform would call (`delivery: "substituted"`).
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
 `multiple` allows more than one. `showPicker(id)` opens it, and `change`
-receives `list<Picked>` with each file's name, type, size and
+receives `Picked[]` with each file's name, type, size and
 `app:/tmp/picked/` path. A specific `accept` list is limited to media types
 and types in the app's `file_handlers`. The live Linux picker is unavailable;
 its agent substitute accepts any file. Image pixel and Canvas readback remain
@@ -1232,7 +1233,7 @@ a secret: keep it in app storage.
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
-cargo test --lib --bins --tests --no-fail-fast                          # test
+cargo test --tests --no-fail-fast                                       # test
 cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
@@ -1259,13 +1260,17 @@ iOS simulator tests, touch smoke and the tvOS compile
 bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
-host and Caltrain and for the Windows host and Windows Desk. Install
+host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
 `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
-and provide `zig` for C dependencies on the Mac. Other Linux apps remain
-outside this check until their shared JavaScript host's target C++ build
-inputs are qualified. These cross checks cover compilation; native window
-presentation, KMS, and input devices
-remain unqualified until run on their platforms.
+and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
+(Hermes's JSI bindings). The check runs offline, so install the pinned Linux
+Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
+--manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml --
+--target x86_64-unknown-linux-gnu`. Until then the step fails, and the
+`hermes-lean-sys` build error in its log names that command. These cross checks
+cover compilation; native window presentation, KMS, and input devices remain
+unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development
@@ -1428,6 +1433,26 @@ It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
 
 ### Intersection visibility
+
+`reachstart` and `reachend` belong only to `list virtualized=true` with one
+direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
+window reaches the first or last supplied row. An empty collection fires neither
+event. A plain list lays out all its children and has no collection window;
+the Contract compiler refuses either handler there, on every target.
+
+For a plain feed or masonry, use `intersect=` on a marker at the end of the
+content, after the columns, inside the same scroller:
+
+```text
+view intersect=loadMore intersect-margin="0px 0px 800px 0px"
+  height=1
+```
+
+`loadMore(entry: IntersectionObserverEntry)` should load only when
+`entry.isIntersecting` is true, a next page exists, and no request is pending.
+The bottom margin starts loading up to 800px before the marker enters the
+scrollport. This observes the marker, not the last row of each column.
+See [paging columns](recipes/responsive-columns.md#paging-columns) for a complete example.
 
 `intersect=action` on a node offers a final `IntersectionObserverEntry` record
 (`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.

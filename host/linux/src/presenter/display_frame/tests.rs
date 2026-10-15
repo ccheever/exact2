@@ -62,7 +62,7 @@ const APP: &str = r##"component App
   view
     column width=320 height=240
       input value=draft input=edit testId="input" height=32
-      when showing
+      if showing
         box press=press testId="target" width=100 height=32 background-color="#cc3300"
       box press=hide testId="hide" height=16
       box press=show testId="show" height=16
@@ -148,7 +148,7 @@ fn boot() -> Fixture {
 }
 fn boot_app(app: &str) -> Fixture {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(app).unwrap().encode(),
+        &crate::test_plan(app),
         Empty,
         (320., 240.),
         1.,
@@ -353,8 +353,7 @@ fn reload_during_pending_refuses_old_hits_and_old_first_pixel_even_if_ids_alias(
     let target = id(&p, "target");
     let old_key = p.host.kernel().node(target).unwrap().key;
     let hit = point(&p, target);
-    p.reload(&contract::compile(APP).unwrap().encode(), Empty)
-        .unwrap();
+    p.reload(&crate::test_plan(APP), Empty).unwrap();
     let new_target = id(&p, "target");
     assert_eq!(
         target, new_target,
@@ -611,8 +610,7 @@ fn viewport_reload_old_receipt_releases_without_installing_geometry() {
     assert!(p.resize(240., 160.).is_none());
     let b = submit(&mut p).unwrap();
     assert!(p.resize(900., 900.).is_none());
-    p.reload(&contract::compile(VIEWPORT_APP).unwrap().encode(), Empty)
-        .unwrap();
+    p.reload(&crate::test_plan(VIEWPORT_APP), Empty).unwrap();
     let before = p.page;
     assert_eq!(p.hit(10., 10.), None);
     p.wheel_at(10., 10., 0., 30.);
@@ -888,7 +886,7 @@ fn timer_demand_failed_layout_recovers_and_marks_actual_geometry() {
     let (mut p, _, _) = boot_app(source);
     let fail = Rc::new(Cell::new(false));
     p.host = Host::boot(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Empty,
         Box::new(TimerMeasure { fail: fail.clone() }),
         320.,
@@ -935,9 +933,9 @@ impl DataSource for TimerRows {
 }
 #[test]
 fn timer_demand_collection_feedback_still_refines_after_empty_advance() {
-    let source = "component App\n  resource rows = timerRows() as shape list<number>\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      each x in rows key=x\n        text `${x}` height=24\n";
+    let source = "component App\n  resource rows = timerRows() as shape number[]\n  view\n    list virtualized=true width=320 height=180 testId=\"port\"\n      for x in rows key=x\n        text `${x}` height=24\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         TimerRows,
         (320., 240.),
         1.,
@@ -976,7 +974,7 @@ fn timer_demand_content_region_remains_conservative_for_same_shell() {
     let _service = crate::content_region::test_service();
     let source = "component App\n  view\n    view id=\"owner\" width=320 height=240 overflow-x=\"hidden\" overflow-y=\"hidden\"\n      scroll id=\"content\" width=320 height=240\n        text \"immutable paragraph\" testId=\"paragraph\"\n      text \"Preparing content\" id=\"pending\" position=\"absolute\"\n";
     let (mut p, error) = Presenter::boot_with_content_region(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Empty,
         (320., 240.),
         1.,

@@ -380,7 +380,9 @@ Covered navigation routes, inert subtrees, and closed dialogs or popovers are ab
 native hit walk, as from the browser's hit test. Open dialogs and popovers are hit in the presenter's top-layer order and viewport frame, outside clips on their authored ancestors.
 An AppKit `alertdialog` projected as an `NSAlert` sheet or a UIKit confirmation projected as a native alert has no painted authored boxes for a point read; its declared node remains open for data-word list reads.
 An overlay can consume Inspect's click while the action reads the
-marked node beneath it. The result is a one-shot event/action snapshot, not
+marked node beneath it. The AppKit host forwards an unhandled mouse contact along
+the responder chain, without retrying covered siblings; an ancestor's press
+still works. The result is a one-shot event/action snapshot, not
 a devtools, reactive geometry or pixel read.
 An id-less child drawn outside its named ancestor's own border box is the
 edge where Chrome's filtered `elementsFromPoint` would put a lower layer

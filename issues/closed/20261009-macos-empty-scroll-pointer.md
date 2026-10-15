@@ -67,10 +67,8 @@ Ops (each tap is a platform click; `at 100 150` is inside each port, below its 6
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Presses on content and on the empty port, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 480x300 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `outer 1`, `port 1`: only the two presses on the content counted | `outer 2`, `port 2` | [record](https://raw.githubusercontent.com/ccheever/exact2/547469bb7a0e7238708e45073656ae7b3eda899a/file-x48-x68/x65-record.txt), [screenshots](https://raw.githubusercontent.com/ccheever/exact2/b4a9eefaa39b1bc5fe2a510c6920541c866a62ff/file-x48-x68/x65-macos-vs-web.png) |
+| Presses on content and on the empty port, macOS | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 480x300 <ops>` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `outer 1`, `port 1`: only the two presses on the content counted | `outer 2`, `port 2` | record, screenshots |
 | Same, web | `bun exact.mjs agent web --size 480x300 <ops>` | Chrome 154 (the agent's) | same | `outer 2`, `port 2` | (the reference) | same |
-
-![After the same four presses: macOS shows outer 1 and port 1; the web shows outer 2 and port 2](https://raw.githubusercontent.com/ccheever/exact2/b4a9eefaa39b1bc5fe2a510c6920541c866a62ff/file-x48-x68/x65-macos-vs-web.png)
 
 The press path above is unchanged since `e200397ec`: the only later change to these files, `84e140ee5` (native buttons), rewrote a key-target lookup in `CollectionMac.swift`.
 

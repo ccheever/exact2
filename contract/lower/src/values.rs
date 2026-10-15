@@ -2,7 +2,7 @@
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
 
-use crate::{err, media, symbols, tags, vocab, FontUse, LowerError};
+use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -181,7 +181,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 /// order — `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way
 /// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 8] = [
+const FOUR_SIDED: [[StyleId; 4]; 9] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -218,6 +218,12 @@ const FOUR_SIDED: [[StyleId; 4]; 8] = [
         StyleId::ScrollPaddingRight,
         StyleId::ScrollPaddingBottom,
         StyleId::ScrollPaddingLeft,
+    ],
+    [
+        StyleId::ScrollMarginTop,
+        StyleId::ScrollMarginRight,
+        StyleId::ScrollMarginBottom,
+        StyleId::ScrollMarginLeft,
     ],
     [
         StyleId::BorderRadiusTopLeft,
@@ -487,6 +493,23 @@ pub(crate) fn check_style_value(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<(), LowerError> {
+    // A pin names the design's axes, which the runner resolves (LLP 1121 D5).
+    if rows == [StyleId::Mode] {
+        return crate::theme::mode_pins(a);
+    }
+    // A name the design lacks, or a colour token in another row (LLP 1121 D3).
+    style_value(a, rows, ty, fonts, scope, shapes)
+        .map_err(|e| crate::theme::token_error(a, rows, e))
+}
+
+fn style_value(
+    a: &Attr,
+    rows: &[StyleId],
+    ty: &Ty,
+    fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), LowerError> {
     if rows
         .iter()
         .any(|r| matches!(r, StyleId::Resize | StyleId::UserSelect))
@@ -658,7 +681,9 @@ pub(crate) fn check_style_value(
                     format!(
                         "`{}=\"{v}\"`: {why}{}",
                         a.name,
-                        role_hint(v).unwrap_or_default()
+                        edits::role_hint(v, false)
+                            .map(|e| format!("; {}", e.clause()))
+                            .unwrap_or_default()
                     ),
                     span,
                 );
@@ -781,6 +806,10 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
+                        // @ref LLP 1116.014 D1 — the edit leads when the fix is one.
+                        if let Some(edit) = edits::value_edit(&a.name, value, rows, &e) {
+                            return err("lower-attr-value", edit, span);
+                        }
                         // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
                         // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
                         // `none` (§3.11), so neither needs a hint here.
@@ -793,7 +822,9 @@ pub(crate) fn check_style_value(
                                 .to_string()
                         })
                         .or_else(|| match value {
-                            Expr::Str(t, _) => role_hint(t),
+                            Expr::Str(t, _) => {
+                                edits::role_hint(t, false).map(|e| format!("; {}", e.clause()))
+                            }
                             _ => None,
                         });
                         return err(
@@ -1211,7 +1242,7 @@ pub(crate) fn check_prop_value(
                 ty,
                 // A number or bool shown as text is interpolated.
                 if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
-                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                    ": interpolate it in a template, `${…}`, or write `x.toString()`"
                 } else {
                     ""
                 }
@@ -1462,24 +1493,6 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
         return Some("CSS `column-width` is a length or `auto`, never a percentage; use `column-count` to divide the width");
     }
     None
-}
-
-/// LLP 1081 D2: a bare colour role (`secondary-label`) is spelled
-/// `-exact-secondary-label`. Splitting at spaces, commas and parentheses
-/// finds roles in gradients, shadows, filters and `light-dark()`.
-pub(crate) fn role_hint(text: &str) -> Option<String> {
-    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
-        .find_map(|w| {
-            exact_kernel::COLOR_ROLES.iter().find(|r| {
-                !exact_kernel::style::roles::is_css_system(r) && r.name.eq_ignore_ascii_case(w)
-            })
-        })
-        .map(|r| {
-            format!(
-                "; the role `{0}` is spelled `-exact-{0}` (LLP 1081)",
-                r.name
-            )
-        })
 }
 
 #[cfg(test)]

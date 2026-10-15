@@ -485,7 +485,6 @@ fn display_mode_bits_preserve_fold_and_preferences_at_boot_and_without_a_resize(
             | ((folded as u32) << 8)
             | (cols << 9)
             | (rows << 17)
-            | (1 << 25)
             | (gamut << 26)
             | ((hdr as u32) << 28)
             | (code << 29);

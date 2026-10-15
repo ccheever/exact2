@@ -14,7 +14,7 @@ component BarBand
     persona = name
   view
     main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="board" position="absolute" inset=0 display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
             text "Team Board" role="heading" aria-level=1
@@ -26,5 +26,5 @@ component BarBand
           text `Signed in as ${persona == "ada" ? "Ada" : "Grace"}` padding="4px 16px 0" testId="me"
           list id="board" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="board"
             section
-              each r in rows key=r
+              for r in rows key=r
                 text `Card ${r}` testId=`card-${r}`

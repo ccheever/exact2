@@ -1,0 +1,21 @@
+tamber under
+
+axes
+  dark-style = black | dim  under scheme=dark
+  density = default | compact
+
+theme
+  light.moved = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#fefefe, #161e27)
+  role.default = -exact-label
+    when dark-style=dim: #f1f3f5
+  role.when = light-dark(#ffffff, #000000)
+    when dark-style=dim: -exact-secondary-label
+  gap: length = 8px
+    when dark-style=dim: 12px
+  inferred = #000
+    when dark-style=dim: 12px
+  hidden.under = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#fefefe, #161e27)
+    when dark-style=dim density=default: light-dark(#ffffff, #161e27)
+    when dark-style=dim density=compact: light-dark(#ffffff, #10161d)

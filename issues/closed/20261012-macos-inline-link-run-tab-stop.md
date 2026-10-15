@@ -83,9 +83,6 @@ Tab; `state.focus.logical` is the focused view.
 | W: the same Tabs | Exact web (JS target), Chrome 155, agent | main `a9ceacf05` | #2 → #4 (`<a>`) → #8 (`<a>`) → #10; Shift+Tab #10 → #8 | (Chrome's answer) | record W |
 | O: an `NSButton`, a read-only `NSTextView` whose "the run" has `NSLinkAttributeName`, an `NSButton`; Tab through the window | AppKit, Keyboard navigation off | — | the buttons are no key views; the text view is one stop; its link is no stop | (AppKit's answer, off) | record O |
 
-Record (the contract, both drives with each focus, the AppKit oracle's source and output, the code read):
-https://raw.githubusercontent.com/ccheever/exact2/92da90510b6a3181178da42ba4fa0224ebe7f3b5/fw-issues-20261012-inline-link-focus/inline-link-focus-record.txt
-
 Not run: Safari; the `NSTextView` with Keyboard navigation on (this Mac's setting); Firefox and WebKit; iOS with a
 hardware keyboard; Linux; a run that wraps across lines; a focus ring on a run.
 

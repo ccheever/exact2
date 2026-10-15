@@ -13,6 +13,7 @@ final class RefreshInsetIOSTests: XCTestCase {
         let owner = NodeView(id: 1, kind: "list", presenter: p)
         owner.frame = CGRect(x: 0, y: 0, width: 390, height: 600)
         owner.style["padding_top"] = 92
+        owner.applyContentBox(padding: [92, 0, 0, 0])
         let scroll = ScrollView(frame: owner.bounds)
         scroll.contentSize = CGSize(width: 390, height: 3000)
         owner.addSubview(scroll)

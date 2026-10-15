@@ -37,7 +37,7 @@ task files-gutter-parity FG-3; declared in the clone's `EXACT2-GAPS.md`).
 ## Reproduction
 
 Main `2b5e4a7dc01c2328a3407ab3b8744a4a6fbbe6d6`, `bun scripts/exact.mjs contract build <file>` on each one-file
-contract (all four and their output are in the record below):
+contract:
 
 ```text
 // A: CSS's own hatch, 45° stripes 2px wide every 8px (5.657px along the gradient line).
@@ -53,11 +53,6 @@ component Hatch
 | C: a `list virtualized=true` with `background-attachment="local"` | `contract build` | main `2b5e4a7dc` | exit 1: `` `background-attachment="local"` is not a valid `background-attachment`: expected one of "scroll", "fixed" `` | builds; the list's background scrolls with its rows | record |
 | D: today's way, an 8px SVG `pattern` in each 20px row of a virtualized list | `contract build` | main `2b5e4a7dc` | builds (8 nodes); each row's stripes start at the row's top, so they break at every row edge | (the limit this issue is about) | record |
 | The oracle: A as each 20px row's own background, and as one background on the scroller with `background-attachment: local`, scrolled 13px, one row two lines tall | Chrome 155.0.8059.39, headless, 2x | — | per row: broken at every row edge; on the scroller: unbroken across every row, and it moves with them | (the reference) | image |
-
-![Chrome: a per-row 8px hatch breaks at every 20px row edge; one hatch on the scroller with background-attachment: local runs across them](https://raw.githubusercontent.com/ccheever/exact2/22a6f95318afd6806d86b42fa1cfd231f1eb93dd/fw-issues-20261011m/hatch-chrome.png)
-
-Record (the four contracts, the commands and output, and the Chrome page):
-https://raw.githubusercontent.com/ccheever/exact2/fc72646d868267355a042910f991fd2c718231ee/fw-issues-20261011m/hatch-record.txt
 
 Not run: painting on any host (each value fails the build first); Linux, Windows, iOS.
 
@@ -232,7 +227,6 @@ No new Rust, web or Linux source changed in c1; their earlier lane results are
 recorded above. UIKit and the wasm conformance build were not run in c1 for
 the reasons stated above. The issue stays open for UIKit qualification and the
 deferred `background-attachment: local` scope.
-
 
 ## Review fix round 1 (2026-10-12)
 

@@ -186,11 +186,13 @@ final class PresenceIOSTests: XCTestCase {
         // The control fills the content box: a border-box minimum also holds
         // the padding and border around it; a content-box one does not.
         p.apply(wireBatch([["op": "style", "id": 10,
-                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]],
+                           contentOp(10, 300, Double(size.height), padding: [6, 0, 4, 0])]))
         drainIntrinsicSizes()
         XCTAssertEqual((reports.last ?? nil)?.height, size.height + 10)
         p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
-                            "w": 300.0, "h": Double(size.height + 10)]]))
+                            "w": 300.0, "h": Double(size.height + 10)],
+                           contentOp(10, 300, Double(size.height + 10), padding: [6, 0, 4, 0])]))
         XCTAssertEqual(control.frame, owner.contentBox())
         XCTAssertEqual(control.frame.height, size.height, "the padding does not squash the control")
         p.apply(wireBatch([["op": "style", "id": 10,

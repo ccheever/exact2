@@ -96,6 +96,7 @@ final class PressFeedbackMacTests: XCTestCase {
     /// no scale. (It showed nothing: "macOS: AppKit's custom views show none".)
     func testAPressableThatDeclaresNoFeedbackShowsThePlatformsPressedLook() throws {
         let (p, v) = fixture(style: ["background_color": [240, 240, 245, 255]])
+        window.appearance = NSAppearance(named: .aqua)
         var pressed: [UInt32] = []
         p.onPress = { pressed.append($0) }
         XCTAssertTrue(v.platformPressTints)
@@ -226,6 +227,22 @@ final class PressFeedbackMacTests: XCTestCase {
         p.root.addSubview(list); p.views[2] = list
         list.container.addSubview(v)
         XCTAssertEqual(v.alphaValue, 0.8, accuracy: 1e-9, "mounted as a row, it is the list's")
+    }
+
+    /// One whose author styles its own disabled state (Contract's
+    /// `disabledStyled`, LLP 1115.000 D6) keeps the author's look, and still
+    /// takes no press.
+    func testADisabledPressableItsAuthorStylesIsNotDimmed() throws {
+        let (p, v) = fixture(style: [:])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true", "disabledStyled": "true"]]]))
+        XCTAssertEqual(v.alphaValue, 1, "the author's look, not the dim")
+        v.mouseDown(with: event(v, .leftMouseDown, 100, 50))
+        v.mouseUp(with: event(v, .leftMouseUp, 100, 50))
+        XCTAssertEqual(pressed, [], "and it takes no press")
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["disabled": "true"], "clear": ["disabledStyled"]]]))
+        XCTAssertEqual(v.alphaValue, 0.5, "without the mark, the dim")
     }
 
     func testThePressFoldsIntoTheEnginesScaleAboutTheOrigin() throws {

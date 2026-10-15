@@ -131,6 +131,9 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
     var kernelContentBox: NSRect?
+    /// The padding layout resolved and sent with `kernelContentBox`: top,
+    /// right, bottom, left (`nil` on a native button's unsaid side).
+    var kernelPadding: [CGFloat?]?
     var fieldInCell = false // a grouped form's field, which is borderless (NativeFieldsMac.swift)
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
@@ -226,7 +229,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     package var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
-    var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    var pressable: Bool { handlers.contains("press") || defaultLink != nil || presenter?.invocation(of: self) != nil }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
     var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
     /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
@@ -849,7 +852,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // and it vanishes. Mute this field's text color — the web's
         // `input::placeholder` (`#3c3c434c` on black type).
         // An authored `::placeholder` colour wins, its alpha its own (LLP 1104 D3).
-        let ink = placeholderColor ?? (isNativeTextControl ? NSColor.placeholderTextColor : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
+        let ink = placeholderColor ?? (isNativeTextControl ? ThemeRoles.color("placeholder", or: NSColor.placeholderTextColor) : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30))
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1009,7 +1012,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func applyStyle(_ s: NodeStyle) {
-        defer { video?.update(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
+        defer { video?.update(); layoutContent(); applyCssVisibility(); if columnRecord?.columns.isEmpty == false { layoutColumnRules() } }
         layerPaintCache = nil
         let origin = style["transform_origin"]
         let old = style
@@ -1252,6 +1255,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layoutTextArea()
         layoutSymbol()
         layoutRowBezel()
+        layoutContent()
     }
 
     /// The reduced radii; the layer fast path additionally requires circles.
@@ -1389,10 +1393,11 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             return
         }
         if selectsText { presenter?.selection.press(self, event: event); return }
-        // NSView forwards a click up the chain: a node under it that took the focus (not a paragraph selecting) keeps it (LLP 1088 D7.3).
+        // A descendant that took focus keeps it (LLP 1088 D7.3). Forward
+        // through the responder chain: NSView's default retries covered siblings.
         let inner = (window?.firstResponder as? NodeView).map { $0 !== self && ($0.tabbable || $0.explicitTabIndex != nil) && (window?.contentView?.hitTest(event.locationInWindow)?.isDescendant(of: $0) ?? false) } ?? false
         if takesClickFocus, !inner { window?.makeFirstResponder(self) }
-        if pressable { pressed = true } else { super.mouseDown(with: event) }
+        if pressable { pressed = true } else { nextResponder?.mouseDown(with: event) }
     }
     /// A paragraph's drag selects its text unless a press takes it: its
     /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
@@ -1416,7 +1421,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
         if selectsText { presenter?.selection.drag(event) }
-        else { super.mouseDragged(with: event) }
+        else { nextResponder?.mouseDragged(with: event) }
     }
     package override func rightMouseUp(with event: NSEvent) {
         pointerReleased(event)
@@ -1448,7 +1453,7 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         if selectsText { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
-        guard pressed else { return super.mouseUp(with: event) }
+        guard pressed else { nextResponder?.mouseUp(with: event); return }
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window

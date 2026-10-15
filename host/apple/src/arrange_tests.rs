@@ -29,8 +29,8 @@ impl DataSource for Rows {
 const SOURCE: &str = r#"component App
   state count = 0
   state disabled = false
-  resource initial = rows() as shape list<string>
-  mutation changed as shape list<string>
+  resource initial = rows() as shape string[]
+  mutation changed as shape string[]
   derive rows = match changed { case some(value) => value, case none => initial }
   action receive(item: string, before: option<string>)
     send changed = move(item, before)
@@ -41,7 +41,7 @@ const SOURCE: &str = r#"component App
     column
       button testId="block" press=block width=60 height=20
       list id="arrange" testId="list" virtualized=true height=100 reorderdrop=receive
-        each x in rows key=x
+        for x in rows key=x
           column reorderFor="arrange" disabled=disabled testId=`grip-${x}` height=20
             text x
 "#;

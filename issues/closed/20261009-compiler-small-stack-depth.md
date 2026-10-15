@@ -58,11 +58,9 @@ component C1
       …                         (15 columns, then C2(), … C7 ends in text "leaf")
 ```
 
-The full file is [x67-deep.contract.txt](https://raw.githubusercontent.com/ccheever/exact2/3cfb286417554abc39f4abc842f5478352fd4356/file-x48-x68/x67-deep.contract.txt). The generators and every run are in the [record](https://raw.githubusercontent.com/ccheever/exact2/fe9850be2a881718e566952874aedcb017f8c297/file-x48-x68/x67-record.txt).
-
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Sweep test over `examples/` | copy the file to `examples/x67-deep/app.contract`; `cargo test -p contract --test it button_migration -- --nocapture` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `thread 'button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete' has overflowed its stack`, `fatal runtime error: stack overflow, aborting`, `signal: 6, SIGABRT` | the file compiles (120 < 256), and the test passes | [record](https://raw.githubusercontent.com/ccheever/exact2/fe9850be2a881718e566952874aedcb017f8c297/file-x48-x68/x67-record.txt) §4 |
+| Sweep test over `examples/` | copy the file to `examples/x67-deep/app.contract`; `cargo test -p contract --test it button_migration -- --nocapture` | macOS 26.6.2, Apple Silicon | main `b896050d7` | `thread 'button_migration::every_app_corpus_and_example_compiles_and_the_button_migration_is_complete' has overflowed its stack`, `fatal runtime error: stack overflow, aborting`, `signal: 6, SIGABRT` | the file compiles (120 < 256), and the test passes | record §4 |
 | Control: the sweep without the file | remove `examples/x67-deep`; same command | same | same | `source sweep: 88 roots, 13 imported source files, 0 failures`, `ok` | — | same |
 | Debug CLI, one file | `cargo build -p contract --bin contract`; `(ulimit -s 2048; target/debug/contract build nest103.contract -o p.plan)` with 103 nested `column`s | same | same | exit 134, stack overflow; 102 nested compile; 4 MiB passes 103 to 209; 8 MiB passes 255 | 255 compile on 2 MiB | same, §1–2 |
 | Debug CLI, the 8×15 chain | `(ulimit -s 2048; target/debug/contract build deep.contract -o p.plan)` | same | same | exit 134; 8 MiB and the optimized build pass | compiles on 2 MiB | same, §1 |

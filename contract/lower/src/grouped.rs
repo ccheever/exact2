@@ -54,7 +54,7 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
             _ => {
                 return err(
                     "lower-grouped-list",
-                    "a `list`'s `appearance` is a literal: `\"auto\"` makes it a grouped list. To switch, write `when` with two lists",
+                    "a `list`'s `appearance` is a literal: `\"auto\"` makes it a grouped list. To switch, write `if` with two lists",
                     a.span,
                 )
             }
@@ -275,8 +275,8 @@ pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Nod
         .collect()
 }
 
-/// `node` with `f` applied to each element it is or holds through `when`,
-/// `each` and `match`.
+/// `node` with `f` applied to each element it is or holds through `if`,
+/// `for` and `match`.
 fn over(
     node: &Node,
     f: &mut dyn FnMut(&Node) -> Result<Node, LowerError>,
@@ -340,17 +340,61 @@ fn is(node: &Node, name: &str) -> bool {
     matches!(node, Node::Element { tag, .. } if tag == name)
 }
 
-/// Whether `node` holds a `header` or `footer` below control flow, where
-/// it would be a row's.
-fn stray_label(node: &Node) -> Option<Span> {
+/// A `header` or `footer` where a row would be: in the rows, or below control
+/// flow (`if`, `for`, `match`, whichever it is).
+struct Stray {
+    tag: String,
+    span: Span,
+    flow: Option<&'static str>,
+}
+
+/// Whether `node` is or holds a `header` or `footer` among the rows.
+fn stray_label(node: &Node) -> Option<Stray> {
+    let flow = |flow, found: Option<Stray>| {
+        found.map(|s| Stray {
+            flow: s.flow.or(Some(flow)),
+            ..s
+        })
+    };
     match node {
-        Node::Element { tag, span, .. } if tag == "header" || tag == "footer" => Some(*span),
+        Node::Element { tag, span, .. } if tag == "header" || tag == "footer" => Some(Stray {
+            tag: tag.clone(),
+            span: *span,
+            flow: None,
+        }),
         Node::Element { .. } | Node::Use { .. } | Node::Children { .. } => None,
         Node::When {
             then, otherwise, ..
-        } => then.iter().chain(otherwise).find_map(stray_label),
-        Node::Each { body, .. } => body.iter().find_map(stray_label),
-        Node::Match { some, none, .. } => some.1.iter().chain(none).find_map(stray_label),
+        } => flow("if", then.iter().chain(otherwise).find_map(stray_label)),
+        Node::Each { body, .. } => flow("for", body.iter().find_map(stray_label)),
+        Node::Match { some, none, .. } => {
+            flow("match", some.1.iter().chain(none).find_map(stray_label))
+        }
+    }
+}
+
+/// LLP 1116.014 D1: the edit that puts a `header` or `footer` where UIKit
+/// draws one. Its words may change (`text (on ? "A" : "B")`); what comes and
+/// goes is a section, since a `header` holds one `text` and nothing else.
+fn stray_message(stray: &Stray) -> String {
+    let (tag, place) = (
+        &stray.tag,
+        if stray.tag == "header" {
+            "first"
+        } else {
+            "last"
+        },
+    );
+    match stray.flow {
+        None => format!(
+            "move `{tag}` to the section's {place} line: a section's `header` comes first and its `footer` last"
+        ),
+        Some("for") => format!(
+            "move `{tag}` to the section's {place} line, outside `for`: a section has one `{tag}`"
+        ),
+        Some(flow) => format!(
+            "move `{tag}` to the section's {place} line, outside `{flow}`: a {tag} that changes is `text (cond ? \"A\" : \"B\")` in it, and one that comes and goes means two `section`s under `{flow}`"
+        ),
     }
 }
 
@@ -389,11 +433,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     }
     let rows = &children[head..children.len() - tail];
     if let Some(stray) = rows.iter().find_map(stray_label) {
-        return err(
-            "lower-grouped-list",
-            "a section's `header` comes first and its `footer` last, outside `when` and `each`",
-            stray,
-        );
+        return err("lower-grouped-list", stray_message(&stray), stray.span);
     }
     // UIKit draws a header or footer as one text.
     for label in children[..head]
@@ -952,7 +992,7 @@ fn row(node: &Node, separated: bool) -> Node {
 }
 
 /// A row's part at `i` of `last + 1`: a leading icon, a trailing
-/// accessory, the title and its value, a subtitle stack. A `when` is read
+/// accessory, the title and its value, a subtitle stack. An `if` is read
 /// through, so a checkmark shown by a condition is styled as one.
 #[derive(Clone, Copy)]
 struct Place<'a> {
@@ -968,7 +1008,7 @@ struct Place<'a> {
     grow: &'a dyn Fn() -> Expr,
 }
 
-/// How many texts come before a part: known, or chosen by one `when`'s
+/// How many texts come before a part: known, or chosen by one `if`'s
 /// condition (then, otherwise). Deeper choices count the fewer.
 #[derive(Clone)]
 enum Count {
@@ -1218,7 +1258,7 @@ fn hidden(node: &Node) -> bool {
 /// reads. A `column` in any other row is the author's.
 fn text_stack(children: &[Node]) -> bool {
     // What the kernel reads at a row's ends, or a condition between it and
-    // nothing (a checkmark shown by a `when`).
+    // nothing (a checkmark shown by an `if`).
     fn either(node: &Node, part: &dyn Fn(&Node) -> bool) -> bool {
         match node {
             Node::When {
@@ -1259,7 +1299,7 @@ fn text_stack(children: &[Node]) -> bool {
         if tag == "column" && text_lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
 }
 
-/// How many texts `nodes` show, fewest and most, a `when` showing one of
+/// How many texts `nodes` show, fewest and most, an `if` showing one of
 /// them included; `None` when anything else is among them.
 fn text_lines(nodes: &[Node]) -> Option<(usize, usize)> {
     nodes.iter().try_fold((0, 0), |(low, high), c| match c {
@@ -1286,7 +1326,7 @@ fn column_row(tag: &str, attrs: &[Attr]) -> bool {
 
 /// Whether a row's part is lines stacked in the row: a shown element that
 /// lays out as a column around two parts or more (a column with nothing in
-/// it is a box, as a cover's placeholder is). `part` reads a `when` through.
+/// it is a box, as a cover's placeholder is). `part` reads an `if` through.
 fn stacks(node: &Node) -> bool {
     matches!(node, Node::Element { tag, attrs, children, .. }
         if !hidden(node) && column_row(tag, attrs) && children.iter().filter(|c| !hidden(c)).count() >= 2)

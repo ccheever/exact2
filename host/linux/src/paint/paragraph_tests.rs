@@ -1,22 +1,13 @@
 use super::*;
 use crate::presenter::{PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
 use std::rc::Rc;
 
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
-
-fn fixture(text: &str) -> Presenter<NoData> {
+fn fixture(text: &str) -> Presenter<()> {
     let source = format!("component App\n  view\n    column width=\"100%\" padding=20 box-sizing=\"border-box\"\n{text}");
     let plan = contract::compile(&source).unwrap();
     let (presenter, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -34,7 +25,7 @@ fn nested_text_paints_the_same_paragraph_that_layout_measured() {
     for width in [300.0, 160.0, 240.0] {
         assert!(plain.resize(width, 300.0).is_none());
         assert!(nested.resize(width, 300.0).is_none());
-        let frame = |p: &Presenter<NoData>| {
+        let frame = |p: &Presenter<()>| {
             let kernel = p.host().kernel();
             kernel
                 .node_by_key(kernel.find_by_test_id("paragraph")[0])
@@ -59,7 +50,7 @@ fn nested_text_paints_the_same_paragraph_that_layout_measured() {
     }
 }
 
-fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> Frame {
+fn scene_frame(p: &Presenter<()>, dark: bool, backend: Box<dyn Backend>) -> Frame {
     let kernel = p.host().kernel();
     let scene = Scene {
         kernel,
@@ -230,6 +221,12 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
     let gpu = match crate::gpu::Gpu::new() {
         Ok(gpu) => gpu,
         Err(error) => {
+            // A missing GPU fails under EXACT_REQUIRED=1, which the async lane sets (scripts/coverage.mjs).
+            assert_ne!(
+                std::env::var("EXACT_REQUIRED").as_deref(),
+                Ok("1"),
+                "missing gpu: {error}"
+            );
             eprintln!("GPU paragraph pixels NOT checked: {error}; common batch test still runs");
             return;
         }
@@ -297,7 +294,7 @@ fn css_strike_through_changes_pixels_without_changing_layout() {
     let mut strike = fixture(
         "      text \"MMMM WWWW\" testId=\"line\" font-size=24 text-decoration=\"line-through\"\n",
     );
-    let frame = |p: &Presenter<NoData>| {
+    let frame = |p: &Presenter<()>| {
         p.host()
             .kernel()
             .node_by_key(p.host().kernel().find_by_test_id("line")[0])
@@ -319,7 +316,7 @@ fn html_maxlength_is_enforced_by_linux_typing() {
     let plan = contract::compile("component App\n  state draft = \"\"\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft input=edit maxlength=3 testId=\"limited\"\n").unwrap();
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (300.0, 300.0),
         1.0,
         std::path::PathBuf::new(),
@@ -377,7 +374,7 @@ fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
     );
     assert_eq!(p.brush.ranks[&id], 1);
     let plan = contract::compile("component App\n  view\n    box width=100 height=100\n").unwrap();
-    p.reload(&plan.encode(), NoData).unwrap();
+    p.reload(&plan.encode(), ()).unwrap();
     p.frame();
     assert_eq!(
         p.brush.rank_passes,

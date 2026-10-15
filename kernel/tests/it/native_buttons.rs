@@ -653,6 +653,7 @@ fn clearing_control_size_and_authored_font_restore_the_platform_em_base() {
         &[Op::ClearStyle {
             id: 2,
             mask: StyleMask::of(StyleId::FontSize),
+            written: false,
         }],
     )
     .unwrap();
@@ -663,6 +664,7 @@ fn clearing_control_size_and_authored_font_restore_the_platform_em_base() {
         &[Op::ClearStyle {
             id: 2,
             mask: StyleMask::of(StyleId::ControlSize),
+            written: false,
         }],
     )
     .unwrap();

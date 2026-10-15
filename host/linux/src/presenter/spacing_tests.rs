@@ -2,22 +2,13 @@
 //! which lay out and paint through this presenter): a control's spacing and
 //! size are the plan's, the same on every host.
 use super::*;
-use exact_runner::{DataError, Value};
 
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn boot(app: &str, scale: f32) -> Presenter<Empty> {
+fn boot(app: &str, scale: f32) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
         &contract::compile(app)
             .unwrap_or_else(|e| panic!("{e}"))
             .encode(),
-        Empty,
+        (),
         (400., 400.),
         scale,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -28,7 +19,7 @@ fn boot(app: &str, scale: f32) -> Presenter<Empty> {
     p
 }
 
-fn rect(p: &mut Presenter<Empty>, test_id: &str) -> (f32, f32, f32, f32) {
+fn rect(p: &mut Presenter<()>, test_id: &str) -> (f32, f32, f32, f32) {
     let k = p.host().kernel();
     let id = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id;
     p.rect_of(id).unwrap()
@@ -113,7 +104,7 @@ const RULED: &str = r##"component App
 "##;
 
 /// The colour of device pixel (x, y) of the painted frame.
-fn pixel(p: &mut Presenter<Empty>, x: u32, y: u32) -> [u8; 3] {
+fn pixel(p: &mut Presenter<()>, x: u32, y: u32) -> [u8; 3] {
     let c = p.frame().pixel(x, y).unwrap().demultiply();
     [c.red(), c.green(), c.blue()]
 }

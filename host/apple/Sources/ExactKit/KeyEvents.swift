@@ -107,7 +107,12 @@ extension Presenter {
             if let node = view as? NodeView, views[node.id] === node, !node.formDisabled, !node.inert {
                 path.append((node.id, node.handlers))
             }
+            #if os(macOS)
+            if let node = view as? NodeView { next = blocks.parent(of: node) }
+            else { next = view.superview }
+            #else
             next = view.superview
+            #endif
         }
         var prevented = false
         func deliver(_ node: (id: UInt32, handlers: Set<String>), _ press: KeyPress) -> Bool {

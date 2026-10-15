@@ -19,7 +19,7 @@ component App
   state ticks = 0
   state trigger = 0
   resource probe = check() as shape number
-  resource big = big(trigger) as shape list<Ack>
+  resource big = big(trigger) as shape Ack[]
   mutation wrote as shape Ack queue refreshes probe then afterWrote
   mutation rec as shape Ack queue
   derive last = match wrote { case some(a) => a.op, case none => "-" }
@@ -59,7 +59,7 @@ component App
     column
       text log testId="log"
       text pending(wrote) ? "busy" : "idle" testId="busy"
-      each a in big key=a.op
+      for a in big key=a.op
         text a.op + a.op
 "#;
 

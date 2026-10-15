@@ -2,16 +2,16 @@
 // read outer callback parameters.
 shape Group
   name: string
-  members: list<string>
-  weights: list<number>
+  members: string[]
+  weights: number[]
 
 component App
-  resource groups = groups() as shape list<Group>
+  resource groups = groups() as shape Group[]
   state minLen = 1
-  derive sizes = join(map(groups, g => length(g.members)), ",")
-  derive long = map(groups, g => filter(g.members, m => length(m) >= minLen))
-  derive labelled = join(map(groups, (g, gi) => join(map(g.members, (m, mi) => `${gi}.${mi}=${m}@${g.name}`), " ")), " | ")
-  derive total = join(map(groups, g => length(filter(g.weights, w => w > minLen))), ",")
+  derive sizes = groups.map(g => g.members.length).join(",")
+  derive long = groups.map(g => g.members.filter(m => m.length >= minLen))
+  derive labelled = groups.map((g, gi) => g.members.map((m, mi) => `${gi}.${mi}=${m}@${g.name}`).join(" ")).join(" | ")
+  derive total = groups.map(g => g.weights.filter(w => w > minLen).length).join(",")
   action raise
     minLen = minLen + 1
   view

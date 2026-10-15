@@ -39,20 +39,7 @@ fn list(
 
 fn from_plan(plan: Plan) -> Result<Harness, InstanceError> {
     let slots = vec![Value::Number(0.0); plan.slots.len()];
-    let mut ids = Ids::default();
-    let mut kernel = Kernel::with_monospace();
-    let sites = crate::instance::SiteIndex::new(&plan);
-    let mut u = Update::new(env(&plan, &slots), &sites, &mut ids);
-    let tree = Tree::create(&mut u)?;
-    kernel.apply(0, 1, &u.ops).unwrap();
-    Ok(Harness {
-        plan,
-        slots,
-        tree,
-        ids,
-        kernel,
-        batch: 1,
-    })
+    Harness::try_from_parts(plan, slots)
 }
 
 fn siblings() -> Harness {

@@ -1,10 +1,18 @@
-//! One `NSURLSession` per lane behind [`AsyncTransport`] (exact2 LLP 1120
-//! D2): tasks with their own delegates, callbacks on the session's serial
-//! queue, the upload lent without a copy. The Objective-C++ half is
+//! A reusable, lazily created `NSURLSession` behind [`AsyncTransport`] (LLP 0068.000 §5): tasks with their own delegates, callbacks on the session's serial
+//! queue, the upload held once and read in bounded chunks. The Objective-C++ half is
 //! `darwin_task.mm`.
 
 use std::ffi::{c_char, c_int, c_uchar, c_void, CStr, CString};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{Arc, OnceLock};
+
+// @ref LLP 0068.000#3-ownership-callbacks-and-cancellation — contain all Rust callbacks across native FFI
+const NATIVE_HEADER_BYTES: usize = 1 << 20;
+struct CallbackState {
+    sink: Box<dyn Sink>,
+    panicked: bool,
+    ended: bool,
+}
 
 use crate::boundary::HostError;
 use crate::stdlib::fetch::Headers;
@@ -91,8 +99,12 @@ impl Drop for Task {
 }
 
 impl AsyncTransport for DarwinLane {
-    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
-        let ctx = Box::into_raw(Box::new(sink)) as *mut c_void;
+    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Result<Exchange, HostError> {
+        let ctx = Box::into_raw(Box::new(CallbackState {
+            sink,
+            panicked: false,
+            ended: false,
+        })) as *mut c_void;
         let block = request
             .headers
             .entries()
@@ -100,6 +112,11 @@ impl AsyncTransport for DarwinLane {
             .map(|(name, value)| format!("{name}: {value}"))
             .collect::<Vec<_>>()
             .join("\n");
+        let valid = crate::stdlib::fetch::is_valid_name(&request.method)
+            && request.headers.entries().iter().all(|(name, value)| {
+                crate::stdlib::fetch::is_valid_name(name)
+                    && crate::stdlib::fetch::is_valid_value(value)
+            });
         let inputs = (
             CString::new(request.method.as_str()),
             CString::new(request.url.as_str()),
@@ -108,7 +125,7 @@ impl AsyncTransport for DarwinLane {
         // Text the platform can't take is refused on the lane's queue,
         // as any other failure known at once.
         let (method, url, block, refusal) = match inputs {
-            (Ok(method), Ok(url), Ok(block)) => (method, url, block, None),
+            (Ok(method), Ok(url), Ok(block)) if valid => (method, url, block, None),
             _ => (
                 CString::default(),
                 CString::default(),
@@ -120,7 +137,7 @@ impl AsyncTransport for DarwinLane {
             Some(upload) if !upload.bytes().is_empty() && refusal.is_none() => (
                 upload.bytes().as_ptr(),
                 upload.bytes().len(),
-                // The platform's reference: freed by the NSData deallocator.
+                // The platform's reference: detached at physical completion.
                 Box::into_raw(Box::new(upload.clone())) as *mut c_void,
             ),
             _ => (std::ptr::null(), 0, std::ptr::null_mut()),
@@ -145,11 +162,11 @@ impl AsyncTransport for DarwinLane {
         };
         let start = Arc::new(Task(start as usize));
         let cancel = start.clone();
-        Exchange::new(
+        Ok(Exchange::new(
             // SAFETY: the start is retained by `Task` for each closure's life.
             move || unsafe { ibex2_darwin_task_activate(start.0 as *mut c_void) },
             move || unsafe { ibex2_darwin_task_cancel(cancel.0 as *mut c_void) },
-        )
+        ))
     }
 }
 
@@ -157,8 +174,23 @@ unsafe fn text<'a>(raw: *const c_char) -> Option<&'a str> {
     (!raw.is_null()).then(|| CStr::from_ptr(raw).to_str().unwrap_or_default())
 }
 
-unsafe fn sink<'a>(ctx: *mut c_void) -> &'a mut Box<dyn Sink> {
-    &mut *(ctx as *mut Box<dyn Sink>)
+unsafe fn state<'a>(ctx: *mut c_void) -> &'a mut CallbackState {
+    &mut *(ctx as *mut CallbackState)
+}
+
+fn callback_flow(ctx: *mut c_void, callback: impl FnOnce(&mut dyn Sink) -> Flow) -> c_int {
+    // SAFETY: native serial delegate queue owns a live CallbackState.
+    let state = unsafe { state(ctx) };
+    if state.panicked || state.ended {
+        return 1;
+    }
+    match catch_unwind(AssertUnwindSafe(|| callback(&mut *state.sink))) {
+        Ok(result) => flow(result),
+        Err(_) => {
+            state.panicked = true;
+            1
+        }
+    }
 }
 
 fn flow(flow: Flow) -> c_int {
@@ -178,7 +210,11 @@ extern "C" fn ibex2_async_head(
 ) -> c_int {
     let mut parsed = Headers::new();
     // SAFETY: a NUL-terminated block the native side owns for this call.
-    for line in unsafe { text(headers) }.unwrap_or_default().lines() {
+    let block = unsafe { text(headers) }.unwrap_or_default();
+    if block.len() > NATIVE_HEADER_BYTES {
+        return 1;
+    }
+    for line in block.lines() {
         if let Some((name, value)) = line.split_once(": ") {
             parsed.set_response(name, value);
         }
@@ -189,7 +225,7 @@ extern "C" fn ibex2_async_head(
         declared_length: u64::try_from(declared).ok(),
     };
     // SAFETY: `ctx` is a live sink, called only from its lane's queue.
-    flow(unsafe { sink(ctx) }.head(head))
+    callback_flow(ctx, |sink| sink.head(head))
 }
 
 #[no_mangle]
@@ -200,7 +236,7 @@ extern "C" fn ibex2_async_data(ctx: *mut c_void, bytes: *const c_uchar, length: 
     // SAFETY: `bytes` spans `length` bytes for this call.
     let bytes = unsafe { std::slice::from_raw_parts(bytes, length) };
     // SAFETY: as `ibex2_async_head`.
-    flow(unsafe { sink(ctx) }.data(bytes))
+    callback_flow(ctx, |sink| sink.data(bytes))
 }
 
 #[no_mangle]
@@ -210,7 +246,17 @@ extern "C" fn ibex2_async_end(ctx: *mut c_void, error: *const c_char) {
         None => Ok(()),
         Some(why) => Err(HostError::Failed(why.to_string())),
     };
-    unsafe { sink(ctx) }.end(result);
+    let state = unsafe { state(ctx) };
+    if state.ended {
+        return;
+    }
+    state.ended = true;
+    let result = if state.panicked {
+        Err(HostError::Failed("HTTP sink callback panicked".into()))
+    } else {
+        result
+    };
+    crate::stdlib::fetch_async::contain(|| state.sink.end(result));
 }
 
 #[no_mangle]
@@ -223,7 +269,7 @@ extern "C" fn ibex2_async_metrics(
     queued_ms: f64,
 ) {
     // SAFETY: as `ibex2_async_head`.
-    let owned = |raw| unsafe { text(raw) }.map(str::to_string);
+    let owned = |raw| unsafe { text(raw) }.map(|value| value.chars().take(512).collect());
     let metrics = HopMetrics {
         protocol: owned(protocol),
         reused: (reused >= 0).then_some(reused == 1),
@@ -231,22 +277,36 @@ extern "C" fn ibex2_async_metrics(
         remote: owned(remote),
         queued_ms: (queued_ms >= 0.0).then_some(queued_ms),
     };
-    unsafe { sink(ctx) }.metrics(metrics);
+    let state = unsafe { state(ctx) };
+    if !state.panicked
+        && !state.ended
+        && catch_unwind(AssertUnwindSafe(|| state.sink.metrics(metrics))).is_err()
+    {
+        state.panicked = true;
+    }
 }
 
 #[no_mangle]
 extern "C" fn ibex2_async_sink_free(ctx: *mut c_void) {
     // SAFETY: the box `start` made, freed once by its delegate.
-    drop(unsafe { Box::from_raw(ctx as *mut Box<dyn Sink>) });
+    crate::stdlib::fetch_async::contain(|| {
+        drop(unsafe { Box::from_raw(ctx as *mut CallbackState) })
+    });
 }
 
 #[no_mangle]
 extern "C" fn ibex2_async_body_free(body: *mut c_void) {
     // SAFETY: the platform's `Arc` reference `start` made, freed once by
-    // the NSData deallocator.
-    drop(unsafe { Box::from_raw(body as *mut Arc<Upload>) });
+    // the native upload owner after its last active read.
+    crate::stdlib::fetch_async::contain(|| {
+        drop(unsafe { Box::from_raw(body as *mut Arc<Upload>) })
+    });
 }
 
 #[cfg(test)]
 #[path = "darwin_async_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "darwin_async_diagnostic.rs"]
+mod diagnostic;

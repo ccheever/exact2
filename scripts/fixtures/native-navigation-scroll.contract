@@ -23,6 +23,6 @@ component NativeNavigationScroll
               row width=20 height=20 background-color="#4577aa"
               text `Profile ${taps}`
           section
-            each name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
+            for name in ["One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen", "Twenty"] key=name
               button press=tap testId=`cold-${name}`
                 text name

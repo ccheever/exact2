@@ -21,6 +21,7 @@ use crate::id::{NodeFlags, NodeKey, ViewId};
 use crate::layout::LayoutMirror;
 use crate::selector::SelectorIndex;
 use crate::wire::Op;
+mod defaults;
 
 /// The deepest a node may sit below the top of its tree (a root is 0). Layout
 /// recurses once per level: a release build uses up to ~3.5 KiB of stack a
@@ -610,7 +611,7 @@ pub(crate) fn continue_document(
     let applied = (|| -> Result<(), ApplyError> {
         for (op_index, op) in ops.iter().enumerate() {
             if !matches!(op, Op::DestroyView { .. }) {
-                detach.flush(arena, layout, selectors);
+                detach.flush(arena, layout, selectors, touched, receipt);
             }
             match op {
                 Op::CreateView { id, node_type } => {
@@ -658,7 +659,7 @@ pub(crate) fn continue_document(
                         if arena.node_type(parent) == NodeType::Text {
                             invalidate_text(arena, layout, parent);
                         }
-                        detach.parent(parent);
+                        detach.parent(parent, arena.default_context(parent));
                         arena.flags_mut(parent).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(parent));
                     }
@@ -688,6 +689,7 @@ pub(crate) fn continue_document(
                     if arena.props(slot).get(*prop) == Some(value) {
                         continue;
                     }
+                    let starts = defaults::before_prop(arena, slot, *prop);
                     let old = arena.set_prop(slot, *prop, value.clone());
                     if *prop == PropId::TestId {
                         selectors.update(
@@ -725,11 +727,13 @@ pub(crate) fn continue_document(
                             invalidate_text_sources(arena, slot);
                         }
                     }
+                    defaults::after_prop(arena, layout, starts, touched, receipt);
                     source_changed(arena, slot, *prop, receipt);
                     touched.push(arena.key(slot));
                 }
                 Op::ClearProp { id, prop } => {
                     let slot = live_slot(arena, op_index, *id)?;
+                    let starts = defaults::before_prop(arena, slot, *prop);
                     if let Some(old) = arena.remove_prop(slot, *prop) {
                         if *prop == PropId::TestId {
                             selectors.update(slot, old.as_str(), None);
@@ -757,6 +761,7 @@ pub(crate) fn continue_document(
                                 invalidate_text_sources(arena, slot);
                             }
                         }
+                        defaults::after_prop(arena, layout, starts, touched, receipt);
                         source_changed(arena, slot, *prop, receipt);
                         touched.push(arena.key(slot));
                     }
@@ -780,14 +785,14 @@ pub(crate) fn continue_document(
                     touched.push(arena.key(slot));
                     propagate_inherited(arena, layout, slot, changed, touched, receipt);
                 }
-                Op::ClearStyle { id, mask } => {
+                Op::ClearStyle { id, mask, written } => {
                     let slot = live_slot(arena, op_index, *id)?;
-                    let changed = arena.style(slot).cleared_mask(*mask);
+                    let changed = arena.style(slot).cleared_mask(*mask, *written);
                     if changed.is_empty() {
                         continue;
                     }
                     let excluded = crate::flow::is_exclusion(arena, slot);
-                    arena.clear_style(slot, *mask);
+                    arena.clear_style(slot, *mask, *written);
                     arena.update_exclusion_count(slot, excluded);
                     if changed.has(crate::StyleId::Display) {
                         receipt.display_changed.push(arena.key(slot));
@@ -809,13 +814,14 @@ pub(crate) fn continue_document(
                     if arena.children(slot) == new.as_slice() {
                         continue;
                     }
+                    let context = arena.default_context(slot);
                     let old: Vec<u32> = arena.children(slot).to_vec();
                     let retained: IdSet<u32> = new.iter().copied().collect();
                     let detached: Vec<_> = old
                         .iter()
                         .copied()
                         .filter(|o| !retained.contains(o))
-                        .map(|o| (o, arena.computed_inherited(o)))
+                        .map(|o| (o, arena.computed_inherited(o), arena.default_context(o)))
                         .collect();
                     for o in &old {
                         if !retained.contains(o) {
@@ -831,29 +837,29 @@ pub(crate) fn continue_document(
                     // rows from its new ancestors: remember what it computed
                     // under the old ones, to propagate only what differs. Orphans
                     // and fresh nodes already compute their own/default rows too.
-                    let moved: Vec<(u32, InheritedStyle)> = new
+                    let moved: Vec<_> = new
                         .iter()
                         .copied()
                         .filter(|n| arena.parent(*n) != Some(slot))
                         .map(|n| {
                             let before = arena.computed_inherited(n);
-                            (n, before)
+                            (n, before, arena.default_context(n))
                         })
                         .collect();
                     // Each arriving child leaves its previous parent, and each
                     // such parent is pruned once — one pass and one engine update
                     // however many of its children moved here.
-                    let mut sources: Vec<u32> = Vec::new();
+                    let mut sources = Vec::new();
                     let mut seen: IdSet<u32> = IdSet::default();
                     for n in &new {
                         if let Some(p) = arena.parent(*n) {
                             if p != slot && seen.insert(p) {
-                                sources.push(p);
+                                sources.push((p, arena.default_context(p)));
                             }
                         }
                         arena.set_parent(*n, Some(slot));
                     }
-                    for p in sources {
+                    for (p, context) in sources {
                         if arena.node_type(p) == NodeType::Text {
                             invalidate_text(arena, layout, p);
                         }
@@ -864,6 +870,7 @@ pub(crate) fn continue_document(
                         crate::kernel::cover_children_changed(arena, layout, p);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
+                        defaults::changed(arena, layout, p, context, touched, receipt);
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
@@ -874,18 +881,21 @@ pub(crate) fn continue_document(
                     }
                     touched.push(arena.key(slot));
                     receipt.layout_invalidated = true;
-                    for (orphan, before) in detached {
+                    defaults::changed(arena, layout, slot, context, touched, receipt);
+                    for (orphan, before, context) in detached {
                         if arena.node_type(orphan) == NodeType::Text {
                             text_nodes.push(arena.key(orphan));
                         }
+                        defaults::changed(arena, layout, orphan, context, touched, receipt);
                         inherited_after_move(arena, layout, orphan, before, touched, receipt);
                     }
-                    for (m, before) in moved {
+                    for (m, before, context) in moved {
                         if arena.node_type(m) == NodeType::Text
                             && (earlier_creations || !created.contains(&m))
                         {
                             text_nodes.push(arena.key(m));
                         }
+                        defaults::changed(arena, layout, m, context, touched, receipt);
                         inherited_after_move(arena, layout, m, before, touched, receipt);
                     }
                 }
@@ -906,7 +916,7 @@ pub(crate) fn continue_document(
         }
         Ok(())
     })();
-    detach.flush(arena, layout, selectors);
+    detach.flush(arena, layout, selectors, touched, receipt);
     applied?;
     for slot in unstyled {
         if let Some(node) = arena.is_live(slot).then(|| arena.taffy(slot)).flatten() {
@@ -1092,7 +1102,7 @@ fn sync_children(arena: &NodeArena, layout: &mut dyn LayoutMirror, parent: u32) 
 /// one op each costs O(N) this way, not O(N²).
 #[derive(Default)]
 struct Detach {
-    parents: Vec<u32>,
+    parents: Vec<(u32, crate::arena::defaults::DefaultContext)>,
     seen: IdSet<u32>,
     selectors: Vec<(String, u32)>,
     nodes: Vec<taffy::NodeId>,
@@ -1101,9 +1111,9 @@ struct Detach {
 }
 
 impl Detach {
-    fn parent(&mut self, parent: u32) {
+    fn parent(&mut self, parent: u32, context: crate::arena::defaults::DefaultContext) {
         if self.seen.insert(parent) {
-            self.parents.push(parent);
+            self.parents.push((parent, context));
         }
     }
 
@@ -1116,18 +1126,21 @@ impl Detach {
         arena: &mut NodeArena,
         layout: &mut dyn LayoutMirror,
         selectors: &mut SelectorIndex,
+        touched: &mut Vec<NodeKey>,
+        receipt: &mut CommitReceipt,
     ) {
         if self.runs.is_empty() {
             return;
         }
         // A parent destroyed later in the run was freed with its list.
-        for parent in self.parents.drain(..) {
+        for (parent, context) in self.parents.drain(..) {
             if arena.is_live(parent) {
                 #[cfg(test)]
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
                 sync_children(arena, layout, parent);
                 crate::kernel::cover_children_changed(arena, layout, parent);
+                defaults::changed(arena, layout, parent, context, touched, receipt);
             }
         }
         self.seen.clear();
@@ -1347,11 +1360,11 @@ fn propagate_inherited(
     let mut stack: Vec<(u32, StyleMask)> =
         arena.children(slot).iter().map(|c| (*c, changed)).collect();
     while let Some((s, rows)) = stack.pop() {
-        let pass = rows.minus(arena.style(s).mask).minus(
-            arena
-                .control_text_start(s)
-                .map_or(StyleMask::EMPTY, |start| start.mask),
-        );
+        let stopped = arena
+            .style_starts(s)
+            .fold(StyleMask::EMPTY, |rows, start| rows.union(start.mask))
+            .minus(arena.style(s).written);
+        let pass = rows.minus(arena.style(s).mask).minus(stopped);
         if pass.is_empty() {
             continue;
         }

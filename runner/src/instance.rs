@@ -4,7 +4,7 @@
 //! trees; research)
 //!
 //! The plan's nodes and regions are *sites*. An instance realizes a site as a
-//! kernel view, an active `when`/`match` arm, or an `each` row per key. Updates
+//! kernel view, an active `if`/`match` arm, or a `for` row per key. Updates
 //! visit sites with changed inputs ([`deps`]) or enclosing rows/arms, evaluating
 //! only stale bindings. They emit binding ops only for changed values,
 //! `SetChildren` only for changed child lists, and create/destroy only for
@@ -20,6 +20,7 @@ mod find;
 mod foresee;
 mod region;
 mod text;
+pub mod theme;
 
 use crate::bridge;
 use crate::vm::{self, Env, Frame, RowSlots, Trap};
@@ -146,6 +147,17 @@ pub struct NodeInst {
     /// Last emitted child list.
     last_children: Vec<ViewId>,
     collection: Option<Box<collection::Collection>>,
+    /// The app tuple its rows and children are in (LLP 1121 D5).
+    tuple: u32,
+    /// Which of its bindings' text read a token.
+    themed: theme::Themed,
+    /// A mode boundary's implied rows, by [`theme::INHERITED`] (D7).
+    implied: Option<Box<[Option<Value>; 8]>>,
+    /// One of its inherited colour rows was set since its children last
+    /// took the text they inherit (D7): they are visited again.
+    colour_moved: bool,
+    /// The tuple around it when its rows were last set.
+    around: u32,
 }
 
 #[derive(Debug)]
@@ -159,20 +171,20 @@ enum Child {
 pub struct RegionInst {
     region: RegionsId,
     active: Active,
-    /// An `each` subject as last keyed: the same object again, with the key's
+    /// A `for` subject as last keyed: the same object again, with the key's
     /// other inputs unchanged, is the same keys.
     subject: Option<Value>,
 }
 
 #[derive(Debug)]
 enum Active {
-    /// `when` / `match`: the active arm and its roots.
+    /// `if` / `match`: the active arm and its roots.
     Arm {
         arm: Option<usize>,
         frame: ArmFrame,
         roots: Vec<Child>,
     },
-    /// `each`: rows by key, in current order.
+    /// `for`: rows by key, in current order.
     Rows { rows: Vec<Row> },
 }
 
@@ -212,19 +224,19 @@ struct Row {
 }
 
 /// One step of the instance path from the plan's roots to a view: the
-/// region crossed and, for an `each` row, its key; for a `when`/`match`
+/// region crossed and, for a `for` row, its key; for an `if`/`match`
 /// region, the active arm (LLP 1035.002 D6 — what identifies *this*
 /// instance of a repeated site).
 #[derive(Debug, Clone, PartialEq)]
 pub enum InstanceStep {
-    /// A keyed row of an `each`.
+    /// A keyed row of a `for`.
     Row {
         /// The region.
         region: RegionsId,
         /// The row's key.
         key: Value,
     },
-    /// The active arm of a `when`/`match`.
+    /// The active arm of an `if`/`match`.
     Arm {
         /// The region.
         region: RegionsId,
@@ -244,6 +256,8 @@ pub struct Ids {
     /// Each plan site's work across its instances' lifetimes, by node
     /// index; empty while nothing is measured (LLP 1079 D1).
     pub(crate) work: crate::perf::Work,
+    /// Every row that read a theme token (LLP 1121 D7).
+    pub theme: theme::ThemeIndex,
 }
 
 impl Ids {
@@ -264,6 +278,7 @@ impl Ids {
 
     /// Forget views `live` says are gone; a measured site keeps the count.
     pub fn retain(&mut self, live: impl Fn(ViewId) -> bool) {
+        self.theme.retain(&live);
         let work = &mut self.work.sites;
         self.sites.retain(|view, node| {
             let keep = live(*view);
@@ -366,7 +381,7 @@ pub struct InstanceWork {
     pub regions_skipped: usize,
     /// Binding expressions evaluated (created or revisited nodes).
     pub bindings_evaluated: usize,
-    /// Rows examined, visited or not: an `each`'s kept rows, a list's
+    /// Rows examined, visited or not: a `for`'s kept rows, a list's
     /// mounted rows, and the rows compared to find the event's view.
     pub rows_scanned: usize,
     /// Derive bodies settlement evaluated (the rest kept their values).
@@ -411,7 +426,7 @@ pub struct Update<'a> {
     /// inside one.
     on_path: bool,
     /// Whether a row the scopes walked so far entered was itself written.
-    /// Every scope nested in it — the rows of an `each` in a child component
+    /// Every scope nested in it — the rows of a `for` in a child component
     /// the row instantiated — reads that row's slots through its frames
     /// ([`vm::Frame::row_of`]), so none of them leaves the path.
     in_written: bool,
@@ -439,15 +454,22 @@ pub struct Update<'a> {
     scratch: vm::Scratch,
     /// Empty lexical-frame buffers, reused within this update only.
     frame_buffers: Vec<Vec<Frame>>,
-    /// A list's `scroll-padding`, top, right, bottom, left, as its style
-    /// resolves it now; asked only while a `scrollIntoView` aligns (LLP 1010
-    /// §6.9). `None` without a kernel to ask.
+    /// Resolved CSS alignment insets, top/right/bottom/left (LLP 1010 §6.9).
     pub scroll_padding: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// Resolved CSS target outsets, top/right/bottom/left.
+    pub scroll_margin: Option<&'a dyn Fn(ViewId) -> [f64; 4]>,
+    /// The app modes around the nodes being visited (LLP 1121 D5).
+    pub theme: theme::Around,
 }
-
 impl<'a> Update<'a> {
     /// A context over `env` with no ops yet.
     pub fn new(env: Env<'a>, sites: &'a SiteIndex, ids: &'a mut Ids) -> Self {
+        // A visit starts in the window's modes (LLP 1121 D5).
+        let theme = theme::Around {
+            tuple: ids.theme.window,
+            retheme: std::mem::take(&mut ids.theme.moved),
+            ..Default::default()
+        };
         Update {
             env,
             fonts: None,
@@ -472,6 +494,8 @@ impl<'a> Update<'a> {
             scratch: vm::Scratch::default(),
             frame_buffers: Vec::new(),
             scroll_padding: None,
+            scroll_margin: None,
+            theme,
         }
     }
 
@@ -531,7 +555,8 @@ impl<'a> Update<'a> {
     /// [`Update::stale`] for reads made `shift` scopes further in (a key or
     /// a row body seen from its region), counting only enclosing frames.
     fn stale_outside(&self, reads: &Reads, shift: u32) -> bool {
-        self.full || self.changed_outside(reads, shift)
+        // A changed tuple sets every themed row again (LLP 1121 D7).
+        self.full || self.theme.retheme || self.changed_outside(reads, shift)
     }
 
     /// Whether an input `reads` names actually changed, whatever
@@ -869,18 +894,30 @@ impl NodeInst {
             children: Vec::new(),
             last_children: Vec::new(),
             collection: None,
+            tuple: u.theme.tuple,
+            themed: theme::Themed::default(),
+            implied: None,
+            colour_moved: false,
+            around: u.theme.tuple,
         };
         inst.emit_bindings(u, frames, true)?;
+        // Its children are created in what it sets: nothing to visit again.
+        inst.colour_moved = false;
+        let saved = inst.enter(u, inst.tuple);
         let lists = u.env.lists;
-        inst.collection = match lists {
-            Some(lists) => (lists.create)(u, node, view, frames)?,
-            None => None,
-        };
-        if inst.collection.is_none() {
-            inst.children = realize(u, Some(node), row.arm, frames)?;
-            inst.emit_children(u);
-        }
-        Ok(inst)
+        let realized = (|| {
+            inst.collection = match lists {
+                Some(lists) => (lists.create)(u, node, view, frames)?,
+                None => None,
+            };
+            if inst.collection.is_none() {
+                inst.children = realize(u, Some(node), row.arm, frames)?;
+                inst.emit_children(u);
+            }
+            Ok(())
+        })();
+        u.theme = saved;
+        realized.map(|()| inst)
     }
 
     /// The value a style binding last emitted.
@@ -921,13 +958,46 @@ impl NodeInst {
         let row = plan.node(self.node);
         let mut patch: Option<Box<StyleProps>> = None;
         let deps = &u.sites.deps;
-        for (i, b) in row.bindings.iter().enumerate() {
-            if !fresh && !u.stale(&deps.bindings[b.0 as usize]) {
+        // A pin is read first: the node's other rows are in the tuple it
+        // makes (LLP 1121 D5). Without a theme, nothing here runs.
+        let themed_plan = !plan.theme.is_empty();
+        let mode = themed_plan
+            .then(|| theme::binding_of(plan, row, exact_kernel::StyleId::Mode))
+            .flatten();
+        let (around, before) = (u.theme.tuple, self.tuple);
+        // The tuple around moved: a pin's row is the tuple it makes over it.
+        let around_moved = !fresh && (u.theme.retheme || around != self.around);
+        self.around = around;
+        let _tuple = theme::Bound::new(around);
+        let mut tuned = mode.is_none();
+        let mut force = false;
+        if tuned {
+            self.tuple = around;
+            bridge::set_tuple(around);
+            force = !fresh && (u.theme.retheme || around != before);
+        }
+        let order = mode
+            .into_iter()
+            .chain((0..row.bindings.len as usize).filter(|i| Some(*i) != mode));
+        for i in order {
+            let b = exact_plan::BindingsId(row.bindings.start + i as u32);
+            if !tuned && Some(i) != mode {
+                self.tuple =
+                    theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+                bridge::set_tuple(self.tuple);
+                force = !fresh && (u.theme.retheme || self.tuple != before);
+                tuned = true;
+            }
+            let forced = match Some(i) == mode {
+                true => around_moved,
+                false => force && self.themed.get(i),
+            };
+            if !fresh && !forced && !u.stale(&deps.bindings[b.0 as usize]) {
                 continue;
             }
             let binding = plan.binding(b);
             let reads = &deps.bindings[b.0 as usize];
-            let before = u.work.bindings_evaluated;
+            let evaluated = u.work.bindings_evaluated;
             let value = if reads.is_constant() {
                 match u.sites.constants[b.0 as usize].get() {
                     Some(value) => value.clone(),
@@ -945,10 +1015,10 @@ impl NodeInst {
             let unchanged = self.last[i]
                 .as_ref()
                 .is_some_and(|last| crate::compare::equal(last, &value) == Some(true));
-            if u.work.bindings_evaluated != before {
+            if u.work.bindings_evaluated != evaluated {
                 u.ids.evaluated(self.node, unchanged);
             }
-            if unchanged {
+            if unchanged && !forced {
                 continue;
             }
             if u.discard {
@@ -967,8 +1037,7 @@ impl NodeInst {
             // invalid at computed-value time (CSS Custom Properties §3.1): the
             // row is unset — inherited or initial — and a journal line says
             // so. Not CSSOM's `setProperty`, which keeps the earlier value:
-            // the view would then depend on history, not state. Unknown rows
-            // are plan defects.
+            // the view would then depend on history, not state. Unknown rows are plan defects.
             match binding.kind {
                 BindingKind::Prop => match bridge::prop_value(binding.id, &value) {
                     Ok((prop, pv)) => u.ops.push(Op::SetProp {
@@ -985,9 +1054,8 @@ impl NodeInst {
                     }
                     Err(e) => return Err(InstanceError::Bridge(e)),
                 },
-                // A class choice's row the chosen style does not set is
-                // `none`: an explicit unset, cleared to the kernel's default.
-                // So is CSS's `unset`, and `inherit` on an inherited row.
+                // A missing class row removes its declaration. An authored CSS
+                // clear keeps declaration intent while inheriting or using the initial value.
                 BindingKind::Style
                     if matches!(value, Value::Option(None))
                         || bridge::unsets(binding.id, &value) =>
@@ -999,7 +1067,9 @@ impl NodeInst {
                     u.ops.push(Op::ClearStyle {
                         id: self.view,
                         mask,
+                        written: binding.written && !matches!(value, Value::Option(None)),
                     });
+                    self.unthemed(u, i, style);
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(Box::default);
@@ -1029,7 +1099,12 @@ impl NodeInst {
                             plan.stacks.len() + u.fonts.as_ref().unwrap().borrow().names().len(),
                         )
                     } else {
-                        bridge::set_binding_style(p, binding, family_value, plan)
+                        exact_kernel::style::theme::take_named();
+                        let styled = bridge::set_binding_style(p, binding, family_value, plan);
+                        if themed_plan {
+                            self.index(u, i, binding, family_value, styled.is_ok());
+                        }
+                        styled
                     };
                     match styled {
                         // Unlinked, the plan names no rule: it was refused at
@@ -1060,6 +1135,7 @@ impl NodeInst {
                             u.ops.push(Op::ClearStyle {
                                 id: self.view,
                                 mask,
+                                written: binding.written,
                             });
                             let name = style.name().replace('_', "-");
                             u.notes.push(invalid(self.view, &name, &value));
@@ -1069,6 +1145,17 @@ impl NodeInst {
                 }
             }
             self.last[i] = Some(value);
+        }
+        if !tuned {
+            self.tuple = theme::tuple_of(plan, mode.and_then(|m| self.last[m].as_ref()), around);
+        }
+        if themed_plan && theme::boundary(plan, row) {
+            bridge::set_tuple(self.tuple);
+            self.boundary_rows(
+                u,
+                &mut patch,
+                fresh || u.theme.retheme || self.tuple != before,
+            );
         }
         if let Some(p) = patch {
             u.ops.push(Op::SetStyle {
@@ -1124,9 +1211,24 @@ impl NodeInst {
 
     fn update(&mut self, u: &mut Update<'_>, frames: &[Frame]) -> Result<(), InstanceError> {
         u.work.nodes_visited += 1;
+        let before = self.tuple;
         self.emit_bindings(u, frames, false)?;
+        let saved = self.enter(u, before);
+        let updated = self.update_children(u, frames);
+        u.theme = saved;
+        updated
+    }
 
+    fn update_children(
+        &mut self,
+        u: &mut Update<'_>,
+        frames: &[Frame],
+    ) -> Result<(), InstanceError> {
         if let Some(collection) = &mut self.collection {
+            collection.around = theme::Around {
+                retheme: false,
+                ..u.theme.clone()
+            };
             let follow = u
                 .env
                 .plan
@@ -1377,123 +1479,4 @@ impl RegionInst {
 mod order_tests;
 
 #[cfg(test)]
-mod site_tests {
-    use super::*;
-    use exact_plan::builder::PlanBuilder;
-
-    #[test]
-    fn reused_frames_preserve_nested_scopes_and_release_rows_on_error() {
-        let plan = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
-            .finish()
-            .unwrap();
-        let sites = SiteIndex::new(&plan);
-        let mut ids = Ids::default();
-        let env = Env {
-            plan: &plan,
-            strings: &[],
-            router: None,
-            lists: None,
-            format: None,
-            geometry: None,
-            slots: &[],
-            derives: &[],
-            resources: &[],
-            params: &[],
-            frames: &[],
-            now_ms: 0.0,
-            pending_resources: &[],
-            failed_resources: &[],
-            failed_why: &[],
-            pending_mutations: &[],
-            store_dependent_derives: &[],
-            store_dependent_resources: &[],
-        };
-        let mut update = Update::new(env, &sites, &mut ids);
-        let outer = Rc::new(RefCell::new(BTreeMap::from([(0, Value::Number(7.0))])));
-        let inner = Rc::new(RefCell::new(BTreeMap::from([(0, Value::Number(9.0))])));
-        let released = [Rc::downgrade(&outer), Rc::downgrade(&inner)];
-        let frame = |row, item| Frame {
-            row: Some(row),
-            region: Some(5),
-            item: Some(Value::Number(item)),
-            ..Frame::default()
-        };
-        let result: Result<(), _> = update.with_frame(&[], frame(outer, 1.0), |update, frames| {
-            assert_eq!(frames.len(), 1);
-            assert_eq!(
-                Frame::row_of(frames, 5).unwrap().borrow()[&0],
-                Value::Number(7.0)
-            );
-            update.with_frame(frames, frame(inner, 2.0), |_, frames| {
-                assert_eq!(frames.len(), 2);
-                assert_eq!(frames[0].item, Some(Value::Number(1.0)));
-                assert_eq!(frames[1].item, Some(Value::Number(2.0)));
-                assert_eq!(
-                    Frame::row_of(frames, 5).unwrap().borrow()[&0],
-                    Value::Number(9.0)
-                );
-                Err(InstanceError::List("nested failure"))
-            })
-        });
-        assert_eq!(result, Err(InstanceError::List("nested failure")));
-        assert!(released.iter().all(|row| row.upgrade().is_none()));
-
-        // The next sibling must see its own scope, without either failed row.
-        update
-            .with_frame(&[], Frame::default(), |_, frames| {
-                assert_eq!(frames, &[Frame::default()]);
-                assert!(Frame::row_of(frames, 5).is_none());
-                Ok(())
-            })
-            .unwrap();
-    }
-
-    #[test]
-    fn site_index_keeps_parent_arm_and_stable_mixed_order() {
-        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
-        let root = b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
-        let late = b.node(NodeType::Text as u8, Some(root), None, 5, &[], &[], None);
-        let early = b.node(NodeType::Text as u8, Some(root), None, 1, &[], &[], None);
-        let yes = b.constant(&Value::Bool(true));
-        let unit = b.constant(&Value::Unit);
-        let (first, arms) = b.region(RegionKind::When, Some(root), None, 5, yes, unit, 2);
-        let (second, _) = b.region(RegionKind::When, Some(root), None, 5, yes, unit, 2);
-        let left = b.node(NodeType::Text as u8, None, Some(arms[0]), 0, &[], &[], None);
-        let right = b.node(NodeType::Text as u8, None, Some(arms[1]), 0, &[], &[], None);
-        let nested = b.node(
-            NodeType::Text as u8,
-            Some(left),
-            Some(arms[0]),
-            0,
-            &[],
-            &[],
-            None,
-        );
-        let plan = b.finish().unwrap();
-        let sites = SiteIndex::new(&plan);
-        assert_eq!(sites.children(None, None), &[(0, Site::Node(root))]);
-        assert_eq!(
-            sites.children(Some(root), None),
-            &[
-                (1, Site::Node(early)),
-                (5, Site::Region(first)),
-                (5, Site::Node(late)),
-                (5, Site::Region(second)),
-            ]
-        );
-        assert_eq!(
-            sites.children(None, Some(arms[0])),
-            &[(0, Site::Node(left))]
-        );
-        assert_eq!(
-            sites.children(None, Some(arms[1])),
-            &[(0, Site::Node(right))]
-        );
-        assert_eq!(
-            sites.children(Some(left), Some(arms[0])),
-            &[(0, Site::Node(nested))]
-        );
-        assert!(sites.children(Some(left), Some(arms[1])).is_empty());
-        assert!(sites.children(Some(right), Some(arms[1])).is_empty());
-    }
-}
+mod site_tests;

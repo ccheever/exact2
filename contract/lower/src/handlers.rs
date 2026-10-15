@@ -28,6 +28,15 @@ impl Lowerer<'_> {
                 a.span,
             );
         }
+        if (event == "beforeinput" || event == "selectionchange" && tag != "text")
+            && control != Some("field")
+        {
+            return err(
+                "lower-attr-tag",
+                format!("`{event}` requires a plain text input or textarea"),
+                a.span,
+            );
+        }
         let (name, args): (&str, &[Expr]) = match &a.value {
             Expr::Ident(n, _) => (n, &[]),
             Expr::Call(n, args, _) => (n, args),
@@ -50,7 +59,11 @@ impl Lowerer<'_> {
         // prop names the real action here: its arity is checked now,
         // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
         let valid = contract_analyze::handler_accepts(
-            event,
+            if event == "selectionchange" && control == Some("field") {
+                "beforeinput"
+            } else {
+                event
+            },
             args.len(),
             &self.types.components[0].actions[ai],
         );

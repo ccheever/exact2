@@ -45,16 +45,16 @@ class IntersectionFixture: XCTestCase {
         window.makeKeyAndVisible()
         #endif
         XCTAssertNil(session.boot(plan: try plan(), size: CGSize(width: 400, height: 400)).error)
-        let root = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "port" })
-        func facts() -> String { session.presenter.views.values.first { $0.props["testId"] == "facts" }?.props["text"] ?? "" }
-        func until(_ value: String) {
+        func facts(_ name: String) -> String { session.presenter.views.values.first { $0.props["testId"] == name }?.props["text"] ?? "" }
+        func until(_ value: String, _ name: String = "facts") {
             let end = Date().addingTimeInterval(20)
-            while facts() != value, Date() < end {
+            while facts(name) != value, Date() < end {
                 RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
             }
-            XCTAssertEqual(facts(), value)
+            XCTAssertEqual(facts(name), value)
         }
-        func scroll(_ top: CGFloat) throws {
+        func scroll(_ top: CGFloat, _ name: String = "port") throws {
+            let root = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == name })
             #if os(macOS)
             let scroll = try XCTUnwrap(root.scroll)
             scroll.contentView.scroll(to: CGPoint(x: 0, y: top))
@@ -80,6 +80,11 @@ class IntersectionFixture: XCTestCase {
         // No scroll handler is declared: geometry reports alone must wake delivery.
         try scroll(60)
         until("4:true:0.6")
+        until("1:true:1", "sticky-facts")
+        try scroll(201, "sticky-port")
+        until("2:false:0", "sticky-facts")
+        try scroll(60, "sticky-port")
+        until("3:true:1", "sticky-facts")
     }
 }
 #if os(macOS)

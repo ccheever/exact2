@@ -20,7 +20,7 @@ pub enum Provider {
 }
 
 impl Provider {
-    /// The provider's lowercase name, for a Contract `when`.
+    /// The provider's lowercase name, for a Contract `if`.
     pub fn name(self) -> &'static str {
         match self {
             Provider::YouTube => "youtube",

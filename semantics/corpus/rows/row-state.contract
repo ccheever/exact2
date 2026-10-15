@@ -1,4 +1,4 @@
-// A child component's state inside `each` rows: every row has its own;
+// A child component's state inside `for` rows: every row has its own;
 // hiding a row and showing it again starts it fresh; rows are keyed by
 // index here, so the surviving rows keep theirs.
 shape Item
@@ -6,17 +6,17 @@ shape Item
   label: string
 
 component App
-  resource a = items(1) as shape list<Item>
-  resource b = items(2) as shape list<Item>
-  resource c = items(3) as shape list<Item>
-  resource d = items(4) as shape list<Item>
+  resource a = items(1) as shape Item[]
+  resource b = items(2) as shape Item[]
+  resource c = items(3) as shape Item[]
+  resource d = items(4) as shape Item[]
   // The longest of four answers, so whatever the oracle's seed some rows
   // are almost surely there.
-  derive ab = length(a) >= length(b) ? a : b
-  derive cd = length(c) >= length(d) ? c : d
-  derive items = length(ab) >= length(cd) ? ab : cd
+  derive ab = a.length >= b.length ? a : b
+  derive cd = c.length >= d.length ? c : d
+  derive items = ab.length >= cd.length ? ab : cd
   state shown = 10
-  derive visible = filter(items, (it, i) => i < shown)
+  derive visible = items.filter((it, i) => i < shown)
   action hide
     shown = 0
   action showOne
@@ -25,8 +25,8 @@ component App
     shown = 10
   view
     column
-      text `${length(visible)}` testId="count"
-      each it, i in visible key=i
+      text `${visible.length}` testId="count"
+      for it, i in visible key=i
         Row(item=it, index=i)
       button "hide" press=hide testId="hide"
       button "one" press=showOne testId="one"

@@ -1,14 +1,11 @@
 // @ref LLP 1115.002 D5, LLP 1115.000 D16 — a vertical `list` is a table
 // on the Mac: AppKit's `NSTableView`, with its selection, its separators
 // and its keys, holding the runner's rows (`TableFeed`, TableFeedMac.swift).
-// This host says which lists.
+// Contract marks the lists whose rows are cells; this host reads that mark.
 //
-// A list is a table when it is a `list` that lays its rows out down the
-// page: one the runner windows (`virtualized`), or any other, whose
-// children are its rows. Not a list that scrolls sideways (a carousel,
-// D16); not `appearance="none"`, the author's opt-out; not
-// `appearance="auto"`, the grouped form, which is painted in the Mac's
-// metrics (LLP 1115.002 D6). Kept painted too, each said once in the log
+// A marked list is a table whether the runner windows its rows or keeps
+// them all mounted. Contract excludes carousels, authored arrangements,
+// grouped forms and sections (D16). Kept painted too, each said once in the log
 // and queued (LLP 1115.002 §3, stage 3b): a list whose rows are in
 // `section`s, a list inside another list's row, and a list whose rows are
 // dragged to reorder.
@@ -31,27 +28,15 @@ final class TableHost {
 
     /// Why `list` is not a table; nil when it is one.
     private func refusal(_ list: NodeView) -> String? {
-        guard let presenter, list.kind == "list" else { return "it is no list" }
+        guard presenter != nil, list.kind == "list" else { return "it is no list" }
         if list.props["listStyle"] != nil { return "appearance=\"auto\": the grouped form, painted (LLP 1115.002 D6)" }
         if list.style["appearance"]?.string == "none" { return "appearance=\"none\": the author's rows" }
-        let windowed = presenter.collections.entries[list.id]?.snapshot
-        // Rows go down the page in a block (the list's own layout) and in a
-        // flex column; a flex row, a grid and a column written upward are
-        // the author's arrangement of items, not rows.
-        let display = list.style["display"]?.string ?? "block", direction = list.style["flex_direction"]?.string ?? "row"
-        if windowed?.horizontal == true || list.props["estimatedItemWidth"] != nil || (display.hasSuffix("flex") && direction != "column") || display.hasSuffix("grid") {
-            return "it lays its items out sideways: a carousel, not rows (LLP 1115.000 D16)"
-        }
-        if let scroll = list.scroll, !scroll.scrollsY { return "it scrolls sideways only" }
+        guard list.props["listRows"] == "true" else { return "Contract leaves its authored rows (LLP 1115.000 D16)" }
         if list.handlers.contains("reorderdrop") { return "its rows are dragged to reorder, which the table does not do yet" }
         var above = list.superview
         while let view = above {
             if view is TableRowCell || (view as? NodeView)?.kind == "list" { return "it is inside another list's row" }
             above = view.superview
-        }
-        if windowed == nil, list.container.subviews.contains(where: { ($0 as? NodeView)?.props["semanticTag"] == "section" })
-            || feeds[list.id]?.children?.contains(where: { $0.props["semanticTag"] == "section" }) == true {
-            return "its rows are in sections, which the table does not show yet"
         }
         return nil
     }

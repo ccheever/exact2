@@ -353,6 +353,43 @@ final class NativeButtonsIOSTests: XCTestCase {
         opener.sendActions(for: .primaryActionTriggered)
         watcher.reset(); watcher.touchesBegan([LocatedTouch(try button(p, 3))], with: UIEvent())
         XCTAssertFalse(p.menus.isOpen(pop), "outside touch reaches production dismissal without agentTap")
+        // An empty commandfor names nothing, so popovertarget acts by its own
+        // action and the leftover command is ignored (HTML): `show` twice stays open.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["commandfor": "", "command": "toggle-popover", "popovertargetaction": "show"]]]))
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop), "an empty commandfor leaves popovertarget to open it")
+        opener.sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop), "and its show keeps it open")
+        // The button that opened it, once it names nothing, is outside it like any other.
+        p.apply(wireBatch([["op": "props", "id": 2, "set": ["popovertarget": ""]]]))
+        watcher.reset(); watcher.touchesBegan([LocatedTouch(opener)], with: UIEvent())
+        XCTAssertFalse(p.menus.isOpen(pop), "a former opener's touch dismisses it")
+    }
+    /// The runner is told where an open popover is by its border box before
+    /// its own transform, which the runner applies itself, and after the
+    /// host's placement, which the runner cannot know: a popover the keyboard
+    /// lifts is told where UIKit shows it in the viewport's visible space,
+    /// and one also scaled to half is told at its full size, centred where
+    /// UIKit shows it.
+    func testAnOpenPopoversTopLayerFrameLeavesItsOwnTransformToTheRunner() throws {
+        let p = presenter(box(1) + native(2, ["popovertarget": "choices"]) + box(4, ["popover": "auto", "id": "choices"], w: 200)
+            + [["op": "children", "id": 1, "ids": [2, 4]], ["op": "roots", "ids": [1]]],
+            faces: [2: face("Open")])
+        let pop = try XCTUnwrap(p.views[4])
+        try button(p, 2).sendActions(for: .primaryActionTriggered)
+        XCTAssertTrue(p.menus.isOpen(pop))
+        func told() throws -> CGRect { try XCTUnwrap(p.openTopLayerFrames.first { $0.0 == 4 }?.1) }
+        // In the viewport's visible space, as every runner read is: less the page's scroll.
+        p.viewport.contentOffset.y = 30
+        func shown() -> CGRect { pop.convert(pop.bounds, to: p.viewport).offsetBy(dx: 0, dy: -30) }
+        pop.keyboardLift = 80
+        pop.applyTransform()
+        XCTAssertEqual(try told(), shown(), "the keyboard's lift is the host's placement")
+        pop.scale = 0.5
+        pop.applyTransform()
+        let seen = shown()
+        XCTAssertEqual(try told().size, pop.bounds.size, "its own scale is the runner's to apply")
+        XCTAssertEqual(CGPoint(x: try told().midX, y: try told().midY), CGPoint(x: seen.midX, y: seen.midY), "about its centre, where UIKit shows it")
     }
     func testAPanCancelsItsTouchAsACustomButtons() {
         let scroll = ScrollView()
@@ -472,7 +509,8 @@ final class NativeButtonsIOSTests: XCTestCase {
         ]
         for (alignment, direction, expected) in cases {
             p.apply(wireBatch([["op": "style", "id": 3, "style": ["text_align": alignment, "direction": direction,
-                               "padding_left": 17.0, "padding_right": 29.0, "padding_top": 3.0, "padding_bottom": 7.0]]]))
+                               "padding_left": 17.0, "padding_right": 29.0, "padding_top": 3.0, "padding_bottom": 7.0]],
+                               contentOp(3, 320, Double(node.bounds.height), padding: [3, 29, 7, 17])]))
             let content = node.contentBox()
             XCTAssertEqual(content.minX, 17)
             XCTAssertEqual(content.maxX, 291)
@@ -638,10 +676,10 @@ final class NativeButtonsIOSTests: XCTestCase {
         faces[2]?.rows.button = ["padding_left": 20]
         let p = presenter(native(2) + [["op": "roots", "ids": [2]]])
         p.buttonFace = { faces[$0] ?? ButtonFace() }
-        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [20.0, 0.0, 100.0, 34.0]]]))
+        p.apply(wireBatch([contentOp(2, 120, 34, padding: [0, 0, 0, 20], button: true)]))
         XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 20)
         faces[2]?.rows.button = ["padding_left": 10]
-        p.apply(wireBatch([["op": "fieldContent", "id": 2, "rect": [10.0, 0.0, 110.0, 34.0]]]))
+        p.apply(wireBatch([contentOp(2, 120, 34, padding: [0, 0, 0, 10], button: true)]))
         XCTAssertEqual(try button(p, 2).configuration?.contentInsets.leading, 10)
     }
 

@@ -84,13 +84,6 @@ fn upload(path: &str) -> Request {
     request
 }
 
-/// Every file body counts against the process's `MAX_READERS`, so the tests
-/// that send them take turns rather than refuse each other.
-fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
-    static TURN: Mutex<()> = Mutex::new(());
-    TURN.lock().unwrap_or_else(|e| e.into_inner())
-}
-
 const GRANTS: &str = "net.fetch https://example.test\nfs.read app:/tmp";
 
 #[test]

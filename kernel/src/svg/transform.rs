@@ -351,8 +351,8 @@ impl TransformOrigin {
     /// (a box's origin, LLP 1061 D6).
     pub fn resolve(&self, width: f32, height: f32) -> (f32, f32) {
         (
-            super::length::resolve(self.x, width),
-            super::length::resolve(self.y, height),
+            resolve_length(self.x, width),
+            resolve_length(self.y, height),
         )
     }
 
@@ -364,8 +364,17 @@ impl TransformOrigin {
     /// The origin in user units, against a reference box `(x, y, w, h)`.
     pub fn point(&self, reference: (f32, f32, f32, f32)) -> (f32, f32) {
         (
-            reference.0 + super::length::resolve(self.x, reference.2),
-            reference.1 + super::length::resolve(self.y, reference.3),
+            reference.0 + resolve_length(self.x, reference.2),
+            reference.1 + resolve_length(self.y, reference.3),
         )
+    }
+}
+
+fn resolve_length(d: Dimension, basis: f32) -> f32 {
+    match d {
+        Dimension::Points(v) => v,
+        Dimension::Percent(p) => basis * p / 100.0,
+        Dimension::Calc(p, v) => basis * p / 100.0 + v,
+        _ => 0.0,
     }
 }

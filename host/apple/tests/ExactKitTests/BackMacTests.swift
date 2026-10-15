@@ -409,10 +409,10 @@ final class BackSessionMacTests: XCTestCase {
             nav = go(nav, location)
           view
             main navigationKey=`${top(nav).id}` navigationBack="back"\(navigate ? " navigate=follow" : "") width="100%" height="100%"
-              each e in stack(nav) key=e.id
+              for e in stack(nav) key=e.id
                 column navigationKey=`${e.id}` position="absolute" inset=0
                   text `${e.name} ${e.url}`
-                  when e.name == "home"
+                  if e.name == "home"
                     button press=open testId="open"
                       text "Open"
 

@@ -211,7 +211,7 @@ final class SidebarHost {
     /// Show what was read, where a controller holds this session's view,
     /// and say in the same step that the tablist's box is the platform's.
     private func present() {
-        guard let shown, let controller, controller.holds(presenter) else { return unproject() }
+        guard let shown, let controller, controller.hasSidebar, controller.holds(presenter) else { return unproject() }
         controller.show(shown)
         if projected !== shown.tablist {
             unprojectView()

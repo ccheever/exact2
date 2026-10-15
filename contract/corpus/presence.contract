@@ -16,6 +16,6 @@ component Presence
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
-      when shown
+      if shown
         text "First" testId="first" class=Row
       text "Second" testId="second" class=Row

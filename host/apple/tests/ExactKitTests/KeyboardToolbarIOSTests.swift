@@ -32,6 +32,7 @@ final class KeyboardToolbarIOSTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 710.0],
             ["op": "content", "id": 2, "w": 400.0, "h": 2000.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 710.0, "w": 400.0, "h": 90.0],
+            contentOp(3, 400, 90, padding: [0, 0, 34, 0]),
             ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 400.0, "h": 2000.0],
             ["op": "frame", "id": 5, "x": 16.0, "y": 8.0, "w": 368.0, "h": 40.0]
         ]))

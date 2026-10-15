@@ -5,7 +5,7 @@
 use crate::sound::{By, SoundOp, Voice};
 use crate::{DataError, DataSource, Runner};
 use exact_kernel::Kernel;
-use exact_plan::Value;
+use exact_plan::{Plan, Value};
 use std::path::PathBuf;
 
 const SOURCE: &str = r#"sound "assets/kick.wav"
@@ -20,7 +20,7 @@ shape Hit
 component Kit
   state n = 0
   state ahead = 0
-  resource hits = hits(n) as shape list<Hit>
+  resource hits = hits(n) as shape Hit[]
   action three
     playSound("assets/kick.wav")
     playSound("assets/kick.wav")
@@ -125,12 +125,24 @@ fn app(source: &str) -> PathBuf {
     dir
 }
 
-fn boot_with(source: &str, n: f64) -> Runner<Kit> {
+/// The plan of `source` in an app directory with the kit's sounds, compiled once per source
+/// for the whole binary: the tests boot fresh runners over a few sources many times.
+fn compiled(source: &str) -> Plan {
+    static PLANS: std::sync::Mutex<Vec<(String, Plan)>> = std::sync::Mutex::new(Vec::new());
+    let mut plans = PLANS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, plan)) = plans.iter().find(|(s, _)| s == source) {
+        return plan.clone();
+    }
     let dir = app(source);
     let plan = contract::compile_path(&dir.join("app.contract")).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
+    plans.push((source.to_owned(), plan.clone()));
+    plan
+}
+
+fn boot_with(source: &str, n: f64) -> Runner<Kit> {
     let mut r = Runner::boot(
-        plan,
+        compiled(source),
         Kit { at: 0.0 },
         Kernel::with_monospace(),
         Default::default(),

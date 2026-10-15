@@ -274,7 +274,11 @@ mod tests {
         assert_eq!(lines.len(), standard.len());
         for f in &standard {
             assert!(
-                lines.iter().any(|l| l.starts_with(&format!("{}(", f.name))),
+                lines.iter().any(|l| l.starts_with(&format!("{}(", f.name))
+                    || l.split(" -> ").next().is_some_and(|call| {
+                        call.contains(&format!(".{}(", f.name))
+                            || call.ends_with(&format!(".{}", f.name))
+                    })),
                 "{} has no line: {lines:#?}",
                 f.name
             );

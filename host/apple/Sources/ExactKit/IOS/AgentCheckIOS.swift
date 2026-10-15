@@ -217,7 +217,7 @@ extension Agent {
                   n.style["box_sizing"]?.string != "border-box",
                   !["absolute", "fixed"].contains(n.style["position_type"]?.string ?? ""),
                   !(["scroll", "auto"].contains(p.style["overflow_x"]?.string ?? "") && (p.style["written"]?.array?.contains(.string("overflow_x")) ?? false)) else { return nil }
-            let pad = n.number("padding_left") + n.number("padding_right"), room = p.contentBox().width, past = n.bounds.width - room
+            let pad = n.padding("left") + n.padding("right"), room = p.contentBox().width, past = n.bounds.width - room
             guard pad > 0.5, past > 1.5, n.bounds.width - pad <= room + 1.5 else { return nil }
             return ["by": Int(p.id), "dx": Double(r2(past)), "pad": Double(r2(pad))]
         }
