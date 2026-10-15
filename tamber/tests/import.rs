@@ -142,6 +142,17 @@ fn a_further_shadcn_theme_class_is_a_proposed_axis() {
             under_dark: false,
         }
     );
+    // The blue theme sets all five overrides' tokens, and a role has one
+    // value: each is offered with no operations, and why.
+    assert_eq!(import.offers.len(), 5);
+    assert!(
+        import.offers.iter().all(|o| o.ops.is_empty()
+            && o.note
+                .as_deref()
+                .is_some_and(|n| n.contains("varies by an app axis"))),
+        "{:?}",
+        import.offers
+    );
     let text = accepted(EMPTY, &import);
     assert!(text.contains("axes\n  theme = default | blue\n"), "{text}");
     assert!(

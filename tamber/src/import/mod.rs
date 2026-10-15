@@ -28,8 +28,8 @@ pub struct Import {
     pub counted: Counted,
 }
 
-/// One offered choice: what it means and its operations (none where it is
-/// not the design's to make).
+/// One offered choice: what it means and its operations (none where the
+/// design cannot carry it, and the note says why).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offer {
     /// What it overrides: a role's row spelling.
@@ -38,7 +38,7 @@ pub struct Offer {
     pub token: String,
     /// Its operations, empty when the change is outside the design.
     pub ops: Vec<Op>,
-    /// What to do by hand when there are no operations.
+    /// Why there are no operations, when there are none.
     pub note: Option<String>,
 }
 

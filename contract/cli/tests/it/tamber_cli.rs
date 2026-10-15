@@ -118,3 +118,38 @@ fn a_refusal_names_its_line_and_a_mode_is_axis_equals_value() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&good);
 }
+
+/// An importer's whole transaction, every offer accepted, compiles: the
+/// Tamber checker does not see what lowering refuses, such as a role
+/// override that varies by an app axis (`tamber-role-axis`).
+#[test]
+fn a_shadcn_import_with_every_offer_accepted_compiles() {
+    use exact_tamber::import::shadcn;
+    let vocab = contract_lower::tamber_vocab();
+    for file in [
+        "shadcn-neutral.css",
+        "shadcn-blue.css",
+        "shadcn-neutral-themes.css",
+    ] {
+        let css = std::fs::read_to_string(format!(
+            "{}/../../tamber/tests/import/{file}",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap();
+        let empty = "tamber app\n";
+        let import =
+            shadcn::import(&css, "shadcn", &exact_tamber::parse(empty).unwrap(), &vocab).unwrap();
+        let mut ops = import.ops.clone();
+        ops.extend(import.offers.iter().flat_map(|o| o.ops.clone()));
+        let design = exact_tamber::apply_all(empty, &ops, &vocab).unwrap().text;
+        let dir = app(&file.replace('.', "-"), &design);
+        std::fs::write(
+            dir.join("app.contract"),
+            "component App\n  view\n    text \"a\" color=\"shadcn.primary\" background-color=\"shadcn.background\"\n",
+        )
+        .unwrap();
+        if let Err(e) = contract::compile_path(&dir.join("app.contract")) {
+            panic!("{file}: {e:?}\n{design}");
+        }
+    }
+}
