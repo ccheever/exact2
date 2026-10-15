@@ -126,3 +126,19 @@ fn an_apostrophe_in_a_word_is_no_quote() {
     let design = exact_tamber::parse(src).unwrap();
     assert_eq!(design.tokens[0].value.value, "People's");
 }
+
+#[test]
+fn an_axis_value_called_under_is_a_value() {
+    for src in [
+        "tamber t\n\naxes\n  mode=under|over\n",
+        "tamber t\n\naxes\n  mode=over|under\n",
+    ] {
+        let out = format(src).unwrap();
+        assert_eq!(format(&out).unwrap(), out);
+        assert_eq!(
+            exact_tamber::parse(&out).unwrap().axes[0].values.len(),
+            2,
+            "{out}"
+        );
+    }
+}

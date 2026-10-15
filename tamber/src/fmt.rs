@@ -3,8 +3,9 @@
 //! their order; a block's entries are indented two spaces under its name and
 //! a token's `when` lines two more; `name = value` takes one space each side,
 //! metadata (and a dial's range) follow the value after two spaces; a
-//! trailing comment follows after two spaces; a comment line takes the indent
-//! of the line it precedes. One blank line separates the header and each
+//! trailing comment follows after two spaces; a comment line keeps its own
+//! indent's level (one before a block's first entry takes the entry's), so an
+//! edit around it moves it nowhere. One blank line separates the header and each
 //! block; inside a block a run of blank lines is one, and none opens or
 //! closes it. Each value's text is kept as written, as Contract's formatter
 //! keeps a literal's spelling. Formatting a formatted design changes nothing.
@@ -145,7 +146,11 @@ fn axis(l: &Line) -> String {
     let Some((name, rest)) = l.text.split_once('=') else {
         return l.text.clone();
     };
-    let (values, under) = match rest.split_once(" under ") {
+    // The clause as the parser finds it: an `under` with no `|` after it.
+    let (values, under) = match rest
+        .rsplit_once(" under ")
+        .filter(|(_, after)| !after.trim().is_empty() && !after.contains('|'))
+    {
         Some((v, u)) => (v, Some(u.trim())),
         None => (rest, None),
     };

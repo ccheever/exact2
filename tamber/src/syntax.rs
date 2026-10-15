@@ -286,7 +286,12 @@ fn axis(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Axis> {
         return None;
     };
     let name = name.trim();
-    let (values, under_dark) = match rest.split_once(" under ") {
+    // The clause follows the values: an `under` with no `|` after it (a
+    // value may be called `under`).
+    let clause = rest
+        .rsplit_once(" under ")
+        .filter(|(_, after)| !after.trim().is_empty() && !after.contains('|'));
+    let (values, under_dark) = match clause {
         Some((values, under)) if lex::tight_equals(under.trim()) == "scheme=dark" => (values, true),
         Some((_, under)) => {
             errors.push(syntax(
