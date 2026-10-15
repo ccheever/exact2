@@ -956,9 +956,9 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(await read.promise).toBe('two');
   expect(await ask('flood').promise).toBe('full');
   expect(journal.some(l => l.endsWith('storage refused: full (writeFile app:/data/flood)'))).toBe(true);
+  // Wait until the queue is empty and its operations stop counting in flight, a task after each lands (ts-data.js)
   const drained = async () => {
-    for (let i = 0; i < 500 && (data.background().queued || data.background().inFlight); i++) await new Promise(r => setTimeout(r, 2));
-    await new Promise(r => setTimeout(r, 10));
+    while (data.background().queued || data.background().inFlight || inflight.n > before) await new Promise(r => setTimeout(r, 50));
   };
   await drained(); // the flood's 257 run in order first
   ask('bad', 'x');
@@ -966,7 +966,7 @@ test('storage keeps the order issued, a bound, a count, and a journal', async ()
   expect(inflight.n).toBe(before);
   expect(data.background()).toMatchObject({ queued: 0, inFlight: 0, failed: 1, last: 'storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file' });
   expect(journal.some(l => l.endsWith('storage failed: atomicWriteFile app:/data/absent/x: ENOENT filesystem: No such file'))).toBe(true);
-});
+}, 30_000); // hang bound
 
 // `fs.compressImage` on the JS target (LLP 1069.002 A1.1): its options are
 // checked and copied before it is queued; a bad one is a TypeError that
