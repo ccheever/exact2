@@ -289,6 +289,7 @@ fn run_plan<D: DataSource>(
     let flag = woken.clone();
     host.listen(Arc::new(move || flag.store(true, Ordering::SeqCst)));
     let start = Instant::now();
+    host.live_from(start);
     let pump = |host: &mut Host<D>, vt: &mut crate::vt::Vt| {
         if woken.swap(false, Ordering::SeqCst) {
             host.announced();

@@ -600,6 +600,14 @@ impl<D: DataSource> Host<D> {
         self.after_commit();
     }
 
+    /// The loop's clock, milliseconds since `start`, owns time (the timers
+    /// RFC, D1): a repeat that missed beats fires once, and every commit
+    /// observes the clock.
+    pub fn live_from(&mut self, start: std::time::Instant) {
+        let sample = move || start.elapsed().as_secs_f64() * 1000.0;
+        self.runner.set_live_clock(Some(Box::new(sample)));
+    }
+
     /// Advance the app's clock: timers fire.
     pub fn tick(&mut self, now_ms: f64) {
         if !self.runner.advance_timed(now_ms).receipts.is_empty() {
@@ -1090,3 +1098,7 @@ mod notify_tests {
 #[cfg(test)]
 #[path = "host_invocation_tests.rs"]
 mod invocation_tests;
+
+#[cfg(test)]
+#[path = "host_clock_tests.rs"]
+mod clock_tests;
