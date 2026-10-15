@@ -597,9 +597,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                --assets declares game.assets
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
-  exact tamber check|eval|ir <app>  the app's design (app.tamber): checked, its
-                               tokens in one mode (eval --mode dark-style=dim),
-                               or its IR, tamber.json (ir -o <file>)
+  exact tamber check|eval|ir|fmt <app>  the app's design (app.tamber): checked,
+                               its tokens in one mode (eval --mode dark-style=dim),
+                               its IR, tamber.json (ir -o <file>), or its layout (fmt)
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,

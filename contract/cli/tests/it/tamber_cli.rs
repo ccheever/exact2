@@ -66,6 +66,28 @@ fn check_eval_and_ir_read_the_apps_design() {
 }
 
 #[test]
+fn fmt_writes_the_layout_and_check_writes_nothing() {
+    let dir = app("fmt", "tamber t\ntheme\n    ink=#000000\n");
+    let at = dir.to_str().unwrap();
+    let file = dir.join("app.tamber");
+    let (ok, _, err) = contract(&["tamber", "fmt", "--check", at]);
+    assert!(!ok && err.contains("not in tamber fmt's layout"), "{err}");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "tamber t\ntheme\n    ink=#000000\n"
+    );
+    let (ok, out, _) = contract(&["tamber", "fmt", at]);
+    assert!(ok && out.contains("formatted"), "{out}");
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "tamber t\n\ntheme\n  ink = #000000\n"
+    );
+    let (ok, _, _) = contract(&["tamber", "fmt", at, "--check"]);
+    assert!(ok);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_refusal_names_its_line_and_a_mode_is_axis_equals_value() {
     let dir = app("bad", "tamber t\n\ntheme\n  a = #zzz\n");
     let (ok, _, err) = contract(&["tamber", "check", dir.to_str().unwrap()]);

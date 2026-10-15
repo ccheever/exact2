@@ -1193,7 +1193,6 @@ test('Arrange terminal reservation survives grip replacement until explicit fini
   })()`);
   expect(result).toEqual({terminal:5,ended:0,wrapperLive:true,pending:0});
 });
-
 // Real DOM mapping, C0 rebasing and stacking; Common authority is tested in Rust.
 test('Arrange mapping uses signed list origin inside a bordered nested port', async()=>{
   const r=await evaluate(`(() => {const f=fixture();f.controller.commit([f.snapshot()]);f.flush();

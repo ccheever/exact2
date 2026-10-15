@@ -33,7 +33,7 @@ impl Script {
         let started = self.started.lock().unwrap();
         let (started, _) = self
             .changed
-            .wait_timeout_while(started, Duration::from_secs(5), |s| s.len() < n)
+            .wait_timeout_while(started, HANG, |s| s.len() < n)
             .unwrap();
         started.len()
     }
@@ -158,8 +158,13 @@ fn job(ticket: u64, request: Request) -> RequestOut {
     }
 }
 
+/// How long a wait may take before the test calls it a hang. Every wait
+/// returns once its condition holds; 5 s was outlasted under the blocking
+/// checks' load (`a_panicking_transport_releases_its_physical_hold_and_the_lane_survives`).
+const HANG: Duration = Duration::from_secs(30);
+
 fn collect(core: &Core, woke: &Receiver<()>, count: usize) -> Vec<(u64, Outcome)> {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + HANG;
     let mut outcomes = vec![];
     while outcomes.len() < count {
         core.begin_pump();
@@ -176,11 +181,11 @@ fn bytes(core: &Core) -> [usize; 2] {
     core.shared.state.lock().unwrap().bytes
 }
 
-/// `until` within five seconds.
+/// `until` within the hang bound.
 fn eventually(mut until: impl FnMut() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    let deadline = Instant::now() + HANG;
     while !until() {
-        assert!(Instant::now() < deadline, "not within five seconds");
+        assert!(Instant::now() < deadline, "not within the hang bound");
         std::thread::sleep(Duration::from_millis(5));
     }
 }
@@ -854,11 +859,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
         match phase {
             ReaderPhase::Read => {
                 at_read.send(()).unwrap();
-                released
-                    .lock()
-                    .unwrap()
-                    .recv_timeout(Duration::from_secs(5))
-                    .unwrap();
+                released.lock().unwrap().recv_timeout(HANG).unwrap();
             }
             ReaderPhase::Finished(cancelled) => observed.send(cancelled).unwrap(),
             _ => {}
@@ -870,7 +871,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
         None,
     )
     .unwrap();
-    reading.recv_timeout(Duration::from_secs(5)).unwrap();
+    reading.recv_timeout(HANG).unwrap();
     // Force the bad historical order: cleanup has removed FileJob and its
     // retirement registration before Core fires the shared abort.
     core.shared.state.lock().unwrap().retired = true;
@@ -878,7 +879,7 @@ fn retirement_cancels_a_reader_after_its_file_job_was_disposed() {
     eventually(|| machine.queued_uploads().0 == 0);
     drop(core);
     release.send(()).unwrap();
-    assert!(result.recv_timeout(Duration::from_secs(5)).unwrap());
+    assert!(result.recv_timeout(HANG).unwrap());
     assert!(script.started.lock().unwrap().is_empty());
 }
 
@@ -932,7 +933,7 @@ fn an_unstarted_upload_stays_charged_while_its_disposer_is_blocked() {
             failed(FailureKind::Aborted, "unused")
         })));
     core.shared.ready.notify_all();
-    disposing.recv_timeout(Duration::from_secs(5)).unwrap();
+    disposing.recv_timeout(HANG).unwrap();
     let mut request = upload("https://upload.example.test/", "app:/tmp/file", 1024);
     request.timeout_ms = Some(1_000);
     core.run(job(100, request), None).unwrap();

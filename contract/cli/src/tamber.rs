@@ -11,6 +11,7 @@ const USAGE: &str = "usage:
   contract tamber check <app dir | app.contract | file.tamber>
   contract tamber eval <app dir | app.contract | file.tamber> [--mode <axis>=<value>[,…]]
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
+  contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
@@ -29,6 +30,10 @@ pub fn run(args: &[String]) -> ExitCode {
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--check" => {
+                rest.push("--check".to_string());
+                i += 1;
+            }
             flag @ ("--mode" | "-o") if i + 1 < args.len() => {
                 rest.push(flag.to_string());
                 rest.push(args[i + 1].clone());
@@ -51,7 +56,8 @@ pub fn run(args: &[String]) -> ExitCode {
     let rest = rest.as_slice();
     // A verb takes only its own flag: refused before the design is read.
     let fits = match (verb, rest) {
-        ("check", []) | ("eval", []) | ("ir", []) => true,
+        ("check", []) | ("eval", []) | ("ir", []) | ("fmt", []) => true,
+        ("fmt", [flag]) => flag == "--check",
         ("eval", [flag, _]) => flag == "--mode",
         ("ir", [flag, _]) => flag == "-o",
         _ => false,
@@ -71,6 +77,9 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    if verb == "fmt" {
+        return fmt(&path, &src, !rest.is_empty());
+    }
     let folding = match exact_tamber::check(&src, &contract_lower::tamber_vocab()) {
         Ok(folding) => folding,
         Err(all) => {
@@ -224,4 +233,35 @@ fn eval(folding: &exact_tamber::Folding, modes: &str) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// `tamber fmt` (LLP 1121 §3): the design in its canonical layout, written
+/// in place; with `check`, nothing written and exit 1 where it would change.
+fn fmt(path: &Path, src: &str, check: bool) -> ExitCode {
+    let formatted = match exact_tamber::format(src) {
+        Ok(f) => f,
+        Err(all) => {
+            for d in &all {
+                eprintln!("{}:{d}", path.display());
+            }
+            return ExitCode::from(1);
+        }
+    };
+    if formatted == src {
+        return ExitCode::SUCCESS;
+    }
+    if check {
+        eprintln!("{}: not in tamber fmt's layout", path.display());
+        return ExitCode::from(1);
+    }
+    match std::fs::write(path, formatted) {
+        Ok(()) => {
+            println!("{}: formatted", path.display());
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("contract tamber: {}: {e}", path.display());
+            ExitCode::from(2)
+        }
+    }
 }
