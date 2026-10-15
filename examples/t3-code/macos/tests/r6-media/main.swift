@@ -129,7 +129,10 @@ final class MediaPreviewTests: XCTestCase {
         XCTAssertEqual(evaluate(web, "String(document.getElementById('i').naturalWidth)"), "12", "an image from another host painted")
         XCTAssertEqual(evaluate(web, "document.querySelector('iframe').getAttribute('sandbox')", frame: false), "allow-scripts allow-forms allow-popups allow-modals")
         save(web, "r6-media-html.png")
-        _ = evaluate(web, "document.getElementById('b').click(); document.getElementById('t').click(); 'clicked'")
+        // One click per script: WebKit drops a new window a second navigation in the same turn supersedes.
+        _ = evaluate(web, "document.getElementById('b').click(); 'clicked'")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        _ = evaluate(web, "document.getElementById('t').click(); 'clicked'")
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         XCTAssertEqual(evaluate(web, "document.getElementById('s').textContent"), "ran:null", "neither the popup nor the top link moved the frame")
         XCTAssertEqual(web.url?.absoluteString, "\(base)/api/assets/", "the window still shows the wrapper")
@@ -141,6 +144,7 @@ final class MediaPreviewTests: XCTestCase {
         let reached = Set(other.seen.map { String($0.split(separator: "?").first ?? "") })
         XCTAssertEqual(reached, ["/script.js", "/img.svg", "/beacon-fetch", "/next.html"], "other hosts are reachable; the popup and the top navigation are not")
         XCTAssertTrue(media.refused.contains { $0.hasSuffix("/beacon-blank") }, "the popup was refused (opened externally outside the agent): \(media.refused)")
+        XCTAssertEqual(media.opened, ["\(away)/beacon-blank"], "the target=_blank link went to the default browser, the target=_top one nowhere")
         XCTAssertEqual(Set(assets.seen.map { String($0.split(separator: "?").first ?? "") }), ["/api/assets/page"])
         XCTAssertEqual(web.appearance?.name, .aqua)
     }
@@ -230,6 +234,7 @@ final class MediaPreviewTests: XCTestCase {
         try Data("""
         <!doctype html><title>draft</title><p id=s>no script</p><img id=r src="sibling.png" alt="">
         <a id=l href="\(away)/next.html">link</a> <a id=b href="\(away)/beacon-blank" target="_blank">popup</a> <a id=t href="\(away)/beacon-top" target="_top">top</a>
+        <a id=f href="#second">fragment</a><div style="height:4000px"></div><h2 id=second>second</h2>
         <script>document.getElementById('s').textContent = 'ran:' + self.origin;</script>
         """.utf8).write(to: root.appendingPathComponent(pageID))
         try Data(repeating: 0, count: 64).write(to: root.appendingPathComponent(audioID))
@@ -260,10 +265,20 @@ final class MediaPreviewTests: XCTestCase {
         spin(until: { frame("document.getElementById('s').textContent") == "ran:null" }, timeout: 5)
         XCTAssertEqual(frame("document.getElementById('s').textContent"), "ran:null")
         XCTAssertEqual(frame("String(document.getElementById('r').naturalWidth)"), "0", "a sibling is not found, as a Blob page's")
-        _ = frame("document.getElementById('b').click(); document.getElementById('t').click(); 'clicked'")
+        // One click per script: WebKit drops a new window a second navigation in the same turn supersedes.
+        _ = frame("document.getElementById('b').click(); 'clicked'")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.8))
+        _ = frame("document.getElementById('t').click(); 'clicked'")
         RunLoop.main.run(until: Date().addingTimeInterval(0.8))
         XCTAssertEqual(frame("document.getElementById('s').textContent"), "ran:null", "neither the popup nor the top link moved the frame")
         XCTAssertEqual(web.url?.absoluteString, wrapper, "the window still shows the wrapper")
+        XCTAssertEqual(media.opened, ["\(away)/beacon-blank"], "the target=_blank link went to the default browser, the target=_top one nowhere")
+        // A link to the page's own fragment scrolls the frame in place, as in the reference's Blob page.
+        _ = frame("document.getElementById('f').click(); 'clicked'")
+        spin(until: { frame("location.hash") == "#second" }, timeout: 5)
+        XCTAssertEqual(frame("location.hash"), "#second", "the fragment link navigated the frame in place")
+        XCTAssertNotEqual(frame("String(Math.round(scrollY))"), "0", "and scrolled it to the section")
+        XCTAssertEqual(web.url?.absoluteString, wrapper)
         _ = frame("document.getElementById('l').click(); 'clicked'")
         spin(until: { frame("String(document.getElementById('n') && document.getElementById('n').textContent)") == "navigated" }, timeout: 5)
         XCTAssertEqual(frame("document.getElementById('n').textContent"), "navigated", "the link navigated the frame in place")

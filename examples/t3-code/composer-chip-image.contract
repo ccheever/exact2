@@ -5,7 +5,9 @@
 // 40pt above the top-right corner, the name and position below). The draft image is a local file the host's `image`
 // does not load (only http(s) and assets), so the snapshot tile hatch paints it (T3SnapShot.swift `fit:`): the box is
 // the largest the image may take and the picture sits in its centre, so the close button is at that box's corner.
-use FocusGuard from "./dialog-trap.contract"
+// Its stops are buttons only (dialog-trap.contract ControlGuard), and a press on the backdrop leaves the focus where it
+// was, so closing gives it back to the prompt (composer-chip-file.contract says why).
+use ControlGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 use PreviewStep from "./timeline-attachments.contract"
 
@@ -30,11 +32,19 @@ component ComposerImageDialog
   derive maxWidth = windowWidth * 0.92 - 6 * rem
   derive maxHeight = min(windowHeight * 0.86, windowHeight - 160)
   derive dialogTargets = [(preview.many ? "chip-image-previous" : ""), "chip-image-close", (preview.many ? "chip-image-next" : "")]
+  // ExpandedImageDialog's onKeyDown: over several images ← and → step as Previous and Next do, whatever the modifiers.
+  action keys(k: string, e: KeyboardEvent)
+    if preview.many and (k == "ArrowLeft" or k == "ArrowRight")
+      preventDefault()
+      stopPropagation()
+      command(k == "ArrowLeft" ? "editorlocal:chip-image-previous" : "editorlocal:chip-image-next", "", "", 0)
+    else
+      dialogFallback("chip-image-preview", dialogTargets, k, e)
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="chip-image-preview" id="chip-image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-image-preview") key=dialogFallback("chip-image-preview", dialogTargets)
-      FocusGuard(guardId="chip-image-preview-guard-start", targets=dialogTargets, popup="chip-image-preview")
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="chip-image-preview" id="chip-image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-image-preview") key=keys
+      ControlGuard(guardId="chip-image-preview-guard-start", targets=dialogTargets, popup="chip-image-preview")
       DialogOpenFocus(target="chip-image-close")
-      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
+      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 retainFocus=true position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
         PreviewStep(label="Previous media", shown=preview.many, flip=true, press=command("editorlocal:chip-image-previous", "", "", 0), elementId="chip-image-previous", testId="chip-image-previous")
         column min-width=0 align-items="center"
@@ -45,4 +55,4 @@ component ComposerImageDialog
                 path d="M18 6 6 18M6 6l12 12"
           text (preview.position != "" ? `${preview.name} ${preview.position}` : preview.name) margin-top="0.5rem" max-width=maxWidth line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
         PreviewStep(label="Next media", shown=preview.many, flip=false, press=command("editorlocal:chip-image-next", "", "", 0), elementId="chip-image-next", testId="chip-image-next")
-      FocusGuard(guardId="chip-image-preview-guard-end", targets=dialogTargets, popup="chip-image-preview")
+      ControlGuard(guardId="chip-image-preview-guard-end", targets=dialogTargets, popup="chip-image-preview")
