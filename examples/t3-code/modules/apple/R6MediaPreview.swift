@@ -29,10 +29,12 @@ import WebKit
 ///   sheets; `prompt()` returns null, as in Electron. A non-persistent data store.
 ///
 /// A draft's file (`t3-staged:<id>`, the composer chip's preview) is read from its staged copy, as the reference reads the
-/// draft's Blob: a PDF the same way; an HTML page as its own document at a URL that is never fetched, under the server's
-/// sandbox policy as a response header, so it has the same opaque origin and no top navigation, and, like a Blob's
-/// page, no siblings; an audio file in an AVPlayerView with inline controls (AudioPreview's `<audio controls>`), whose
-/// typed link beside the staged copy names its type for AVFoundation.
+/// draft's Blob: a PDF the same way; an HTML page in the same wrapper and sandboxed frame as a sent one, both served
+/// to that web view alone by `R6DraftPages` (`t3-draft://<token>/`), so the page has the frame's opaque origin and
+/// its rules (a link navigates the frame in place, a popup opens externally, the window never navigates) and, as a
+/// Blob URL's page has, no siblings: any other path under the token is not found; an audio file in an AVPlayerView
+/// with inline controls (AudioPreview's `<audio controls>`), whose typed link beside the staged copy names its type for
+/// AVFoundation.
 final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     static let maximumBytes = 64 * 1024 * 1024
     /// The iframe's sandbox, as BrowserDocumentFrame.tsx sets it.
@@ -124,14 +126,11 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     static let stagedScheme = "t3-staged:"
-    /// Where a draft's page is shown: never fetched, so nothing but the page itself loads at it.
-    static let stagedPageOrigin = "https://draft.t3.invalid/"
-    /// The server's policy for a page attachment, as the sandboxed frame has it.
-    static let stagedPagePolicy = "sandbox \(frameSandbox)"
 
     private func mountStaged(host: NSView, key: ObjectIdentifier, identity: String, kind: String, id: String, name: String) {
         guard ["pdf", "html", "audio"].contains(kind) else { return }
-        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : kind == "html" ? webView(name: name) : Self.audioView(name: name)
+        let pages = kind == "html" ? R6DraftPages() : nil
+        let view: NSView = kind == "pdf" ? R6PDFBody(name: name) : kind == "html" ? webView(name: name, drafts: pages) : Self.audioView(name: name)
         view.frame = host.bounds
         view.autoresizingMask = [.width, .height]
         host.addSubview(view)
@@ -145,19 +144,17 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
             DispatchQueue.main.async {
                 guard let self, let entry, self.entries[key] === entry else { return }
                 guard let bytes else { return self.fail(entry, "Could not load this file.") }
-                if kind == "pdf" { self.showPDF(entry, bytes, name: name) } else { self.showStagedPage(entry, bytes, name: name) }
+                if kind == "pdf" { self.showPDF(entry, bytes, name: name) } else if let pages { self.showStagedPage(entry, bytes, name: name, pages: pages) }
             }
         }
     }
 
-    private func showStagedPage(_ entry: Entry, _ bytes: Data, name: String) {
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? "page.html"
-        guard let web = entry.view as? WKWebView, let url = URL(string: Self.stagedPageOrigin + encoded) else { return fail(entry, "Could not load this file.") }
-        entry.document = url
-        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
-            "Content-Type": "text/html", "Content-Security-Policy": Self.stagedPagePolicy, "Cache-Control": "no-store",
-        ])!
-        web.loadSimulatedRequest(URLRequest(url: url), response: response, responseData: bytes)
+    private func showStagedPage(_ entry: Entry, _ bytes: Data, name: String, pages: R6DraftPages) {
+        guard let web = entry.view as? WKWebView else { return fail(entry, "Could not load this file.") }
+        pages.page = bytes
+        pages.wrapper = Data(Self.wrapperHTML(src: pages.pageURL, title: name).utf8)
+        entry.document = pages.root; entry.asset = pages.pageURL
+        web.load(URLRequest(url: pages.root))
         loaded[name] = "html"
     }
 
@@ -230,8 +227,9 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     // MARK: HTML
 
-    private func webView(name: String) -> WKWebView {
+    private func webView(name: String, drafts: R6DraftPages? = nil) -> WKWebView {
         let configuration = WKWebViewConfiguration()
+        if let drafts { configuration.setURLSchemeHandler(drafts, forURLScheme: R6DraftPages.scheme) }
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         // The page keeps painting and running while the window is covered (as the reference's frame does).
@@ -272,7 +270,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         let target = navigationAction.request.url, entry = entry(for: webView)
         if let frame = navigationAction.targetFrame, !frame.isMainFrame {
             // Inside the preview: the frame (and frames in it) navigate in place, as the reference's iframe does.
-            if let target, Self.frameSchemes.contains(target.scheme?.lowercased() ?? "") {
+            if let target, Self.frameSchemes.contains(target.scheme?.lowercased() ?? "") || target == entry?.asset {
                 if let entry, entry.frame == nil, target == entry.asset { entry.frame = frame }
                 return decisionHandler(.allow)
             }
@@ -339,6 +337,38 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         NSLayoutConstraint.activate([label.centerXAnchor.constraint(equalTo: entry.view.centerXAnchor), label.centerYAnchor.constraint(equalTo: entry.view.centerYAnchor)])
         refused.append("load-failed")
     }
+}
+
+/// A draft page's two documents for one web view: the wrapper at `t3-draft://<token>/` under the wrapper policy, and the
+/// page at `/page` under the server's policy for a page attachment (the frame's sandbox, as a header too). Anything else
+/// is not found, as a Blob page's relative URLs resolve to nothing.
+final class R6DraftPages: NSObject, WKURLSchemeHandler {
+    static let scheme = "t3-draft"
+    let root = URL(string: "\(scheme)://\(UUID().uuidString.lowercased())/")!
+    var pageURL: URL { root.appendingPathComponent("page") }
+    var wrapper = Data()
+    var page = Data()
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url else { return task.didFailWithError(URLError(.badURL)) }
+        let same = url.host == root.host
+        // The page's own type is a Blob's (`text/html`, its charset from the document); the wrapper is ours, UTF-8.
+        let body: Data?, policy: String, type: String
+        if same && (url.path.isEmpty || url.path == "/") { body = wrapper; policy = R6MediaPreview.wrapperPolicy; type = "text/html; charset=utf-8" }
+        else if same && url.path == "/page" { body = page; policy = "sandbox \(R6MediaPreview.frameSandbox)"; type = "text/html" }
+        else { body = nil; policy = ""; type = "" }
+        guard let body else {
+            task.didReceive(HTTPURLResponse(url: url, statusCode: 404, httpVersion: "HTTP/1.1", headerFields: ["Content-Length": "0"])!)
+            return task.didFinish()
+        }
+        task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: [
+            "Content-Type": type, "Content-Security-Policy": policy, "Cache-Control": "no-store",
+        ])!)
+        task.didReceive(body)
+        task.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
 }
 
 /// AudioPreview: `<audio controls preload="metadata" class="w-full max-w-xl">` centred in `p-6`, Chrome's controls a
