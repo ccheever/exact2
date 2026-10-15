@@ -10,6 +10,8 @@ publish = false
 [lib]
 name = "shared_elements_data"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-plan = { path = "../../../plan" }

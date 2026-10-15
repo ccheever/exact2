@@ -1233,7 +1233,7 @@ a secret: keep it in app storage.
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
-cargo test --lib --bins --tests --no-fail-fast                          # test
+cargo test --tests --no-fail-fast                                       # test
 cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps

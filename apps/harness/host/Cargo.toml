@@ -12,6 +12,8 @@ publish = false
 [[bin]]
 name = "harness"
 path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-terminal = { path = "../../../host/terminal" }
