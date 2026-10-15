@@ -38,13 +38,11 @@ type EditorCache = {
   /** A send was refused for length: the line shows until the prompt fits. */
   limitArmed: boolean;
   stashOpen: boolean;
-  /** Review-comment records behind the draft's pull-request chips, by context id. */
-  prRecords: Map<string, Obj>;
 };
 const caches = new WeakMap<T3Client, EditorCache>();
 function cache(client: T3Client): EditorCache {
   let entry = caches.get(client);
-  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false, prRecords: new Map() }; caches.set(client, entry); }
+  if (!entry) { entry = { discovery: new WorkspaceDiscovery(), trigger: null, rows: [], owner: '', searches: new Map(), pending: new Map(), usageLimits: 0, limitArmed: false, stashOpen: false }; caches.set(client, entry); }
   return entry;
 }
 
@@ -107,10 +105,29 @@ export function withMessageContext(client: T3Client, payload: Obj, text: string)
   return { ...payload, context };
 }
 
+/**
+ * The review-comment records behind the draft's review-comment and pull-request chips, by context id. They are saved with
+ * the drafts, as composerDraftStore persists a draft's `reviewComments`, so a relaunched draft's chips still resolve.
+ */
+type ReviewHolder = { reviewComments?: Record<string, Obj> };
+export function reviewCommentRecords(client: T3Client): Record<string, Obj> {
+  const local = client.local as unknown as ReviewHolder | undefined;
+  return local ? local.reviewComments ??= {} : {};
+}
+/** Keeps the saved records some saved draft still names (adoptTerminalContexts' shape check, the reference's per-draft lists). */
+export function adoptReviewComments(next: object, saved: Obj): void {
+  const named = new Set(Object.values(obj(saved.drafts)).flatMap(text => typeof text === 'string' ? contextReferences(text).filter(reference => reference.kind === 'review-comment').map(reference => reference.id) : []));
+  const records: Record<string, Obj> = {};
+  for (const [id, value] of Object.entries(obj(saved.reviewComments))) {
+    const record = obj(value);
+    if (record.kind === 'review-comment' && record.contextId === id && named.has(id) && typeof record.filePath === 'string') records[id] = record;
+  }
+  Object.assign(next, { reviewComments: records });
+}
 /** The review-comment records behind the prompt's pull-request chips. */
 export function pullRequestRecords(client: T3Client, text: string): Obj[] {
-  const records = cache(client).prRecords;
-  return contextReferences(text).flatMap(reference => reference.kind === 'review-comment' && records.has(reference.id) ? [records.get(reference.id)!] : []);
+  const records = reviewCommentRecords(client);
+  return contextReferences(text).flatMap(reference => reference.kind === 'review-comment' && records[reference.id] ? [records[reference.id]!] : []);
 }
 /** Context ids the native editor draws as resolved chips, with their chip kind. */
 export function chipContexts(client: T3Client, text: string): Record<string, string> {
@@ -305,7 +322,7 @@ export async function editorLocal(client: T3Client, native: Native, op: string, 
     if (usageLimits) { text = ''; focus = false; }
     if (row.type === 'pull-request') {
       const record = pullRequestRecord(JSON.parse(row.insert));
-      entry.prRecords.set(str(record.contextId), record);
+      reviewCommentRecords(client)[str(record.contextId)] = record;
       text = `${contextLink('review-comment', str(record.contextId), str(record.label))} `;
     }
     if (row.type === 'thread') {
@@ -361,18 +378,18 @@ function commandChord(client: T3Client, command: string, fallback: string): stri
 
 /** addReviewComment (diff-review.ts): the line comment's record goes behind a chip inserted at the caret. */
 export async function addReviewCommentChip(client: T3Client, native: Native, record: Obj): Promise<void> {
-  cache(client).prRecords.set(str(record.contextId), record);
+  reviewCommentRecords(client)[str(record.contextId)] = record;
   const result = await editorCall(native, { op: 'editorInsert', text: `${contextLink('review-comment', str(record.contextId), str(record.label))} ` });
   if (result.applied !== true) throw new ClientError('The composer is not ready');
 }
 /** A pull request hand-off's chips (pages-pr-handoffs.ts) resolve to these records when sent. */
-export function rememberReviewCommentRecord(client: T3Client, record: Obj): void { cache(client).prRecords.set(str(record.contextId), record); }
+export function rememberReviewCommentRecord(client: T3Client, record: Obj): void { reviewCommentRecords(client)[str(record.contextId)] = record; }
 /** A hand-off into the composer on screen is one undoable edit of the whole prompt. */
 export async function replaceComposerPrompt(client: T3Client, native: Native, text: string): Promise<void> { await replaceAll(client, native, text); }
 /** removeReviewComment: the chip leaves the prompt as one undoable edit, and its record goes. */
 export async function removeReviewCommentChip(client: T3Client, native: Native, contextId: string): Promise<void> {
   const link = new RegExp(`\\[[^\\]\\n]{0,512}\\]\\(t3-context://v1/review-comment/${contextId.replace(/[^a-z0-9_-]/gi, '')}\\) ?`, 'g');
-  cache(client).prRecords.delete(contextId);
+  delete reviewCommentRecords(client)[contextId];
   const next = client.draft.replace(link, '');
   if (next !== client.draft) await replaceAll(client, native, next);
 }
