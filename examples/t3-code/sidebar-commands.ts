@@ -3,7 +3,7 @@
 // hooks/useThreadActions.ts, hooks/showThreadUndoNotice.ts; MIT, see
 // LICENSE-T3). Every action targets its own thread, dispatches the reference
 // command, and reports a failure as the reference's toast.
-import { obj, str, type Obj } from './domain';
+import { arr, obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
@@ -24,8 +24,8 @@ import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // The "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
-import { backgroundWorktreePlan, isBackground, removeBackground } from './legacy-sidebar-fleet';
-import { openBranchDraft } from './legacy-sidebar-links';
+import { archiveBackground, backgroundThreadPath, backgroundWorktreePlan, envAccess, isBackground, markUnreadBackground, openBackgroundDraft, removeBackground } from './legacy-sidebar-fleet';
+import { openBranchDraft, rowThread } from './legacy-sidebar-links';
 import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
@@ -37,6 +37,27 @@ const failure = (error: unknown) => error instanceof Error ? error.message : 'An
 const threadOf = (client: T3Client, id: string): Obj | undefined => client.shell.threads.find(thread => thread.id === id);
 /** The failure toast; a let-go request is rethrown instead (let-go.ts), so nothing after it runs. */
 const toast = (client: T3Client, title: string, error: unknown) => { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title, description: failure(error) }); };
+
+/**
+ * A row's thread and its environment (useThreadActions' ScopedThreadRef): the focused environment's, or a background
+ * one's (`fleet:<environment>:<id>`), whose commands go through that environment's own transport with its own id.
+ * `row` is the thread as the sidebar shows it (the row's id and project id).
+ */
+interface Target { threadId: string; environmentId: string; background: boolean; thread: Obj; row: Obj; config: Obj; threads: Obj[]; send(native: Native, payload: Obj): Promise<void> }
+function targetOf(client: T3Client, id: string): Target | null {
+  const found = rowThread(client, id);
+  if (!found) return null;
+  const { environmentId, threadId } = found.ref, background = !found.focused, thread = found.thread;
+  const row = background ? { ...thread, id, projectId: `fleet:${environmentId}:${str(thread.projectId)}` } : thread;
+  const threads = background ? arr(obj(found.reads.shell).threads) : client.shell.threads;
+  return { threadId, environmentId, background, thread, row, config: found.reads.config, threads, send: async (native, payload) => {
+    if (!background) return dispatch(client, native, { ...payload, threadId });
+    const access = envAccess(client, native, environmentId);
+    if (!access) throw new ClientError('That environment is no longer connected.');
+    await access.dispatch({ ...payload, threadId });
+  } };
+}
+const unavailable = () => new ClientError('That thread is no longer available.');
 
 /** Session navigation the client exposes for the sidebar (select-thread / new-thread without a row gesture). */
 interface Navigator { openSelected?(native: Native, id: string): Promise<void>; openDraft?(native: Native, projectId: string): Promise<void> }
@@ -95,22 +116,25 @@ export function commitExpiredUndos(client: T3Client): void {
 }
 
 // ── Single-thread lifecycle (useThreadActions.ts).
-function topOfPinnedRun(client: T3Client): string | undefined {
+function topOfPinnedRun(threads: Obj[]): string | undefined {
   let first: string | null = null;
-  for (const thread of client.shell.threads) if (thread.pinnedAt != null && thread.pinOrderKey != null && (first === null || str(thread.pinOrderKey) < first)) first = str(thread.pinOrderKey);
+  for (const thread of threads) if (thread.pinnedAt != null && thread.pinOrderKey != null && (first === null || str(thread.pinOrderKey) < first)) first = str(thread.pinOrderKey);
   return orderKeyBetween(null, first) ?? undefined;
 }
 export async function pin(client: T3Client, native: Native, id: string, orderKey?: string): Promise<void> {
-  const caps = capabilities(client.config);
+  const target = targetOf(client, id), caps = capabilities(target?.config ?? client.config);
   if (!caps.pinning) throw new ClientError("This environment's server does not support pinning threads yet. Update the server to use it.");
-  const key = caps.pinReorder ? orderKey ?? topOfPinnedRun(client) : undefined;
+  if (!target) throw unavailable();
+  const key = caps.pinReorder ? orderKey ?? topOfPinnedRun(target.threads) : undefined;
   forget(client, id);
-  await dispatch(client, native, { type: 'thread.pin', threadId: id, ...(key !== undefined ? { orderKey: key } : {}) });
+  await target.send(native, { type: 'thread.pin', ...(key !== undefined ? { orderKey: key } : {}) });
 }
 export async function unpin(client: T3Client, native: Native, id: string): Promise<void> {
-  if (!capabilities(client.config).pinning) throw new ClientError("This environment's server does not support pinning threads yet. Update the server to use it.");
-  const key = threadOf(client, id)?.pinOrderKey;
-  await dispatch(client, native, { type: 'thread.unpin', threadId: id });
+  const target = targetOf(client, id);
+  if (!capabilities(target?.config ?? client.config).pinning) throw new ClientError("This environment's server does not support pinning threads yet. Update the server to use it.");
+  if (!target) throw unavailable();
+  const key = target.thread.pinOrderKey;
+  await target.send(native, { type: 'thread.unpin' });
   remember(client, native, 'Unpinned', id, 'Failed to undo unpin', later => pin(client, later, id, key == null ? undefined : str(key)));
 }
 function markVisited(client: T3Client, id: string, at: string): void { sidebarPrefs(client).visited[id] = at; }
@@ -121,34 +145,45 @@ function markVisited(client: T3Client, id: string, at: string): void { sidebarPr
  * A failed visit is not reported, as the reference's mutation is not.
  */
 export async function acknowledgeWoke(client: T3Client, native: Native, id: string, woke: string): Promise<void> {
-  if (!capabilities(client.config).visitedTracking) { markVisited(client, id, woke); return; }
-  try { await dispatch(client, native, { type: 'thread.visit', threadId: id, visitedAt: woke }); } catch { /* reportFailure: false */ }
+  const target = targetOf(client, id);
+  if (!target || !capabilities(target.config).visitedTracking) { markVisited(client, id, woke); return; }
+  try { await target.send(native, { type: 'thread.visit', visitedAt: woke }); } catch { /* reportFailure: false */ }
 }
+/** settleThread: the undo notice puts back the pin and the snooze the settle dropped, on the thread's own environment. */
 export async function settle(client: T3Client, native: Native, id: string): Promise<void> {
-  if (!capabilities(client.config).settlement) throw new ClientError('This server does not support settling threads.');
-  const thread = threadOf(client, id);
-  if (!thread) throw new ClientError('That thread is no longer available.');
+  const target = targetOf(client, id);
+  if (!capabilities(target?.config ?? client.config).settlement) throw new ClientError('This server does not support settling threads.');
+  if (!target) throw unavailable();
+  const thread = target.thread;
   const woke = wokeAt(thread, wall(client)), wasPinned = thread.pinnedAt != null, key = thread.pinOrderKey, snoozedUntil = thread.snoozedUntil;
   forget(client, id);
-  await dispatch(client, native, { type: 'thread.settle', threadId: id });
+  await target.send(native, { type: 'thread.settle' });
   if (woke) markVisited(client, id, woke);
   remember(client, native, 'Settled', id, 'Failed to undo settle', async later => {
-    await dispatch(client, later, { type: 'thread.unsettle', threadId: id, reason: 'user' });
+    await target.send(later, { type: 'thread.unsettle', reason: 'user' });
     if (wasPinned) await pin(client, later, id, key == null ? undefined : str(key));
-    if (snoozedUntil != null) await dispatch(client, later, { type: 'thread.snooze', threadId: id, snoozedUntil: str(snoozedUntil) });
+    if (snoozedUntil != null) await target.send(later, { type: 'thread.snooze', snoozedUntil: str(snoozedUntil) });
   });
 }
 export async function snooze(client: T3Client, native: Native, id: string, until: string): Promise<void> {
-  if (!capabilities(client.config).snooze) throw new ClientError('This server does not support snoozing threads.');
+  const target = targetOf(client, id);
+  if (!capabilities(target?.config ?? client.config).snooze) throw new ClientError('This server does not support snoozing threads.');
   if (!Number.isFinite(Date.parse(until))) throw new ClientError('Choose when to bring this thread back.');
+  if (!target) throw unavailable();
   // useThreadActions snoozeThread: the server's invariant, checked before the round trip (ThreadSnoozeBlockedError).
-  const thread = threadOf(client, id);
-  if (thread && !canSnooze(thread, wall(client))) throw new ClientError('This thread is waiting on you. Respond to the pending request before snoozing it.');
+  if (!canSnooze(target.thread, wall(client))) throw new ClientError('This thread is waiting on you. Respond to the pending request before snoozing it.');
   forget(client, id);
-  await dispatch(client, native, { type: 'thread.snooze', threadId: id, snoozedUntil: new Date(until).toISOString() });
-  remember(client, native, 'Snoozed', id, 'Failed to wake thread', later => dispatch(client, later, { type: 'thread.unsnooze', threadId: id, reason: 'user' }));
+  await target.send(native, { type: 'thread.snooze', snoozedUntil: new Date(until).toISOString() });
+  remember(client, native, 'Snoozed', id, 'Failed to wake thread', later => target.send(later, { type: 'thread.unsnooze', reason: 'user' }));
+}
+/** unsettleThread / the Wake action, on the thread's own environment. */
+async function promote(client: T3Client, native: Native, id: string, type: 'thread.unsettle' | 'thread.unsnooze'): Promise<void> {
+  const target = targetOf(client, id);
+  if (!target) throw unavailable();
+  await target.send(native, { type, reason: 'user' });
 }
 export async function archive(client: T3Client, native: Native, id: string): Promise<void> {
+  if (isBackground(client, id)) return archiveBackground(client, native, id, remember);
   const thread = threadOf(client, id);
   if (!thread) return;
   if (!canArchive(thread)) throw new ClientError('Stop the running turn before archiving this thread.');
@@ -279,22 +314,23 @@ export async function rename(client: T3Client, nativeHandle: Native, id: string,
   const session = sidebarSession(client);
   if (session.renameId !== id) return;
   session.renameId = ''; session.renameTitle = '';
-  const thread = threadOf(client, id), trimmed = title.trim();
+  const target = targetOf(client, id), trimmed = title.trim();
   if (!trimmed) { pushToast(client, { kind: 'warning', title: 'Thread title cannot be empty' }); return; }
-  if (!thread || trimmed === str(thread.title)) return;
-  await attempt(client, 'Failed to rename thread', () => dispatch(client, nativeHandle, { type: 'thread.metadata.update', threadId: id, title: trimmed }));
+  if (!target || trimmed === str(target.thread.title)) return;
+  await attempt(client, 'Failed to rename thread', () => target.send(nativeHandle, { type: 'thread.metadata.update', title: trimmed }));
 }
 async function regenerate(client: T3Client, nativeHandle: Native, ids: string[], bulk: boolean): Promise<void> {
   const session = sidebarSession(client);
   for (const id of ids) {
     session.regenerating.add(id);
     const ok = await attempt(client, bulk ? 'Failed to regenerate thread titles' : 'Failed to regenerate thread title',
-      () => dispatch(client, nativeHandle, { type: 'thread.metadata.update', threadId: id, regenerateTitle: true }));
+      async () => { const target = targetOf(client, id); if (!target) throw unavailable(); await target.send(nativeHandle, { type: 'thread.metadata.update', regenerateTitle: true }); });
     session.regenerating.delete(id);
     if (!ok) return;
   }
 }
 export async function markUnread(client: T3Client, nativeHandle: Native, id: string): Promise<void> {
+  if (isBackground(client, id)) return markUnreadBackground(client, nativeHandle, id);
   if (capabilities(client.config).visitedTracking) { await dispatch(client, nativeHandle, { type: 'thread.mark-unread', threadId: id }); return; }
   const completed = latestRun(threadOf(client, id) ?? {})?.completedAt;
   if (completed) sidebarPrefs(client).visited[id] = new Date(Date.parse(completed) - 1).toISOString();
@@ -484,12 +520,14 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     const state = menuState(client, thread, false);
     return runChoice(client, nativeHandle, storage, thread, value, state.scope?.key ?? '');
   }
-  const thread = threadOf(client, id);
-  if (!thread) { toast(client, 'Thread unavailable', new Error('That thread is no longer available.')); return ''; }
+  // A row of any environment: a background environment's (`fleet:` id) acts on that environment, as the reference's
+  // useThreadActions does with the row's scoped thread ref.
+  const thread = targetOf(client, id)?.row;
+  if (!thread) { toast(client, 'Thread unavailable', unavailable()); return ''; }
   if (op === 'settle') await park(client, nativeHandle, id, 'settle', '', new Set());
   else if (op === 'snooze') await park(client, nativeHandle, id, 'snooze', value, new Set());
-  else if (op === 'unsettle') await attempt(client, 'Failed to un-settle thread', () => dispatch(client, nativeHandle, { type: 'thread.unsettle', threadId: id, reason: 'user' }).then(() => forget(client, id)));
-  else if (op === 'unsnooze') await attempt(client, 'Failed to wake thread', () => dispatch(client, nativeHandle, { type: 'thread.unsnooze', threadId: id, reason: 'user' }).then(() => forget(client, id)));
+  else if (op === 'unsettle') await attempt(client, 'Failed to un-settle thread', () => promote(client, nativeHandle, id, 'thread.unsettle').then(() => forget(client, id)));
+  else if (op === 'unsnooze') await attempt(client, 'Failed to wake thread', () => promote(client, nativeHandle, id, 'thread.unsnooze').then(() => forget(client, id)));
   else if (op === 'pin') await attempt(client, 'Failed to pin thread', () => pin(client, nativeHandle, id));
   else if (op === 'unpin') {
     if (settings?.confirmThreadUnpin && value !== 'confirmed') session.dialog = { kind: 'unpin', threadIds: [id], title: str(thread.title) };
@@ -512,27 +550,33 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
   }
   switch (choice) {
     case 'settle': await park(client, nativeHandle, id, 'settle', '', new Set()); return '';
-    case 'unsettle': await attempt(client, 'Failed to un-settle thread', () => dispatch(client, nativeHandle, { type: 'thread.unsettle', threadId: id, reason: 'user' })); return '';
-    case 'unsnooze': await attempt(client, 'Failed to wake thread', () => dispatch(client, nativeHandle, { type: 'thread.unsnooze', threadId: id, reason: 'user' })); return '';
+    case 'unsettle': await attempt(client, 'Failed to un-settle thread', () => promote(client, nativeHandle, id, 'thread.unsettle')); return '';
+    case 'unsnooze': await attempt(client, 'Failed to wake thread', () => promote(client, nativeHandle, id, 'thread.unsnooze')); return '';
     case 'pin': await attempt(client, 'Failed to pin thread', () => pin(client, nativeHandle, id)); return '';
     case 'unpin':
       if (settings?.confirmThreadUnpin) { session.dialog = { kind: 'unpin', threadIds: [id], title: str(thread.title) }; return ''; }
       await attempt(client, 'Failed to unpin thread', () => unpin(client, nativeHandle, id)); return '';
     case 'auto-settle:enabled': case 'auto-settle:disabled':
-      await attempt(client, 'Failed to update auto-settle', () => dispatch(client, nativeHandle, { type: 'thread.auto-settle.set', threadId: id, enabled: choice === 'auto-settle:enabled' })); return '';
+      await attempt(client, 'Failed to update auto-settle', async () => { const target = targetOf(client, id); if (!target) throw unavailable(); await target.send(nativeHandle, { type: 'thread.auto-settle.set', enabled: choice === 'auto-settle:enabled' }); }); return '';
     case 'rename': session.renameId = id; session.renameTitle = str(thread.title); return '';
     case 'regenerate-title': if (thread.titleRegeneration == null) await regenerate(client, nativeHandle, [id], false); return '';
     case 'mark-unread': await attempt(client, 'Failed to mark thread unread', () => markUnread(client, nativeHandle, id)); return '';
     case 'filter-by-project': prefs.scope = prefs.scope === scopeKey ? '' : scopeKey; return '';
     case 'copy-path': {
-      const path = str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
+      const path = isBackground(client, id) ? backgroundThreadPath(client, id) : str(thread.worktreePath) || str(client.shell.projects.find(project => project.id === thread.projectId)?.workspaceRoot);
       if (!path) { pushToast(client, { kind: 'error', title: 'Path unavailable', description: 'This thread does not have a workspace path to copy.' }); return ''; }
       await copy(client, nativeHandle, path, 'Path copied'); return '';
     }
     case 'copy-branch': if (thread.branch) await copy(client, nativeHandle, str(thread.branch), 'Branch copied'); return '';
-    case 'copy-thread-id': await copy(client, nativeHandle, id, 'Thread ID copied'); return '';
+    case 'copy-thread-id': await copy(client, nativeHandle, targetOf(client, id)?.threadId ?? id, 'Thread ID copied'); return '';
     case 'project-settings': return `sidebar:project-settings:${str(thread.projectId)}`;
-    case 'new-thread-on-branch': return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // Sidebar.tsx carries the branch the same way
+    case 'new-thread-on-branch': {
+      if (!isBackground(client, id)) return openBranchDraft(client, nativeHandle, thread, str(thread.projectId)); // Sidebar.tsx carries the branch the same way
+      const worktreePath = str(thread.worktreePath); // a background thread's branch, on its own environment
+      try { await openBackgroundDraft(client, nativeHandle, str(thread.projectId), { branch: str(thread.branch), worktreePath, envMode: worktreePath ? 'worktree' : 'local' }); }
+      catch (error) { toast(client, 'Could not create thread', error); return ''; }
+      return 'sidebar:new-thread';
+    }
     case 'archive':
       if (settings?.confirmThreadArchive) { session.dialog = { kind: 'archive', threadIds: [id], title: str(thread.title) }; return ''; }
       await attempt(client, 'Failed to archive thread', () => archive(client, nativeHandle, id)); return '';
