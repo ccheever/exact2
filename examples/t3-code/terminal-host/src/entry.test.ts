@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CompositionKeys, eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { CompositionKeys, eventKeyNames, keepConversionContext, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData, terminalKeyShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -204,5 +204,79 @@ describe("keys that began while text composed", () => {
     keys.mark(key("Enter", { altKey: true }));
     expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
     expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+  });
+});
+
+describe("the text the input method converts for ⌥Return", () => {
+  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, code, ...init });
+
+  test("only a waiting ⌥Return mark asks for it", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(false);
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(true);
+    expect(keys.take({ ...key("Enter", { altKey: true }), keyCode: 229 })).toBe(true);
+    expect(keys.awaitsOptionReturn()).toBe(false);
+    keys.mark(key("NumpadEnter", { altKey: true, shiftKey: true }));
+    expect(keys.awaitsOptionReturn()).toBe(true);
+    now = 1000;
+    expect(keys.awaitsOptionReturn()).toBe(false);
+  });
+
+  /** An input that empties itself on every commit, as the surface's does (surface.ts onCompositionEnd). */
+  const surfaceInput = () => {
+    const input = Object.assign(new EventTarget(), { value: "" }), sent: string[] = [];
+    input.addEventListener("compositionend", (event) => {
+      sent.push(input.value || (event as CompositionEvent).data);
+      input.value = "";
+    });
+    return { input, sent };
+  };
+  const end = (data: string) => Object.assign(new Event("compositionend"), { data });
+
+  test("the committed syllable stays in the input until the input method's candidate replaces it", () => {
+    const { input, sent } = surfaceInput();
+    let converting = true;
+    keepConversionContext(input, () => converting);
+    // 2-Set, ⌥Return with 한 composing: the input method commits 한, which goes out, and finds it before the caret.
+    input.value = "한";
+    input.dispatchEvent(end("한"));
+    expect(sent).toEqual(["한"]);
+    expect(input.value).toBe("한");
+    // It replaces 한 with 韓 while its list is open; the key's keydown follows and leaves the composition alone.
+    input.dispatchEvent(new Event("compositionstart"));
+    input.value = "韓";
+    input.dispatchEvent(new Event("keydown"));
+    expect(input.value).toBe("韓");
+    // Picking 韓 commits it, as under the reference: the shell gets 한 then 韓.
+    converting = false;
+    input.dispatchEvent(end("韓"));
+    expect(sent).toEqual(["한", "韓"]);
+    expect(input.value).toBe("");
+  });
+
+  test("a declined key or leaving the input empties it, so the syllable never goes out twice", () => {
+    const { input, sent } = surfaceInput();
+    let converting = true;
+    keepConversionContext(input, () => converting);
+    input.value = "한";
+    input.dispatchEvent(end("한"));
+    converting = false;
+    input.dispatchEvent(new Event("keydown"));
+    expect(input.value).toBe("");
+    converting = true;
+    input.value = "글";
+    input.dispatchEvent(end("글"));
+    input.dispatchEvent(new Event("blur"));
+    expect(input.value).toBe("");
+    expect(sent).toEqual(["한", "글"]);
+    // Any other commit leaves the input as the surface left it.
+    converting = false;
+    input.value = "말";
+    input.dispatchEvent(end("말"));
+    expect(input.value).toBe("");
   });
 });
