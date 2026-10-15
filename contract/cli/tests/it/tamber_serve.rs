@@ -1,7 +1,9 @@
 //! `contract tamber serve --stdio` (LLP 1121 stage 3, commit 3): reads, a
 //! transaction with its digests, its inverse, a conflict, `propose`, the
 //! lock, a commit killed between its renames completed on restart, and a
-//! journal that cannot be trusted refused.
+//! journal that cannot be trusted refused. The server runs on macOS and
+//! Linux only.
+#![cfg(unix)]
 
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
@@ -391,20 +393,20 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
     std::fs::write(dir.join(".exact/tamber-1-0.tmp"), "moved").unwrap();
     let escape = start_over(
         &dir,
-        json!({"renames": [{"tmp": "tamber-1-0.tmp", "file": outside.to_str().unwrap(), "digest": "0"}]}),
+        json!({"renames": [{"tmp": "tamber-1-0.tmp", "file": outside.to_str().unwrap(), "digest": "0", "before": "0"}]}),
     );
     assert!(!escape.status.success());
     assert_eq!(std::fs::read_to_string(&outside).unwrap(), "keep");
     assert!(dir.join(".exact/tamber.journal").exists());
     let dotted = start_over(
         &dir,
-        json!({"renames": [{"tmp": "../app.tamber", "file": "app.tamber", "digest": "0"}]}),
+        json!({"renames": [{"tmp": "../app.tamber", "file": "app.tamber", "digest": "0", "before": "0"}]}),
     );
     assert!(!dotted.status.success());
     // A temporary file gone, and the design without the recorded text.
     let lost = start_over(
         &dir,
-        json!({"renames": [{"tmp": "tamber-9-9.tmp", "file": "app.tamber", "digest": "0"}]}),
+        json!({"renames": [{"tmp": "tamber-9-9.tmp", "file": "app.tamber", "digest": "0", "before": "0"}]}),
     );
     assert!(!lost.status.success());
     assert!(String::from_utf8_lossy(&lost.stderr).contains("kept"));
@@ -428,8 +430,8 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
     let half = start_over(
         &dir,
         json!({"renames": [
-            {"tmp": "tamber-2-0.tmp", "file": "app.tamber", "digest": tmp_digest},
-            {"tmp": "tamber-2-1.tmp", "file": "brand.tamber", "digest": "0"}
+            {"tmp": "tamber-2-0.tmp", "file": "app.tamber", "digest": tmp_digest, "before": digest(&dir.join("app.tamber"))},
+            {"tmp": "tamber-2-1.tmp", "file": "brand.tamber", "digest": "0", "before": "0"}
         ]}),
     );
     assert!(!half.status.success());
@@ -447,8 +449,24 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
             .unwrap()
     };
     assert!(!garbled.status.success());
-    // Gone again, an orphan temporary file is swept at start.
-    std::fs::remove_file(dir.join(".exact/tamber.journal")).unwrap();
+    // A set none of which landed, over a file an editor changed since, is
+    // withdrawn: the editor's text stays.
+    let withdrawn = start_over(
+        &dir,
+        json!({"renames": [{"tmp": "tamber-2-0.tmp", "file": "app.tamber", "digest": tmp_digest, "before": "0"}]}),
+    );
+    assert!(
+        withdrawn.status.success(),
+        "{}",
+        String::from_utf8_lossy(&withdrawn.stderr)
+    );
+    assert!(String::from_utf8_lossy(&withdrawn.stderr).contains("withdrawn"));
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app.tamber")).unwrap(),
+        before
+    );
+    // Gone, an orphan temporary file is swept at start.
+    std::fs::write(dir.join(".exact/tamber-2-0.tmp"), "tamber moved\n").unwrap();
     let mut s = Serve::start(&dir, &[]);
     s.ask(json!({"method": "hello"}));
     assert!(!dir.join(".exact/tamber-1-0.tmp").exists());
