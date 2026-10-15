@@ -1,4 +1,5 @@
 use KmItem from "./menu-keys.contract"
+use kmReturn from "./menu-keys.contract"
 use kmTriggerKey from "./menu-keys.contract"
 use kmTriggerTarget from "./menu-keys.contract"
 use KeyMenu from "./menu-keys.contract"
@@ -97,8 +98,19 @@ component CnMenuItem
       focus(keysId)
   action focused(on: bool)
     lit = on
+  // Return presses the focused row (kmReturn), as a click does: a submenu row toggles its submenu.
+  action rowKey(k: string, e: KeyboardEvent)
+    if kmReturn(k, e)
+      preventDefault()
+      stopPropagation()
+      if not e.repeat
+        choose()
+        if submenu != ""
+          togglePopover(submenu, source=itemId)
+        else
+          hidePopover(menuId)
   view
-    button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(radio ? "menuitemradio" : "menuitem") aria-checked=(radio and highlighted) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+    button id=itemId press=choose popovertarget=(submenu != "" ? submenu : menuId) popovertargetaction=(submenu != "" ? "toggle" : "hide") key=rowKey hover=hover focus=focused(true) blur=focused(false) disabled=disabled role=(radio ? "menuitemradio" : "menuitem") aria-checked=(radio and highlighted) testId=itemId display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(disabled ? 0.64 : 1) background-color=(lit or highlighted ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
       if icon != ""
         CnMachineIcon(kind=icon, size=16, color="light-dark(#27272a, #f5f5f5)")
       // A button centres its text (its UA text-align); the reference's menu rows start at the left

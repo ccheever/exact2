@@ -115,11 +115,12 @@ describe('one Run on and Workspace keyboard order', () => {
     const kmAfter = await contractFn('menu-keys.contract', 'kmAfter', ['items', 'current'], { kmIndex });
     const kmLetter = await contractFn('menu-keys.contract', 'kmLetter', ['k']);
     const kmTarget = await contractFn('menu-keys.contract', 'kmTarget', ['items', 'current', 'k'], { kmIndex, kmAfter, kmLetter, first: (rows: unknown[]) => rows[0], none: null });
+    const kmReturn = await contractFn('menu-keys.contract', 'kmReturn', ['k', 'e']);
     const component = contractComponent('composer-controls.contract', 'ComposerMenus'), state = component.state();
     let workspaceItems = await items(base);
     const calls: unknown[][] = [];
     let focused = 'composer-menu';
-    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget,
+    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget, kmReturn,
       workspaceCurrent: await derive('workspaceCurrent', { ...state, session: 7 }),
       focus: (id: string) => { calls.push(['focus', id]); focused = id; },
       preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']) });
