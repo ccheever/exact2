@@ -105,7 +105,7 @@ fn reads_answer_on_the_clones_design() {
     let dir = app("reads", CLONE);
     let mut s = Serve::start(&dir, &[]);
     let (hello, _) = s.ask(json!({"method": "hello", "client": "test"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.0");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.1");
     assert_eq!(hello["ok"]["builds"], json!([]));
     assert_eq!(
         hello["ok"]["files"]["app.tamber"],
@@ -343,7 +343,7 @@ fn requests_are_typed_bounded_and_attributed() {
         assert!(v["error"].is_object(), "{v}");
     }
     let (hello, _) = s.ask(json!({"method": "hello"}));
-    assert_eq!(hello["ok"]["protocol"], "tamber/1.0");
+    assert_eq!(hello["ok"]["protocol"], "tamber/1.1");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -476,5 +476,96 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
     assert!(!dir.join(".exact/tamber-1-0.tmp").exists());
     assert!(!dir.join(".exact/tamber-2-0.tmp").exists());
     let _ = std::fs::remove_file(&outside);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The wire's own requests (LLP 1122 T1): `compare` reads a commit's versions
+/// as token edits, `revert-plan` inverts one on today's file (and refuses
+/// where the file moved on its edit), `import-plan` plans an import from a
+/// source's text. None writes.
+#[test]
+fn compare_revert_plan_and_import_plan() {
+    const V1: &str = "tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n";
+    let v2 = V1.replace("#101010", "#202020");
+    let dir = app("history", &v2);
+    let mut s = Serve::start(&dir, &[]);
+    let pair = json!([{"file": "app.tamber", "before": V1, "after": v2}]);
+    let (compared, _) = s.ask(json!({"method": "compare", "pairs": pair}));
+    assert_eq!(
+        compared["ok"]["files"][0]["edits"],
+        json!([{"what": "token", "name": "edge", "when": [], "before": "#101010", "after": "#202020"}])
+    );
+    let (bad, _) = s.ask(json!({"method": "compare", "pairs": [{"file": "app.tamber", "before": "tamber\n  ??", "after": V1}]}));
+    assert!(bad["ok"]["files"][0]["edits"].is_null());
+    // On the file as the commit left it.
+    let (plan, _) = s.ask(json!({"method": "revert-plan", "pairs": pair}));
+    assert_eq!(
+        plan["ok"]["ops"],
+        json!([{"op": "set-token", "file": "app.tamber", "name": "edge", "when": [], "value": "#101010", "comment": null}])
+    );
+    assert_eq!(plan["ok"]["moved"], json!([]));
+    // Moved since, on the commit's own edit: refused, naming it.
+    std::fs::write(dir.join("app.tamber"), v2.replace("#202020", "#2a2a2a")).unwrap();
+    let (clash, _) = s.ask(json!({"method": "revert-plan", "pairs": pair}));
+    assert_eq!(clash["ok"]["ops"], json!([]));
+    assert_eq!(clash["ok"]["moved"], json!(["app.tamber"]));
+    assert_eq!(clash["ok"]["conflicts"][0]["edit"]["name"], "edge");
+    assert_eq!(clash["ok"]["conflicts"][0]["now"], "#2a2a2a");
+    // A file the commit created has no inverse.
+    let (created, _) = s.ask(json!({"method": "revert-plan", "pairs": [{"file": "app.tamber", "before": null, "after": V1}]}));
+    assert!(created["ok"]["conflicts"][0]["why"]
+        .as_str()
+        .unwrap()
+        .contains("created"));
+    // `requires`: a file the write does not edit, as it was read.
+    std::fs::write(
+        dir.join("brand.tamber"),
+        "tamber b\n\ntheme\n  b.ink = #010101\n",
+    )
+    .unwrap();
+    let app_digest = digest(&dir.join("app.tamber"));
+    let (guarded, _) = s.ask(json!({"method": "transaction", "client": "t", "files": {"app.tamber": app_digest}, "requires": {"brand.tamber": "0".repeat(64)}, "ops": [{"op": "set-token", "name": "ink", "value": "#000001"}]}));
+    assert_eq!(guarded["error"]["conflict"], true, "{guarded}");
+    assert_eq!(guarded["error"]["stale"], json!(["brand.tamber"]));
+    let css = include_str!("../../../../tamber/tests/import/shadcn-neutral.css");
+    let (imported, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
+    assert_eq!(
+        imported["ok"]["counted"],
+        json!({"source": 47, "mapped": 46, "reported": 1})
+    );
+    assert_eq!(imported["ok"]["offers"].as_array().unwrap().len(), 5);
+    // A DTCG export of several files, each named as the file picker gave it.
+    let figma =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tamber/tests/import/figma");
+    let sources: Vec<Value> = std::fs::read_dir(&figma)
+        .unwrap()
+        .map(|e| {
+            let p = e.unwrap().path();
+            json!({"name": p.file_name().unwrap().to_str().unwrap(), "text": std::fs::read_to_string(&p).unwrap()})
+        })
+        .collect();
+    let (figma, _) = s.ask(json!({"method": "import-plan", "kind": "dtcg", "sources": sources}));
+    assert_eq!(
+        figma["ok"]["counted"],
+        json!({"source": 104, "mapped": 40, "reported": 64}),
+        "{figma}"
+    );
+    // A file name of any characters is no way to stop the server.
+    let (named, _) =
+        s.ask(json!({"method": "import-plan", "kind": "dtcg", "name": "日本語", "source": "{}"}));
+    assert!(
+        named.get("ok").is_some() || named.get("error").is_some(),
+        "{named}"
+    );
+    let (astryx, _) = s.ask(json!({"method": "import-plan", "kind": "astryx", "source": "{}"}));
+    assert!(astryx["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("bun exact.mjs tamber import astryx"));
+    // Nothing was written.
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app.tamber")).unwrap(),
+        v2.replace("#202020", "#2a2a2a")
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

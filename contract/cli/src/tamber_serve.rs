@@ -33,8 +33,14 @@
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
 //!   digest it carries is checked as a transaction's is.
+//! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
+//!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
 //!   design or of the `file` it names.
+//! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
+//!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
+//!   and `import-plan` plans an import from a source's text against the
+//!   design (`tamber_import.rs`). None writes.
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
@@ -48,7 +54,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.0";
+pub const PROTOCOL: &str = "tamber/1.1";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -495,6 +501,15 @@ impl Server {
         Ok(out)
     }
 
+    /// Each design file there now, its path and text.
+    fn texts(&self) -> Result<Vec<(String, String)>, Value> {
+        Ok(self
+            .read_files(true)?
+            .into_iter()
+            .map(|(f, t, _)| (f, t))
+            .collect())
+    }
+
     fn handle(&mut self, line: &str) -> Vec<Value> {
         let request: Value = match serde_json::from_str(line) {
             Ok(v @ Value::Object(_)) => v,
@@ -518,6 +533,17 @@ impl Server {
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
+            // The wire's own, for `history`, `revert` and `import`.
+            Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
+            Some("revert-plan") => {
+                vec![reply(self.read_files(true).and_then(|now| {
+                    crate::tamber_history::revert_plan(&request, &now)
+                }))]
+            }
+            Some("import-plan") => vec![reply(self.texts().and_then(|now| {
+                let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
+                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t))
+            }))],
             other => vec![reply(Err(
                 json!({"message": format!("no method {}", other.unwrap_or("(none)"))}),
             ))],
@@ -670,7 +696,10 @@ impl Server {
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
         let ops = parse_ops(&request["ops"], &self.design)?;
-        let seen = seen_files(request)?;
+        let seen = seen_files(request, "files")?;
+        // Files it does not edit but was planned on (a revert's file already
+        // as before), each as the plan read it.
+        let requires = seen_files(request, "requires")?;
         let client = match write {
             true => Some(self.writer(request)?),
             false => None,
@@ -686,6 +715,11 @@ impl Server {
                     }
             })
             .map(|(p, _, _)| p)
+            .chain(requires.keys().filter(|p| {
+                snap.iter()
+                    .find(|(f, _, _)| f == *p)
+                    .is_none_or(|(_, _, d)| Some(d) != requires.get(*p))
+            }))
             .collect();
         if !stale.is_empty() {
             return Err(
@@ -992,10 +1026,10 @@ fn required(v: &Value, key: &str) -> Result<String, Value> {
     optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
 }
 
-/// A request's `files`, each path's digest as the client saw it.
-fn seen_files(request: &Value) -> Result<HashMap<String, String>, Value> {
-    let bad = || json!({"message": "`files` is an object of digests"});
-    match &request["files"] {
+/// A request's `files` (or `requires`), each path's digest as the client saw it.
+fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
+    let bad = || json!({"message": format!("`{key}` is an object of digests")});
+    match &request[key] {
         Value::Null => Ok(HashMap::new()),
         Value::Object(m) => m
             .iter()
