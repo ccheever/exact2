@@ -6,14 +6,14 @@
 //! against. Planned against the app's design as it is, so an unchanged
 //! source proposes nothing.
 
-use exact_tamber::import::{shadcn, tailwind, Import};
+use exact_tamber::import::{dtcg, shadcn, tailwind, Import};
 use exact_tamber::Op;
 use serde_json::{json, Value};
 use std::path::Path;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: contract tamber import shadcn|tailwind <stylesheet> [--app <app dir>] [--prefix <prefix>]";
+    "usage: contract tamber import shadcn|tailwind <stylesheet> | dtcg <file or directory> [--app <app dir>] [--prefix <prefix>]";
 
 pub fn run(args: &[String]) -> ExitCode {
     let (mut kind, mut source, mut app, mut prefix) = (None, None, None, None);
@@ -46,13 +46,16 @@ pub fn run(args: &[String]) -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let text = match std::fs::read_to_string(&source) {
-        Ok(t) => t,
+    // The source's files: one, or every `.json` under a directory (DTCG's
+    // sets and modes), by their paths from it.
+    let files = match read_source(Path::new(&source)) {
+        Ok(f) => f,
         Err(e) => {
             eprintln!("contract tamber import: {source}: {e}");
             return ExitCode::from(2);
         }
     };
+    let text = files.first().map(|(_, t)| t.clone()).unwrap_or_default();
     // The design it is planned against: the app's, or none yet.
     let current = match app
         .as_deref()
@@ -84,8 +87,9 @@ pub fn run(args: &[String]) -> ExitCode {
             &contract_lower::tamber_vocab(),
         ),
         "tailwind" => tailwind::import(&text, prefix.as_deref().unwrap_or("tw"), &design),
+        "dtcg" => dtcg::import(&files, prefix.as_deref().unwrap_or("dtcg"), &design),
         other => {
-            eprintln!("contract tamber import: no importer `{other}` (shadcn, tailwind)");
+            eprintln!("contract tamber import: no importer `{other}` (shadcn, tailwind, dtcg)");
             return ExitCode::from(2);
         }
     };
@@ -101,6 +105,35 @@ pub fn run(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// A source path's files: the file, or each `.json` under the directory.
+fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
+    if !path.is_dir() {
+        let name = path
+            .file_name()
+            .map_or(String::new(), |n| n.to_string_lossy().into_owned());
+        return Ok(vec![(name, std::fs::read_to_string(path)?)]);
+    }
+    let mut out = Vec::new();
+    let mut stack = vec![path.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir)? {
+            let p = entry?.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|e| e == "json") {
+                let name = p
+                    .strip_prefix(path)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push((name, std::fs::read_to_string(&p)?));
+            }
+        }
+    }
+    out.sort();
+    Ok(out)
 }
 
 fn import_json(kind: &str, import: &Import) -> Value {

@@ -729,3 +729,102 @@ fn importers_drop_what_names_a_dropped_token_and_tailwind_keeps_dark_sides() {
         .iter()
         .any(|u| u.name == "--color-c" && u.why.contains("@custom-variant")));
 }
+
+/// Every file under `tests/import/<dir>`, by its path from there.
+fn tree(dir: &str) -> Vec<(String, String)> {
+    let root = format!("{}/tests/import/{dir}", env!("CARGO_MANIFEST_DIR"));
+    let mut out = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(&root)];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else {
+                let name = p
+                    .strip_prefix(&root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned();
+                out.push((name, std::fs::read_to_string(&p).unwrap()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+#[test]
+fn a_figma_variables_export_imports_counted_with_light_and_dark() {
+    use exact_tamber::import::dtcg;
+    let files = tree("figma");
+    let first = dtcg::import(&files, "figma", &parse(EMPTY).unwrap()).unwrap();
+    assert_eq!(
+        first.counted.mapped + first.counted.reported,
+        first.counted.source
+    );
+    assert_eq!(first.counted.source, 31 + 31 + 4 + 19 + 19);
+    // 11 + 11 primitive colours (two themes) and 9 + 9 token colours (light, dark).
+    assert_eq!(first.counted.mapped, 40);
+    let text = accepted(EMPTY, &first);
+    assert!(
+        text.contains("  primitives-completed = brutal-theme | modern-theme\n"),
+        "{text}"
+    );
+    let primary = token_value(&text, "figma.text.text-primary");
+    assert!(
+        primary.starts_with("light-dark(figma.color.gray.s900, "),
+        "{primary}"
+    );
+    let again = dtcg::import(&files, "figma", &parse(&text).unwrap()).unwrap();
+    assert_eq!(again.ops, []);
+}
+
+#[test]
+fn a_tokens_studio_sample_imports_counted_its_groups_proposed_axes() {
+    use exact_tamber::import::dtcg;
+    let files = tree("tokens-studio");
+    let first = dtcg::import(&files, "ts", &parse(EMPTY).unwrap()).unwrap();
+    assert_eq!(
+        first.counted.mapped + first.counted.reported,
+        first.counted.source
+    );
+    assert!(first
+        .unmapped
+        .iter()
+        .any(|u| u.why == "kind pending (stage 6): length"
+            && u.token.as_deref() == Some("ts.borderRadius.lg")));
+    let text = accepted(EMPTY, &first);
+    assert!(text.contains("  color = green | blue | purple\n"), "{text}");
+    assert!(
+        text.contains("when color=blue: ts.colors.blue.s600"),
+        "{text}"
+    );
+    let again = dtcg::import(&files, "ts", &parse(&text).unwrap()).unwrap();
+    assert_eq!(again.ops, []);
+}
+
+#[test]
+fn a_resolver_documents_modifiers_are_the_scheme_and_an_axis() {
+    use exact_tamber::import::dtcg;
+    let files = vec![("resolver.json".to_string(), fixture("resolver.json"))];
+    let first = dtcg::import(&files, "ds", &parse(EMPTY).unwrap()).unwrap();
+    assert_eq!(
+        (
+            first.counted.source,
+            first.counted.mapped,
+            first.counted.reported
+        ),
+        (6, 6, 0)
+    );
+    let text = accepted(EMPTY, &first);
+    assert_eq!(token_value(&text, "ds.color.ink"), "#1a1a1a");
+    assert_eq!(
+        token_value(&text, "ds.color.surface"),
+        "light-dark(ds.color.paper, oklch(0.2 0.01 250))"
+    );
+    assert!(text.contains("  brand = calm | loud\n"), "{text}");
+    assert!(text.contains("when brand=loud: #ff3366"), "{text}");
+    let again = dtcg::import(&files, "ds", &parse(&text).unwrap()).unwrap();
+    assert_eq!(again.ops, []);
+}
