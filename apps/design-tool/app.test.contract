@@ -170,10 +170,38 @@ test "a cell shows the branch that won for its mode; an expression offers its in
   tap "pin"
   expect text "pinned" == "Pinned here: no longer follows accent, lift."
   expect tree has "branch-value"
-  // A cell is named by its column's label, a fallback said.
-  tap "text.system, Light, fallback"
+  // A cell is named by its column's label and its colour, a fallback said.
+  tap "text.system, Light, -exact-secondary-label, fallback #3c3c4399"
   clock data
   expect text "branch-label" == "text.system · default (Light)"
+  // A platform role is an input too: overwriting it is a pin.
+  expect text "branch-inputs" == "Follows -exact-secondary-label: edit those, or pin a value here."
+  expect text "input--exact-secondary-label" == "-exact-secondary-label: a platform colour, set by the system"
+  expect tree missing "branch-value"
+  // A dial with no control is said, not offered.
+  tap "cell-tone.deep-0-light"
+  clock data
+  expect text "input-shade" == "shade: a dial with no control (control=none)"
+
+test "cancel forgets only this mode, and another file forgets the draft"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "cell-surface.card-1-dark"
+  clock data
+  tap "only-this-mode"
+  expect state editWhen == "dark-style=black density=compact"
+  expect text "branch-label" == "surface.card · dark-style=black density=compact (only this mode)"
+  tap "cancel-edit"
+  type "branch-value" "light-dark(#f1f3f5, #101010)"
+  type "branch-value" key "Enter"
+  clock settle
+  expect state editKind == "set-token"
+  expect state editWhen == ""
+  type "file" "brand.tamber"
+  clock settle
+  expect state editKind == ""
+  expect state selToken == ""
 
 test "a dial an expression follows opens its control, not a token"
   type "name" "Ada"

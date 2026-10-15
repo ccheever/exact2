@@ -635,7 +635,7 @@ impl Server {
     /// A token's stored value per tuple and scheme; a host value (a role, a
     /// platform colour) is a residual, labelled so, with its fallback.
     fn resolve(&self, request: &Value) -> Result<Value, Value> {
-        let (_, folding) = self.design(request)?;
+        let (snap, folding) = self.design(request)?;
         let name = required(request, "token")?;
         let token = folding
             .tokens
@@ -666,13 +666,15 @@ impl Server {
                 }
             })
             .collect();
-        Ok(json!({"token": name, "tuples": tuples}))
+        // The digests it read, so a client reading several tokens can tell
+        // one revision from two.
+        Ok(json!({"token": name, "tuples": tuples, "files": files_json(&snap)}))
     }
 
     /// A token's chain: its default and `when` values, the dials it depends
     /// on, and the tokens those values name, as the checker resolved them.
     fn explain(&self, request: &Value) -> Result<Value, Value> {
-        let (_, folding) = self.design(request)?;
+        let (snap, folding) = self.design(request)?;
         let name = required(request, "token")?;
         let (token, declared) = folding
             .tokens
@@ -688,7 +690,7 @@ impl Server {
             })
             .collect();
         Ok(
-            json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names}),
+            json!({"token": name, "value": declared.value.value, "whens": whens, "dials": token.dials, "names": token.names, "files": files_json(&snap)}),
         )
     }
 

@@ -138,6 +138,9 @@ fn reads_answer_on_the_clones_design() {
     );
     let (explain, _) = s.ask(json!({"method": "explain", "token": "contrast_0"}));
     assert_eq!(explain["ok"]["token"], "contrast_0");
+    // Each read names the digests it read, as describe does.
+    assert_eq!(resolve["ok"]["files"], describe["ok"]["files"], "{resolve}");
+    assert_eq!(explain["ok"]["files"], describe["ok"]["files"], "{explain}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

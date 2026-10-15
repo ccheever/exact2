@@ -36,7 +36,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const request = await req.json().catch(() => ({}));
-      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES } });
+      if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES, epoch: EPOCH } });
       // stub/dials.tamber as the real server read it (stub/dials.json;
       // scripts/design-tool.test.mjs checks the two still agree).
       // Only app.tamber has a canned design; another file is refused, as a
@@ -44,8 +44,8 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (['describe', 'resolve', 'explain', 'propose'].includes(request.method) && (request.file ?? 'app.tamber') !== 'app.tamber') return send({ error: { message: `the stub has no design in ${request.file}` } }, 400);
       // Its digests are the stub's own, which hello and the events carry.
       if (request.method === 'describe') return send({ ok: { ...DIALS.describe, files: FILES } });
-      if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: DIALS.resolve[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
-      if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: DIALS.explain[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
+      if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: { ...DIALS.resolve[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
+      if (request.method === 'explain') return DIALS.explain[request.token] ? send({ ok: { ...DIALS.explain[request.token], files: FILES } }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       // A write is not applied: canned answers in its shape, enough for the
       // tool's own flow (its edits are tested on a real server).
       if (request.method === 'propose') return send({ ok: { files: FILES, class: 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });

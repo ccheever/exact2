@@ -137,9 +137,14 @@ test('every control on the dials panel comes from the design as describe gives i
       expect(canned.explain[t.name]).toEqual(await ask({ method: 'explain', token: t.name }));
     }
     const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
-      'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials'], { cwd: ROOT, encoding: 'utf8' });
+      'type name Ada', 'tap save-name', 'clock data', 'tap more-Colour', 'tap more-Tone', 'tree dials',
+      // The sliders' own range and step, which the page keeps a value to:
+      // a step of 0.001 to 0.005, a value past the end held at it.
+      'type dial-fine-slider 0.004', 'state', 'type dial-fine-slider 1', 'state', 'type dial-lift-slider 0.374', 'state', 'type dial-chroma-slider -1', 'state'], { cwd: ROOT, encoding: 'utf8' });
     expect(drive.status, drive.stderr).toBe(0);
-    const tree = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l)).at(-1);
+    const out = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+    const tree = out.find(r => r.nodes);
+    expect(out.filter(r => r.slots).map(r => [r.slots.editTarget, r.slots.editValue])).toEqual([['fine', '0.004'], ['fine', '0.005'], ['lift', '0.37'], ['chroma', '0']]);
     // The panel as drawn: each group's dials in screen order, "More"'s
     // after its button, and each one's control (its testId's last word),
     // label, value, range and step, options and help, all read off the
@@ -148,7 +153,9 @@ test('every control on the dials panel comes from the design as describe gives i
     const kids = n => n.children.map(c => byId.get(c));
     const texts = n => [n, ...kids(n).flatMap(texts)].filter(m => m.type === 'Text');
     const drawn = tree.nodes.filter(n => /^group-/.test(n.props.testId ?? '')).map(g => {
-      const dials = kids(g).filter(n => /^dial-[^-]+$/.test(n.props.testId ?? '') || /^more-/.test(n.props.testId ?? ''));
+      // A group's own children are its dials' boxes and its More button (a
+      // dial's name may hold a hyphen, so no pattern on the name).
+      const dials = kids(g).filter(n => /^(dial|more)-/.test(n.props.testId ?? ''));
       return { group: g.props.testId.slice(6), dials: dials.map(n => {
         if (n.props.testId.startsWith('more-')) return 'more';
         const name = n.props.testId.slice(5);
@@ -306,6 +313,10 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
       // saying why.
       'tap cell-accent.soft-0-light', 'clock data', 'state', 'tap pin', 'state',
       'type branch-value #123456', 'type branch-value key Enter', 'clock data', 'state', 'tap cancel-edit',
+      // accent.fill follows accent, which accent.soft still follows: its pin
+      // is taken, one line, and undone to the bytes.
+      'tap cell-accent.fill-0-light', 'clock data', 'tap pin', 'type branch-value #2070f0', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data',
+      'clock +1', 'clock data', 'tap undo', 'clock data',
       // A light cell passes over the under-dark `when`s, and has no "only
       // this mode" to offer.
       'tap cell-surface.page-0-light', 'clock data', 'state',
@@ -326,6 +337,11 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
     expect(states[2].resources.proposal.error).toContain('tamber-dial-inert');
     expect(states[3].resources.branch).toMatchObject({ token: 'surface.page', when: '', own: '', exact: true });
     const w = tool.writes;
+    const pin = w.splice(0, 2);
+    expect(pin.map(x => [x.method, x.ok])).toEqual([['transaction', true], ['undo', true]]);
+    const fill = '  accent.fill = accent';
+    expect(edit(original, pin[0].after)).toEqual({ at: original.split('\n').indexOf(fill), removed: [fill], added: ['  accent.fill = #2070f0'] });
+    expect(pin[1].after).toBe(original);
     expect(w.map(x => [x.method, x.ok])).toEqual([
       ['transaction', true], ['undo', true], ['transaction', true], ['undo', true],
       ['transaction', true], ['transaction', true], ['transaction', true],
@@ -376,6 +392,14 @@ test('controls from metadata that does not fit, steps, select values, column lab
   // token (no literal) is left out, said so; with none left, the kind's own.
   expect(dial('color', { control: 'select', options: '#f00|rgb(16, 131, 254)' })).toMatchObject({ value: 'rgb(16, 131, 254)', options: ['#f00', 'rgb(16, 131, 254)'] });
   expect(controlOf({ name: 'd', kind: 'color', value: '#ff0000ff', range: null, meta: { control: 'select', options: 'brand|brand.red' } }, new Set(['brand']))).toMatchObject({ control: 'color', help: 'control=select does not fit this color dial; its own control is shown. brand, brand.red are not a value a dial can take (a dial is a literal), so they are not offered.' });
+  // A literal is judged by its kind: oklch() and rgb() with decimals are a
+  // colour's, a name folds to its hex, `20px` is no number's.
+  expect(dial('color', { control: 'select', options: 'oklch(0.6 0.2 30)|rgb(255 0 0 / 0.5)' })).toMatchObject({ control: 'select', options: ['#1083feff', 'oklch(0.6 0.2 30)', 'rgb(255 0 0 / 0.5)'] });
+  expect(dial('color', { control: 'select', options: 'red|blue' }, '#ff0000ff')).toMatchObject({ value: 'red', options: ['red', 'blue'] });
+  expect(dial('number', { control: 'select', options: '20px|40' }, '20', ['0', '60'])).toMatchObject({ options: ['20', '40'], help: '20px is not a value a dial can take (a dial is a literal), so it is not offered.' });
+  // A length's step in px, and with none one fine enough for the value.
+  expect(controlOf({ name: 'gap', kind: 'length', value: '12.5px', range: ['0px', '24px'], meta: {} }).step).toBe(0.1);
+  expect(controlOf({ name: 'gap', kind: 'length', value: '12px', range: ['0px', '24px'], meta: { step: '2px' } }).step).toBe(2);
   // A light cell passes over a `when` naming an under-dark axis, as the
   // checker does; "only this mode" names every axis, and a light column
   // with an under-dark axis has none to offer.
@@ -387,9 +411,12 @@ test('controls from metadata that does not fit, steps, select values, column lab
   expect(branchOf(axes, dark3, [...whens, { when: [{ axis: 'dark-style', value: 'dim' }], value: 'c' }]).tie).toBe('when density=compact and when dark-style=dim');
   // A value's names as the checker reads them: a role by its bare name in
   // any case; no word inside a hex colour.
-  expect(inputsOf('LABEL', ['-exact-label'], [])).toEqual({ tokens: ['-exact-label'], dials: [] });
-  expect(inputsOf('oklch(from accent calc(l + lift) c h)', ['accent.soft'], ['accent', 'lift'])).toEqual({ tokens: [], dials: ['accent', 'lift'] });
-  expect(inputsOf('#accent0', ['accent0'], [])).toEqual({ tokens: [], dials: [] });
+  expect(inputsOf('LABEL', ['-exact-label'], [])).toEqual({ tokens: ['-exact-label'], dials: [], roles: [] });
+  expect(inputsOf('oklch(from accent calc(l + lift) c h)', ['accent.soft'], ['accent', 'lift'])).toEqual({ tokens: [], dials: ['accent', 'lift'], roles: [] });
+  expect(inputsOf('#1abcde', ['abcde'], [])).toEqual({ tokens: [], dials: [], roles: [] });
+  // A platform role or system colour no token overrides is an input too.
+  expect(inputsOf('-exact-secondary-label', [], [])).toEqual({ tokens: [], dials: [], roles: ['-exact-secondary-label'] });
+  expect(inputsOf('color-mix(in srgb, Canvas 50%, accent)', [], ['accent'])).toEqual({ tokens: [], dials: ['accent'], roles: ['Canvas'] });
   // Two axes with like-named values make two labels.
   const cols = columnsOf([{ name: 'a', values: ['normal', 'compact'], under: null }, { name: 'b', values: ['normal', 'compact'], under: null }]);
   expect(new Set(cols.map(c => c.label)).size).toBe(cols.length);

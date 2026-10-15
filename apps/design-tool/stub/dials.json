@@ -515,6 +515,9 @@
  },
  "resolve": {
   "-exact-label": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "-exact-label",
    "tuples": [
     {
@@ -572,6 +575,9 @@
    ]
   },
   "accent.fill": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "accent.fill",
    "tuples": [
     {
@@ -629,6 +635,9 @@
    ]
   },
   "accent.soft": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "accent.soft",
    "tuples": [
     {
@@ -686,6 +695,9 @@
    ]
   },
   "ink.on-brand": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "ink.on-brand",
    "tuples": [
     {
@@ -743,6 +755,9 @@
    ]
   },
   "paint.pick": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "paint.pick",
    "tuples": [
     {
@@ -800,6 +815,9 @@
    ]
   },
   "surface.card": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "surface.card",
    "tuples": [
     {
@@ -857,6 +875,9 @@
    ]
   },
   "surface.inset": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "surface.inset",
    "tuples": [
     {
@@ -914,6 +935,9 @@
    ]
   },
   "surface.page": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "surface.page",
    "tuples": [
     {
@@ -971,6 +995,9 @@
    ]
   },
   "text.primary": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "text.primary",
    "tuples": [
     {
@@ -1028,6 +1055,9 @@
    ]
   },
   "text.system": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "text.system",
    "tuples": [
     {
@@ -1081,6 +1111,9 @@
    ]
   },
   "tone.base": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "tone.base",
    "tuples": [
     {
@@ -1138,6 +1171,9 @@
    ]
   },
   "tone.deep": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "tone.deep",
    "tuples": [
     {
@@ -1195,6 +1231,9 @@
    ]
   },
   "tone.fine": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "tone.fine",
    "tuples": [
     {
@@ -1252,6 +1291,9 @@
    ]
   },
   "tone.warm": {
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "token": "tone.warm",
    "tuples": [
     {
@@ -1312,6 +1354,9 @@
  "explain": {
   "-exact-label": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [
     "text.primary"
    ],
@@ -1323,6 +1368,9 @@
    "dials": [
     "accent"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "accent.fill",
    "value": "accent",
@@ -1333,6 +1381,9 @@
     "accent",
     "lift"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "accent.soft",
    "value": "oklch(from accent calc(l + lift) c h)",
@@ -1340,6 +1391,9 @@
   },
   "ink.on-brand": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "ink.on-brand",
    "value": "#ffffff",
@@ -1349,6 +1403,9 @@
    "dials": [
     "paint"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "paint.pick",
    "value": "paint",
@@ -1356,6 +1413,9 @@
   },
   "surface.card": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "surface.card",
    "value": "light-dark(#f1f3f5, #16181c)",
@@ -1373,6 +1433,9 @@
   },
   "surface.inset": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "surface.inset",
    "value": "light-dark(#f8f9fa, #101214)",
@@ -1390,6 +1453,9 @@
   },
   "surface.page": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "surface.page",
    "value": "light-dark(#ffffff, #000000)",
@@ -1407,6 +1473,9 @@
   },
   "text.primary": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "text.primary",
    "value": "light-dark(#0f1419, #e7e9ea)",
@@ -1414,6 +1483,9 @@
   },
   "text.system": {
    "dials": [],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "text.system",
    "value": "-exact-secondary-label",
@@ -1424,6 +1496,9 @@
     "chroma",
     "hue"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "tone.base",
    "value": "oklch(0.6 chroma hue)",
@@ -1434,6 +1509,9 @@
     "accent",
     "shade"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "tone.deep",
    "value": "oklch(from accent calc(l - shade) c h)",
@@ -1443,6 +1521,9 @@
    "dials": [
     "fine"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "tone.fine",
    "value": "oklch(0.6 fine 200)",
@@ -1452,6 +1533,9 @@
    "dials": [
     "warmth"
    ],
+   "files": {
+    "app.tamber": "6a5df281ee1a1e174df5abf9c58a391f5e4af94be7fcc0485a737d9fc8ad0408"
+   },
    "names": [],
    "token": "tone.warm",
    "value": "oklch(0.7 0.1 warmth)",

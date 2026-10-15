@@ -384,8 +384,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'history') return history(request);
-    // Which app this server is, so `tamber tool` can tell its own from another's.
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir } } : r));
+    // Which app this server is, and which run of it, so `tamber tool` can
+    // tell its own from another's and a client can tell a restart.
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch } } : r));
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {

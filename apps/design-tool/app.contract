@@ -96,6 +96,8 @@ shape DialInput
   name: string
   group: string
   more: bool
+  // `control=none`: no control to go to.
+  hidden: bool
 
 // The branch a grid cell shows (LLP 1122 D6's target branch): the `when`
 // that won for its tuple, or the default, and what its value reads.
@@ -110,8 +112,12 @@ shape Branch
   expression: bool
   inputs: string[]
   dials: DialInput[]
+  // Platform roles and system colours it names, which no token overrides.
+  roles: string[]
   exact: bool
   own: string
+  // The design read it is of.
+  answer: number
 
 // An edit before it is written: `propose`'s answer.
 shape Proposal
@@ -285,6 +291,7 @@ component DesignTool
     editValue = ""
   action cancelEdit
     editKind = ""
+    scopeOwn = false
   action apply
     // Only the proposal shown, for the edit drafted, is written.
     if proposal.ok and proposal.active and not pending(proposal) and proposal.key == draftKey and not pending(written)
@@ -311,7 +318,14 @@ component DesignTool
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
+    // An edit drafted in one file is not carried to another.
     file = f
+    editKind = ""
+    selToken = ""
+    selColumn = ""
+    pinning = false
+    scopeOwn = false
+    focusDial = ""
   action chooseA(name: string)
     pickA = name
   action chooseB(name: string)
@@ -401,23 +415,28 @@ component DesignTool
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
                               text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
-              // The branch of the cell chosen, not one read for the cell before.
-              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn
+              // The branch of the cell chosen, read of the grid shown.
+              if selToken != "" and branch.ok and branch.token == selToken and branch.column == selColumn and branch.answer == design.answer and not pending(branch)
                 column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId="branch"
-                  text branch.label role="heading" aria-level=3 testId="branch-label"
+                  text (scopeOwn ? `${branch.token} · ${branch.own} (only this mode)` : branch.label) role="heading" aria-level=3 testId="branch-label"
                   if branch.expression and not pinning
-                    text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
+                    text `Follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}: edit those, or pin a value here.` color="-exact-secondary-label" testId="branch-inputs"
                     for n in branch.inputs key=n
                       button press=selectCell(n, selColumn) testId=`input-${n}`
                         text n
                     for d in branch.dials key=d.name
-                      button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
-                        text `${d.name} (dial)`
+                      if d.hidden
+                        text `${d.name}: a dial with no control (control=none)` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${d.name}`
+                      else
+                        button press=showDial(d.name, d.group, d.more) testId=`input-${d.name}`
+                          text `${d.name} (dial)`
+                    for r in branch.roles key=r
+                      text `${r}: a platform colour, set by the system` color="-exact-secondary-label" font="-exact-footnote" testId=`input-${r}`
                     button press=pin buttonStyle="bordered" testId="pin"
                       text "Pin a value"
                   else
                     if branch.expression
-                      text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).join(", ")}.` color="-exact-system-orange" testId="pinned"
+                      text `Pinned here: no longer follows ${branch.inputs.concat(branch.dials.map(d => d.name)).concat(branch.roles).join(", ")}.` color="-exact-system-orange" testId="pinned"
                     input value=branch.value change=cellText aria-label=`${branch.token} value` testId="branch-value"
                   if not branch.exact
                     button press=onlyThisMode testId="only-this-mode"
@@ -506,7 +525,7 @@ component DialControl
       else if c.control == "slider"
         input type="range" min=c.min max=c.max step=c.step value=c.number change=onNumber aria-label=c.label testId=`dial-${c.name}-slider`
       else if c.control == "stepper"
-        input type="number" min=c.min max=c.max step=c.step value=c.value input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
+        input type="number" min=c.min max=c.max step=c.step value=`${c.number}` input=onText aria-label=c.label testId=`dial-${c.name}-stepper`
       else if c.control == "select"
         select value=c.value change=onText aria-label=c.label testId=`dial-${c.name}-select`
           for o in c.options key=o

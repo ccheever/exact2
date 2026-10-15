@@ -14,6 +14,10 @@ export const appId = 'com.exact.design-tool';
 export const API = 'http://127.0.0.1:7740';
 export const grants = `net.fetch ${API}`;
 
+const RESTARTED = 'The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again.';
+// A write's wait: longer than the server's own for a write (two minutes),
+// so the tool never gives up on one that then lands.
+const WRITE_WAIT = 130_000;
 const NO_SERVER = `No design server answers at ${API}. Start one for your app with \`bun exact.mjs tamber tool <app>\`, then try again.`;
 
 type Diagnostic = { file?: string; line?: number; id?: string; message?: string };
@@ -48,14 +52,16 @@ async function askToken(): Promise<{ token: string | null; error: string }> {
 }
 
 /** One `tamber/1` request: its reply, or the words to show. A token the
- * server no longer knows (it restarted) is asked for again, once. */
-async function call(path: string, body: unknown, timeout = 15000): Promise<{ error: string; reply: Reply }> {
+ * server no longer knows (it restarted) is asked for again, once, for a
+ * read; a write is not sent on to whatever server now holds the port. */
+async function call(path: string, body: unknown, timeout = 15000, renew = true): Promise<{ error: string; reply: Reply }> {
   for (let attempt = 0; attempt < 2; attempt++) {
     const got = await tokenOf();
     if (!got.token) return { error: got.error, reply: {} };
     try {
       const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
         headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
+      if (res.status === 404 && attempt === 0 && !renew) { token = null; return { error: RESTARTED, reply: {} }; }
       if (res.status === 404 && attempt === 0) { token = null; continue; }
       const reply = (await res.json().catch(() => ({}))) as Reply;
       if (res.ok) return { error: '', reply };
@@ -106,22 +112,75 @@ const decimals = (v: string | undefined) => {
   const m = /^[+-]?\d*(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(v?.trim().replace(/px$/i, '') ?? '');
   return m ? Math.max(0, (m[1]?.length ?? 0) - Number(m[2] ?? 0)) : 0;
 };
-/** A colour written as hex or `rgb()`, folded as the server folds a dial's
- * colour (`#rrggbbaa`, lower case); anything else as written. */
+// CSS's named colours (CSS Color 4 §6.1), as color/src/named.rs has them.
+const NAMED = new Map((
+  'aliceblue:f0f8ff antiquewhite:faebd7 aqua:00ffff aquamarine:7fffd4 azure:f0ffff beige:f5f5dc ' +
+  'bisque:ffe4c4 black:000000 blanchedalmond:ffebcd blue:0000ff blueviolet:8a2be2 brown:a52a2a ' +
+  'burlywood:deb887 cadetblue:5f9ea0 chartreuse:7fff00 chocolate:d2691e coral:ff7f50 ' +
+  'cornflowerblue:6495ed cornsilk:fff8dc crimson:dc143c cyan:00ffff darkblue:00008b darkcyan:008b8b ' +
+  'darkgoldenrod:b8860b darkgray:a9a9a9 darkgreen:006400 darkgrey:a9a9a9 darkkhaki:bdb76b ' +
+  'darkmagenta:8b008b darkolivegreen:556b2f darkorange:ff8c00 darkorchid:9932cc darkred:8b0000 ' +
+  'darksalmon:e9967a darkseagreen:8fbc8f darkslateblue:483d8b darkslategray:2f4f4f ' +
+  'darkslategrey:2f4f4f darkturquoise:00ced1 darkviolet:9400d3 deeppink:ff1493 deepskyblue:00bfff ' +
+  'dimgray:696969 dimgrey:696969 dodgerblue:1e90ff firebrick:b22222 floralwhite:fffaf0 ' +
+  'forestgreen:228b22 fuchsia:ff00ff gainsboro:dcdcdc ghostwhite:f8f8ff gold:ffd700 ' +
+  'goldenrod:daa520 gray:808080 green:008000 greenyellow:adff2f grey:808080 honeydew:f0fff0 ' +
+  'hotpink:ff69b4 indianred:cd5c5c indigo:4b0082 ivory:fffff0 khaki:f0e68c lavender:e6e6fa ' +
+  'lavenderblush:fff0f5 lawngreen:7cfc00 lemonchiffon:fffacd lightblue:add8e6 lightcoral:f08080 ' +
+  'lightcyan:e0ffff lightgoldenrodyellow:fafad2 lightgray:d3d3d3 lightgreen:90ee90 lightgrey:d3d3d3 ' +
+  'lightpink:ffb6c1 lightsalmon:ffa07a lightseagreen:20b2aa lightskyblue:87cefa ' +
+  'lightslategray:778899 lightslategrey:778899 lightsteelblue:b0c4de lightyellow:ffffe0 lime:00ff00 ' +
+  'limegreen:32cd32 linen:faf0e6 magenta:ff00ff maroon:800000 mediumaquamarine:66cdaa ' +
+  'mediumblue:0000cd mediumorchid:ba55d3 mediumpurple:9370db mediumseagreen:3cb371 ' +
+  'mediumslateblue:7b68ee mediumspringgreen:00fa9a mediumturquoise:48d1cc mediumvioletred:c71585 ' +
+  'midnightblue:191970 mintcream:f5fffa mistyrose:ffe4e1 moccasin:ffe4b5 navajowhite:ffdead ' +
+  'navy:000080 oldlace:fdf5e6 olive:808000 olivedrab:6b8e23 orange:ffa500 orangered:ff4500 ' +
+  'orchid:da70d6 palegoldenrod:eee8aa palegreen:98fb98 paleturquoise:afeeee palevioletred:db7093 ' +
+  'papayawhip:ffefd5 peachpuff:ffdab9 peru:cd853f pink:ffc0cb plum:dda0dd powderblue:b0e0e6 ' +
+  'purple:800080 rebeccapurple:663399 red:ff0000 rosybrown:bc8f8f royalblue:4169e1 ' +
+  'saddlebrown:8b4513 salmon:fa8072 sandybrown:f4a460 seagreen:2e8b57 seashell:fff5ee sienna:a0522d ' +
+  'silver:c0c0c0 skyblue:87ceeb slateblue:6a5acd slategray:708090 slategrey:708090 snow:fffafa ' +
+  'springgreen:00ff7f steelblue:4682b4 tan:d2b48c teal:008080 thistle:d8bfd8 tomato:ff6347 ' +
+  'turquoise:40e0d0 violet:ee82ee wheat:f5deb3 white:ffffff whitesmoke:f5f5f5 yellow:ffff00 ' +
+  'yellowgreen:9acd32 '
+).trim().split(' ').map(p => p.split(':') as [string, string]));
+
+/** A colour written as hex, `rgb()` (numbers or percentages, commas or
+ * spaces, any alpha) or a CSS name, folded as the server folds a dial's
+ * colour (`#rrggbbaa`, lower case); another colour function as written,
+ * its spaces tidied. */
 export function folded(v: string): string {
-  const t = v.trim().toLowerCase();
+  const t = v.trim().toLowerCase().replace(/\s+/g, ' ');
   const hex = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.exec(t)?.[1];
   if (hex) {
     const full = hex.length <= 4 ? [...hex].map(c => c + c).join('') : hex;
     return `#${full}${full.length === 6 ? 'ff' : ''}`;
   }
-  const rgb = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/.exec(t);
+  if (t === 'transparent') return '#00000000';
+  if (NAMED.has(t)) return `#${NAMED.get(t)}ff`;
+  const num = (x: string, of: number) => (x.endsWith('%') ? (Number(x.slice(0, -1)) / 100) * of : Number(x));
+  const rgb = /^rgba?\( ?([\d.]+%?)[ ,]+([\d.]+%?)[ ,]+([\d.]+%?)(?: ?[,/] ?([\d.]+%?))? ?\)$/.exec(t);
   if (rgb) {
-    const a = rgb[4] === undefined ? 1 : rgb[4].endsWith('%') ? Number(rgb[4].slice(0, -1)) / 100 : Number(rgb[4]);
-    return `#${[rgb[1], rgb[2], rgb[3]].map(n => Math.min(255, Number(n))).concat(Math.round(Math.min(1, a) * 255)).map(n => n.toString(16).padStart(2, '0')).join('')}`;
+    const byte = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0');
+    return `#${[rgb[1], rgb[2], rgb[3]].map(x => byte(num(x, 255))).join('')}${byte(num(rgb[4] ?? '1', 1) * 255)}`;
   }
   return t;
 }
+/** Whether `v` is written as a colour literal: a hex, a CSS name, or a
+ * colour function's call (its arguments the server's to judge); a
+ * token's name is not, whatever it is spelled. */
+export const colourLiteral = (v: string, tokens: ReadonlySet<string>) => {
+  const t = v.trim();
+  if (tokens.has(t)) return false;
+  return /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t) || t.toLowerCase() === 'transparent' || NAMED.has(t.toLowerCase())
+    || /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\([^()]*\)$/i.test(t);
+};
+/** Whether `v` is a dial's literal of `kind`: a colour's, a plain number
+ * for a number (no unit), `0` or `Npx` for a length. */
+const literalOf = (kind: string, v: string, tokens: ReadonlySet<string>) =>
+  kind === 'color' ? colourLiteral(v, tokens)
+  : kind === 'length' ? /^(0|[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?px)$/i.test(v.trim())
+  : /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(v.trim());
 
 /** A dial's control from its declared metadata (LLP 1121 D4, D15): its
  * `control`, else its kind's own (a colour's field, a ranged number's
@@ -139,7 +198,7 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   const declared = m.control;
   if (declared === 'none') return null;
   const written = (m.options ?? '').split('|').map(o => o.trim()).filter(Boolean);
-  const literal = (o: string) => (d.kind === 'color' ? !tokens.has(o) && !o.includes('.') : numberOf(o) !== null);
+  const literal = (o: string) => literalOf(d.kind, o, tokens);
   const options = written.filter(literal);
   const dropped = written.filter(o => !literal(o));
   const fits = declared === 'color' ? d.kind === 'color'
@@ -151,8 +210,9 @@ export function controlOf(d: { name: string; kind: string; value: string; range:
   // With no step, the finest the value and the range are written in, so
   // every declared value is a step (at least 0.01).
   const finest = 10 ** -Math.max(2, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1]));
-  const declaredStep = m.step !== undefined && Number.isFinite(Number(m.step)) ? Number(m.step) : null;
-  const step = declaredStep !== null && declaredStep > 0 ? declaredStep : d.kind === 'number' ? finest : 1;
+  // A length's step is in px (LLP 1121 D15), written either way.
+  const declaredStep = m.step !== undefined && numberOf(m.step) !== null && (d.kind === 'length' || !/px$/i.test(m.step)) ? numberOf(m.step) : null;
+  const step = declaredStep !== null && declaredStep > 0 ? declaredStep : d.kind === 'number' ? finest : d.kind === 'length' ? 10 ** -Math.max(0, decimals(d.value), decimals(d.range?.[0]), decimals(d.range?.[1])) : 1;
   const priority = [1, 2, 3].includes(Number(m.priority)) ? Number(m.priority) : 2;
   const said = [
     declared && declared !== 'token' && !fits ? `control=${declared} does not fit this ${d.kind} dial; its own control is shown.` : '',
@@ -233,15 +293,22 @@ export function branchOf(axes: Axis[], col: Column, whens: { when: When[]; value
   return { when: top[0] ? whenText(top[0].when) : '', index: top[0]?.index ?? -1, tie: top.length > 1 ? top.map(w => `when ${whenText(w.when)}`).join(' and ') : '', own };
 }
 
-/** The tokens and dials a value names, as the checker reads a name: a
- * token by its name, a role by its row's spelling or its bare name in any
- * case (`label` for `-exact-label`), a dial by its name. Words inside a hex
- * colour or a number are not names. */
-export function inputsOf(value: string, names: string[], dials: string[]): { tokens: string[]; dials: string[] } {
-  const words = new Set((value.match(/#?[A-Za-z_-][\w.-]*/g) ?? []).filter(w => !w.startsWith('#')));
-  const lower = new Set([...words].map(w => w.toLowerCase()));
-  const named = (n: string) => words.has(n) || lower.has(n.toLowerCase()) || (n.toLowerCase().startsWith('-exact-') && lower.has(n.toLowerCase().slice(7)));
-  return { tokens: names.filter(named), dials: dials.filter(d => words.has(d)) };
+// CSS's system colours, which a value may name as a platform colour.
+const SYSTEM = new Set(['canvas', 'canvastext', 'linktext', 'visitedtext', 'activetext', 'buttonface', 'buttontext', 'buttonborder', 'field', 'fieldtext', 'highlight', 'highlighttext', 'selecteditem', 'selecteditemtext', 'mark', 'marktext', 'graytext', 'accentcolor', 'accentcolortext']);
+/** What a value names, as the checker reads a name: a token by its name, a
+ * role override by its row's spelling or its bare name in any case
+ * (`label` for `-exact-label`), a dial by its name; and a platform role or
+ * system colour no token overrides (`-exact-secondary-label`, `Canvas`),
+ * which also makes the value an expression. A word is a whole word of the
+ * value: never part of a hex colour or a number. */
+export function inputsOf(value: string, names: string[], dials: string[]): { tokens: string[]; dials: string[]; roles: string[] } {
+  const words = value.split(/[\s,()/*+]+/).filter(w => /^[A-Za-z_-][\w.-]*$/.test(w));
+  const set = new Set(words), lower = new Set(words.map(w => w.toLowerCase()));
+  const named = (n: string) => set.has(n) || lower.has(n.toLowerCase()) || (n.toLowerCase().startsWith('-exact-') && lower.has(n.toLowerCase().slice(7)));
+  const tokens = names.filter(named), found = dials.filter(d => set.has(d));
+  const taken = new Set([...tokens, ...found].map(n => n.toLowerCase()));
+  const roles = words.filter(w => (w.toLowerCase().startsWith('-exact-') || SYSTEM.has(w.toLowerCase())) && !taken.has(w.toLowerCase()) && !tokens.some(n => n.toLowerCase() === `-exact-${w.toLowerCase()}`));
+  return { tokens, dials: found, roles: [...new Set(roles)] };
 }
 
 // Each design read, by its number (given as the read starts): its axes,
@@ -250,7 +317,7 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
 type Stored = { css: string; srgb: string; residual: boolean; note: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }> };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string };
 const snapshots = new Map<number, Snapshot>();
 let issued = 0;
 // Whether running apps take a value edit with no reload: a server says so
@@ -261,7 +328,9 @@ let liveTable = false;
 /** One consistent read of a design: `describe`, each token's `resolve`, and
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. */
-async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[] }> {
+/** A set of files' digests as one comparable string. */
+const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
+async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string> }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3; attempt++) {
     const described = await call('/__tamber', { method: 'describe', ...which });
@@ -278,11 +347,14 @@ async function readDesign(file: string): Promise<{ error: string; ir?: any; reso
     const same = Object.keys(before).length === Object.keys(now).length && Object.entries(before).every(([f, d]) => now[f] === d);
     // And each tuple is the one its index says, by its modes.
     const tuples = columnsOf(ir.axes);
-    const placed = resolved.every(r => (r.reply.ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => {
+    // Each resolve read the revision describe did (an edit and its undo
+    // between leave the same digests at the end, not in between).
+    const one = resolved.every(r => digestKey(r.reply.ok?.files) === digestKey(before));
+    const placed = one && resolved.every(r => (r.reply.ok?.tuples ?? []).every((t: { modes?: Record<string, string> }, i: number) => {
       const col = tuples.find(c => c.tuple === i);
       return !col || ir.axes.every((a: Axis, k: number) => t.modes?.[a.name] === col.values[k]);
     }));
-    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok) };
+    if (same && placed) return { error: '', ir, resolved: resolved.map(r => r.reply.ok), files: before };
   }
   return { error: 'The design kept changing while it was read. Try again.' };
 }
@@ -311,6 +383,24 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
+// The run of the server (its epoch) the stacks and reviews are of.
+let minted = '';
+/** The stacks emptied: another run of the server has none of their
+ * inverses. */
+function forget(epoch: string) {
+  undoStack.length = 0; redoStack.length = 0; session += 1; minted = epoch;
+}
+/** Before a write: the server is the run this session's stacks are of (by
+ * its hello's epoch), else they are emptied and the write refused; and the
+ * files' digests now. */
+async function sameRun(): Promise<{ error: string; files: Record<string, string> }> {
+  const hello = await call('/__tamber', { method: 'hello' }, 15000, false);
+  if (hello.error) { if (hello.error === RESTARTED) forget(''); return { error: hello.error, files: {} }; }
+  const epoch = String(hello.reply.ok?.epoch ?? '');
+  if (minted && epoch !== minted) { forget(epoch); return { error: RESTARTED, files: {} }; }
+  minted = epoch;
+  return { error: '', files: hello.reply.ok?.files ?? {} };
+}
 const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session });
 /** Who moved a file a refused write or undo found moved: its client, or
  * "changed on disk". */
@@ -350,7 +440,7 @@ const sources: Sources = {
         stored.set(t.name, sides);
         const cells = columns.map(c => {
           const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '' };
-          return { column: c.id, label: `${t.name}, ${c.label}${v.residual ? ', fallback' : ''}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
+          return { column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
         });
         return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
       });
@@ -370,7 +460,7 @@ const sources: Sources = {
       for (const g of panel) for (const [list, more] of [[g.dials, false], [g.more, true]] as const) for (const c of list) dials.set(c.name, { group: g.name, more });
       // Overtaken: never shown, so nothing to keep.
       if (number === issued) {
-        snapshots.set(number, { file, axes, columns, stored, dials });
+        snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
       }
       return {
@@ -385,23 +475,26 @@ const sources: Sources = {
     }
   },
   loadBranch: async ([file, token, column, answer]) => {
-    const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], exact: true, own: '' };
+    const none = { ok: true, error: '', token: '', column: '', label: '', when: '', value: '', expression: false, inputs: [], dials: [], roles: [], exact: true, own: '', answer };
     const snap = snapshots.get(answer);
     const col = snap?.columns.find(c => c.id === column);
     if (!token || !col || !snap || snap.file !== file) return none;
     const { error, reply } = await call('/__tamber', { method: 'explain', token, ...(file ? { file } : {}) });
     if (error) return { ...none, ok: false, error };
-    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[] };
+    const x = reply.ok as { value: string; whens: { when: When[]; value: string }[]; dials: string[]; names: string[]; files?: Record<string, string> };
+    // Of the revision the grid shows, or it is read again with the grid.
+    if (x.files && digestKey(x.files) !== snap.digests) return { ...none, ok: false, error: 'The design changed while this cell was read; it is read again with the grid.' };
     const b = branchOf(snap.axes, col, x.whens);
     if (b.tie) return { ...none, ok: false, error: `${token} has two branches for ${col.label}, ${b.tie}; the checker refuses that, so fix the file by hand.` };
     const value = b.index >= 0 ? x.whens[b.index].value : x.value;
     // An expression's inputs: the tokens and dials it names; a dial's
     // control is where it is edited.
     const inputs = inputsOf(value, x.names, x.dials);
-    const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false }));
+    // A dial with no control (`control=none`) is said, not offered.
+    const dials = inputs.dials.map(name => ({ name, group: snap.dials.get(name)?.group ?? '', more: snap.dials.get(name)?.more ?? false, hidden: !snap.dials.has(name) }));
     return {
       ok: true, error: '', token, column, label: `${token} · ${b.when || 'default'} (${col.label})`, when: b.when, value,
-      expression: inputs.tokens.length + inputs.dials.length > 0, inputs: inputs.tokens, dials, exact: b.own === '' || b.when === b.own, own: b.own,
+      expression: inputs.tokens.length + inputs.dials.length + inputs.roles.length > 0, inputs: inputs.tokens, dials, roles: inputs.roles, exact: b.own === '' || b.when === b.own, own: b.own, answer,
     };
   },
   proposeEdit: async ([file, kind, target, when, value]) => {
@@ -414,17 +507,22 @@ const sources: Sources = {
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // What Apply writes: this edit, against the digests this proposal read,
     // carried on the proposal itself, so what is shown is what is written.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files }) };
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, epoch: place.epoch }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string> } = {};
+    let read: { key?: string; files?: Record<string, string>; diff?: string; epoch?: string } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
     if (read.key !== key || !read.files) return stacks(false, 'Review the change before applying it.', '');
+    const run = await sameRun();
+    if (run.error) return stacks(false, run.error, '');
+    if (read.epoch && read.epoch !== minted) return stacks(false, 'The design server restarted since this change was reviewed: review it again.', '');
     const op = opOf(file, kind, target, when, value);
+    const at = session;
     // Every file's digest as the proposal read it: the server checks the
     // ones the edit writes, whichever file the app's design is.
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] });
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: read.files, ops: [op] }, WRITE_WAIT, false);
+    if (session !== at) return stacks(false, RESTARTED, '');
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
@@ -434,11 +532,21 @@ const sources: Sources = {
   undoLast: async ([client]) => {
     const top = undoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to undo.', '');
-    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse });
+    const run = await sameRun();
+    if (run.error) return stacks(false, run.error, '');
+    const at = session;
+    const { error, reply } = await call('/__tamber', { method: 'undo', client, inverse: top.inverse }, WRITE_WAIT, false);
+    if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       // Refused for a conflict, it can't apply while the file stays as it
-      // is: say who moved it, and set it aside. Any other failure (no
-      // answer) keeps it to try again.
+      // is: say who moved it, and set it aside. An inverse the server no
+      // longer has (used by an undo whose answer was lost, or dropped) is
+      // set aside too, said so. Any other failure (no answer) keeps it to
+      // try again.
+      if (/^no inverse/.test(error)) {
+        undoStack.pop();
+        return stacks(false, `Can't undo ${top.label}: the server no longer has its inverse (it may be undone already). It is set aside.`, '');
+      }
       if (!conflict(reply)) return stacks(false, error, '');
       undoStack.pop();
       return stacks(false, `Can't undo ${top.label}: ${byWhom(reply) || 'the file changed'} since. It is set aside.`, '');
@@ -450,10 +558,13 @@ const sources: Sources = {
   redoLast: async ([client]) => {
     const top = redoStack.at(-1);
     if (!top) return stacks(false, 'Nothing to redo.', '');
-    // The original transaction again, against the files as they are now.
-    const hello = await call('/__tamber', { method: 'hello' });
-    if (hello.error) return stacks(false, hello.error, '');
-    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: hello.reply.ok.files ?? {}, ops: top.ops });
+    // The original transaction again, against the files as they are now,
+    // on the run of the server it was undone on.
+    const run = await sameRun();
+    if (run.error) return stacks(false, run.error, '');
+    const at = session;
+    const { error, reply } = await call('/__tamber', { method: 'transaction', client, files: run.files, ops: top.ops }, WRITE_WAIT, false);
+    if (session !== at) return stacks(false, RESTARTED, '');
     if (error) {
       if (!conflict(reply)) return stacks(false, `Can't redo ${top.label}: ${error}`, '');
       return stacks(false, `Can't redo ${top.label}: ${byWhom(reply) || 'the file changed'} since. Try again.`, '');
@@ -487,7 +598,7 @@ const sources: Sources = {
     // missed than it keeps: its sequence numbers start again, or the list
     // has a gap, so the list starts again. Another run has none of this
     // session's inverses: undo and redo start again too.
-    if (place.epoch && r.epoch !== place.epoch) { undoStack.length = 0; redoStack.length = 0; session += 1; }
+    if (place.epoch && r.epoch !== place.epoch) forget(String(r.epoch ?? ''));
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
