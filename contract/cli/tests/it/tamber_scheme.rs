@@ -135,3 +135,50 @@ fn the_ir_carries_the_mark() {
         "{ir}"
     );
 }
+
+#[test]
+fn the_mark_holds_through_a_role_spelling_and_a_one_scheme_colour_inside_an_expression_is_still_found(
+) {
+    // A fixed token read through its role spelling, by an alias.
+    let path = app(
+        "alias",
+        "tamber t\n\ntheme\n  label = #101010  scheme=fixed\n  ink = -exact-label\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    assert_eq!(one_scheme(&path), Vec::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    // A role replaced by an expression over a one-scheme token: reported.
+    let path = app(
+        "expr",
+        "tamber t\n\ntheme\n  base = #ffffff\n  Canvas = color-mix(in srgb, base 50%, #000000)\n",
+        "component App\n  view\n    text \"a\"\n",
+    );
+    let found = one_scheme(&path);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(
+        found[0].2.contains("`Canvas` is one colour in every mode"),
+        "{found:?}"
+    );
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
+fn equal_sides_written_two_ways_are_one_colour_and_the_mark_is_said_once() {
+    let path = app(
+        "forms",
+        "tamber t\n\ntheme\n  ink = light-dark(#ffffff, color(srgb 1 1 1))  scheme=fixed\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    contract::compile_path(&path).unwrap_or_else(|e| panic!("{e:?}"));
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    let path = app(
+        "twice",
+        "tamber t\n\ntheme\n  ink = #ffffff  scheme=fixed scheme=dark\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    assert_eq!(
+        contract::compile_path(&path).unwrap_err().id,
+        "tamber-scheme-fixed"
+    );
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

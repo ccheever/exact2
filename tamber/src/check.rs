@@ -161,10 +161,28 @@ impl<'a> Checker<'a> {
     /// sides, a role or a platform colour, which follow the scheme) and any
     /// other `scheme=` word.
     fn scheme(&mut self, t: &Token, values: &[Folded]) -> bool {
-        let Some((_, word)) = t.meta.iter().find(|(k, _)| k == "scheme") else {
+        let words: Vec<&String> = t
+            .meta
+            .iter()
+            .filter(|(k, _)| k == "scheme")
+            .map(|(_, v)| v)
+            .collect();
+        let Some(&word) = words.first() else {
             return false;
         };
         let (line, col) = (t.name.line, t.name.col);
+        if words.len() > 1 {
+            self.errors.push(Diagnostic::new(
+                "tamber-scheme-fixed",
+                format!(
+                    "`{}` says `scheme=` more than once: write `scheme=fixed` once",
+                    t.name.value
+                ),
+                line,
+                col,
+            ));
+            return false;
+        }
         if word != "fixed" {
             self.errors.push(Diagnostic::new(
                 "tamber-scheme-fixed",
@@ -176,7 +194,7 @@ impl<'a> Checker<'a> {
         }
         let differs = values.iter().any(|v| match v {
             Folded::One(_) => false,
-            Folded::Pair(light, dark) => light != dark,
+            Folded::Pair(light, dark) => !same(*light, *dark),
             Folded::Host(_) => true,
         });
         if differs {

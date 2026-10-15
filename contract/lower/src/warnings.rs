@@ -942,19 +942,30 @@ impl Leaves<'_> {
             .map(|(name, value)| (name.as_str(), *value))
     }
 
-    /// The literal colours entry `name` stands for, through aliases (`card =
-    /// "base"`), a few steps; none past an entry marked `scheme=fixed`.
+    /// The literal colours entry `name` stands for, through the entries its
+    /// value names (an alias, `card = "base"`, or one inside an expression),
+    /// a few steps; none from an entry marked `scheme=fixed`, in any of its
+    /// spellings.
     fn entry_colours(&self, name: &str, out: &mut Vec<String>) {
-        let mut word = name;
-        for _ in 0..8 {
-            let Some((name, value)) = self.entry_named(word) else {
-                break;
-            };
-            if self.fixed.iter().any(|f| f == name) {
-                break;
+        self.entry_colours_at(name, 8, out);
+    }
+
+    fn entry_colours_at(&self, name: &str, depth: u32, out: &mut Vec<String>) {
+        let Some((name, value)) = self.entry_named(name) else {
+            return;
+        };
+        let bare = name.strip_prefix("-exact-").unwrap_or(name);
+        if self.fixed.iter().any(|f| f == name || f == bare) {
+            return;
+        }
+        literal_colours(value, out);
+        if depth == 0 {
+            return;
+        }
+        for word in value.split(|c: char| c.is_whitespace() || c == ',' || c == '(' || c == ')') {
+            if !word.is_empty() && word != name {
+                self.entry_colours_at(word, depth - 1, out);
             }
-            literal_colours(value, out);
-            word = value.trim();
         }
     }
 
@@ -1119,12 +1130,13 @@ fn one_scheme(
         let mut colours = Vec::new();
         leaves.entry_colours(&e.name, &mut colours);
         if !colours.is_empty() {
+            // A declaration: the token's repair, the mark or a pair.
             sites.push(Site {
                 span: e.span,
                 name: e.name.clone(),
                 paints,
                 colours,
-                token: false,
+                token: true,
             });
         }
     }
@@ -1252,12 +1264,25 @@ fn one_scheme(
             span: s.span,
         });
     }
+    // Every line a token's: their closer is a token's repair.
+    if let Some(first) = sites.first().filter(|_| sites.iter().all(|s| s.token)) {
+        out.push(LowerError {
+            id: "lower-colour-one-scheme",
+            message: format!(
+                "these {} tokens are one colour in every mode: give each a `light-dark(light, dark)` pair, or {mark}",
+                sites.len()
+            ),
+            span: first.span,
+        });
+        return;
+    }
     if let Some(first) = sites.first() {
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
-                sites.len()
+                "these {} {}colours stay the same in dark mode while the platform's text and controls change, so a light card keeps its colour under the platform's white text: name a role for each or leave it unsaid. {why}",
+                sites.len(),
+                if sites.iter().any(|s| s.token) { "" } else { "literal " }
             ),
             span: first.span,
         });
