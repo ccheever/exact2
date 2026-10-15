@@ -344,7 +344,7 @@ fn shadcn_winners_nesting_and_recovery() {
 
 #[test]
 fn an_authored_when_on_another_axis_stays_and_a_role_offer_clears_its_own() {
-    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.background = #ffffff\n    when density=compact: #fafafa\n  -exact-background = #000000\n    when density=compact: #111111\n";
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.background = #ffffff\n  -exact-background = #000000\n    when density=compact: #111111\n";
     let css = ":root { --background: #ffffff; }";
     let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
     assert_eq!(import.ops, []);
@@ -357,6 +357,41 @@ fn an_authored_when_on_another_axis_stays_and_a_role_offer_clears_its_own() {
         "{:?}",
         again.offers
     );
+}
+
+/// A role has one value (LLP 1121 D5), judged on the design as accepted:
+/// a `when` the design keeps on its own axis makes the token vary, and a
+/// role the design already binds to a token the import makes vary is
+/// offered for removal.
+#[test]
+fn a_role_whose_token_varies_once_accepted_is_not_offered() {
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.background = #ffffff\n    when density=compact: #fafafa\n  -exact-background = #000000\n";
+    let css = ":root { --background: #ffffff; }";
+    let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(import.ops, []);
+    assert!(import.offers[0].ops.is_empty());
+    assert!(import.offers[0]
+        .note
+        .as_deref()
+        .unwrap()
+        .starts_with("not offered"));
+    let design =
+        "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  AccentColor = shadcn.primary\n";
+    let css = ":root { --primary: #ff0000; } .theme-blue { --primary: #0000ff; }";
+    let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(
+        import.offers[0].ops,
+        [Op::RemoveToken {
+            name: "AccentColor".into()
+        }]
+    );
+    assert!(import.offers[0]
+        .note
+        .as_deref()
+        .unwrap()
+        .contains("offered for removal"));
+    let text = accepted(design, &import);
+    assert!(!text.contains("AccentColor"), "{text}");
 }
 
 #[test]

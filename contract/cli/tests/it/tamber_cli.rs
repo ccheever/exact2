@@ -126,22 +126,36 @@ fn a_refusal_names_its_line_and_a_mode_is_axis_equals_value() {
 fn a_shadcn_import_with_every_offer_accepted_compiles() {
     use exact_tamber::import::shadcn;
     let vocab = contract_lower::tamber_vocab();
-    for file in [
-        "shadcn-neutral.css",
-        "shadcn-blue.css",
-        "shadcn-neutral-themes.css",
-    ] {
-        let css = std::fs::read_to_string(format!(
+    let read = |file: &str| {
+        std::fs::read_to_string(format!(
             "{}/../../tamber/tests/import/{file}",
             env!("CARGO_MANIFEST_DIR")
         ))
-        .unwrap();
-        let empty = "tamber app\n";
-        let import =
-            shadcn::import(&css, "shadcn", &exact_tamber::parse(empty).unwrap(), &vocab).unwrap();
+        .unwrap()
+    };
+    let empty = "tamber app\n";
+    // Each fixture over an empty design; then a design whose own axis keeps
+    // a `when` on the token, and one whose role names a token the import
+    // makes vary.
+    for (file, before, css) in [
+        ("shadcn-neutral.css", empty, read("shadcn-neutral.css")),
+        ("shadcn-blue.css", empty, read("shadcn-blue.css")),
+        ("shadcn-neutral-themes.css", empty, read("shadcn-neutral-themes.css")),
+        (
+            "kept-when",
+            "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #111111\n    when density=compact: #222222\n",
+            ":root { --primary: #333333; --background: #ffffff; }".to_string(),
+        ),
+        (
+            "bound-role",
+            "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  shadcn.background = #ffffff\n  AccentColor = shadcn.primary\n",
+            ":root { --primary: #ff0000; --background: #ffffff; } .theme-blue { --primary: #0000ff; }".to_string(),
+        ),
+    ] {
+        let import = shadcn::import(&css, "shadcn", &exact_tamber::parse(before).unwrap(), &vocab).unwrap();
         let mut ops = import.ops.clone();
         ops.extend(import.offers.iter().flat_map(|o| o.ops.clone()));
-        let design = exact_tamber::apply_all(empty, &ops, &vocab).unwrap().text;
+        let design = exact_tamber::apply_all(before, &ops, &vocab).unwrap().text;
         let dir = app(&file.replace('.', "-"), &design);
         std::fs::write(
             dir.join("app.contract"),

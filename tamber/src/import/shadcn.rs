@@ -578,7 +578,7 @@ pub fn import(
         values.extend(themes.iter().cloned());
         vec![("theme".to_string(), values)]
     };
-    let ops = reconcile(design, &axes, &["theme"], &tokens);
+    let ops = reconcile(design, &axes, OWNED, &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();
     let counted = counted(source, mapped, unmapped.len() - derived)?;
@@ -601,7 +601,8 @@ fn looks_like_length(v: &str) -> bool {
 /// The role overrides the mapped tokens mean, each offered alone; none
 /// where the design has it so already, under any spelling of the role. A
 /// role has one value (LLP 1121 D5): one whose token varies by an app axis
-/// is offered with no operations, and a note.
+/// once the import is accepted is not offered, and a role the design has
+/// that names a varying token is offered for removal, each with a note.
 fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Vec<Offer> {
     let has = |name: &str| tokens.iter().any(|t| t.name == name);
     let roles: Vec<(String, bool)> = vocab
@@ -621,18 +622,34 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
         if !has(&token) {
             continue;
         }
-        if varies(&token, tokens, &mut Vec::new()) {
-            out.push(Offer {
-                role: role.into(),
-                note: Some(format!("not offered: `{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)")),
-                token,
-                ops: Vec::new(),
-            });
-            continue;
-        }
         let existing = crate::edit::token_index(design, &roles, role)
             .ok()
             .map(|i| &design.tokens[i]);
+        if varies(&token, tokens, design, &mut Vec::new()) {
+            let vary = |v: &str| words(v).any(|w| varies(w, tokens, design, &mut Vec::new()));
+            let bound = existing
+                .filter(|t| vary(&t.value.value) || t.whens.iter().any(|w| vary(&w.value.value)));
+            let why = format!("`{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)");
+            out.push(Offer {
+                role: role.into(),
+                note: Some(match bound {
+                    Some(t) => format!(
+                        "{why}: the design's `{}` names it, offered for removal",
+                        t.name.value
+                    ),
+                    None => format!("not offered: {why}"),
+                }),
+                token,
+                ops: bound
+                    .map(|t| {
+                        vec![Op::RemoveToken {
+                            name: t.name.value.clone(),
+                        }]
+                    })
+                    .unwrap_or_default(),
+            });
+            continue;
+        }
         let ops = match existing {
             Some(t) if t.value.value.trim() == token && t.whens.is_empty() => continue,
             // The role is the token in every mode: its `when` lines go.
@@ -668,24 +685,44 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
     out
 }
 
-/// Whether `name` varies by an app axis: a `when` line of its own, or of a
-/// token its values name.
-fn varies<'a>(name: &'a str, tokens: &'a [Mapped], seen: &mut Vec<&'a str>) -> bool {
-    let Some(t) = tokens.iter().find(|t| t.name == name) else {
-        return false;
-    };
-    if !t.whens.is_empty() {
-        return true;
-    }
+/// The axes the importer owns: their `when` lines are the source's.
+const OWNED: &[&str] = &["theme"];
+
+/// Whether `name` varies by an app axis once the import is accepted: a
+/// `when` line the source gives it, one the design keeps (on an axis the
+/// importer does not own, or on a token it does not map), or a token its
+/// values name that varies.
+fn varies<'a>(
+    name: &'a str,
+    tokens: &'a [Mapped],
+    design: &'a Design,
+    seen: &mut Vec<&'a str>,
+) -> bool {
     if seen.contains(&name) {
         return false;
     }
     seen.push(name);
-    t.value
+    let mapped = tokens.iter().find(|t| t.name == name);
+    let have = design.tokens.iter().find(|t| t.name.value == name);
+    let kept = have.is_some_and(|t| {
+        t.whens
+            .iter()
+            .any(|w| mapped.is_none() || w.conds.iter().any(|(a, _)| !OWNED.contains(&a.as_str())))
+    });
+    if kept || mapped.is_some_and(|t| !t.whens.is_empty()) {
+        return true;
+    }
+    let value = match (mapped, have) {
+        (Some(t), _) => t.value.as_str(),
+        (None, Some(t)) => t.value.value.as_str(),
+        (None, None) => return false,
+    };
+    words(value).any(|w| varies(w, tokens, design, seen))
+}
+
+/// The names a value may hold.
+fn words(value: &str) -> impl Iterator<Item = &str> {
+    value
         .split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
-        .any(|word| {
-            tokens
-                .iter()
-                .any(|o| o.name == word && varies(&o.name, tokens, seen))
-        })
+        .filter(|w| !w.is_empty())
 }
