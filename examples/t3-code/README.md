@@ -374,6 +374,8 @@ Differences that belong to the app:
   paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
   an embedded language straight away, where the reference does so only after its first use.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
+- The app menu's item reads "Settings…", as macOS names it (the host sets it); the reference's
+  Electron menu reads "Settings...".
 - Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
   of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
   deferred, so a shorter period would break at every row edge.
@@ -407,9 +409,6 @@ someone using the app runs into are in the section above.
 - A file chip's press in the composer: the reference previews a draft's file
   (AttachmentFilePreview); the app previews only sent attachments.
 
-**To compare with the reference:** with the legacy sidebar on and only a background
-environment's projects, the sidebar footer says "No projects yet".
-
 **Fixed, not checked with real input or VoiceOver.** The fixes of 2026-10-14 and 2026-10-15
 passed in-process and agent-drive checks only. VoiceOver was last turned on before them; it
 then misread the theme editor's sliders and the accent picker as percentages, did not reach the
@@ -428,7 +427,8 @@ or chat media. To check with real input, VoiceOver, or both:
 - The composer's context popover under VoiceOver.
 - Chat: Cite by double-click, Tab and drag; Markdown media and code; a linked image's menu.
 - Sidebar: hover, archive and its undo, the branch's PR glyph; the legacy sidebar's drop into a
-  second environment and its background rows.
+  second environment, its background rows, each item of its project and thread menus, and the
+  tooltip of a thread row's machine glyph.
 - Device player: every pointer gesture, and the cursor of each of its eight edge zones.
 - Split view: the empty side's stripes while scrolling.
 - Pull Requests: refocus, the scheme switch, the thread picker.
@@ -439,9 +439,9 @@ or chat media. To check with real input, VoiceOver, or both:
 - Timeline: trackpad and wheel settling, reduced motion.
 - The permission helper: a real grant, and Finder coming to the front.
 
-**Checked by tests only:** Home's choice of the most recent project across environments, and
-Settings › Projects for a project only a background environment has. Both can be driven with
-`tools/second-environment`.
+**Checked by tests and agent drives only:** Home's choice of the most recent project across
+environments (driven with `tools/second-environment`), and Settings › Projects for a project
+only a background environment has (tests only).
 
 **Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` give a second
 environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
