@@ -747,8 +747,8 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
     expect(first[2]).toStartWith('denied FetchError:Refused exactBodyFrom app:/tmp/photo.bin: denied: fs.read app:/tmp/photo.bin');
     expect(first.slice(3)).toEqual(['get TypeError: fetch: a GET request cannot have a body', 'both TypeError: fetch: a request has one body: body or exactBodyFrom']);
     expect(received).toEqual([{ type: 'image/jpeg', sha: expected, length: 300000 }]);
-    // A picked file's entry, the browser's own File with its type (LLP 1069.002 D5): sent untyped, as its bytes.
-    const put = await call('Runtime.evaluate', { expression: `(async()=>{const {createFileStore}=await import('/storage-fs.js');const s=createFileStore('test.upload-probe');await s.putBlob('app:/data/picked.bin',new File([${bytes}],'picked.jpg',{type:'image/jpeg'}));s.close();return 'put';})()`, returnByValue: true, awaitPromise: true });
+    // A picked file's entry, the browser's own File with its type (LLP 1069.002 D5), in the page's store: sent untyped, as its bytes.
+    const put = await call('Runtime.evaluate', { expression: `(async()=>{const {createFileStore}=await import('/storage-fs.js');const {storageKey}=await import('/storage-environment.js');const s=createFileStore(storageKey('test.upload-probe'));await s.putBlob('app:/data/picked.bin',new File([${bytes}],'picked.jpg',{type:'image/jpeg'}));s.close();return 'put';})()`, returnByValue: true, awaitPromise: true });
     expect(put.result.value).toBe('put');
     await call('Page.reload');
     const second = (await result()).split('|');
