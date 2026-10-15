@@ -650,11 +650,13 @@ impl Server {
             .map(|(tuple, v)| {
                 let modes = modes_of(axes, tuple);
                 match v {
+                    // `srgb`: each side's 8-bit sRGB clip, what a contrast
+                    // ratio is taken on (`light` and `dark` keep the wide value).
                     exact_tamber::Folded::One(h) => {
-                        json!({"modes": modes, "value": v.css(), "light": h.css(), "dark": h.css()})
+                        json!({"modes": modes, "value": v.css(), "light": h.css(), "dark": h.css(), "srgb": {"light": h.clip(), "dark": h.clip()}})
                     }
                     exact_tamber::Folded::Pair(l, d) => {
-                        json!({"modes": modes, "value": v.css(), "light": l.css(), "dark": d.css()})
+                        json!({"modes": modes, "value": v.css(), "light": l.css(), "dark": d.css(), "srgb": {"light": l.clip(), "dark": d.clip()}})
                     }
                     exact_tamber::Folded::Host(_) => {
                         let fallback = exact_tamber::fallback(v, &self.vocab)

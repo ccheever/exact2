@@ -66,3 +66,47 @@ test "a restarted server starts the list again"
   clock +1
   clock data
   expect text "change-1" == "brand.tamber · design-tool:Grace"
+
+// stub/dials.tamber: dials of each kind a colour follows, with and without
+// metadata, two groups, the three priorities, two axes and a residual.
+test "the dials panel is drawn from each dial's declared metadata"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "group-Colour"
+  expect tree has "dial-accent-color"
+  expect tree has "dial-lift-slider"
+  expect text "dial-lift-value" == "0.1"
+  expect tree has "dial-hue-stepper"
+  expect tree has "dial-chroma-slider"
+  expect tree missing "dial-shade"
+  expect tree missing "dial-warmth"
+  tap "more-Tone"
+  expect tree has "dial-warmth-slider"
+
+test "the token grid: every mode tuple light and dark, swatches, residuals, what each follows"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect text "column-0-light" == "Light"
+  expect text "column-1-light" == "Light · compact"
+  expect tree missing "column-2-light"
+  expect text "column-3-dark" == "Dark · dim · compact"
+  expect text "cell-text-surface.page-2-dark" == "#15202bff"
+  expect text "cell-text-surface.page-0-dark" == "#000000ff"
+  expect text "cell-text-surface.inset-1-light" == "#eef0f2ff"
+  expect text "cell-text-text.system-0-light" == "-exact-secondary-label · fallback"
+  expect text "follows-accent.soft" == "follows accent, lift"
+  expect tree missing "follows-surface.page"
+  expect tree has "token-group-roles"
+
+test "contrast between two tokens, per column, on the stored values"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  type "pick-a" "text.primary"
+  type "pick-b" "surface.page"
+  clock data
+  expect text "ratio-0-light" == "18.51:1"
+  expect text "ratio-0-dark" == "17.24:1"
+  expect text "ratio-2-dark" == "13.54:1"

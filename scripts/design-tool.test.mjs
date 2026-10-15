@@ -6,7 +6,7 @@
 // apps/design-tool/app.test.contract.
 import { expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -116,5 +116,41 @@ test('--via reaches only a loopback dev loop serving this app, and forwards to i
     await stop(serve);
     rmSync(mine, { recursive: true, force: true });
     rmSync(other, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('every control on the dials panel comes from the design as describe gives it', async () => {
+  const app = mkdtempSync(join(tmpdir(), 'exact-design-tool-dials-'));
+  cpSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), join(app, 'app.tamber'));
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
+    const { token } = await (await fetch(`${TOOL_ORIGIN}/__tamber/token`)).json();
+    const ask = async request => (await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) })).json()).ok;
+    const described = await ask({ method: 'describe' });
+    // The stub's canned replies are still what the real server says.
+    const canned = JSON.parse(readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.json'), 'utf8'));
+    expect(canned.describe.ir).toEqual(described.ir);
+    for (const t of described.ir.tokens) expect(canned.resolve[t.name]).toEqual(await ask({ method: 'resolve', token: t.name }));
+    const drive = spawnSync(process.execPath, [resolve(ROOT, 'scripts/agent.mjs'), 'web', '--app', 'design-tool', '--url', url, '--storage', `design-tool-dials-${process.pid}`, '--json',
+      'type name Ada', 'tap save-name', 'clock data', 'state design', 'tree dials'], { cwd: ROOT, encoding: 'utf8' });
+    expect(drive.status, drive.stderr).toBe(0);
+    const replies = drive.stdout.split('\n').filter(l => l.startsWith('{')).map(l => JSON.parse(l));
+    const panel = replies.find(r => r.groups);
+    // What each dial declares, read here from the IR on its own terms.
+    const expected = described.ir.dials.filter(d => d.meta.control !== 'none').map(d => ({
+      name: d.name, group: d.meta.group ?? '', label: d.meta.label ?? d.name,
+      control: d.meta.control ?? (d.kind === 'color' ? 'color' : 'slider'), more: d.meta.priority === '3',
+    }));
+    const shown = panel.groups.flatMap(g => [...g.dials.map(c => ({ c, more: false })), ...g.more.map(c => ({ c, more: true }))].map(({ c, more }) => ({ name: c.name, group: g.name, label: c.label, control: c.control, more })));
+    expect(shown.sort((a, b) => a.name.localeCompare(b.name))).toEqual(expected.sort((a, b) => a.name.localeCompare(b.name)));
+    // And on screen: each first-rank dial's control, by its testId, and no other.
+    const tree = JSON.stringify(replies.at(-1));
+    for (const e of expected) expect(tree.includes(`dial-${e.name}-${e.control}`)).toBe(!e.more);
+    expect(tree).not.toContain('dial-shade');
+  } finally {
+    await stop(tool);
+    rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);

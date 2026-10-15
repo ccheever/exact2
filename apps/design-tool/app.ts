@@ -82,12 +82,126 @@ function change(e: any): Change | null {
   }
 }
 
+type Design = Result<'loadDesign'>;
+type Control = Design['groups'][number]['dials'][number];
+const noDesign = (error: string): Design => ({ ok: false, error, file: '', groups: [], columns: [], tokenGroups: [], names: [] });
+
+/** A dial's control from its declared metadata (LLP 1121 D4, D15): its
+ * `control`, else its kind's own (a colour's field, a ranged number's
+ * slider); `none` is not drawn. `token` names a picker of tokens, which a
+ * dial (a literal) has none of, so it is its kind's too. */
+export function controlOf(d: { name: string; kind: string; value: string; range: [string, string] | null; meta: Record<string, string> }): Control | null {
+  const m = d.meta ?? {};
+  const own = d.kind === 'color' ? 'color' : d.range ? 'slider' : 'stepper';
+  const declared = m.control;
+  if (declared === 'none') return null;
+  const control = ['color', 'slider', 'stepper', 'select'].includes(declared) && (declared !== 'color' || d.kind === 'color') && (declared !== 'slider' || d.range) ? declared : own;
+  const num = (v: string | undefined, or: number) => (v !== undefined && Number.isFinite(parseFloat(v)) ? parseFloat(v) : or);
+  const priority = Math.round(num(m.priority, 2));
+  return {
+    name: d.name, kind: d.kind, control, label: m.label ?? d.name, help: m.help ?? '', value: d.value,
+    number: num(d.value, 0), min: num(d.range?.[0], 0), max: num(d.range?.[1], 1), step: num(m.step, d.kind === 'number' ? 0.01 : 1),
+    priority: Math.min(3, Math.max(1, priority)), options: (m.options ?? '').split('|').filter(Boolean),
+  };
+}
+
+/** The dials panel: groups in the order they first appear, each by
+ * priority (1 first), priority 3 behind "more". */
+export function panelOf(dials: Parameters<typeof controlOf>[0][]): Design['groups'] {
+  const groups = new Map<string, Control[]>();
+  for (const d of dials) {
+    const c = controlOf(d);
+    if (!c) continue;
+    const g = d.meta?.group ?? '';
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g)!.push(c);
+  }
+  return [...groups].map(([name, all]) => {
+    const sorted = all.map((c, i) => [c, i] as const).sort((a, b) => a[0].priority - b[0].priority || a[1] - b[1]).map(([c]) => c);
+    return { name, dials: sorted.filter(c => c.priority < 3), more: sorted.filter(c => c.priority === 3) };
+  });
+}
+
+type Axis = { name: string; values: string[]; under: string | null };
+/** The grid's columns: every app-mode tuple, light and dark. A light column
+ * for an `under scheme=dark` axis's other values repeats the default's (the
+ * axis varies the dark side only), so it is left out. */
+export function columnsOf(axes: Axis[]): { id: string; label: string; tuple: number; dark: boolean }[] {
+  const tuples: string[][] = [[]];
+  for (const a of axes) tuples.splice(0, tuples.length, ...tuples.flatMap(t => a.values.map(v => [...t, v])));
+  const out: { id: string; label: string; tuple: number; dark: boolean }[] = [];
+  for (const dark of [false, true]) {
+    tuples.forEach((values, tuple) => {
+      if (!dark && axes.some((a, i) => a.under === 'dark' && values[i] !== a.values[0])) return;
+      const modes = values.filter((v, i) => !(axes[i].under === 'dark' && !dark) && v !== axes[i].values[0]);
+      out.push({ id: `${tuple}-${dark ? 'dark' : 'light'}`, label: [dark ? 'Dark' : 'Light', ...modes].join(' · '), tuple, dark });
+    });
+  }
+  return out;
+}
+
+// Each token's stored values, per tuple, as the last design read gave them.
+type Stored = { css: string; srgb: string; residual: boolean; note: string };
+let stored = new Map<string, Stored[][]>();
+let columns: ReturnType<typeof columnsOf> = [];
+
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
     if (error) return { ok: false, error, protocol: '', format: 0, app: '', files: [] };
     const ok = reply.ok ?? {};
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
+  },
+  loadDesign: async ([file]) => {
+    const which = file ? { file } : {};
+    const described = await call('/__tamber', { method: 'describe', ...which });
+    if (described.error) return noDesign(described.error);
+    const ir = described.reply.ok.ir;
+    columns = columnsOf(ir.axes ?? []);
+    // Each token's stored value per tuple and scheme, a residual as its
+    // fallback (no running app reports it until T2).
+    const resolved = await Promise.all((ir.tokens ?? []).map((t: { name: string }) => call('/__tamber', { method: 'resolve', token: t.name, ...which })));
+    const failed = resolved.find(r => r.error);
+    if (failed) return noDesign(failed.error);
+    stored = new Map();
+    const tokens = (ir.tokens ?? []).map((t: { name: string; kind: string; dials: string[]; role: string | null }, i: number) => {
+      const tuples = resolved[i].reply.ok.tuples as any[];
+      const sides = tuples.map(r => [false, true].map(dark => {
+        const side = dark ? 'dark' : 'light';
+        if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: `${r.value} · fallback` };
+        return { css: r[side], srgb: r.srgb?.[side] ?? r[side], residual: false, note: '' };
+      }));
+      stored.set(t.name, sides);
+      const cells = columns.map(c => {
+        const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '' };
+        return { column: c.id, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
+      });
+      return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
+    });
+    // Rows grouped by their dotted prefix (an undotted name's before its
+    // first `_`, as `contrast_0`'s); a role override among the roles.
+    const groups = new Map<string, typeof tokens>();
+    for (const t of tokens) {
+      const g = t.name.startsWith('-') || /^[A-Z]/.test(t.name) ? 'roles' : t.name.split(t.name.includes('.') ? '.' : '_')[0];
+      if (!groups.has(g)) groups.set(g, []);
+      groups.get(g)!.push(t);
+    }
+    return {
+      ok: true, error: '', file: file || '', groups: panelOf(ir.dials ?? []),
+      columns: columns.map(({ id, label }) => ({ id, label })),
+      tokenGroups: [...groups].map(([name, rows]) => ({ name, tokens: rows })),
+      names: tokens.map((t: { name: string }) => t.name),
+    };
+  },
+  loadContrast: async ([a, b]) => {
+    if (!a || !b) return { ok: true, error: '', ratios: [] };
+    const x = stored.get(a), y = stored.get(b);
+    if (!x || !y) return { ok: false, error: `${!x ? a : b} is not in this design.`, ratios: [] };
+    return { ok: true, error: '', ratios: columns.map(c => {
+      const p = x[c.tuple]?.[c.dark ? 1 : 0], q = y[c.tuple]?.[c.dark ? 1 : 0];
+      const r = p && q ? contrast(p.srgb, q.srgb) : null;
+      return { column: c.id, label: c.label, ratio: r === null ? 'not a colour' : `${r.toFixed(2)}:1${p!.residual || q!.residual ? ' (fallback)' : ''}` };
+    }) };
   },
   waitChanges: async ([since, epoch]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
@@ -107,3 +221,17 @@ const sources: Sources = {
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);
+
+/** WCAG 2's contrast ratio between two `#rrggbb[aa]` colours, alpha
+ * ignored; null for anything else. */
+export function contrast(a: string, b: string): number | null {
+  const lum = (hex: string) => {
+    const m = /^#([0-9a-f]{6})([0-9a-f]{2})?$/i.exec(hex.trim());
+    if (!m) return null;
+    const [r, g, bl] = [0, 2, 4].map(i => parseInt(m[1].slice(i, i + 2), 16) / 255).map(c => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [x, y] = [lum(a), lum(b)];
+  if (x === null || y === null) return null;
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}

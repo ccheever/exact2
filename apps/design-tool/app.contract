@@ -31,6 +31,67 @@ shape Changes
   missed: bool
   recent: Change[]
 
+// A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
+// D4): `control` is `color`, `slider`, `stepper` or `select`.
+shape Control
+  name: string
+  kind: string
+  control: string
+  label: string
+  help: string
+  value: string
+  number: number
+  min: number
+  max: number
+  step: number
+  priority: number
+  options: string[]
+
+shape DialGroup
+  name: string
+  dials: Control[]
+  more: Control[]
+
+shape Column
+  id: string
+  label: string
+
+shape Cell
+  column: string
+  css: string
+  swatch: string
+  residual: bool
+  note: string
+
+shape TokenRow
+  name: string
+  kind: string
+  follows: string
+  cells: Cell[]
+
+shape TokenGroup
+  name: string
+  tokens: TokenRow[]
+
+shape Design
+  ok: bool
+  error: string
+  file: string
+  groups: DialGroup[]
+  columns: Column[]
+  tokenGroups: TokenGroup[]
+  names: string[]
+
+shape Ratio
+  column: string
+  label: string
+  ratio: string
+
+shape Contrast
+  ok: bool
+  error: string
+  ratios: Ratio[]
+
 component DesignTool
   // Who this person is, asked once: every write is `design-tool:<person>`.
   state person = "" persist
@@ -43,6 +104,14 @@ component DesignTool
   resource hello = loadHello() as shape Hello else empty(ok=true)
   resource changes = waitChanges(since, epoch, asks) as shape Changes else empty(ok=true)
   derive client = `design-tool:${person}`
+  // The design file shown ("": the app's own), a group's "more" opened,
+  // and the two tokens whose contrast is shown.
+  state file = ""
+  state opened: string[] = []
+  state pickA = ""
+  state pickB = ""
+  resource design = loadDesign(file, since, epoch) as shape Design else empty(ok=true)
+  resource contrast = loadContrast(pickA, pickB, since, epoch) as shape Contrast else empty(ok=true)
 
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
@@ -75,6 +144,14 @@ component DesignTool
   action changeName
     draftName = person
     person = ""
+  action toggleMore(group: string)
+    opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
+  action chooseFile(f: string)
+    file = f
+  action chooseA(name: string)
+    pickA = name
+  action chooseB(name: string)
+    pickB = name
 
   view
     main testId="root" width="100%" height="100%" display="flex" flex-direction="column"
@@ -107,7 +184,92 @@ component DesignTool
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
                   text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
+            if hello.files.length > 1
+              select value=file change=chooseFile aria-label="Design file" testId="file"
+                option "The app's design" value=""
+                for f in hello.files key=f.path
+                  option f.path value=f.path
+            if not design.ok
+              text design.error color="-exact-system-red" testId="design-error"
+            column gap=12 testId="dials"
+              text "Dials" role="heading" aria-level=2
+              if design.groups.length == 0
+                text "This design has no dials." color="-exact-secondary-label" testId="no-dials"
+              for g in design.groups key=g.name
+                column gap=8 padding=12 border-radius=10 background-color="-exact-secondary-background" testId=`group-${g.name}`
+                  text (g.name == "" ? "Dials" : g.name) role="heading" aria-level=3
+                  for c in g.dials key=c.name
+                    DialControl(c=c)
+                  if g.more.length > 0
+                    button press=toggleMore(g.name) testId=`more-${g.name}`
+                      text (opened.includes(g.name) ? "Fewer" : `More (${g.more.length})`)
+                    if opened.includes(g.name)
+                      for c in g.more key=c.name
+                        DialControl(c=c)
+            column gap=8 testId="tokens"
+              text "Tokens" role="heading" aria-level=2
+              column overflow-x="auto" testId="grid"
+                column gap=2
+                  row gap=8 align-items="end"
+                    text "Token" width=200 flex-shrink=0 font="-exact-footnote" color="-exact-secondary-label"
+                    for col in design.columns key=col.id
+                      text col.label width=96 flex-shrink=0 font="-exact-footnote" color="-exact-secondary-label" testId=`column-${col.id}`
+                  for tg in design.tokenGroups key=tg.name
+                    text tg.name font="-exact-subheadline" padding="8px 0 2px" testId=`token-group-${tg.name}`
+                    for t in tg.tokens key=t.name
+                      row gap=8 align-items="center" testId=`token-${t.name}`
+                        column width=200 flex-shrink=0
+                          text t.name
+                          if t.follows != ""
+                            text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
+                        for cell in t.cells key=cell.column
+                          column width=96 flex-shrink=0 gap=2 testId=`cell-${t.name}-${cell.column}`
+                            view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
+                            text (cell.residual ? cell.note : cell.css) font="-exact-caption2" color="-exact-secondary-label" line-clamp=1 testId=`cell-text-${t.name}-${cell.column}`
+            column gap=8 testId="contrast"
+              text "Contrast" role="heading" aria-level=2
+              text "Between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
+              row gap=8
+                select value=pickA change=chooseA aria-label="First token" testId="pick-a"
+                  option "Choose a token" value=""
+                  for n in design.names key=n
+                    option n value=n
+                select value=pickB change=chooseB aria-label="Second token" testId="pick-b"
+                  option "Choose a token" value=""
+                  for n in design.names key=n
+                    option n value=n
+              if not contrast.ok
+                text contrast.error color="-exact-system-red" testId="contrast-error"
+              for r in contrast.ratios key=r.column
+                row gap=12
+                  text r.label width=160
+                  text r.ratio testId=`ratio-${r.column}`
             column gap=4 testId="following"
               text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
               for c in changes.recent key=`${c.seq}`
                 text `${c.files.join(", ")} · ${c.who}` testId=`change-${c.seq}`
+
+// One dial's control. A dial with no metadata has its kind's: a colour's
+// field and swatch, a ranged number's slider.
+component DialControl
+  props
+    c: Control
+  view
+    column gap=4 testId=`dial-${c.name}`
+      row gap=8 align-items="center"
+        text c.label flex=1
+        text c.value color="-exact-secondary-label" font="-exact-footnote" testId=`dial-${c.name}-value`
+      if c.control == "color"
+        row gap=8 align-items="center" testId=`dial-${c.name}-color`
+          view width=28 height=28 border-radius=6 background-color=c.value border="1px solid -exact-separator"
+          input value=c.value aria-label=c.label flex=1 min-width=0
+      else if c.control == "slider"
+        input type="range" min=c.min max=c.max step=c.step value=c.number aria-label=c.label testId=`dial-${c.name}-slider`
+      else if c.control == "stepper"
+        input type="number" min=c.min max=c.max step=c.step value=c.value aria-label=c.label testId=`dial-${c.name}-stepper`
+      else if c.control == "select"
+        select value=c.value aria-label=c.label testId=`dial-${c.name}-select`
+          for o in c.options key=o
+            option o value=o
+      if c.help != ""
+        text c.help color="-exact-secondary-label" font="-exact-footnote"

@@ -8,6 +8,7 @@
 // in DB, a JSON file.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { API } from '../app.ts';
+import DIALS from './dials.json';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
 const TOKEN = 'stub-token';
@@ -36,6 +37,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const request = await req.json().catch(() => ({}));
       if (request.method === 'hello') return send({ ok: { protocol: 'tamber/1.1', format: 1, builds: [], app: '/stub/theme-fixture', files: FILES } });
+      // stub/dials.tamber as the real server read it (stub/dials.json;
+      // scripts/design-tool.test.mjs checks the two still agree).
+      if (request.method === 'describe') return send({ ok: DIALS.describe });
+      if (request.method === 'resolve') return DIALS.resolve[request.token] ? send({ ok: DIALS.resolve[request.token] }) : send({ error: { message: `no token \`${request.token}\`` } }, 400);
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
   },

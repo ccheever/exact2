@@ -125,6 +125,13 @@ fn reads_answer_on_the_clones_design() {
     let tuples = resolve["ok"]["tuples"].as_array().unwrap();
     assert_eq!(tuples.len(), 2);
     assert_eq!(tuples[0]["modes"], json!({"dark-style": "dim"}));
+    // Each side's sRGB clip, for a contrast ratio.
+    assert!(
+        tuples[0]["srgb"]["light"]
+            .as_str()
+            .is_some_and(|h| h.starts_with('#') && h.len() == 9),
+        "{resolve}"
+    );
     assert!(
         tuples[0]["light"].is_string() && tuples[0]["dark"].is_string(),
         "{resolve}"
