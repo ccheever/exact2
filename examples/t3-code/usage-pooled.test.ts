@@ -544,10 +544,12 @@ describe('light dismiss of a pinned segment popover', () => {
     // So do the Files preview's number and "+", a right-panel surface the Usage page covers too (a skill chip's details
     // beside them close from the gutter's own press). The floating
     // device hears its press (app-window.contract detailsPlayerPointer closes the thread details popover and a skill chip's
-    // details as it ends); it is in the chat, which the Usage page covers.
+    // details as it ends); it is in the chat, which the Usage page covers. The composer image preview's picture hears the
+    // pointer for its zoom and pan; the preview covers the window, the Usage page included, and makes it inert.
     expect(takers).toEqual([
       'app-window.contract t3-code',
       'browser-capture.contract browser-mini-player',
+      'composer-chip-image.contract chip-image-picture',
       'diff-rows.contract diff-line-${path}-${side}-${line}',
       'diff-rows.contract diff-comment-${path}-${side}-${line}',
       'markdown.contract ',

@@ -63,10 +63,15 @@ final class T3SnapShot {
         var loaded = false
         init(view: NSView, contain: Bool) {
             self.view = view
-            image = NSView(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
+            image = PassiveImage(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
             image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = contain ? 0 : 9
             view.addSubview(image, positioned: .below, relativeTo: nil)
         }
+    }
+    /// The tile's picture takes no clicks: they go to the node it paints, which a plain `NSView` (no first mouse)
+    /// would keep from the first click into a window that is not key.
+    private final class PassiveImage: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
     private var tiles: [String: Tile] = [:]
     private var deferredAcks = Set<String>()
@@ -79,10 +84,12 @@ final class T3SnapShot {
         for (id, tile) in tiles where tile.view === view { tile.image.removeFromSuperview(); tiles.removeValue(forKey: id) }
     }
     /// `contain:<id>` shows the draft image whole (object-contain, up to 2048 px), not the shelf's square thumbnail: a
-    /// preview annotation's screenshot (`w-full object-contain`). `fit:<id>` is the same at most at its natural size (an
-    /// image's CSS pixels are its pixels): a composer image chip's expanded preview (ExpandedImageDialog's `max-w`/`max-h`).
+    /// preview annotation's screenshot (`w-full object-contain`). `preview:<id>` is the same for a composer image chip's
+    /// expanded preview, its own key since a tile is kept per key and a second view under one key takes the picture from
+    /// the first. `fit:<id>` is that preview's at most at its natural size (an image's CSS pixels are its pixels), for an
+    /// image whose size was not read (ExpandedImageDialog's `max-w`/`max-h`).
     func installTile(id: String, view: NSView) {
-        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:")
+        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:") || id.hasPrefix("preview:")
         let file = contain ? String(id[id.index(after: id.firstIndex(of: ":")!)...]) : id
         guard UUID(uuidString: file) != nil else { return }
         if tiles[id]?.view === view { return }
@@ -303,6 +310,17 @@ final class T3SnapShot {
                 guard data.count <= 10 * 1024 * 1024, data.starts(with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) else { fail("The captured image is too large or invalid."); return }
                 complete(["id": id, "base64": data.base64EncodedString()])
             } catch { fail("Could not read the saved draft image.") }
+        case "snapshotDraftSize":
+            // The expanded preview's natural size: the pixels the tile shows (`installTile` decodes at most 2048 on the
+            // longer side), which it draws one to a point.
+            guard let id = request["id"] as? String, UUID(uuidString: id) != nil else { fail("That draft image is unavailable."); return }
+            let path = directory.appendingPathComponent("drafts", isDirectory: true).appendingPathComponent("\(id).png")
+            guard let source = CGImageSourceCreateWithURL(path as CFURL, nil),
+                  let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
+                  width > 0, height > 0 else { fail("Could not read the saved draft image."); return }
+            let scale = min(1, 2048 / Double(max(width, height)))
+            complete(["width": (Double(width) * scale).rounded(), "height": (Double(height) * scale).rounded()])
         case "snapshotRead":
             guard let id = request["id"] as? String, let capture = pending[id], capture.owner == (request["owner"] as? String ?? "") else { fail("This snapshot is no longer available."); return }
             do { complete(capture.metadata.merging(["id": id, "owner": capture.owner, "mimeType": "image/png", "base64": try Data(contentsOf: capture.path).base64EncodedString()]) { _, new in new }) }

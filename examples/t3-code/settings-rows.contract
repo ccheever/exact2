@@ -288,8 +288,9 @@ component CoreRowView
                 PanelPreview(duration=row.amount, pal=pal)
               CoreSlider(row=row, pal=pal, disabled=busy, commit=slide(row.id, row.target))
             if row.kind == "font"
-              FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, disabled=busy, choose=change(row.id, row.target))
-              CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=busy, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
+              FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, choose=change(row.id, row.target))
+              // Neither control is disabled while the write runs (settings-a-fonts.contract says why).
+              CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=false, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       if row.info == "preview-prompt"
         PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       if row.info == "preview-code" or row.info == "preview-code-terminal"
