@@ -867,7 +867,7 @@ extension NavigationHost {
         if sv.contentOffset.y != -sv.adjustedContentInset.top { sv.contentOffset.y = -sv.adjustedContentInset.top }
         // tvOS has no large titles.
         #if !os(tvOS)
-        guard c.node.props["navigationScrollInsetTop"] != "none", c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
+        guard !c.underlapsTop, c.navigationItem.largeTitleDisplayMode == .always, c.viewIfLoaded?.window != nil,
               let nav = c.navigationController, nav.topViewController === c, nav.transitionCoordinator == nil,
               !nav.isNavigationBarHidden else { return }
         UIView.performWithoutAnimation {
@@ -1115,7 +1115,7 @@ extension NavigationHost {
             // widest, at rest (CSS scrollTop 0).
             for node in [c.collapseScroll, c.edgeScroll].compactMap({ $0 }) where node.scrollView != nil {
                 if settled, c.viewIfLoaded?.window != nil, let safe = node.scrollView?.safeAreaInsets {
-                    let top = node === c.collapseScroll && c.node.props["navigationScrollInsetTop"] == "none" ? 0 : max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
+                    let top = node === c.collapseScroll && c.underlapsTop ? 0 : max(safe.top, node === c.collapseScroll ? node.scrollOrigin : 0)
                     if top > 0 || safe.bottom > 0 { wanted[node.id] = .inset(top: top, bottom: safe.bottom) }
                 } else if case .inset? = covers[node.id] { wanted[node.id] = covers[node.id] }
             }
