@@ -91,17 +91,30 @@ final class ComposerChipAccessibilityTests: XCTestCase {
 
     func testTheChipsAreElementsInTextOrderWithTheReferencesRolesAndNames() {
         let fixture = AccessibilityFixture()
-        let ordered = NSAccessibility.unignoredChildren(from: fixture.view.accessibilityChildrenInNavigationOrder() ?? [])
-        let elements = ordered.compactMap { $0 as? NSAccessibilityElement }
+        // VO-Right reads the text area, then each chip: they are its siblings, right after it, where its scroll view stands
+        // aside (an element VoiceOver steps into only by interacting would hide them, as the text area's own children were).
+        let scroller = fixture.base.scroller
+        XCTAssertFalse(scroller.isAccessibilityElement())
+        let siblings = NSAccessibility.unignoredChildren(from: [scroller])
+        XCTAssertTrue(siblings.first as AnyObject === fixture.view, "the text area first")
+        let elements = siblings.dropFirst().compactMap { $0 as? NSAccessibilityElement }
         XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, [
             "Terminal excerpt, Terminal 2 lines 1-3. Show details", "Skill Frontend Design. Show details", "Preview notes.md",
             "View cited assistant text: Fixture answer", "Add comment to citation"])
         XCTAssertEqual(elements.map { $0.accessibilityRole() }, [.popUpButton, .popUpButton, .button, .link, .popUpButton])
-        XCTAssertTrue(elements.allSatisfy { $0.isAccessibilityElement() && $0.isAccessibilityEnabled() && $0.accessibilityParent() as AnyObject === fixture.view })
-        XCTAssertEqual((fixture.view.accessibilityChildren() ?? []).count, elements.count)
+        XCTAssertTrue(elements.allSatisfy { $0 is T3ComposerChipElement })
+        let parent = NSAccessibility.unignoredAncestor(of: scroller) as AnyObject
+        XCTAssertTrue(elements.allSatisfy { $0.isAccessibilityElement() && $0.isAccessibilityEnabled() && $0.accessibilityParent() as AnyObject === parent })
+        XCTAssertTrue((fixture.view.accessibilityChildren() ?? []).isEmpty, "no longer the text area's children")
         // Each is on its chip.
         let pill = fixture.base.window.convertToScreen(fixture.view.convert(fixture.styler.chipRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(elements[0].accessibilityFrame().midX, pill.midX, accuracy: 0.5)
+        // With no chip left the scroll view is an element again, holding the text area.
+        fixture.view.string = "plain"
+        fixture.view.didChangeText()
+        fixture.base.tick()
+        XCTAssertTrue(scroller.isAccessibilityElement())
+        XCTAssertFalse(NSAccessibility.unignoredChildren(from: scroller.accessibilityChildren() ?? []).contains { $0 is T3ComposerChipElement })
     }
 
     func testTheTerminalExcerptPressOpensItsDetailsByPointerAndByVoiceOver() {
@@ -109,9 +122,13 @@ final class ComposerChipAccessibilityTests: XCTestCase {
         let press = fixture.styler.press
         let terminal = fixture.styler.chips[0]
         XCTAssertEqual(fixture.styler.chipKind(terminal), "terminal")
-        // VO-Space: AXPress on the pop-up button.
+        // VO-Space: AXPress on the pop-up button, with the focus elsewhere. It does what a click does: the prompt takes
+        // the focus with the chip selected, and its details open.
+        fixture.base.window.makeFirstResponder(nil)
         let element = press.accessibilityElements[0]
-        XCTAssertTrue(element.accessibilityPerformPress())
+        XCTAssertTrue(axPress(element))
+        XCTAssertTrue(fixture.base.window.firstResponder === fixture.view)
+        XCTAssertEqual(fixture.view.selectedRange(), terminal.range)
         XCTAssertTrue(press.isOpen)
         XCTAssertEqual(press.state["kind"] as? String, "terminal")
         XCTAssertEqual(press.state["context"] as? String, "terminal_abc")

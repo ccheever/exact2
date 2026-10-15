@@ -61,7 +61,9 @@ component ThreadDetailsPanel
     still: bool
   view
     box position="absolute" left=0 top=0 right=0 bottom=(0 - below) z-index=35 testId="thread-details-layer"
-      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts="Escape" testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
+      // A git dialog or the Merge confirmation the card opened stands over it and takes Escape (Base UI closes the topmost
+      // popup); the first declared Escape would otherwise close the card under it.
+      button press=act("toggle", "", "") aria-label="Close thread details" aria-keyshortcuts=(details.git.dialog != "" or details.prRows.merge.open ? "" : "Escape") testId="thread-details-backdrop" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" title=""
       column position="absolute" top="3.75rem" right=right width="16.5rem" max-height=maxHeight box-sizing="border-box" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" overflow="hidden" role="dialog" aria-label="Thread details" testId="thread-details"
         DetailsBody(details=details, density=density, inline=false, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
