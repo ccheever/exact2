@@ -159,6 +159,13 @@ impl Lowerer<'_> {
             return exact_kernel::style::theme::declarations([]);
         };
         let mut said = Said::of(file, root, &design);
+        CANDIDATES.with(|c| {
+            *c.borrow_mut() = said
+                .synthetic
+                .iter()
+                .map(|s| (s.expr.clone(), s.strict))
+                .collect();
+        });
         let profiled = self.profiles(&mut design, &origin);
         // An expression over a profile's colour is not the build's to fold.
         said.synthetic.retain(|s| {
@@ -172,8 +179,6 @@ impl Lowerer<'_> {
             }
             !named
         });
-        CANDIDATES
-            .with(|c| *c.borrow_mut() = said.synthetic.iter().map(|s| s.expr.clone()).collect());
         // A synthetic token from a literal no colour row is known to read
         // (a `fn`'s, a state's) is dropped when it does not fold.
         let folding = loop {
@@ -497,14 +502,17 @@ thread_local! {
     /// The synthetic tokens the last design lowered on this thread could
     /// have (D3), each its expression, before those that do not fold are
     /// dropped: what the design server re-folds (LLP 1121 stage 4).
-    static CANDIDATES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+    static CANDIDATES: std::cell::RefCell<Vec<(String, bool)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 /// The synthetic tokens the last build on this thread could have, folding
-/// or not, each its expression: a value edit that changes which fold
-/// changes the plan's table, so it is a rebuild.
-pub fn synthetic_candidates() -> Vec<String> {
-    CANDIDATES.with(|c| c.borrow().clone())
+/// or not, each its expression and whether a colour row writes it (then
+/// the build refuses it unfolded, where another is dropped), taken: a build
+/// that stops before its design leaves none, never an earlier build's. A
+/// value edit that changes which fold changes the plan's table, so it is a
+/// rebuild.
+pub fn synthetic_candidates() -> Vec<(String, bool)> {
+    CANDIDATES.with(|c| std::mem::take(&mut *c.borrow_mut()))
 }
 
 /// Bind `file`'s design's axes for the pins a pass checks before lowering

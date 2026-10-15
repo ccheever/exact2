@@ -189,7 +189,7 @@ struct Server {
     client: Option<String>,
     /// The app's synthetic tokens (LLP 1121 D3), by the digest of the
     /// Contract sources they were read from.
-    synthetic: Option<(String, Vec<String>)>,
+    synthetic: Option<(String, Vec<(String, bool)>)>,
 }
 
 /// Open without following a symbolic link at the last component.
@@ -334,7 +334,7 @@ impl Server {
     /// only those that fold). Read again when a Contract source or the
     /// design's token names change, which is what decides them; a build
     /// that stopped before the design is not kept, and is tried again.
-    fn synthetic(&mut self, snap: &Snapshot) -> Vec<String> {
+    fn synthetic(&mut self, snap: &Snapshot) -> Vec<(String, bool)> {
         let root = self.dir.join("app.contract");
         let graph = contract::source_graph(&root);
         let mut key = String::new();
@@ -366,6 +366,7 @@ impl Server {
                 return exprs.clone();
             }
         }
+        let _ = contract_lower::synthetic_candidates();
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
         let reached = built.is_ok() || !exprs.is_empty();

@@ -60,8 +60,10 @@ pub struct Planned {
 pub struct Synthetic<'a> {
     /// The design file they fold with.
     pub file: &'a str,
-    /// Each one's expression.
-    pub exprs: &'a [String],
+    /// Each one's expression, and whether a colour row writes it: then it
+    /// must fold (the build refuses it otherwise), where another that does
+    /// not is dropped.
+    pub exprs: &'a [(String, bool)],
 }
 
 /// A refusal: the file it is in, and the checker's or the edit's
@@ -106,13 +108,19 @@ pub fn plan(
         if edited.text == *text {
             continue;
         }
-        let exprs: &[String] = if *path == synthetic.file {
+        let exprs: &[(String, bool)] = if *path == synthetic.file {
             synthetic.exprs
         } else {
             &[]
         };
         let (before, after, moved_set) = folded(text, &edited.text, exprs, vocab);
         structure |= moved_set;
+        // A profile's colour (`color(--…)`) the compiler resolves itself, and
+        // folds the rest around it: an edit to a design with one either side
+        // is the build's (live editing of those waits).
+        structure |= [text.as_str(), edited.text.as_str()]
+            .iter()
+            .any(|t| t.to_ascii_lowercase().contains("color(--"));
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
         // A role override's value is the hosts' at boot: a change reaches
         // it, directly or through what it names, only by a rebuild.
@@ -131,7 +139,7 @@ pub fn plan(
                         .and_then(|f| f.tokens.iter().find(|c| c.name == t))
                         .map(|c| c.values.clone())
                         .unwrap_or_default();
-                    moved.push((exprs[i].clone(), values));
+                    moved.push((exprs[i].0.clone(), values));
                 }
                 None => changed.push((path.clone(), t)),
             }
@@ -178,7 +186,7 @@ pub fn plan(
 fn folded(
     before: &str,
     after: &str,
-    exprs: &[String],
+    exprs: &[(String, bool)],
     vocab: &Vocab,
 ) -> (Option<Folding>, Option<Folding>, bool) {
     let (b, kept_b) = foldable(before, exprs, vocab);
@@ -187,8 +195,10 @@ fn folded(
     (b, a, moved)
 }
 
-/// `text` folded with each synthetic token that folds with it, and which.
-fn foldable(text: &str, exprs: &[String], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
+/// `text` folded with each synthetic token that folds with it, and which;
+/// none when the file does not fold, or a strict one does not (the build
+/// would refuse it).
+fn foldable(text: &str, exprs: &[(String, bool)], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
     let Ok(design) = crate::parse(text) else {
         return (None, Vec::new());
     };
@@ -204,7 +214,7 @@ fn foldable(text: &str, exprs: &[String], vocab: &Vocab) -> (Option<Folding>, Ve
             checked.tokens.push(crate::Token {
                 name: at(format!("~{i}")),
                 kind: None,
-                value: at(exprs[i].clone()),
+                value: at(exprs[i].0.clone()),
                 whens: Vec::new(),
                 meta: Vec::new(),
             });
@@ -217,7 +227,7 @@ fn foldable(text: &str, exprs: &[String], vocab: &Vocab) -> (Option<Folding>, Ve
                     .filter(|d| d.line >= SYNTHETIC)
                     .map(|d| (d.line - SYNTHETIC) as usize)
                     .collect();
-                if bad.is_empty() || bad.len() < all.len() {
+                if bad.is_empty() || bad.len() < all.len() || bad.iter().any(|&i| exprs[i].1) {
                     // The file itself does not fold.
                     return (None, Vec::new());
                 }

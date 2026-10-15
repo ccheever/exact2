@@ -790,7 +790,8 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
         "app.tamber".to_string(),
         "tamber app\n\ntheme\n  brand = #c8102e\n".to_string(),
     )];
-    let exprs = vec!["color-mix(in srgb, brand 60%, white)".to_string()];
+    // As a state's literal: dropped where it does not fold.
+    let exprs = vec![("color-mix(in srgb, brand 60%, white)".to_string(), false)];
     let synthetic = exact_tamber::Synthetic {
         file: "app.tamber",
         exprs: &exprs,
@@ -810,7 +811,7 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
     let live = exact_tamber::plan(&files, &set("#0a7aff"), &vocab(), false, synthetic).unwrap();
     assert_eq!(live.class, exact_tamber::Class::Live);
     assert_eq!(live.synthetic.len(), 1);
-    assert_eq!(live.synthetic[0].0, exprs[0]);
+    assert_eq!(live.synthetic[0].0, exprs[0].0);
     assert!(live.changed.iter().all(|(_, t)| !t.starts_with('~')));
     // Over a host's colour the mix no longer folds at build.
     let lost = exact_tamber::plan(&files, &set("AccentColor"), &vocab(), false, synthetic).unwrap();
@@ -822,4 +823,26 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
     )];
     let gained = exact_tamber::plan(&host, &set("#0a7aff"), &vocab(), false, synthetic).unwrap();
     assert_eq!(gained.class, exact_tamber::Class::Rebuild);
+    // A colour row's own expression must fold: one that does not on either
+    // side is the build's refusal, never a live edit.
+    let strict = vec![(exprs[0].0.clone(), true)];
+    let row = exact_tamber::Synthetic {
+        file: "app.tamber",
+        exprs: &strict,
+    };
+    let refused = exact_tamber::plan(&host, &set("CanvasText"), &vocab(), false, row).unwrap();
+    assert_eq!(refused.class, exact_tamber::Class::Rebuild);
+    // A profile's colour is the compiler's to resolve: rebuild, either side.
+    let profiled = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  brand = #c8102e\n".to_string(),
+    )];
+    let to_profile = exact_tamber::plan(
+        &profiled,
+        &set("color(--brand 0.1 0.2 0.3)"),
+        &vocab(),
+        false,
+        synthetic,
+    );
+    assert!(to_profile.is_err() || to_profile.unwrap().class == exact_tamber::Class::Rebuild);
 }
