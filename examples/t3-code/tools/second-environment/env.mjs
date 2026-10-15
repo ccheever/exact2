@@ -2,7 +2,8 @@
 // Extra T3 environments for drives of the clone. README.md has the recipe.
 //
 //   bun env.mjs start <name> [--port N]   an offline lane server for second | third (16510, 16511)
-//   bun env.mjs seed <name>               its projects and threads (idempotent)
+//   bun env.mjs seed <name> [--turns]     its projects and threads (idempotent); --turns adds the
+//                                         threads with a completed turn, answered by the ACP stand-in
 //   bun env.mjs status                    each environment: pid, port, id, label, projects and threads with ids
 //   bun env.mjs stop <name|all>           stops the servers this fixture started (recorded pids only)
 //   bun env.mjs drive [--local] [--pair second,third] [--keep-welcome] [--storage S] [--size WxH] [--json] -- <op> …
@@ -80,7 +81,7 @@ if (import.meta.main) {
       const name = nameArg();
       const port = flag(process.argv, "--port");
       console.log(JSON.stringify(await startServer(paths, name, port ? { port: Number(port) } : {})));
-    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg()), null, 2));
+    } else if (command === "seed") console.log(JSON.stringify(await seed(paths, nameArg(), undefined, { turns: process.argv.includes("--turns") }), null, 2));
     else if (command === "stop") {
       const names = process.argv[3] === "all" ? Object.keys(ENVIRONMENTS) : [nameArg()];
       for (const name of names) { const stopped = await stopServer(paths, name); console.log(`${name}: ${stopped ? `stopped pid ${stopped.pid}` : "not running"}`); }

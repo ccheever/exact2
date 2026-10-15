@@ -9,14 +9,14 @@ import { AGENT, forget, install, installPaths, registryIndex, status } from "./i
 const root = mkdtempSync(join(tmpdir(), "t3-acp-standin-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-/** Runs the installed executable with these requests on stdin; returns its replies by id. */
-async function talk(executable: string, requests: { method: string; params?: object }[]) {
+/** Runs the installed executable with these requests on stdin; returns its replies by id (its notifications under `notes`). */
+async function talk(executable: string, requests: { method: string; params?: object }[], notes: { method: string; params: any }[] = []) {
   const input = requests.map((request, index) => JSON.stringify({ jsonrpc: "2.0", id: index + 1, ...request })).join("\n") + "\n";
   const child = Bun.spawn([executable], { stdin: new Blob([input]), stdout: "pipe", stderr: "pipe", env: {}, cwd: root });
   const text = await new Response(child.stdout).text();
   await child.exited;
   const replies = new Map<number, { result?: any; error?: any }>();
-  for (const line of text.trim().split("\n")) { const reply = JSON.parse(line); replies.set(reply.id, reply); }
+  for (const line of text.trim().split("\n")) { const reply = JSON.parse(line); if (reply.id === undefined) notes.push(reply); else replies.set(reply.id, reply); }
   return replies;
 }
 
@@ -63,6 +63,26 @@ describe("the agent", () => {
     const replies = await talk(none.executable, [{ method: "initialize", params: { protocolVersion: 1 } }, { method: "session/new", params: { cwd: root, mcpServers: [] } }]);
     expect(replies.get(1)!.result.authMethods).toEqual([]);
     expect(replies.get(2)!.result.sessionId).toBeString();
+  });
+
+  test("a prompt is one turn: the user's words echoed in one message chunk, then end_turn; a session comes back by session/load", async () => {
+    const { executable } = install(join(root, "home-g"), { methods: "none" });
+    // A T3 server's prompt: its instructions around the user's words, then more context.
+    const wrapped = "<t3_code_instructions>\nBe brief.\n</t3_code_instructions>\n<user_request>\nUser message:\nSay hello\nand more\n</user_request>";
+    const notes: { method: string; params: any }[] = [];
+    const replies = await talk(executable, [{ method: "initialize", params: { protocolVersion: 1 } }, { method: "session/new", params: { cwd: root, mcpServers: [] } },
+      { method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: wrapped }, { type: "text", text: "<runtime_info>context</runtime_info>" }] } },
+      { method: "session/load", params: { sessionId: "s1", cwd: root, mcpServers: [] } }], notes);
+    expect(replies.get(1)!.result.agentCapabilities.loadSession).toBe(true);
+    expect(replies.get(3)!.result).toEqual({ stopReason: "end_turn" });
+    expect(notes).toEqual([{ jsonrpc: "2.0", method: "session/update", params: { sessionId: "s1", update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Stand-in reply: Say hello" } } } }]);
+    expect(replies.get(4)!.result).toEqual({});
+  });
+
+  test("a prompt needs the sign-in an agent mode asks for", async () => {
+    const { executable } = install(join(root, "home-h"));
+    const replies = await talk(executable, [{ method: "session/prompt", params: { sessionId: "s1", prompt: [{ type: "text", text: "hi" }] } }]);
+    expect(replies.get(1)!.error).toEqual({ code: -32000, message: "Authentication required" });
   });
 
   test("the terminal login signs in after Return", async () => {

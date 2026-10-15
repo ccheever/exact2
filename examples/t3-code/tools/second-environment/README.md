@@ -41,7 +41,10 @@ bun env.mjs stop all
 The seed: `shared-notes` in both environments (one Git origin, so the clone groups it as one
 logical project) with a thread each, and in `second` only `background-only` with "Background
 thread (no run)" and "Background follow-up". Threads are created with `thread.create` and never
-get a turn.
+get a turn. `seed second --turns` adds "Background thread (completed turn)": the ACP stand-in
+(`../acp-standin/`) becomes a provider of that server and answers one prompt, so the thread holds
+a completed turn, and the seed visits it at its completion, so it starts read. Run again, the seed
+skips a thread that has its turn and gives one to a thread an interrupted seed left without.
 
 `drive` runs `scripts/agent.mjs macos` on the newest bundle (`EXACT_MAC_BIN` overrides) at
 1280x840. In a fresh store the app opens its welcome wizard: the drive pairs each `--pair`
@@ -53,6 +56,18 @@ finishing the wizard. A drive waits 5 s for the wizard, 20 s while the local hom
 the pinned runtime yet (its first start). Agent runs keep pairings and credentials in memory, so every drive pairs
 again and nothing reaches the Keychain. A background row's thread is
 `thread-fleet:<environment id>:<thread id>` (ids from `status`).
+
+Another lane's ports: `T3_FIXTURE_PORTS=16300-16399 T3_FIXTURE_OFFLINE_PORT=16399
+T3_FIXTURE_LOCAL_PORT=16300`, and `start <name> --port 16310`.
+
+### Mark unread on a completed thread
+
+With `seed second --turns`, "Background thread (completed turn)" is read: its legacy row shows no
+status. Mark unread (its context menu) rewinds the server's visit watermark to just before the
+completion (`thread.mark-unread`), and the row shows the reference's green "Completed" status
+(LegacySidebar.tsx `resolveThreadStatusPill`, Sidebar.logic.ts `hasUnseenCompletion`); opening
+the thread reads it again. The menu needs real input (below); the row's answer to the command can
+be driven by sending it through the server's API while the app runs.
 
 What an agent drive cannot do here: choose an item of a native context menu (under the agent it
 answers dismissed: nothing is chosen and its items are not logged), or drop a file on a sidebar row (the row takes drops

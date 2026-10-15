@@ -1,7 +1,13 @@
 // A stand-in Agent Client Protocol agent: enough of ACP v1 (newline-delimited JSON-RPC 2.0 on
 // stdio, https://agentclientprotocol.com/protocol/initialization) for a T3 server's ACP Registry
-// driver to list it, prepare it, probe it and sign it in and out. It talks to no service and
-// keeps no credential; its only state is `state.json` ({ signedIn }) beside this file.
+// driver to list it, prepare it, probe it, sign it in and out, and run a turn. It talks to no
+// service and keeps no credential; its only state is `state.json` ({ signedIn }) beside this file.
+//
+// A turn (`session/prompt`, https://agentclientprotocol.com/protocol/prompt-turn) is answered at
+// once with one `agent_message_chunk` update, "Stand-in reply: <the first line of the user's words>", and the
+// stop reason `end_turn`, so a fixture thread can hold a completed turn. It reads no file and runs
+// no tool. A session the server opened before it restarted comes back by `session/load`, with no
+// history replayed (the stand-in keeps none), so a later turn on the same thread runs too.
 //
 // `mode.json` beside this file (install.mjs writes it) picks what it advertises:
 //   methods     "agent" (sign-in by `authenticate`), "terminal" (a login command the server runs
@@ -33,7 +39,7 @@ if (process.argv.includes("--fixture-login")) {
   const handlers = {
     initialize: () => ({
       protocolVersion: 1,
-      agentCapabilities: { loadSession: false, promptCapabilities: { image: false, audio: false, embeddedContext: false }, ...(mode.logout ? { auth: { logout: {} } } : {}) },
+      agentCapabilities: { loadSession: true, promptCapabilities: { image: false, audio: false, embeddedContext: false }, ...(mode.logout ? { auth: { logout: {} } } : {}) },
       agentInfo: { name: "fixture-acp-standin", title: "ACP stand-in", version: "0.0.1" },
       authMethods: methods,
     }),
@@ -48,7 +54,19 @@ if (process.argv.includes("--fixture-login")) {
       if (methods.length > 0 && !signedIn()) throw authRequired;
       return { sessionId: `standin-${Date.now()}` };
     },
-    "session/prompt": () => { throw { code: -32603, message: "The ACP stand-in does not run turns." }; },
+    "session/load": () => {
+      if (methods.length > 0 && !signedIn()) throw authRequired;
+      return {};
+    },
+    "session/prompt": ({ sessionId, prompt }) => {
+      if (methods.length > 0 && !signedIn()) throw authRequired;
+      const words = (Array.isArray(prompt) ? prompt : []).filter((block) => block?.type === "text").map((block) => String(block.text)).join("\n");
+      // A T3 server wraps the user's words in its instructions (`<user_request>…User message:\n<words>\n</user_request>`).
+      const asked = [...words.matchAll(/User message:\n([\s\S]*?)\n<\/user_request>/g)].at(-1)?.[1] ?? words;
+      const text = `Stand-in reply: ${asked.split("\n").find((line) => line.trim())?.trim() ?? "(no text)"}`;
+      send({ method: "session/update", params: { sessionId, update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } } });
+      return { stopReason: "end_turn" };
+    },
   };
 
   createInterface({ input: process.stdin }).on("line", async (line) => {
