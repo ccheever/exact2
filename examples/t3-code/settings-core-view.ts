@@ -21,6 +21,7 @@ import { hostChecks, hostEditorView } from './settings-a-hosts';
 import { libraryCards, removalPicks } from './settings-a-collections';
 import { installedFonts } from './appearance-fonts';
 import { fontDiffPreview } from './settings-font-previews';
+import { groupOfMember } from './projects-fleet';
 
 /** The scope sentence keys each label on its text, so a changed label remounts (a reused one-line text kept its old string). */
 const keyedLabel = (label: string) => ({ id: `label:${label}`, label, mark: '', ink: '', surface: '', member: '', selected: true, offline: false });
@@ -35,7 +36,7 @@ const EDITOR_KINDS = new Set(['create', 'edit', 'duplicate']);
  * with no machine chosen it takes selectSingleEnvironmentScope's, so its sentence and its page name one environment.
  */
 export function settingsScopeOf(client: T3Client, route: string, machine: string, projectKeyInput: string, checkoutInput: string, legacyProjectId: string) {
-  const legacyGroup = !projectKeyInput && legacyProjectId ? client.projectGroups().find(group => group.members.some(member => member.id === legacyProjectId)) : undefined;
+  const legacyGroup = !projectKeyInput && legacyProjectId ? groupOfMember(client, legacyProjectId) : undefined;
   // A bare project id (Project settings from the palette, the sidebar, the thread menu or the details card) is its
   // project on every environment: /projects/$projectKey redirects with the key and no machine (routes/projects.$projectKey.tsx).
   const projectKey = legacyGroup ? legacyGroup.key : projectKeyInput, checkout = legacyGroup ? '' : checkoutInput;

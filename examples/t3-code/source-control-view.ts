@@ -19,6 +19,7 @@ import { formatSettingValue as formatValue } from './settings-core'; // SettingI
 import { providerBadge } from './presentation';
 import { triggerModelName } from './r3-composer-controls-model';
 import { deviceStateOf, watchDevice } from './r4-surfaces-device'; // useDeviceState
+import { groupOfMember } from './projects-fleet';
 
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
@@ -265,7 +266,7 @@ export async function integrationsPage(client: T3Client, native: Native | null |
     // Device hub and Agent device access follow the settings scope: the representative's value, mixed across
     // the selected targets, and Agent device access open once any connected environment runs the hub.
     // A bare project id (settingsProjectId with no project key: Project settings' target) is its project on every environment (settingsScopeOf).
-    const legacy = !projectKey && projectId ? client.projectGroups().find(group => group.members.some(member => member.id === projectId)) : undefined;
+    const legacy = !projectKey && projectId ? groupOfMember(client, projectId) : undefined;
     const devices = deviceScope(client, machine, legacy ? legacy.key : projectKey, legacy ? '' : checkout);
     rows.deviceHub = { ...rows.deviceHub, checked: devices.checked.enableDeviceSupport, mixed: devices.mixed.enableDeviceSupport,
       disabled: devices.project || devices.unavailable || devices.connectedCount === 0 || !client.writable };
