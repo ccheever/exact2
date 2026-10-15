@@ -110,10 +110,51 @@ const UNNAMED: &str = "a namespace Tamber's Tailwind mapping does not name";
 /// as a whole dark block (`.dark`, `[data-theme=dark]`, the dark colour
 /// scheme), as written; `None` when there is none or it is one of those.
 fn custom_variant(css: &str) -> Option<String> {
-    let at = css.find("@custom-variant dark")?;
-    let rest = &css[at + "@custom-variant dark".len()..];
-    let end = rest.find([';', '{']).unwrap_or(rest.len());
-    let def = rest[..end].trim().to_string();
+    // The last `@custom-variant dark`, comments aside, any case and spacing.
+    let text = super::strip_comments(css);
+    let lower = text.to_ascii_lowercase();
+    let mut def = None;
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("@custom-variant") {
+        let start = from + at + "@custom-variant".len();
+        from = start;
+        let rest = &text[start..];
+        let name_at = rest.len() - rest.trim_start().len();
+        let after = &rest[name_at..];
+        if !after.to_ascii_lowercase().starts_with("dark") {
+            continue;
+        }
+        let tail = &after[4..];
+        if tail
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
+            continue;
+        }
+        let body = tail.trim_start();
+        // `(selector)` to its close, or a block form, read whole.
+        let (open, close) = match body.chars().next() {
+            Some('(') => ('(', ')'),
+            Some('{') => ('{', '}'),
+            _ => continue,
+        };
+        let mut depth = 0;
+        let mut end = body.len();
+        for (i, c) in body.char_indices() {
+            if c == open {
+                depth += 1;
+            } else if c == close {
+                depth -= 1;
+                if depth == 0 {
+                    end = i + 1;
+                    break;
+                }
+            }
+        }
+        def = Some(body[..end].trim().to_string());
+    }
+    let def = def?;
     let squashed: String = def
         .split_whitespace()
         .collect::<String>()
@@ -128,7 +169,7 @@ fn custom_variant(css: &str) -> Option<String> {
         "(&:where([data-theme=dark]*))",
         "(@media(prefers-color-scheme:dark))",
     ];
-    (!known.contains(&squashed.as_str())).then_some(def)
+    (!known.contains(&squashed.to_ascii_lowercase().as_str())).then_some(def)
 }
 
 /// Whether a selector is a whole theme block: the root's (`None`), or its
@@ -396,17 +437,47 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
     // An inline key the stylesheet redefines: a key that reads it follows the
     // redefinition, which the key's own token does not; such a key is
     // reported, not mapped wrong.
-    let shadowed: Vec<&String> = inline
+    // The inline keys the stylesheet redefines, and what reads one, through
+    // backing variables and redefinitions, to the end of the chain (the
+    // inline key's own token stays).
+    let first: Vec<String> = inline
         .iter()
         .filter(|n| own.iter().any(|e| e.name == **n))
+        .cloned()
         .collect();
+    let mut shadowed = first.clone();
+    loop {
+        let reads =
+            |value: &str| engine::reference(value).is_some_and(|r| shadowed.iter().any(|n| n == r));
+        let more: Vec<String> = keys
+            .iter()
+            .map(|(_, k)| &theme[*k])
+            .chain(own.iter())
+            .filter(|e| !shadowed.contains(&e.name) && reads(&e.value))
+            .map(|e| e.name.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        shadowed.extend(more);
+    }
+    let tainted = |name: &String| shadowed.contains(name) && !first.contains(name);
+    let dark_set: Vec<String> = own
+        .iter()
+        .enumerate()
+        .filter(|(k, e)| e.dark && own_gone[*k].is_none())
+        .map(|(_, e)| e.name.clone())
+        .collect();
+    let both = |name: &String, dark: bool| match (dark, dark_set.contains(name)) {
+        (true, _) => vec![(None, true)],
+        (false, true) => vec![(None, false)],
+        (false, false) => vec![(None, false), (None, true)],
+    };
     let mut decls: Vec<(usize, Decl)> = Vec::new();
     let at_theme = first_theme.unwrap_or(0);
     for (_, k) in &keys {
         let e = &theme[*k];
-        if let Some(r) =
-            engine::reference(&e.value).filter(|r| shadowed.iter().any(|n| n.as_str() == *r))
-        {
+        if let Some(r) = engine::reference(&e.value).filter(|_| tainted(&e.name)) {
             let why = format!("reads `{r}`, an `inline` key the stylesheet redefines, which its token cannot follow");
             report(&mut unmapped, &e.block, &e.name, &e.value, why, None);
             continue;
@@ -421,7 +492,7 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                     e.block.clone(),
                     e.name.clone(),
                     e.value.clone(),
-                    vec![(None, false), (None, true)],
+                    both(&e.name, false),
                 ),
             )),
             // A variable in no namespace backs keys that name it.
@@ -431,7 +502,7 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                     e.block.clone(),
                     e.name.clone(),
                     e.value.clone(),
-                    vec![(None, false), (None, true)],
+                    both(&e.name, false),
                 ),
             )),
             Kind::Pending(kind, segs) => {
@@ -458,6 +529,12 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
     }
     let theme_keys: Vec<&String> = keys.iter().map(|(n, _)| n).collect();
     for (k, e) in own.iter().enumerate() {
+        if tainted(&e.name) {
+            let r = engine::reference(&e.value).unwrap_or_default();
+            let why = format!("reads `{r}`, which follows an `inline` key the stylesheet redefines, which no token can follow");
+            report(&mut unmapped, &e.block, &e.name, &e.value, why, None);
+            continue;
+        }
         if let Some(why) = &own_gone[k] {
             report(
                 &mut unmapped,
@@ -469,8 +546,8 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             );
             continue;
         }
-        let colour_key = matches!(kind(&e.name), Kind::Colour(_));
-        if theme_keys.contains(&&e.name) && !colour_key {
+        let backing = matches!(kind(&e.name), Kind::Colour(_) | Kind::Reported(UNNAMED));
+        if theme_keys.contains(&&e.name) && !backing {
             report(
                 &mut unmapped,
                 &e.block,
@@ -482,11 +559,10 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             continue;
         }
         // The root's variable is what the dark side inherits: a root
-        // declaration sets both, a dark one the dark side.
-        let targets = match e.dark {
-            true => vec![(None, true)],
-            false => vec![(None, false), (None, true)],
-        };
+        // declaration sets both, unless the variable has a dark declaration,
+        // which then holds the dark side (Tailwind's dark variant reaches the
+        // descendants of `.dark`, whatever a later root rule says).
+        let targets = both(&e.name, e.dark);
         decls.push((
             e.seq,
             (e.block.clone(), e.name.clone(), e.value.clone(), targets),

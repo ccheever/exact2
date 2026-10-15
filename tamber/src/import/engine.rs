@@ -230,14 +230,29 @@ pub fn assemble(
     }
     // A block with a winner that is no colour there: its variable makes no
     // token, rather than one side wearing another's colour.
-    let failed: BTreeMap<String, Target> = read
-        .winners
-        .keys()
-        .filter(|(t, var)| {
-            !sides.contains_key(&(t.clone(), var.clone())) && names.names.contains_key(var)
-        })
-        .map(|(t, var)| (var.clone(), t.clone()))
-        .collect();
+    let mut failed: BTreeMap<String, Target> = BTreeMap::new();
+    for (t, var) in read.winners.keys() {
+        if !sides.contains_key(&(t.clone(), var.clone())) && names.names.contains_key(var) {
+            failed.entry(var.clone()).or_insert_with(|| t.clone());
+        }
+    }
+    // A value that names a dropped token makes no token either, to the end
+    // of the chain.
+    loop {
+        let more: Vec<(String, Target)> = sides
+            .iter()
+            .filter(|((_, var), (_, _, r))| {
+                !failed.contains_key(var) && r.as_ref().is_some_and(|r| failed.contains_key(r))
+            })
+            .map(|((t, var), _)| (var.clone(), t.clone()))
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        for (var, t) in more {
+            failed.entry(var).or_insert(t);
+        }
+    }
     let fates: Vec<Fate> = decls
         .iter()
         .enumerate()

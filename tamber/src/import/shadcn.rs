@@ -234,8 +234,15 @@ pub fn import(
     let (tokens, fates) = engine::assemble(&decls, &named, &themes, &literal);
     // Each declaration mapped, or reported once with why.
     let mut mapped = 0;
+    // A variable that makes no token is no token's to name.
+    let dropped: Vec<&String> = decls
+        .iter()
+        .zip(&fates)
+        .filter(|(_, f)| matches!(f, Fate::Unresolved(_)))
+        .map(|((_, var, _, _), _)| var)
+        .collect();
     for ((label, var, value, _), fate) in decls.iter().zip(&fates) {
-        let token = names.get(var).cloned();
+        let token = names.get(var).filter(|_| !dropped.contains(&var)).cloned();
         let (why, token) = match fate {
             Fate::Mapped => {
                 mapped += 1;

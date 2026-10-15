@@ -686,3 +686,46 @@ fn tailwind_cascades_roots_defaults_inline_dependents_and_custom_variants() {
     assert_eq!(token_value(&text, "tw.n"), "oklch(0 0 0)");
     assert_eq!(token_value(&text, "tw.m"), "hsl(0 0% 50% / 0)");
 }
+
+#[test]
+fn importers_drop_what_names_a_dropped_token_and_tailwind_keeps_dark_sides() {
+    use exact_tamber::import::tailwind;
+    // shadcn: --x makes no token (a length under blue), so --y, naming it,
+    // makes none either.
+    let css =
+        ":root { --x: white; --y: var(--x); } .dark { --x: black; } .theme-blue { --x: 1rem; }";
+    let import = shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    let text = accepted(EMPTY, &import);
+    assert!(
+        !text.contains("shadcn.x =") && !text.contains("shadcn.y ="),
+        "{text}"
+    );
+    assert!(import
+        .unmapped
+        .iter()
+        .filter(|u| u.name == "--x")
+        .all(|u| u.token.is_none()));
+    let css = r#"
+@theme {}
+:root { --color-early: blue; }
+@theme { --color-early: red; --ink: red; --color-a: var(--ink); --color-b: red; }
+.dark { --ink: blue; }
+.dark { --color-b: navy; }
+:root { --color-b: white; }
+@custom-variant  DARK (@media print);
+:root { @variant dark { --color-c: black; } }
+"#;
+    let import = tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    let text = accepted(EMPTY, &import);
+    // An empty first @theme still places the theme: the root after it wins.
+    assert_eq!(token_value(&text, "tw.early"), "blue");
+    // A backing variable's dark redefinition is read.
+    assert_eq!(token_value(&text, "tw.a"), "light-dark(red, blue)");
+    // A dark declaration holds the dark side against a later root.
+    assert_eq!(token_value(&text, "tw.b"), "light-dark(white, navy)");
+    // The custom variant is read whatever its spacing and case.
+    assert!(import
+        .unmapped
+        .iter()
+        .any(|u| u.name == "--color-c" && u.why.contains("@custom-variant")));
+}

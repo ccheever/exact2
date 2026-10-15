@@ -280,7 +280,7 @@ pub fn css_blocks(css: &str) -> Vec<Block> {
 }
 
 /// `css` without `/* … */`, a comment's opener inside a string kept.
-fn strip_comments(css: &str) -> String {
+pub(crate) fn strip_comments(css: &str) -> String {
     let mut out = String::new();
     let mut chars = css.chars().peekable();
     let mut quote = None;
@@ -415,7 +415,16 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
                 flush(&mut decls, out);
                 let mut inner = context.to_vec();
                 inner.push(prelude.to_string());
+                let before = out.len();
                 body(&text[i + 1..close], &inner, out);
+                // An `@theme` with no custom properties still marks where
+                // Tailwind writes the theme.
+                if prelude.starts_with("@theme") && out.len() == before {
+                    out.push(Block {
+                        context: inner,
+                        decls: Vec::new(),
+                    });
+                }
                 start = (close + 1).min(text.len());
                 k = j + 1;
             }
