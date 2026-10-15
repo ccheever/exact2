@@ -407,6 +407,10 @@ function finish(client: T3Client, landing: string): string {
   if (landing && client.shell.projects.some(project => project.id === landing) && !client.threadId) {
     client.projectId = landing;
     (client as unknown as { chooseDefaults?: () => void }).chooseDefaults?.();
+  } else if (!client.threadId) {
+    // navigate({ to: "/" }) mounts IndexDraftLanding again: it waits for every environment's shell, the ones paired in the
+    // wizard included, and opens a draft in the most recent project of any of them (home-landing.ts).
+    client.projectId = ''; client.homePending = true; client.homeMove = null;
   }
   return '';
 }

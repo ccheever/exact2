@@ -4,7 +4,7 @@
 // plus the sidebar's own view state. Pure over the client and `now`.
 import { arr, num, obj, str, type Obj } from './domain';
 import { machineKind } from './connections';
-import { fleetThreads, parseFleetThreadId, fleetTerminalProcessCount } from './settings-b-fleet'; // settings-b: background environments' threads
+import { fleetThreads, parseFleetThreadId, fleetTerminalProcessCount, remoteThread } from './settings-b-fleet'; // settings-b: background environments' threads
 import type { T3Client } from './client';
 import { knownSessions } from './terminal-drawer-view';
 import { selectRunningSubprocessTerminalIds } from './terminal-session';
@@ -204,7 +204,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     ...searchMatch(thread, client.query, serverMatches(client).get(id)),
     card, statusIcon: pill?.icon ?? '', statusColor: pill?.color ?? SECONDARY,
     duration: status === 'working' && started ? workingDuration(now - Date.parse(started)) : '',
-    workingSince: status === 'working' && started && Number.isFinite(Date.parse(started)) ? Date.parse(started) : 0, remoteMachine: str(thread.fleetMachine),
+    workingSince: status === 'working' && started && Number.isFinite(Date.parse(started)) ? Date.parse(started) : 0, remoteMachine: remoteThread(client, thread)?.machine ?? '',
     titleColor: titleInk(card, section, recede, unread, woke, status, active), titleWeight: recede ? 400 : 500, recede,
     pinned: thread.pinnedAt != null, canPin: caps.pinning,
     canSettle: caps.settlement && card, canSnooze: caps.snooze && card && canSnooze(thread, now),
