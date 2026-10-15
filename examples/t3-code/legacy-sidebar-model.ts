@@ -165,7 +165,7 @@ export function legacyProjectMenuItems(members: readonly LegacyMember[]): MenuIt
     if (members.length === 1) return { ...leaf(members[0]!), label };
     return { id: `${action}:submenu`, label, children: members.map(leaf) };
   };
-  return [targeted('rename', 'Rename'), targeted('grouping', 'Group into…'), targeted('copy-path', 'Copy Path'),
+  return [targeted('rename', 'Rename'), targeted('grouping', 'Group into...'), targeted('copy-path', 'Copy Path'),
     { id: 'project-settings', label: 'Project settings' }, targeted('delete', 'Remove', true)];
 }
 

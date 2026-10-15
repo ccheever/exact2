@@ -1142,3 +1142,20 @@ describe('the complete Sidebar options focus boundary', () => {
     expect(hidden).toEqual(['legacy-sidebar-options']);
   });
 });
+
+describe('"No projects yet" (LegacySidebar.tsx `projectsLength === 0` over useProjects, every enabled environment\'s projects)', () => {
+  const empty = (client: T3Client) => legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).noProjects;
+  test('a background environment\'s project keeps it away while this environment has none', () => {
+    const { client } = rig({ projects: [], threads: [] });
+    expect(empty(client)).toBe(true);
+    const entry = background();
+    expect(empty(client)).toBe(false);
+    expect(legacySidebarSnapshot(client, Date.parse(at(30)), { projectIdentity: identity }).projects.map(project => project.name)).toEqual(['solo']);
+    entry.shell.projects = [];
+    expect(empty(client)).toBe(true);
+  });
+  test('this environment\'s own project keeps it away; it is never shown while the legacy sidebar is off', () => {
+    expect(empty(rig().client)).toBe(false);
+    expect(empty(rig({ projects: [], threads: [], settings: { legacySidebarEnabled: false } }).client)).toBe(false);
+  });
+});

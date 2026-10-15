@@ -1,12 +1,14 @@
 // Ports of T3 Code 1e2ecbd975's threadSort.test.ts, the Sidebar.logic.test.ts
 // cases for the functions the legacy sidebar uses, environmentGrouping.test.ts's grouping
 // cases, and the legacy sidebar's own projection and gestures (MIT, see LICENSE-T3).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { toasts } from './toast';
 import { EnvironmentFleet } from './settings-b-fleet';
+import { primary } from './local-primary';
+import { parseLocalBackendStatus, unknownLocalBackend } from './local-backend';
 import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { sidebarCommand, sidebarLocal, sidebarSelecting } from './sidebar-commands';
 import { keyboardDispatch } from './keyboard-dispatch';
@@ -155,7 +157,7 @@ describe('legacy menus (LegacySidebar.tsx)', () => {
   });
   test('the project menu targets one project, or a submenu of members for a group', () => {
     const one = legacyProjectMenuItems([{ id: 'p1', physicalKey: 'env:/a', title: 'A', workspaceRoot: '/a', environmentLabel: '', remote: false }]);
-    expect(one.map(item => item.label)).toEqual(['Rename', 'Group into…', 'Copy Path', 'Project settings', 'Remove']);
+    expect(one.map(item => item.label)).toEqual(['Rename', 'Group into...', 'Copy Path', 'Project settings', 'Remove']);
     expect(one.find(item => item.label === 'Remove')).toMatchObject({ id: 'delete:env:/a', destructive: true });
     const two = legacyProjectMenuItems([{ id: 'p1', physicalKey: 'env:/a', title: 'A', workspaceRoot: '/a', environmentLabel: '', remote: false },
       { id: 'fleet:r:p9', physicalKey: 'r:/b', title: 'A', workspaceRoot: '/b', environmentLabel: 'Studio', remote: true }]);
@@ -285,6 +287,10 @@ describe('legacy projection (LegacySidebar.tsx SidebarProjectItem)', () => {
 
 describe('environment grouping (environmentGrouping.test.ts) in the legacy sidebar', () => {
   const identityKey = { canonicalKey: 'github.com/example/shared-repo' };
+  // The focused environment is the primary, as the reference's cases put the primary's projects first.
+  beforeEach(() => primary.update(parseLocalBackendStatus({ state: 'ready', enabled: true, port: 16101, httpBaseUrl: 'http://127.0.0.1:16101',
+    wsBaseUrl: 'ws://127.0.0.1:16101', bearerReady: true, environmentId: 'env', label: 'This Mac' }), true));
+  afterEach(() => primary.update(unknownLocalBackend(), true));
   const fleetWith = (projects: Obj[]) => {
     const source = new EnvironmentFleet();
     source.entries.set('remote', { key: 'remote', origin: 'http://remote', environmentId: 'env-remote', phase: 'connected', message: '', traceId: '', generation: 1, synchronized: 1, lastEvent: 0,
