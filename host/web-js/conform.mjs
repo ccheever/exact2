@@ -75,7 +75,7 @@ import { fileURLToPath } from 'node:url';
 import { conformArgs } from './conform-args.mjs';
 import { open } from '../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../scripts/agent-launch.mjs';
-import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
+import { poolBrowsers, probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { HOST_DEV, injectedProfiles, resolveApp } from '../../scripts/app.mjs';
 import { closeFilesystemReader } from '../../scripts/filesystem.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
@@ -806,6 +806,8 @@ const queue = engineReady ? targets : [];
 // A run that compares nothing fails rather than passing: no app named, built or matched by --only
 if (engineReady && !targets.length) report.failures.push({ target: 'harness', step: 'targets', what: 'no app or fixture to compare: name one, build with --build, or check --only' });
 let next = 0;
+// Keep each worker's Firefox or WebKit between its targets, with a fresh context for each
+const closeBrowsers = crossBrowser ? poolBrowsers() : async () => {};
 try {
   await Promise.all(Array.from({ length: Math.min(jobs, queue.length) }, async () => {
     while (next < queue.length) {
@@ -816,6 +818,7 @@ try {
   }));
 } finally {
   closeFilesystemReader();
+  await closeBrowsers();
   await net.close();
 }
 report.net = { answered: [...new Set(net.answered)].sort(), unanswered: net.unanswered, tunnels: [...new Set(net.tunnels)].sort(), aborted: net.aborted, browser: [...new Set(net.browser)].sort() };
