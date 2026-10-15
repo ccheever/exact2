@@ -128,7 +128,7 @@ test('async builds, tests and lints the T3 Code clone, whose workspace the six c
 });
 
 test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app.test.mjs');
+  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app-workspace.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());

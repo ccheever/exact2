@@ -40,9 +40,10 @@ struct HeaderShape: Equatable {
         /// badge: a shape holding a text or a symbol), when the button has
         /// one: the item's image, in the box's own colours and corners.
         let badge: BadgeFace?
-        /// The popover a button opens (`popovertarget`): the item's menu,
-        /// its rows read when it opens, as LLP 1021 D3's pull-down.
-        let menu: String?
+        /// Whether the button opens a popover (`Invocation.opensPopover`):
+        /// the item's menu, its rows read when it opens, as LLP 1021 D3's
+        /// pull-down.
+        let menu: Bool
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
@@ -72,7 +73,7 @@ struct HeaderShape: Equatable {
             id = button.id
             testId = button.props["testId"]
             badge = button.isNativeButton ? nil : BadgeFace(button)
-            menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
+            menu = button.presenter?.invocation(of: button)?.opensPopover == true
             self.symbol = symbol
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
@@ -92,7 +93,7 @@ struct HeaderShape: Equatable {
             }
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu ?? ""):\(tint ?? []):\(testId ?? "")" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(accessibilityDisabled):\(prominent):\(badge?.source ?? ""):\(menu):\(tint ?? []):\(testId ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -932,25 +933,22 @@ extension NavigationHost {
         controllers.values.contains { $0.collapseScroll === node || $0.edgeScroll === node }
     }
 
+    /// Whether the page hides `view` only because a bar shows it: a lifted
+    /// header, or a node the bar placed, that its author did not hide.
+    func hiddenForBar(_ view: UIView) -> Bool {
+        guard let node = view as? NodeView, node.style["display"]?.string != "none" else { return false }
+        return controllers.values.contains { $0.lifted === node || $0.barNodes.contains { $0 === node } }
+    }
+
     private func barItem(_ i: HeaderShape.Item, _ c: RouteController) -> UIBarButtonItem {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
         let image = i.badge?.image ?? i.symbol.flatMap { UIImage(systemName: $0) }
         let item: UIBarButtonItem
-        if let name = i.menu {
-            // A pull-down: UIKit opens it on tap; the rows are the popover's,
-            // read as it opens, after the button's own press (both fire, as
-            // LLP 1021 D1 has it on the web).
-            let id = i.id
-            let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
-                guard let self else { return completion([]) }
-                if self.presenter.views[id]?.handlers.contains("press") == true { self.presenter.press(id) }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                    guard let self, let pop = self.presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return completion([]) }
-                    completion(self.presenter.menus.items(of: pop))
-                }
-            }
+        if i.menu, let button = presenter.views[i.id] {
+            // A pull-down: UIKit opens it on tap (`MenuHost.pullDown`).
+            let deferred = presenter.menus.pullDown(of: button, inBar: true)
             item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(children: [deferred])) }
                 ?? UIBarButtonItem(title: i.title, menu: UIMenu(children: [deferred]))
         } else {

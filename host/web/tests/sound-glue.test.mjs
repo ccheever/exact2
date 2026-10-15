@@ -32,16 +32,25 @@ const page = session => `<!doctype html><meta charset="utf-8"><div id="exact-roo
     const out = globalThis.exact.installSound({ files: Object.keys(files), log: l => lines.push(l), origin: () => 1000, context, timestamp: stamp, now, activated: () => true, fetchFile: src => Promise.resolve(files[src]) });
     return { out, context, lines };
   };
-  // Each node's start and stop, as called.
+  // Each node's start and stop, as called. \`changed()\` resolves at the next call or finished decode, a task after
+  // the decode so the glue has counted it.
   window.calls = [];
-  const { start, stop } = AudioBufferSourceNode.prototype;
-  AudioBufferSourceNode.prototype.start = function (when = 0, ...rest) { calls.push(['start', when]); return start.call(this, when, ...rest); };
-  AudioBufferSourceNode.prototype.stop = function (when = 0) { calls.push(['stop', when]); return stop.call(this, when); };
+  let waiting = [];
+  window.changed = () => new Promise(r => waiting.push(r));
+  const notify = () => { for (const r of waiting.splice(0)) r(); };
+  const { start, stop } = AudioBufferSourceNode.prototype, { decodeAudioData } = BaseAudioContext.prototype;
+  AudioBufferSourceNode.prototype.start = function (when = 0, ...rest) { calls.push(['start', when]); notify(); return start.call(this, when, ...rest); };
+  AudioBufferSourceNode.prototype.stop = function (when = 0) { calls.push(['stop', when]); notify(); return stop.call(this, when); };
+  BaseAudioContext.prototype.decodeAudioData = function (...args) {
+    const decoding = decodeAudioData.apply(this, args);
+    decoding.then(() => setTimeout(notify), () => setTimeout(notify));
+    return decoding;
+  };
   // Every named output's files decoded (its state says n/n), then a task for the voices waiting on them
-  window.decoded = (...outs) => new Promise(done => {
-    const check = () => outs.every(out => { const [n, of] = out.state().decoded.split('/'); return n === of; }) ? setTimeout(done) : setTimeout(check, 5);
-    check();
-  });
+  window.decoded = async (...outs) => {
+    while (!outs.every(out => { const [n, of] = out.state().decoded.split('/'); return n === of; })) await changed();
+    await new Promise(r => setTimeout(r));
+  };
   // Before any activation (Playwright's own evaluate runs as a gesture): an
   // output on the page's real AudioContext, and a voice it is handed at once.
   if (location.search.includes('playback')) {
@@ -161,7 +170,7 @@ for (const engine of engines) {
         t.out.ops([{ op: 'play', id: 1, sound: 0, at: 30, gain: 1 }, { op: 'play', id: 2, sound: 0, at: 35, gain: 1 }, { op: 'end', id: 2, at: 35 },
           { op: 'play', id: 3, sound: 0, at: 40, gain: 1 }]);
         const before = calls.slice();
-        while (calls.length < 2) await new Promise(r => setTimeout(r, 5));
+        while (calls.length < 2) await changed();
         return { held, afterEnd, live, before, timer: calls.slice() };
       });
       expect(got.held).toEqual([['start', 0]]);
@@ -198,7 +207,7 @@ for (const engine of engines) {
         // Started at once (the `{0, 0}` hold's due voice is start(0)), or held for its time, or scheduled ahead by the formula.
         expect(pressed.calls.length === 0 || pressed.calls[0][0] === 'start').toBe(true);
         // Wait for the voice's start, held or scheduled, rather than for a time
-        const later = await p.evaluate(async () => { while (!calls.some(c => c[0] === 'start')) await new Promise(r => setTimeout(r, 5)); return calls.slice(); });
+        const later = await p.evaluate(async () => { while (!calls.some(c => c[0] === 'start')) await changed(); return calls.slice(); });
         expect(later.filter(c => c[0] === 'start').length).toBe(1);
         // Firefox before `running`: a live performanceTime, and the formula schedules ahead.
         if (engine === 'firefox' && got.state === 'suspended' && got.stamp?.performanceTime > 0) expect(later[0][1]).toBeGreaterThan(0);

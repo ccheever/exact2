@@ -13,7 +13,7 @@ struct ChromeIndex {
     /// `main` or `header` a tag, so these are indexed by that value, never by
     /// presence.
     static let values = [("role:tablist", "accessibilityRole", "tablist"), ("role:radiogroup", "accessibilityRole", "radiogroup"),
-                         ("tag:dialog", "semanticTag", "dialog"),
+                         ("tag:dialog", "semanticTag", "dialog"), ("tag:header", "semanticTag", "header"),
                          ("role:status", "accessibilityRole", "status"), ("role:alert", "accessibilityRole", "alert"),
                          ("type:checkbox", "type", "checkbox"), ("type:radio", "type", "radio"), ("type:select", "type", "select"),
                          ("type:range", "type", "range"), ("type:date", "type", "date"),

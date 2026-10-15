@@ -322,43 +322,42 @@ test('under scroll-behavior: smooth an anchor correction still lands before the 
 test('a smooth correction animates and reports where it is headed until it lands (LLP 1070.000 §6.2)', async () => {
   const result=await evaluate(`(async () => {const f=fixture();
     f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
+    const seq=f.reports.at(-1).sequence,ended=new Promise(r=>{const t=setTimeout(r,10000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
     f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
     const started=f.port.scrollTop;
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     f.port.dispatchEvent(new Event('scroll'));f.flush();
     const midway=f.port.scrollTop,report=f.reports.at(-1);
-    await new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    await ended;
     return {started,midway,headed:report.top,sequence:report.sequence===seq,landed:f.port.scrollTop};})()`);
   expect(result.started).toBeLessThan(860);
   expect(result.headed).toBe(800);
   expect(result.sequence).toBe(true);
   expect(result.landed).toBe(860); // the list starts 60 px into its port
-});
+}, 30_000); // hang bound: the scroll end is waited for up to 10 s
 test('a smooth correction that arrives mid-flight is held, reported, and taken where it lands', async () => {
-  const result=await evaluate(`(async () => {const f=fixture();
+  const result=await evaluate(`(async () => {
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
-    const ended=()=>new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
-    f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
-    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
-    await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
-    const mid=f.port.scrollTop;
+    // The first leg read at the first frame that moves it; tried again, up to five times, while that frame is already its end.
+    // Then, until the nth scroll end (counted from before the leg, so none is missed) or 10 s.
+    let f,ends,seq,mid;const ended=async n=>{for(const end=performance.now()+10000;ends<n&&performance.now()<end;)await frames(1);};
+    for(let i=0;i<5&&!(mid<860);i++){f=fixture();ends=0;f.controller.commit([f.snapshot()]);f.flush();f.port.addEventListener('scrollend',()=>ends++);seq=f.reports.at(-1).sequence;
+      f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+      const from=f.port.scrollTop;while(f.port.scrollTop===from)await frames(1);f.port.dispatchEvent(new Event('scroll'));f.flush();mid=f.port.scrollTop;}
     f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:900,smooth:true}})]);
     f.port.dispatchEvent(new Event('scroll'));f.flush();
     const report=f.reports.at(-1);
-    await ended();await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    await ended(1);await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
     const secondLeg=f.reports.at(-1);
-    await ended();f.port.dispatchEvent(new Event('scroll'));f.flush();
+    await ended(2);f.port.dispatchEvent(new Event('scroll'));f.flush();
     return {mid,headed:report.top,velocity:report.velocity,landed:f.port.scrollTop,sequence:f.reports.at(-1).sequence===seq,
       secondLeg:{top:secondLeg.top,velocity:secondLeg.velocity,sequence:secondLeg.sequence===seq}};})()`);
   expect(result.mid).toBeLessThan(860);
-  expect(result.headed).toBe(900);
-  expect(result.velocity).toBe(0);
+  expect([result.headed,result.velocity]).toEqual([900,0]);
   expect(result.landed).toBe(960);
   expect(result.sequence).toBe(true);
   expect(result.secondLeg).toEqual({top:900,velocity:0,sequence:true}); // the held leg reports its destination too
-});
+}, 30_000); // hang bound: each scroll end is waited for up to 10 s
 test('an ordinary correction or a zero-length request ends a smooth one', async () => {
   const result=await evaluate(`(async () => {const f=fixture();
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
@@ -378,12 +377,11 @@ test('an ordinary correction or a zero-length request ends a smooth one', async 
   expect(result.afterZero).toBe(40); // the reader's scroll, reported where it is
 });
 test('an authored jump on a list that is its own scrollport ends a smooth correction', async () => {
-  const result=await evaluate(`(async () => {const f=fixture({own:true});
+  const result=await evaluate(`(async () => {let f,moving;
     const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
-    f.controller.commit([f.snapshot()]);f.flush();
-    const seq=f.reports.at(-1).sequence;
-    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:1200,smooth:true}})]);
-    await frames(2);const moving=f.port.scrollTop;
+    // The correction two frames in, tried again, up to five times, while a slow frame has let it land
+    for(let i=0;i<5&&!(moving<1200);i++){f=fixture({own:true});f.controller.commit([f.snapshot()]);f.flush();const seq=f.reports.at(-1).sequence;
+      f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:1200,smooth:true}})]);await frames(2);moving=f.port.scrollTop;}
     f.controller.jump(1,400);await frames(2);f.flush();const jumped=f.port.scrollTop;
     await frames(30);f.port.dispatchEvent(new Event('scroll'));f.flush();
     return {moving,jumped,stayed:f.port.scrollTop,reported:f.reports.at(-1).top};})()`);
@@ -623,7 +621,7 @@ test('activation retries unchanged geometry once and a continuing edge refusal b
   expect(result).toEqual({before:1,after:2,attempts:3,successes:1,errors:2,pending:0});
 });
 test('ResizeObserver updates real row heights and width, then becomes idle', async () => {
-  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await new Promise(r=>setTimeout(r,50)); f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await new Promise(r=>setTimeout(r,25)); f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await new Promise(r=>setTimeout(r,50)); f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
+  const result = await evaluate(`(async () => { const f=fixture(); f.controller.commit([f.snapshot()]); f.flush(); await ${frames(2)}; f.flush(); f.views.get(2).style.height='97px'; f.port.style.width='400px'; for(let i=0;i<40;i++){ await ${frames(1)}; f.flush(); if(f.reports.at(-1)?.rows[0].size===97 && f.reports.at(-1)?.rowWidth===f.port.clientWidth-24) break; } const last=f.reports.at(-1), n=f.reports.length; await ${frames(2)}; f.flush(); return {last,inner:f.port.clientWidth,idle:f.reports.length===n}; })()`);
   expect(result.last.rowWidth).toBe(result.inner - 24);
   expect(result.last.rows[0].size).toBe(97);
   expect(result.idle).toBe(true);
@@ -1478,17 +1476,16 @@ function chromePage() {
 }
 const frames = n => `new Promise(r=>{let k=${n};const f=()=>--k?requestAnimationFrame(f):r();requestAnimationFrame(f);})`;
 async function wheel(deltaX, deltaY) {
-  const at = await evaluate(`(() => { const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
+  const at = await evaluate(`(() => { window.scrolled=new Promise(r=>{const t=setTimeout(r,10000);document.addEventListener('scrollend',()=>{clearTimeout(t);r();},{capture:true,once:true});}); const r=document.getElementById('strip').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2}; })()`);
   await protocol('Input.dispatchMouseEvent', { type: 'mouseWheel', x: at.x, y: at.y, deltaX, deltaY });
-  await evaluate(`new Promise(r=>setTimeout(r,400)).then(()=>${frames(3)})`);
-  return evaluate(`({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft})`);
+  return evaluate(`window.scrolled.then(()=>${frames(3)}).then(()=>({outer:document.getElementById('outer').scrollTop,strip:document.getElementById('strip').scrollLeft}))`);
 }
 test('Chrome: a phase-less tick over a row-only scroller goes by its components, never split', async () => {
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(0, 120)).toEqual({ outer: 120, strip: 0 });
   await evaluate(`(${chromePage})(), true`);
   expect(await wheel(60, 100)).toEqual({ outer: 0, strip: 60 });
-});
+}, 30_000); // hang bound: each wheel waits up to 10 s for its scroll to end
 test('Chrome: no inline-axis anchoring, a block-axis control anchors; a re-inserted scroller resets to 0', async () => {
   const result = await evaluate(`(async () => { const {outer,strip}=(${chromePage})();
     strip.scrollLeft=1000; await ${frames(2)}; strip.children[0].style.width='380px'; await ${frames(2)}; const inline=strip.scrollLeft;

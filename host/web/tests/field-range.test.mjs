@@ -73,31 +73,45 @@ async function inChrome(test) {
 
 // Compare the production command with HTML's method. Only the admitted input event differs.
 check('setRangeText follows Chrome selection modes and emits one replacement input on both web targets', () => inChrome(async (evaluate) => {
-  for (const target of ['js', 'wasm']) for (const tag of ['input', 'textarea']) {
-    for (const args of [['[a.ts]'], ['@a.ts', 4, 9], ['[a.ts]', 4, 9], ['😀', 4, 9, 'select'], ['x', 0, 3, 'start'], ['x', 0, 3, 'end'], ['', 4, 9, 'preserve'], ['z', 100, 100], ['x', 0, 4, 'preserve'], ['a\nb', 4, 9]]) {
-      const result = await evaluate(`(async () => {
-        const root = document.getElementById('exact-root'); root.replaceChildren();
-        const field = document.createElement(${JSON.stringify(tag)}), oracle = document.createElement(${JSON.stringify(tag)});
-        field.id = 'editor'; root.append(field, oracle);
-        for (const e of [field, oracle]) { e.value = 'see @a.ts now'; e.setSelectionRange(4, 9, 'backward'); }
-        document.getElementById('outside').focus();
-        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
-        const seen = [], expected = [], input = [], before = [];
-        field.addEventListener('beforeinput', e => before.push(e.inputType));
-        for (const [e, events] of [[field, seen], [oracle, expected]]) for (const name of ['select', 'selectionchange']) e.addEventListener(name, () => events.push(name));
-        field.addEventListener('input', e => input.push([e.inputType, e.data, e.bubbles, e.cancelable, e.isTrusted, field.value]));
-        oracle.setRangeText(...${JSON.stringify(args)});
-        replace(${JSON.stringify(target)}, ['editor', ...${JSON.stringify(args)}]);
-        await new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
-        const state = e => [e.value, e.selectionStart, e.selectionEnd, e.selectionDirection];
-        return { actual: state(field), expected: state(oracle), seen, events: expected, input, before, focus: document.activeElement.id };
-      })()`);
-      expect(result.actual).toEqual(result.expected);
-      expect(result.seen).toEqual(result.events);
-      expect(result.input).toEqual([['insertReplacementText', args[0], true, false, false, result.actual[0]]]);
-      expect(result.focus).toBe('outside');
-      expect(result.before).toEqual([]);
+  const cases = ['js', 'wasm'].flatMap(target => ['input', 'textarea'].flatMap(tag =>
+    [['[a.ts]'], ['@a.ts', 4, 9], ['[a.ts]', 4, 9], ['😀', 4, 9, 'select'], ['x', 0, 3, 'start'], ['x', 0, 3, 'end'], ['', 4, 9, 'preserve'], ['z', 100, 100], ['x', 0, 4, 'preserve'], ['a\nb', 4, 9]]
+      .map(args => ({ target, tag, args }))));
+  // Each case has its own field and oracle, so all of them run at once and their frame waits overlap
+  const results = await evaluate(`(async () => {
+    const root = document.getElementById('exact-root'); root.replaceChildren();
+    const frames = () => new Promise(ok => requestAnimationFrame(() => requestAnimationFrame(ok)));
+    const cases = ${JSON.stringify(cases)}.map(({ target, tag, args }, i) => {
+      const field = document.createElement(tag), oracle = document.createElement(tag);
+      field.id = 'editor-' + i; root.append(field, oracle);
+      for (const e of [field, oracle]) { e.value = 'see @a.ts now'; e.setSelectionRange(4, 9, 'backward'); }
+      return { target, args, field, oracle };
+    });
+    document.getElementById('outside').focus();
+    await frames();
+    for (const c of cases) {
+      c.seen = []; c.expected = []; c.input = []; c.before = []; c.focused = false;
+      c.field.addEventListener('beforeinput', e => c.before.push(e.inputType));
+      c.field.addEventListener('focus', () => c.focused = true);
+      for (const [e, events] of [[c.field, c.seen], [c.oracle, c.expected]]) for (const name of ['select', 'selectionchange']) e.addEventListener(name, () => events.push(name));
+      c.field.addEventListener('input', e => c.input.push([e.inputType, e.data, e.bubbles, e.cancelable, e.isTrusted, c.field.value]));
+      c.oracle.setRangeText(...c.args);
+      replace(c.target, [c.field.id, ...c.args]);
     }
+    await frames();
+    const state = e => [e.value, e.selectionStart, e.selectionEnd, e.selectionDirection];
+    return cases.map(c => ({ actual: state(c.field), expected: state(c.oracle), seen: c.seen, events: c.expected, input: c.input, before: c.before, focused: c.focused }));
+  })()`);
+  for (const [i, result] of results.entries()) {
+    const { target, tag, args } = cases[i], at = `${target} ${tag} ${JSON.stringify(args)}`;
+    expect(result.actual, at).toEqual(result.expected);
+    expect(result.seen, at).toEqual(result.events);
+    expect(result.input, at).toEqual([['insertReplacementText', args[0], true, false, false, result.actual[0]]]);
+    expect(result.before, at).toEqual([]);
+    expect(result.focused, at).toBe(false);
+  }
+  expect(await evaluate('document.activeElement.id')).toBe('outside');
+  for (const target of ['js', 'wasm']) {
+    await evaluate(`(() => { const root = document.getElementById('exact-root'); root.replaceChildren(); const field = document.createElement('textarea'); field.id = 'editor'; field.value = 'see @a.ts now'; root.append(field); })()`);
     const refused = await evaluate(`(() => {
       const field = document.getElementById('editor'); let inputs = 0;
       field.addEventListener('input', () => inputs++);
