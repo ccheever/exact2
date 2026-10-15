@@ -4,6 +4,7 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from './client';
 import type { Obj, Shell } from './domain';
 import { EnvironmentFleet, type FleetEntry, type FleetPhase } from './settings-b-fleet';
+import { welcomeLocal } from './pages-welcome';
 import { backgroundShellsBootstrapped, homeTarget, homeWaiting, landHome, openHome, scopedProjectsByActivity, settleHome } from './home-landing';
 
 const shell = (projects: Obj[], threads: Obj[] = []): Shell => ({ projects, threads, sequence: 1 });
@@ -116,5 +117,26 @@ describe('the launch landing', () => {
     local.environmentId = 'local'; local.shell = focusedShell; local.projectId = 'a'; local.threadId = 't1';
     await openHome(local, nativeLog([]), focusedShell, fleetOf());
     expect(local).toMatchObject({ environmentId: 'local', projectId: 'b', threadId: '' });
+  });
+});
+
+describe('the welcome wizard\'s end (WelcomeRouteView.onDone: navigate({ to: "/" }))', () => {
+  const quiet = { available: true, watch() {}, later: async () => ({ ok: true, generation: 1, value: {} }) } as never;
+  test('with no project picked, the index landing runs again and reaches an environment paired in the wizard', async () => {
+    // The launch's landing ran before the pairing: no environment held a project, so it picked nothing.
+    const client = new T3Client();
+    client.environmentId = 'local'; client.shell = shell([]);
+    expect(landHome(client, () => '', fleetOf())).toBe('');
+    expect(client.homePending).toBe(false);
+    await welcomeLocal(client, quiet, 'finish', '', String(Date.parse('2026-10-15T10:00:00Z')));
+    expect(client).toMatchObject({ homePending: true, projectId: '' });
+    expect(landHome(client, () => '', fleetOf(entry('remote', remoteShell)))).toBe('');
+    expect(client.homeMove).toEqual({ environmentId: 'remote', projectId: 'r' });
+  });
+  test('a thread already open stays', async () => {
+    const client = new T3Client();
+    client.environmentId = 'local'; client.shell = focusedShell; client.threadId = 't1'; client.projectId = 'b'; client.homePending = false;
+    await welcomeLocal(client, quiet, 'finish', '', String(Date.parse('2026-10-15T10:00:00Z')));
+    expect(client).toMatchObject({ homePending: false, threadId: 't1', projectId: 'b' });
   });
 });
