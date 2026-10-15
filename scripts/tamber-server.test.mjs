@@ -276,12 +276,13 @@ test('a conflict names who last changed the file', async () => {
   const stale = await post({ method: 'transaction', client: 'person', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#161616' }] });
   expect(stale.status).toBe(409);
   expect(stale.error.by).toEqual({ 'app.tamber': 'agent' });
+  // A hand edit the watcher has not yet said: the conflict says it.
   writeFileSync(join(dir, 'app.tamber'), DESIGN);
-  const stream = await subscribe();
-  await stream.until(e => e.at(-1)?.files?.['app.tamber'] === sha(DESIGN));
   const again = await post({ method: 'undo', client: 'agent', inverse: first.ok.inverse });
   expect(again.status).toBe(409);
   expect(again.error.by['app.tamber']).toBe('changed on disk');
+  const stream = await subscribe();
+  await stream.until(e => e.at(-1)?.files?.['app.tamber'] === sha(DESIGN));
   stream.close();
 }, 30_000);
 
@@ -366,9 +367,49 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   const two = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
   const part = await post({ method: 'accept', client: 'person', proposal: two.ok.proposal, items: [1] });
   expect(part.ok.recomputed).toBe(true);
-  expect(part.ok.items).toBe(1);
+  expect(part.ok.ops).toEqual([{ index: 0, op: { op: 'set-token', name: 'edge', value: '#1f1f1f' } }]);
   expect(part.ok.diff).toContain('#1f1f1f');
   expect(part.ok.diff).not.toContain('#1e1e1e');
-  expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(200);
+  expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(400);
+  expect((await post({ method: 'drop', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === part.ok.proposal && x.client === 'person'));
+  stream.close();
+}, 30_000);
+
+test('commit refuses a file staged at its baseline, and one whose HEAD moved; a locked index moves nothing', async () => {
+  gitIn('checkout', '--', 'app.tamber', 'brand.tamber');
+  gitIn('reset', '-q');
+  await freshWire();
+  // brand.tamber staged (and the working tree back as HEAD has it).
+  writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#262626'));
+  gitIn('add', 'brand.tamber');
+  spawnSync('sh', ['-c', 'git show HEAD:brand.tamber > brand.tamber'], { cwd: dir });
+  const stream = await subscribe();
+  await stream.until(e => e[0]?.event === 'subscribed');
+  await post({ method: 'transaction', client: 'agent', files: { 'brand.tamber': disk('brand.tamber') }, ops: [{ op: 'set-token', file: 'brand.tamber', name: 'brand.ink', value: '#272727' }] });
+  const staged = await post({ method: 'commit', client: 'person' });
+  expect(staged.error.refused).toEqual([{ file: 'brand.tamber', why: 'it was staged when the session first wrote it' }]);
+  // HEAD moves under the session.
+  gitIn('reset', '-q');
+  spawnSync('sh', ['-c', 'git show HEAD:brand.tamber > brand.tamber'], { cwd: dir });
+  await freshWire();
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#282828' }] });
+  gitIn('commit', '-q', '--allow-empty', '-m', 'elsewhere');
+  const moved = await post({ method: 'commit', client: 'person' });
+  expect(moved.error.refused).toEqual([{ file: 'app.tamber', why: 'HEAD has moved since the session first wrote it' }]);
+  // A locked index: the commit fails whole, HEAD where it was.
+  gitIn('checkout', '--', 'app.tamber');
+  await freshWire();
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#292929' }] });
+  const at = head();
+  const lock = join(dir, '.git', 'index.lock');
+  writeFileSync(lock, '');
+  const locked = await post({ method: 'commit', client: 'person' });
+  rmSync(lock);
+  expect(locked.status, JSON.stringify(locked)).toBe(400);
+  expect(head()).toBe(at);
+  const retried = await post({ method: 'commit', client: 'person' });
+  expect(retried.status, JSON.stringify(retried)).toBe(200);
+  expect(gitIn('status', '--porcelain', 'app.tamber').stdout).toBe('');
   stream.close();
 }, 30_000);
