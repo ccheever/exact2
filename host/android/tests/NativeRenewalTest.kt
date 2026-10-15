@@ -349,7 +349,14 @@ internal object NativeRenewalTest {
         var finished = false
         fun finish(result: String) {
             if (finished) return
-            finished = true; fixture.close(); fresh?.close(); complete(result)
+            finished = true
+            var cleanup: Throwable? = null
+            try { fixture.close() } catch (failure: Throwable) { cleanup = failure }
+            try { fresh?.close() } catch (failure: Throwable) {
+                if (cleanup == null) cleanup = failure else cleanup.addSuppressed(failure)
+            }
+            complete(if (cleanup == null) result else
+                "NativeRenewalTest async: FAIL (cleanup: ${cleanup.stackTraceToString()}; phase: ${result.removePrefix("NativeRenewalTest async: ")})")
         }
         fun phase(action: () -> Unit) {
             if (finished) return
@@ -399,7 +406,7 @@ internal object NativeRenewalTest {
                     val natural = checkNotNull(fixture.pending.drain(p::intrinsicOwner))
                     val sizes = ByteBuffer.wrap(natural).order(ByteOrder.LITTLE_ENDIAN)
                     check(sizes.int == 4 && sizes.float == 9f && sizes.float == 13f && !sizes.hasRemaining())
-                    fresh = Fixture(context).also { it.seed("renew-b.png", b); it.populate("new-button", "renew-b.png") }
+                    fresh = Fixture(context).also { it.seed("renew-b.png", checkNotNull(b.copy(Bitmap.Config.ARGB_8888, false))); it.populate("new-button", "renew-b.png") }
                     val ownerB = checkNotNull(p.intrinsicOwner(4))
                     fixture.pending.put(4, ownerB, 9f, 13f)
                     fixture.commit(renew(4))
