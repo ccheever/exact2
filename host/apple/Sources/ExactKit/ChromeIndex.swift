@@ -14,7 +14,7 @@ struct ChromeIndex {
     /// presence.
     static let values = [("role:tablist", "accessibilityRole", "tablist"), ("role:radiogroup", "accessibilityRole", "radiogroup"),
                          ("tag:dialog", "semanticTag", "dialog"), ("tag:header", "semanticTag", "header"),
-                         ("role:status", "accessibilityRole", "status"), ("role:alert", "accessibilityRole", "alert"),
+                         ("role:status", "accessibilityRole", "status"), ("role:alert", "accessibilityRole", "alert"), ("role:menu", "accessibilityRole", "menu"),
                          ("type:checkbox", "type", "checkbox"), ("type:radio", "type", "radio"), ("type:select", "type", "select"),
                          ("type:range", "type", "range"), ("type:date", "type", "date"),
                          ("type:time", "type", "time"), ("type:datetime-local", "type", "datetime-local"),
