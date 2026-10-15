@@ -227,3 +227,25 @@ fn a_token_one_colour_in_some_modes_is_offered_the_pair_not_the_mark() {
     );
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+#[test]
+fn the_mark_passes_only_to_a_whole_alias_by_any_spelling() {
+    // An alias by the bare spelling of a fixed role override: silent.
+    let path = app(
+        "bare",
+        "tamber t\n\ntheme\n  -exact-label = #101010  scheme=fixed\n  ink = label\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    assert_eq!(one_scheme(&path), Vec::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    // An alias with a `when` of its own is judged as itself.
+    let path = app(
+        "when",
+        "tamber t\n\naxes\n  tone = soft | hard\n\ntheme\n  base = #ffffff  scheme=fixed\n  ink = base\n    when tone=hard: #222222\n",
+        "component App\n  view\n    text \"a\" color=\"ink\"\n",
+    );
+    let found = one_scheme(&path);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert!(found[0].2.starts_with("`ink`"), "{found:?}");
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

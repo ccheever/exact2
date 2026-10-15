@@ -691,11 +691,12 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
         (None, None) => return Vec::new(),
     };
     for t in &mut design.tokens {
-        if t.value.value.contains("color(--")
-            || t.whens.iter().any(|w| w.value.value.contains("color(--"))
-        {
-            t.value.value = "light-dark(#000000, #ffffff)".into();
+        let profiled = |v: &str| v.to_ascii_lowercase().contains("color(--");
+        if profiled(&t.value.value) || t.whens.iter().any(|w| profiled(&w.value.value)) {
+            // As the build stands one in (`profiles`): nothing to judge.
+            t.value.value = "transparent".into();
             t.whens.clear();
+            t.meta.clear();
         }
     }
     let Ok(folding) = tamber::check_design(design, &vocab()) else {
@@ -704,14 +705,13 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
     // A token fixed, or an alias of one (`ink = -exact-label` of a fixed
     // `label`), by every name it answers to.
     let pairs: Vec<_> = folding.tokens.iter().zip(&folding.design.tokens).collect();
-    // A name exactly; a role's spelling without case, as roles match.
-    let same = |a: &str, b: &str| a == b || role_named(a).is_some() && a.eq_ignore_ascii_case(b);
     let mut fixed: Vec<String> = Vec::new();
     loop {
         let before = fixed.len();
         for (t, declared) in &pairs {
             let value = declared.value.value.trim();
-            let alias = fixed.iter().any(|f| same(f, value));
+            // Only a whole alias with no `when` of its own is the mark's.
+            let alias = declared.whens.is_empty() && fixed.iter().any(|f| same_name(f, value));
             if (t.fixed || alias) && !fixed.contains(&declared.name.value) {
                 fixed.push(declared.name.value.clone());
                 fixed.push(t.name.clone());

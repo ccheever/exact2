@@ -1257,7 +1257,7 @@ fn one_scheme(
         out.push(LowerError {
             id: "lower-colour-one-scheme",
             message: format!(
-                "these {} tokens are the same colour in light and dark: give each a `light-dark(light, dark)` pair, or {mark}",
+                "these {} tokens are the same colour in light and dark: each line above says how to repair it",
                 sites.len()
             ),
             span: first.span,
@@ -1272,7 +1272,7 @@ fn one_scheme(
                 sites.len(),
                 if sites.iter().any(|s| s.token) { "" } else { "literal " },
                 if sites.iter().any(|s| s.token) {
-                    " literal, give each token a `light-dark(light, dark)` pair or mark it `scheme=fixed`,"
+                    " literal (each token's line says its own repair)"
                 } else {
                     ""
                 }
