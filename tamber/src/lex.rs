@@ -47,6 +47,13 @@ pub(crate) fn lines(src: &str) -> (Vec<Line>, Vec<Diagnostic>) {
     (out, errors)
 }
 
+/// A raw line's code and its comment (from `//`, as written), split where
+/// [`strip_comment`] cuts it.
+pub(crate) fn split_comment(raw: &str) -> (&str, Option<&str>) {
+    let body = strip_comment(raw);
+    (body, (body.len() < raw.len()).then(|| &raw[body.len()..]))
+}
+
 /// The line up to a `//` outside a string and outside parentheses (so a
 /// URL in `icon(svg "…")` or `url(…)` keeps its slashes).
 fn strip_comment(raw: &str) -> &str {
