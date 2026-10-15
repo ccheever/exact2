@@ -331,10 +331,11 @@ impl Server {
 
     /// The app's synthetic tokens: every expression over tokens its rows
     /// write, folding or not, as the compiler finds them (the plan keeps
-    /// only those that fold). Read again when a Contract source or the
-    /// design's token names change, which is what decides them; a build
-    /// that stopped before the design is not kept, and is tried again.
-    fn synthetic(&mut self, snap: &Snapshot) -> Vec<(String, bool)> {
+    /// only those that fold). Read again when a Contract source, what
+    /// resolved its imports, or the design's token names change, which is
+    /// what decides them. None when the build stopped before the design:
+    /// not kept, and tried again.
+    fn synthetic(&mut self, snap: &Snapshot) -> Option<Vec<(String, bool)>> {
         let root = self.dir.join("app.contract");
         let graph = contract::source_graph(&root);
         let mut key = String::new();
@@ -351,6 +352,13 @@ impl Server {
             );
             key.push('\n');
         }
+        // What resolved the imports (package manifests, the paths tried).
+        for path in &graph.consulted {
+            key.push_str(&path.to_string_lossy());
+            key.push('\0');
+            key.push_str(&std::fs::read(path).map(|b| digest(&b)).unwrap_or_default());
+            key.push('\n');
+        }
         if let Some(design) = snap
             .iter()
             .find(|(f, _, _)| *f == self.design)
@@ -363,17 +371,18 @@ impl Server {
         }
         if let Some((k, exprs)) = &self.synthetic {
             if *k == key {
-                return exprs.clone();
+                return Some(exprs.clone());
             }
         }
         let _ = contract_lower::synthetic_candidates();
         let built = contract::compile_path_all(&root, false);
         let exprs = contract_lower::synthetic_candidates();
+        // A build that stopped before the design says nothing of them.
         let reached = built.is_ok() || !exprs.is_empty();
-        if reached {
+        reached.then(|| {
             self.synthetic = Some((key, exprs.clone()));
-        }
-        exprs
+            exprs
+        })
     }
 
     fn state(&self) -> PathBuf {
@@ -835,7 +844,8 @@ impl Server {
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
-        let exprs = self.synthetic(snap);
+        let known = self.synthetic(snap);
+        let exprs = known.clone().unwrap_or_default();
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,
@@ -846,7 +856,9 @@ impl Server {
         let mut out = json!({
             "files": files_json(snap),
             "changed": planned.changed.iter().map(|(f, t)| json!({"file": f, "token": t})).collect::<Vec<_>>(),
-            "class": planned.class.name(),
+            // The closure unknown (the app's build stops before its design):
+            // no edit is answered live.
+            "class": if known.is_some() { planned.class.name() } else { exact_tamber::Class::Rebuild.name() },
             "diff": planned.diff,
             "synthetic": planned.synthetic.iter().map(|(expr, values)| json!({"expr": expr, "values": values.iter().map(|v| v.css()).collect::<Vec<_>>()})).collect::<Vec<_>>(),
         });

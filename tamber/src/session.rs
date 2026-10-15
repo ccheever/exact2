@@ -118,9 +118,15 @@ pub fn plan(
         // A profile's colour (`color(--…)`) the compiler resolves itself, and
         // folds the rest around it: an edit to a design with one either side
         // is the build's (live editing of those waits).
-        structure |= [text.as_str(), edited.text.as_str()]
-            .iter()
-            .any(|t| t.to_ascii_lowercase().contains("color(--"));
+        structure |= [text.as_str(), edited.text.as_str()].iter().any(|t| {
+            crate::parse(t).map_or(true, |d| {
+                d.tokens.iter().any(|t| {
+                    std::iter::once(&t.value.value)
+                        .chain(t.whens.iter().map(|w| &w.value.value))
+                        .any(|v| v.to_ascii_lowercase().contains("color(--"))
+                })
+            })
+        });
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
         // A role override's value is the hosts' at boot: a change reaches
         // it, directly or through what it names, only by a rebuild.
