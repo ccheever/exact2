@@ -42,7 +42,7 @@ async function frame(gesture = '') {
   return { x: mini.x, y: mini.top - 52, width: mini.width, height: mini.height };
 }
 
-/** A hand's gesture: `moves` pans 40 ms apart (realinput's 10 pt every 40 ms), each sent to the canvas, then the release. */
+/** A hand's gesture: `moves` pans 40 ms apart (a real trackpad's 10 pt every 40 ms), each sent to the canvas, then the release. */
 async function gesture(direction: string, dx: number, dy: number, moves: number) {
   const sent: string[] = [];
   const scope = { mini: { sourceKey: KEY }, floor: Math.floor, performanceNow: () => clock, gesture: (value: string) => sent.push(value) };
