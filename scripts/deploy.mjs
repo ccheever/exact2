@@ -55,7 +55,7 @@ import { fileURLToPath } from 'node:url';
 import { buildRust, publishedSignature, rustBundle, rustPackage, tieredNative } from './rust.mjs';
 import { assertOwnTarget, cargoReproducibilityFlags, readManifest, buildBake, bakeTarget, readBuilds, cohortReceipt, classifyArtifacts, resolveApp, shaderWatchRoots } from './app.mjs';
 import { gameShells } from "../game/app/shells.mjs";
-import { appdropPlan, publishAppdrop, renderAppdrop } from './deploy-appdrop.mjs';
+import { appdropPlan, renderAppdrop, runAppdrop } from './deploy-appdrop.mjs';
 import { blobPath, openOrigin, OriginUnavailable, sha256, streamPath, parseWebRoot, webRootPath, webRootStream, webReleasePath } from './origin.mjs';
 import { filesystemLock, removePrivateTree } from './filesystem.mjs';
 import { listBuildFiles, listPublicFiles, readStaticCandidate } from '../host/web/serve.mjs';
@@ -1093,7 +1093,7 @@ export function renderTable(table) {
       : row.changes.map((c) => `${c.name} ${c.change}${c.note ? ` (${c.note})` : ''}`).join(', ');
     out.push(line('', detail, `bundle seq ${row.seq}`));
   }
-  const binaries = table.rows.filter((r) => r.action === 'binary' && !(r.kind === 'binary' && r.platform === 'ios' && table.appdrop?.action === 'upload'));
+  const binaries = table.rows.filter((r) => r.action === 'binary' && !(r.kind === 'binary' && r.platform === 'ios' && table.appdrop));
   if (binaries.length) out.push(`binary needed: ${binaries.map((r) => `${r.platform ?? '?'} ${r.compatibilityId.slice(0, 8)}`).join(', ')} — a later verb (LLP 1030.000 §6); independently safe bundle rows still publish`);
   out.push(...renderReach(table.reach));
   return out.join('\n');
@@ -1389,13 +1389,7 @@ async function deployCaptured(opts, capsule) {
       log(`  ${name}: failed — ${e.message}; ${e.headOutcomeUnknown ? 'the head outcome is unknown and must be inspected' : "this release's head is not visible"}`);
     }
   }
-  if (table.appdrop) {
-    const stream = { channel, compatibilityId: table.appdrop.compatibilityId };
-    const ios = [...published, ...failed].find((p) => p.platform === 'ios' && p.compatibilityId === stream.compatibilityId);
-    const record = ios?.action === 'published' ? release : ios && !ios.error ? (await latestRecord(origin, app, stream))?.release : null;
-    try { published.push(await publishAppdrop({ plan: table.appdrop, app, exactRoot, run, receipt: record ? resolve(origin.dir, streamPath(stream), 'releases', `${record}.json`) : null, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), log })); }
-    catch (e) { failed.push({ kind: 'appdrop', platform: 'ios', error: e.message }); log(`  appdrop: failed — ${e.message}`); }
-  }
+  if (table.appdrop) await runAppdrop({ table, published, failed, origin, app, channel, release, exactRoot, run, live: capsule.app.live, env: sealedSourceEnv(sourceRoot, { CARGO_TARGET_DIR: app.target }), latestRecord, log });
   const outcome = { ...table, dryRun: false, published, refused, failed };
   if (opts.json) console.log(JSON.stringify(outcome));
   else {
@@ -1449,7 +1443,7 @@ function launch(locatedApp, opts, cache = {}) {
       version: 1, snapshot, release, run, sourceRoot: materialized.sourceRoot,
       exactRoot: materialized.exactRoot,
       app: {
-        name: locatedApp.name, dir: materialized.app.dir,
+        name: locatedApp.name, dir: materialized.app.dir, live: canonicalPath(locatedApp.dir),
         workspace: materialized.app.workspace, target: materialized.app.target,
         external: canonicalPath(locatedApp.workspace) !== canonicalPath(ROOT),
       },
