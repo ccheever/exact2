@@ -267,6 +267,18 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
     // (The fixture's page data names no draft command, so the name's command part is empty here.)
     assert!(text("accessibilityLabel").is_some_and(|label| label.starts_with("Keybinding for ")));
     assert_eq!(text("placeholder").as_deref(), Some("Press shortcut"));
+    // Editable, as the reference's Input is: AppKit serves a non-editable NSTextField as AXStaticText.
+    let editable = field
+        .props
+        .iter()
+        .find(|(prop, _)| prop.name() == "editable")
+        .map(|(_, value)| format!("{value:?}"));
+    assert!(
+        editable
+            .as_deref()
+            .is_none_or(|value| !value.contains("false")),
+        "the recorder is editable: {editable:?}"
+    );
     // A modifier alone records nothing; the key is taken either way (its default cancelled, no ancestor hears it).
     runner
         .dispatch(recorder, keydown("Meta", "MetaLeft", "Meta+"))

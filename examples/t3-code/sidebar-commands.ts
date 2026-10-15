@@ -50,8 +50,10 @@ function targetOf(client: T3Client, id: string): Target | null {
   const { environmentId, threadId } = found.ref, background = !found.focused, thread = found.thread;
   const row = background ? { ...thread, id, projectId: `fleet:${environmentId}:${str(thread.projectId)}` } : thread;
   const threads = background ? arr(obj(found.reads.shell).threads) : client.shell.threads;
+  // The transport is chosen when a command is sent, not when the row was read: an undo can run after the focus moved,
+  // so a background row's environment may since be the focused one, or the focused row's a background one.
   return { threadId, environmentId, background, thread, row, config: found.reads.config, threads, send: async (native, payload) => {
-    if (!background) return dispatch(client, native, { ...payload, threadId });
+    if (environmentId === client.environmentId) return dispatch(client, native, { ...payload, threadId });
     const access = envAccess(client, native, environmentId);
     if (!access) throw new ClientError('That environment is no longer connected.');
     await access.dispatch({ ...payload, threadId });

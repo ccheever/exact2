@@ -139,6 +139,37 @@ describe('settling a background environment\'s row', () => {
     expect(sent.map(payload => [payload.type, payload.threadId])).toEqual([['thread.unsettle', 'tb'], ['thread.unsnooze', 'tb']]);
   });
 
+  // The undo's transport is the thread's environment as it stands when ⌘Z is pressed: the focus may have moved since.
+  test('Undo after the background environment took the focus un-settles it through the focused transport', async () => {
+    const { client, native, sent, focusedRequests } = harness([row('tb', 'pb', iso(-60_000))]);
+    await sidebarCommand(client, native, {} as Files, 'settle', 'fleet:env-b:tb', '');
+    client.environmentId = 'env-b';
+    client.shell = { ...client.shell, threads: [row('tb', 'pb', iso(-60_000))] };
+    await sidebarCommand(client, native, {} as Files, 'undo', '', '');
+    expect(toasts(client)).toEqual([]);
+    expect(sent.map(payload => payload.type)).toEqual(['thread.settle']);
+    expect(focusedRequests).toMatchObject([{ method: 'orchestration.dispatchCommand', type: 'thread.unsettle', threadId: 'tb', reason: 'user' }]);
+  });
+
+  test('Undo after another environment took the focus un-settles the focused thread on its own environment', async () => {
+    const { client, native, sent, focusedRequests } = harness([row('tb', 'pb', iso(-60_000))]);
+    await sidebarCommand(client, native, {} as Files, 'settle', 'a', '');
+    expect(focusedRequests).toMatchObject([{ type: 'thread.settle', threadId: 'a' }]);
+    // env-b is focused now, and env-a is the fleet's background entry.
+    const former = { ...background([row('a', 'p1', iso(-1_000))]), key: 'https://first.example\nenv-a', origin: 'https://first.example', environmentId: 'env-a' };
+    fleet.entries.set(former.key, former);
+    client.environmentId = 'env-b';
+    const later = { ...native, later: async (request: unknown) => {
+      const value = obj(request);
+      if (value.op === 'request' && value.fleet === former.key) sent.push({ environment: 'env-a', ...obj(value.payload) });
+      return { ok: true, generation: former.generation, value: {} };
+    } } as unknown as Native;
+    await sidebarCommand(client, later, {} as Files, 'undo', '', '');
+    expect(toasts(client)).toEqual([]);
+    expect(focusedRequests).toHaveLength(1);
+    expect(sent).toMatchObject([{ environment: 'env-a', type: 'thread.unsettle', threadId: 'a', reason: 'user' }]);
+  });
+
   test('a row no environment holds still reads Thread unavailable', async () => {
     const { client, native, sent } = harness([]);
     await sidebarCommand(client, native, {} as Files, 'settle', 'fleet:env-b:gone', '');
