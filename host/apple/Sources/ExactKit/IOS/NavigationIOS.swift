@@ -56,6 +56,8 @@ final class RouteController: UIViewController {
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
+        // Its block, at the size UIKit gives it, before its first frame (LLP 1123 D2)
+        host?.presenter.owners.publish()
         // UIKit has attached and sized the real destination. Finish its
         // content and focus here, before the transition's first frame.
         host?.presenter.afterBatch { [weak self] in
@@ -64,6 +66,12 @@ final class RouteController: UIViewController {
             host.presenter.syncAccessibility()
             host.presenter.paintVisibleText()
         }
+    }
+
+    // Its route is laid out in this view's bounds (LLP 1123 D2).
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        host?.presenter.owners.publish()
     }
 
     override func loadView() {
@@ -510,6 +518,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+        // A route that left every stack gives its block back (LLP 1123 D2)
+        presenter.owners.publish()
         settled = true
     }
 
@@ -975,6 +985,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         keyboardDropped = false
         nativeMoved = true
         stopRevealing()
+        // The route a pop took away keeps its block until it leaves the stack (LLP 1123 D2)
+        defer { presenter.owners.publish() }
         defer {
             // Tree updates during UIKit's transition retain their latest
             // intent. Apply it once the native stack is available again.
@@ -1075,6 +1087,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         droppedEditor = nil
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
+        // The routes no stack holds now give their blocks back (LLP 1123 D2)
+        presenter.owners.publish()
     }
 }
 #if os(tvOS)

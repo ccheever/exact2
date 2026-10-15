@@ -63,12 +63,6 @@ package final class Presenter {
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); DragLink.installed?.updateReorderGesture(view); view.updateRefresh() }
     package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
-    /// Open top-layer views in viewport points; a native confirmation has no
-    /// frame of its own. None is a presentation's.
-    package var openTopLayer: (frames: [(UInt32, CGRect)], modal: Int?) {
-        (menus.presented.map { ($0.id, $0.topLayerFrame(in: viewport)) } + (menus.nativeConfirmation.map { [($0.id, CGRect.zero)] } ?? []), nil)
-    }
-    package var openTopLayerFrames: [(UInt32, CGRect)] { openTopLayer.frames }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
@@ -123,6 +117,7 @@ package final class Presenter {
     var focusKey: String?
     #endif
     lazy var modals = ModalHost(presenter: self)
+    lazy var owners = OwnerBlocks(self)
     /// What a capability module sees of the viewport and the keyboard's
     /// container (LLP 1047.001 D4): UIKit's types, not the core's.
     package var viewportScroll: UIScrollView { viewport }
@@ -380,8 +375,10 @@ package final class Presenter {
         pool.reset()
         leaves.reset()
         flats.reset()
-        modals.reset()
-        navigation.reset()
+        owners.reset {
+            modals.reset()
+            navigation.reset()
+        }
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
         views.values.forEach { $0.forget() }

@@ -386,6 +386,8 @@ public final class ExactView: UIView {
             // D2.1). Usually already done in the keyboard's animation; this
             // catches a guide that moved after its notification.
             presenter.navigation.fitOwner()
+            // The routes the document holds end where it does (`OwnerBlocks.block`)
+            presenter.owners.publish()
             if presenter.keyboardInset > 0 { presenter.reveal(presenter.editing) }
         }
         if fold.fold != lastFold {

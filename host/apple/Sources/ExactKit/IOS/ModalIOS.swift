@@ -250,6 +250,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// The presentations' controller views, live and retiring, bottom to
     /// top: where the session mounts beside its viewport (LLP 1123 D2).
     var mountRoots: [UIView] { (layers + retiring).compactMap { $0.controller.viewIfLoaded } }
+    /// The presentations' navigations, live and retiring, bottom to top.
+    var navigations: [UINavigationController] { (layers + retiring).compactMap { $0.navigation as? UINavigationController } }
+    /// The top live presentation's navigation, the one nothing is dismissing:
+    /// UIKit's presentation makes what is under it inert.
+    var topNavigation: UINavigationController? { layers.last?.navigation as? UINavigationController }
     func mounts(_ view: UIView) -> Bool { mountRoots.contains { view.isDescendant(of: $0) } }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
     #if os(iOS)
@@ -577,6 +582,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             guard let self, dismissing === layer else { return }
             dismissing = nil
             retiring.removeAll { $0 === layer }
+            // Its routes, if they live on, give their blocks back (LLP 1123 D2)
+            presenter.owners.publish()
             #if os(iOS)
             // Gone: what the bar sits over now (LLP 1105 D5).
             presenter.resolveStatusBar()

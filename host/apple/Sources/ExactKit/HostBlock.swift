@@ -26,18 +26,38 @@ struct HostBlock: Equatable {
     static func fit(_ size: CGSize) -> HostBlock { HostBlock(width: .fit(size.width), height: .fit(size.height)) }
 }
 
+/// Where a host shows a block in place (LLP 1123 D2): its rectangle in the
+/// local coordinates of `within`, a node that holds it in the host's
+/// hierarchy as in the document.
+struct BlockPlacement: Equatable {
+    var rect: CGRect
+    var within: UInt32
+}
+
 extension Runtime {
     /// Subtrees' containing blocks (nil takes one back) under one layout,
-    /// through the door the covers use (`exact_host_covers`, kinds 4 and 5).
-    func blocks(_ blocks: [(UInt32, HostBlock?)]) -> Batch {
+    /// through the door the covers use (`exact_host_covers`, kinds 4 and 5),
+    /// and where the blocks are shown when the host shows them in place
+    /// (kinds 6 and 7; nil forgets one), which only the runner's geometry
+    /// reads (LLP 1123 D2).
+    func blocks(_ blocks: [(UInt32, HostBlock?)], placements: [(UInt32, BlockPlacement?)] = []) -> Batch {
         return on {
-            var bytes = Data(capacity: blocks.count * 24)
+            var bytes = Data(capacity: (blocks.count + placements.count) * 28)
+            let append = { (words: [UInt32]) in
+                for word in words { withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) } }
+            }
             for (view, block) in blocks {
                 let width = block?.width.wire, height = block?.height.wire
                 let lengths = [width?.length ?? 0, height?.length ?? 0, width?.policy ?? 0, height?.policy ?? 0].map { Float($0).bitPattern }
-                for word in [view, block == nil ? 5 : 4] + lengths {
-                    withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
+                append([view, block == nil ? 5 : 4] + lengths)
+            }
+            for (view, placement) in placements {
+                guard let placement else {
+                    append([view, 7, 0, 0, 0, 0])
+                    continue
                 }
+                let r = placement.rect
+                append([view, 6] + [r.minX, r.minY, r.width, r.height].map { Float($0).bitPattern } + [placement.within])
             }
             return read(exact_host_covers(rt, write(bytes)))
         }
