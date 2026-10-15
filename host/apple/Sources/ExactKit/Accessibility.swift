@@ -60,7 +60,19 @@ extension NodeView {
     /// (chat F14: a message bubble with `role="button"` was no button natively).
     /// A box with a checkable role is one too: the web's tree has a `div`
     /// with `role="checkbox"` as a checkbox (habits F16).
-    var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") }
+    /// On the Mac a menu's row (`menuitem`, `menuitemcheckbox`,
+    /// `menuitemradio`) is one too, as AppKit's menu item is.
+    var actsAsButton: Bool {
+        #if os(macOS)
+        let menuItem = isMenuItem
+        #else
+        let menuItem = false
+        #endif
+        return kind == "button" || kind == "view" && (["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") || menuItem)
+    }
+    /// ARIA's menu item roles, each AppKit's `AXMenuItem` (Core-AAM).
+    static let menuItemRoles: Set<String> = ["menuitem", "menuitemcheckbox", "menuitemradio"]
+    var isMenuItem: Bool { Self.menuItemRoles.contains(props["accessibilityRole"] ?? "") }
     /// ARIA's checkable roles (Core-AAM): `checkbox`, `radio` and `switch`,
     /// their state `aria-checked`; nil for any other role (onboarding F16:
     /// a `button role="radio"` read as a plain button on macOS).
@@ -97,10 +109,14 @@ extension NodeView {
         case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
         case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
         case "AXARIACurrent": return props["accessibilityCurrent"].flatMap { ["", "false"].contains($0) ? nil : $0 }
+        // A checked `menuitemcheckbox` or `menuitemradio` carries the check
+        // mark AppKit's checked menu item does (Core-AAM, as WebKit serves it).
+        case "AXMenuItemMarkChar":
+            return ["menuitemcheckbox", "menuitemradio"].contains(props["accessibilityRole"] ?? "") && props["accessibilityChecked"] == "true" ? "✓" : nil
         default: return nil
         }
     }
-    static let ariaAttributes = ["AXEnabled", "AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
+    static let ariaAttributes = ["AXEnabled", "AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent", "AXMenuItemMarkChar"]
     /// ARIA's live-region roles with an implicit `aria-live` (WAI-ARIA 1.2):
     /// `status` is polite, `alert` assertive.
     static let liveRoles = ["status": "polite", "alert": "assertive"]
@@ -114,6 +130,20 @@ extension NodeView {
     var groupSubrole: String? {
         (props["accessibilityRole"] ?? (props["semanticTag"] == "dialog" ? "dialog" : nil)).flatMap { Self.groupSubroles[$0] }
     }
+    /// The ARIA roles that make a box an AppKit container of its own
+    /// (Core-AAM): a `menu` is `AXMenu`, as WebKit serves one, so VoiceOver
+    /// says "menu" as it does for AppKit's.
+    static let containerRoles: [String: NSAccessibility.Role] = ["group": .group, "radiogroup": .radioGroup, "menu": .menu, "menubar": .menuBar]
+    /// What an alert dialog says as it opens: its name, its role ("dialog")
+    /// and its description, in VoiceOver's order for an element; nil with
+    /// neither a name nor a description.
+    var alertWords: String? {
+        let name = authoredLabel, description = accessibleDescription
+        guard name != nil || description != nil else { return nil }
+        return [name, accessibilityRoleDescription(), description].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+    /// A pressable's AppKit role when it is no toggle: a link, a menu item, else a button.
+    var buttonRole: NSAccessibility.Role { props["accessibilityRole"] == "link" ? .link : isMenuItem ? .menuItem : .button }
     #endif
     /// How a live region speaks: its `aria-live`, else its role's; nil when
     /// `off` or neither.
@@ -257,17 +287,18 @@ final class SecureFieldCell: NSSecureTextFieldCell {
 
 extension NodeView {
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
-    /// traits have it: a pressable is a button — a link, checkbox, radio or
-    /// switch when its role says so — a labelled image (or `role="img"`,
-    /// an svg's) an image, and a `group` or `radiogroup` a group of its
-    /// children. Headings are paragraphs (`updateTextAccessibility`); names
+    /// traits have it: a pressable is a button — a link, checkbox, radio,
+    /// switch or menu item when its role says so — a labelled image (or
+    /// `role="img"`, an svg's) an image, and a `group`, `radiogroup`, `menu`
+    /// or `menubar` a container of its children
+    /// (`containerRoles`). Headings are paragraphs (`updateTextAccessibility`); names
     /// come from `syncAccessibility`.
     func updateRoleAccessibility() {
         let role = props["accessibilityRole"]
         if actsAsButton {
             setAccessibilityElement(true)
             if let checked = checkedRole { setAccessibilityChecked(checked.role, checked.checked) }
-            else { setAccessibilityToggle(pressedState, else: role == "link" ? .link : .button) }
+            else { setAccessibilityToggle(pressedState, else: buttonRole) }
             // A link's `AXURL` is its `href`, as a run's is (X78).
             let url = role == "link" ? props["href"].flatMap { URL(string: $0) } : nil
             if accessibilityURL() != url { setAccessibilityURL(url) }
@@ -277,9 +308,9 @@ extension NodeView {
             let labelled = authoredLabel != nil
             setAccessibilityElement(labelled)
             setAccessibilityRole(labelled ? .image : nil)
-        } else if role == "group" || role == "radiogroup" {
+        } else if let container = role.flatMap({ Self.containerRoles[$0] }) {
             setAccessibilityElement(true)
-            setAccessibilityRole(role == "radiogroup" ? .radioGroup : .group)
+            if accessibilityRole() != container { setAccessibilityRole(container) }
             if accessibilitySubrole() != nil { setAccessibilitySubrole(nil) }
         } else if let subrole = groupSubrole.map(NSAccessibility.Subrole.init(rawValue:)) {
             // A live-region or dialog role as WebKit serves it (Core-AAM): a
@@ -321,9 +352,12 @@ extension NodeView {
 extension NodeView {
     /// A dialog or alert dialog says AppKit's "dialog", the role description
     /// of a dialog window and an alert's, where AppKit would derive "group"
-    /// from the subrole and WebKit says "web dialog".
+    /// from the subrole and WebKit says "web dialog". It reads the host's
+    /// own subrole: with the `accessibilitySubrole()` getter called here,
+    /// another process (VoiceOver) was served no role description for a
+    /// group or a menu (measured), so a labelled group read without "group".
     package override func accessibilityRoleDescription() -> String? {
-        guard let subrole = accessibilitySubrole()?.rawValue, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(subrole) else { return super.accessibilityRoleDescription() }
+        guard let subrole = groupSubrole, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(subrole) else { return super.accessibilityRoleDescription() }
         return NSAccessibility.Role.window.description(with: .dialog)
     }
     /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
@@ -560,18 +594,40 @@ extension Presenter {
             #endif
         }
         #if os(macOS)
+        // A `menu` that comes into view says so, as AppKit's menu does as it
+        // opens and WebKit's does for one (AXMenuOpened): VoiceOver says "menu".
+        let shown = chrome.ids("role:menu").compactMap { views[$0] }.filter(\.accessibilityVisible)
+        for menu in shown where !shownMenus.contains(ObjectIdentifier(menu)) {
+            NSAccessibility.post(element: menu, notification: .init(rawValue: "AXMenuOpened"))
+        }
+        shownMenus = Set(shown.map(ObjectIdentifier.init))
         let modal = macAccessibilityModal
         if modal.map(ObjectIdentifier.init) != announcedModal {
             announcedModal = modal.map(ObjectIdentifier.init)
-            // With the modal as the changed element VoiceOver moves into it
-            // and reads its name and role, as it does for a web dialog.
-            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [$0]] })
+            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [modalLanding($0)]] })
+            if let modal, modal.props["accessibilityRole"] == "alertdialog", modal.window?.isSheet != true, let words = modal.alertWords {
+                // WAI-ARIA's alertdialog fires the alert event as it opens,
+                // and VoiceOver reads an `NSAlert`'s title and message as it
+                // appears (AppKit's sheet-created notification), whatever
+                // holds the focus. One that is no sheet has no window to be
+                // announced by, so it is announced as an `alert` is, assertively.
+                NSAccessibility.post(element: modal, notification: .announcementRequested,
+                    userInfo: [.announcement: words, .priority: NSAccessibilityPriorityLevel.high.rawValue])
+            }
         }
         #else
         syncModal()
         #endif
     }
     #if os(macOS)
+    /// Where VoiceOver goes as a modal arrives: the modal, so it reads the
+    /// modal's name and role, unless the keyboard focus is already in it (a
+    /// field it autofocused), which VoiceOver then reads, as AppKit posts only
+    /// the focus change for a popover's first responder.
+    func modalLanding(_ modal: NodeView) -> NSView {
+        guard let focused = focusedNode, menus.contains(modal, focused) else { return modal }
+        return keyView(of: focused)
+    }
     var macModalAccessibilityChildren: [NodeView]? {
         guard let modal = macAccessibilityModal else { return nil }
         // In its sheet the dialog is that window's (LLP 1115.002 D7.2): the page behind it exposes nothing.
