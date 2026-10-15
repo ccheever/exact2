@@ -185,7 +185,7 @@ final class BlockHost {
 
     private func tell(_ blocks: [(UInt32, HostBlock?)]) {
         guard let session = presenter?.session else { return }
-        session.whenIdle { [weak session] in
+        session.whenIdle(bound: true) { [weak session] in
             guard let session else { return }
             session.apply(session.runtime.blocks(blocks))
         }

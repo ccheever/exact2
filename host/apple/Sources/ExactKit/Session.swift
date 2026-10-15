@@ -418,7 +418,7 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [() -> Void] = []
+    private var afterFill: [(generation: Int?, work: () -> Void)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -545,21 +545,6 @@ public final class ExactSession {
 
     deinit { destroy() }
 
-    /// Scrolling has settled (iOS: `ScrollPump.restDelay`): the decoded
-    /// images, shaped text and text pixels no view shows go, the tree's
-    /// storage comes back to its live nodes, and the allocator returns the
-    /// pages they leave. What shows keeps its own.
-    func rest() {
-        runtime.trim()
-        rasters.trimCold()
-        text.dropColdShaped()
-        if let m = text.measurer { Owner.shared.post { m.dropColdShaped() } }
-        #if os(iOS) || os(tvOS)
-        presenter.textRasters.dropKept()
-        #endif
-        DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
-    }
-
     /// A request's reply is in (LLP 1016 D2): the executor's thread says so;
     /// the pump runs on the main thread, where the runner lives. `ctx` is
     /// the handle; a session that is gone is a stranger, dropped.
@@ -579,9 +564,12 @@ public final class ExactSession {
     /// The app's clock: what events, timers, motion, and canvases see.
     public func now() -> Double { clock ?? ExactEnv.wall() }
 
-    /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
-    func whenIdle(_ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append(work) } else { work() }
+    /// Run `work` now, or after the slice in flight lands (LLP 1072 §3),
+    /// even a slice from before a commit: a wake's pump must run, as the
+    /// executor wakes again only after one. `bound` work is the presenter's
+    /// news about its views, dropped if a generation commits first.
+    func whenIdle(bound: Bool = false, _ work: @escaping () -> Void) {
+        if fillInFlight { afterFill.append((bound ? generation : nil, work)) } else { work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -650,7 +638,9 @@ public final class ExactSession {
             case .canvas: canvasInFlight = false
             }
             guard state != .destroyed, next.generation == generation else {
-                if case .fill = next.kind { afterFill.removeAll() }
+                // A slice from before a commit applies nothing, but its
+                // landing still frees what it held.
+                if case .fill(let view) = next.kind { landedFill(view) }
                 continue
             }
             let batch = next.batch
@@ -660,11 +650,17 @@ public final class ExactSession {
             // A draw owed while this one ran, or one a tick left owed.
             if canvasOwed { askCanvasDraw() }
             guard case .fill(let view) = next.kind else { continue }
-            presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
-            let waiting = afterFill
-            afterFill.removeAll()
-            for work in waiting { work() }
+            landedFill(view)
         }
+    }
+
+    /// The reports a slice held, and the work that waited for it.
+    private func landedFill(_ view: UInt32) {
+        let waiting = afterFill
+        afterFill.removeAll()
+        guard state != .destroyed else { return }
+        presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
+        for (bound, work) in waiting where bound == nil || bound == generation { work() }
     }
 
     /// Land every session's slice in flight.
@@ -729,10 +725,10 @@ public final class ExactSession {
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
-        presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
+        presenter.onIntrinsic = { [unowned self] sizes in whenIdle(bound: true) { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout as an intrinsic
         // size does, on AppKit too (LLP 1115.002 D8.1); the hatches replay once the module connects.
-        presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
+        presenter.onCovers = { [unowned self] covers in whenIdle(bound: true) { [unowned self] in apply(runtime.covers(covers)) } }
         #if os(iOS) || os(tvOS)
         natives.onHatchesConnected = { [weak self] in
             self?.presenter.navigation.replayHatches()
@@ -1008,6 +1004,9 @@ public final class ExactSession {
     #if DEBUG
     /// Tests: a tick's slice the owner published, not yet landed.
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
+    /// Tests: a list's slice in flight, published as of `generation`.
+    func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
+    func holdFillForTests() { fillInFlight = true }
     func oweColorsForTests() { colorsOwed = true }
     #endif
 

@@ -84,6 +84,36 @@ final class IdleTickTests: XCTestCase {
         XCTAssertNotEqual(session.timerDue, due, "the report applied after the skip, its clock the latest (an unbooted runtime's has none)")
     }
 
+    /// What waited for a slice runs when it lands, even a slice from before
+    /// a commit: a wake's pump dropped there left every later reply in the
+    /// executor, whose wake re-arms only on a pump. Work bound to the
+    /// presenter's views is dropped once a generation commits.
+    func testWorkWaitingForAStaleSliceStillRuns() throws {
+        let session = ExactApp.shared.makeSession(label: "stale-slice")
+        defer { session.destroy() }
+        var free = 0, bound = 0
+        session.holdFillForTests()
+        session.whenIdle { free += 1 }
+        session.whenIdle(bound: true) { bound += 1 }
+        XCTAssertEqual(free + bound, 0, "both wait for the slice")
+        let before = session.appliedBatches
+        let stale = wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]])
+        session.publishFillForTests(1, stale, generation: session.generation - 1)
+        session.drainFill()
+        XCTAssertFalse(session.fillInFlight)
+        XCTAssertEqual(session.appliedBatches, before, "the stale slice applies nothing")
+        XCTAssertEqual(free, 1, "the pump still runs")
+        XCTAssertEqual(bound, 0, "the old views' news does not")
+        // A slice of this generation runs both.
+        session.holdFillForTests()
+        session.whenIdle { free += 1 }
+        session.whenIdle(bound: true) { bound += 1 }
+        session.publishFillForTests(1, Batch(ops: [], timers: false, motion: false, clock: nil, error: nil), generation: session.generation)
+        session.drainFill()
+        XCTAssertEqual(free, 2)
+        XCTAssertEqual(bound, 1)
+    }
+
     func testTheControlsFlagDecodes() throws {
         let data = Data(#"{"ops":[],"timers":false,"motion":false,"controls":true}"#.utf8)
         XCTAssertTrue(Batch.decode(data).controls)
