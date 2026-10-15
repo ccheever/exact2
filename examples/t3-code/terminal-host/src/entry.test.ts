@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { CompositionKeys, eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -151,5 +151,49 @@ describe("the input's composing state", () => {
     stop();
     input.dispatchEvent(new Event("compositionstart"));
     expect(states).toHaveLength(6);
+  });
+});
+
+describe("keys that began while text composed", () => {
+  const key = (code: string, init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean; keyCode: number }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, keyCode: 0, code, ...init });
+
+  test("each mark is taken once, by the next keydown with its modifiers and key", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    // A composing key WebKit still had queued (plain) does not take a ⌃ chord's mark.
+    expect(keys.take(key("KeyG", { keyCode: 229 }))).toBe(false);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(true);
+    // The second ⌃C, after the commit, is the shell's.
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.take(key("Enter", { altKey: true, shiftKey: true }))).toBe(false);
+    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+  });
+
+  test("a mark is taken by its own key, or by the input method's Process keydown", () => {
+    const keys = new CompositionKeys(() => 0);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    // A ⌃ key whose mark never reached the page (the key went elsewhere) is not taken for it.
+    expect(keys.take(key("KeyD", { ctrlKey: true, keyCode: 68 }))).toBe(false);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 229 }))).toBe(true);
+    keys.mark(key("KeyK", { ctrlKey: true }));
+    expect(keys.take(key("", { ctrlKey: true, keyCode: 229 }))).toBe(true);
+    // A key the native view has no name for is matched by its modifiers.
+    keys.mark(key("", { ctrlKey: true }));
+    expect(keys.take(key("F13", { ctrlKey: true, keyCode: 124 }))).toBe(true);
+  });
+
+  test("a mark whose keydown never came lapses, and so do marks older than the one taken", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    now = 1000;
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
+    keys.mark(key("KeyC", { ctrlKey: true }));
+    keys.mark(key("Enter", { altKey: true }));
+    expect(keys.take(key("Enter", { altKey: true, keyCode: 13 }))).toBe(true);
+    expect(keys.take(key("KeyC", { ctrlKey: true, keyCode: 67 }))).toBe(false);
   });
 });
