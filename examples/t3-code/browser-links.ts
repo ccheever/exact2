@@ -22,7 +22,7 @@ import { resolveBrowserOpenDefaults } from './browser-defaults';
 import { BrowserSettingsReadError } from './browser-profiles';
 import { mediaFileReference } from './media-reference';
 import { assetUrl } from './settings-b-icons';
-import { mostRecentProjectId } from './pages-home';
+import { openHome } from './home-landing';
 
 export type BrowserLinkTarget = 'system' | 'app';
 export type LinkEvent = { readonly metaKey: boolean; readonly ctrlKey: boolean };
@@ -141,7 +141,7 @@ export async function openLinkFromUi(client: T3Client, native: Native, pressed: 
  *  or ⌃ held the handler leaves to the shell, which opens nothing for it (a new window it denies). */
 export async function openFragmentLink(client: T3Client, native: Native, held: string[] = []): Promise<string> {
   if (held.length) return '';
-  try { await client.openDraft(native, mostRecentProjectId(client.shell)); }
+  try { await openHome(client, native); }
   catch (error) { if (letGo(error)) throw error; }
   return 'sidebar:new-thread';
 }
