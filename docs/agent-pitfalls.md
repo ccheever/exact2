@@ -1077,16 +1077,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   locked, an `AXUIElement` read from any process stops at the application.
   (X84, 2026-10-12.)
 - **An AppKit accessibility action answers the first accessibility error
-  recorded while it runs.** AXPress on an inline run landed and answered
-  `kAXErrorAttributeUnsupported` (-25205) to another process. Cause: AppKit's
-  request handler ignores the action's `Bool` and returns the first error
-  recorded until it returns. The press's update reads values back
+  recorded while it runs.** AXPress on an inline run, a button, a checkbox or
+  a switch landed and answered `kAXErrorAttributeUnsupported` (-25205) to
+  another process. Cause: AppKit's request handler ignores the action's
+  `Bool` and returns the first error recorded until it returns. The press's update reads values back
   (`accessibilitySubrole()`, `isAccessibilityRequired()`) from a `NodeView`,
   which overrides the legacy `accessibilityAttributeValue`, so AppKit asks
   through the legacy API and records each attribute the view lacks. Fix: an
   `accessibilityPerform…` that runs the app does it after the request returns
   (`DispatchQueue.main.async`), as AppKit's `NSMenuItem` does its AXPress, and
-  a test asserts nothing ran inside the call. (X78 follow-up, 2026-10-14.)
+  a test asserts nothing ran inside the call; for AppKit's own control, call
+  `super`'s action there. (X78 follow-up, 2026-10-14; buttons, 2026-10-16.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops

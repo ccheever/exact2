@@ -325,8 +325,8 @@ final class AccessibilityTests: XCTestCase {
     /// `Link` do. A `link` node's `AXURL` is its `href`. A paragraph's `href`
     /// run is one element from one ask to the next, and a hit test returns
     /// it (one made per ask is invalid to another process, VoiceOver's);
-    /// new runs make a new one. Pressing either opens its URL, the run's
-    /// once AppKit's request has returned (`testAnInlineRunsPressRunsOnceTheRequestReturns`).
+    /// new runs make a new one. Pressing either opens its URL once AppKit's
+    /// request has returned (`testAnInlineRunsPressRunsOnceTheRequestReturns`).
     func testALinkCarriesItsURLAndAnInlineLinkIsOneElementWhileItsRunsLast() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "link-url")
@@ -368,7 +368,7 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(paragraph.accessibilityHitTest(NSPoint(x: frame.midX, y: frame.midY)) as AnyObject === run, "a hit test over the run returns it")
         XCTAssertTrue(link.accessibilityPerformPress())
         XCTAssertTrue(run.accessibilityPerformPress())
-        XCTAssertEqual(opened.urls, ["https://example.com/link-node"], "the run's URL opens after the request")
+        XCTAssertEqual(opened.urls, [], "each URL opens after the request")
         spin { opened.urls.count == 2 }
         XCTAssertEqual(opened.urls, ["https://example.com/link-node", "https://example.com/inline-run"])
         p.apply(wireBatch([runs("https://example.com/moved")]))
@@ -409,6 +409,24 @@ final class AccessibilityTests: XCTestCase {
         DispatchQueue.main.async { drained = true }
         spin { drained }
         XCTAssertEqual(pressed, [82])
+        withExtendedLifetime(w) {}
+    }
+    /// A button's press from an assistive app (AXPress) runs once AppKit's
+    /// request has returned, and once, as an inline run's does: run inside
+    /// it, the update the press made recorded an error, and a press that
+    /// landed answered kAXErrorAttributeUnsupported.
+    func testAButtonsAssistivePressRunsOnceTheRequestReturns() {
+        let (p, w, button, other) = fixture()
+        button.handlers = ["press"]
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        XCTAssertFalse(other.accessibilityPerformPress(), "nothing to press")
+        XCTAssertTrue(button.accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        spin { drained }
+        XCTAssertEqual(pressed, [1])
         withExtendedLifetime(w) {}
     }
     /// X78 with #278: a status paragraph's words and link are kept from one

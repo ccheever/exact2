@@ -22,6 +22,12 @@ class AriaButtonCellMac: NSButtonCell {
         if attribute == .enabled, (controlView as? NSControl)?.ariaUnavailableFromNode == true { return false }
         return super.accessibilityAttributeValue(attribute)
     }
+    // An assistive app's press clicks once AppKit's request has returned (`NativeButtonCellMac`).
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
 }
 
 final class CheckboxMac: NSButton {
@@ -35,6 +41,12 @@ final class CheckboxMac: NSButton {
 
 final class SwitchMac: NSSwitch {
     override func mouseDown(with event: NSEvent) { if !contextClicked(event) { super.mouseDown(with: event) } }
+    // An assistive app's press flips it once AppKit's request has returned (`NativeButtonCellMac`).
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
     override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         if attribute == .enabled, ariaUnavailableFromNode { return false }
         return super.accessibilityAttributeValue(attribute)

@@ -255,6 +255,47 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [4], "outside its ancestor's box: no press, as on iOS")
     }
 
+    /// An assistive app's press (AXPress, at the cell VoiceOver lands on)
+    /// clicks the button once AppKit's request has returned, and once: run
+    /// inside it, a press that landed answered kAXErrorAttributeUnsupported
+    /// (the update it made recorded an accessibility error).
+    func testAnAssistivePressClicksOnceTheRequestReturns() throws {
+        let p = presenter(box(1) + native(2) + native(3, ["disabled": "true"])
+                          + [["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]]],
+                          faces: [2: face("Go"), 3: face("Off")])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let go = try XCTUnwrap(p.controls.controls[2]?.cell)
+        XCTAssertFalse(try XCTUnwrap(p.controls.controls[3]?.cell).accessibilityPerformPress(), "a disabled button")
+        XCTAssertTrue(go.accessibilityPerformPress())
+        XCTAssertEqual(pressed, [], "nothing runs inside the request")
+        drain()
+        XCTAssertEqual(pressed, [2])
+        // AppKit's checkbox (its cell) and switch, the same.
+        for kind in ["checkbox", "switch"] {
+            window.close()
+            let props = ["type": "checkbox", "accessibilityRole": kind]
+            let p = presenter(box(1) + [["op": "create", "id": 2, "kind": "control", "props": props, "handlers": ["change"], "style": [:]],
+                                        ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 140.0, "h": 30.0],
+                                        ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]]], faces: [:])
+            var checked: [Bool] = []
+            p.onChecked = { _, on in checked.append(on) }
+            let control = try XCTUnwrap(p.controls.controls[2], kind)
+            // A switch is its own element; a checkbox's is its cell.
+            XCTAssertTrue(control is NSSwitch ? control.accessibilityPerformPress() : try XCTUnwrap(control.cell, kind).accessibilityPerformPress(), kind)
+            XCTAssertEqual(checked, [], "\(kind): nothing runs inside the request")
+            drain()
+            XCTAssertEqual(checked, [true], kind)
+        }
+    }
+    /// Runs the main queue past what is on it now.
+    private func drain() {
+        var drained = false
+        DispatchQueue.main.async { drained = true }
+        let deadline = Date().addingTimeInterval(5)
+        while !drained, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+    }
+
     /// #179: a custom button's ring is AppKit's exterior one around its own
     /// box, which AppKit draws only for non-empty mask bounds.
     func testCustomButtonExposesItsFocusMaskToAppKit() throws {
