@@ -82,6 +82,8 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     /// What the bodies did (state.presentation for the agent): loaded documents, refused loads.
     private(set) var loaded: [String: String] = [:]
     private(set) var refused: [String] = []
+    /// The new windows handed to the default browser (under the agent, only recorded).
+    private(set) var opened: [String] = []
 
     init(agent: Bool, stagedFile: @escaping (String) -> URL? = { _ in nil }) {
         self.agent = agent
@@ -92,7 +94,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         session = URLSession(configuration: configuration)
     }
 
-    var status: [String: Any] { ["mediaViews": entries.count, "mediaLoaded": loaded, "mediaRefused": Array(refused.suffix(8))] }
+    var status: [String: Any] { ["mediaViews": entries.count, "mediaLoaded": loaded, "mediaRefused": Array(refused.suffix(8)), "mediaOpened": Array(opened.suffix(8))] }
 
     func install(_ element: ExactElement) {
         guard element.hatch == .t3Media, let host = element.view else { return }
@@ -232,6 +234,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         if let drafts { configuration.setURLSchemeHandler(drafts, forURLScheme: R6DraftPages.scheme) }
         configuration.websiteDataStore = .nonPersistent()
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
+        configuration.userContentController.addUserScript(Self.topLinkGuard)
         // The page keeps painting and running while the window is covered (as the reference's frame does).
         if #available(macOS 14.0, *) { configuration.preferences.inactiveSchedulingPolicy = .none }
         let web = T3ShellWebView(frame: .zero, configuration: configuration) // the shell's context menu, as in the reference's frame (T3ShellWebView.swift)
@@ -244,6 +247,18 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
         T3WebInspection.mark(web, "html-preview") // Safari's Web Inspector in a development build (exact2 #101)
         return web
     }
+
+    /// A link or form aimed at `_top` from the sandboxed page. Without allow-top-navigation Chromium blocks it and
+    /// nothing happens; WebKit asks for a new window instead (a navigation with no target frame, as a `_blank` link's),
+    /// which `createWebViewWith` would hand to the default browser. So the click or submit is cancelled first, in a
+    /// world of its own that the page's scripts and policy do not reach.
+    static let topLinkGuard = WKUserScript(source: """
+        (() => {
+          const top = own => /^_top$/i.test(own || (document.querySelector('base[target]') || {}).target || '');
+          addEventListener('click', e => { const a = e.target instanceof Element && e.target.closest('a[href], area[href]'); if (a && top(a.target)) e.preventDefault(); }, true);
+          addEventListener('submit', e => { const f = e.target, s = e.submitter; if (f instanceof HTMLFormElement && top((s && s.getAttribute('formtarget')) || f.target)) e.preventDefault(); }, true);
+        })();
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .world(name: "t3-preview-top"))
 
     /// The wrapper's response: an HTML document under the wrapper policy.
     static func wrapperResponse(url: URL) -> HTTPURLResponse {
@@ -268,9 +283,13 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         let target = navigationAction.request.url, entry = entry(for: webView)
+        // A new window (`target="_blank"`, a clicked `window.open`): WebKit asks the UI delegate for it only once this
+        // allows it, and `createWebViewWith` opens it externally and makes none.
+        if navigationAction.targetFrame == nil { return decisionHandler(.allow) }
         if let frame = navigationAction.targetFrame, !frame.isMainFrame {
-            // Inside the preview: the frame (and frames in it) navigate in place, as the reference's iframe does.
-            if let target, Self.frameSchemes.contains(target.scheme?.lowercased() ?? "") || target == entry?.asset {
+            // Inside the preview: the frame (and frames in it) navigate in place, as the reference's iframe does; a draft
+            // page's own fragment links too, whose `t3-draft:` URL is no scheme a frame may otherwise navigate to.
+            if let target, Self.frameSchemes.contains(target.scheme?.lowercased() ?? "") || entry?.asset.map({ Self.sameDocument(target, $0) }) == true {
                 if let entry, entry.frame == nil, target == entry.asset { entry.frame = frame }
                 return decisionHandler(.allow)
             }
@@ -321,8 +340,9 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     }
 
     private func openExternally(_ url: URL) {
-        guard !agent, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
-        NSWorkspace.shared.open(url)
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return }
+        opened.append(url.absoluteString)
+        if !agent { NSWorkspace.shared.open(url) }
     }
 
     // MARK: Failure
