@@ -69,8 +69,11 @@ package enum SwipeInput {
             if parent.isHidden || (parent as? NodeView)?.disabled == true { return false }
             #if os(iOS) || os(tvOS)
             if !parent.isUserInteractionEnabled { return false }
-            #endif
+            // Through a presented route's logical parents (LLP 1123 D2)
+            ancestor = view.presenter?.eventParent(of: parent) ?? parent.superview
+            #else
             ancestor = parent.superview
+            #endif
         }
         return true
     }

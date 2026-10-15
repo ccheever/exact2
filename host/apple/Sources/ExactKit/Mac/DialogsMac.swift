@@ -54,6 +54,7 @@ final class DialogHost {
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
+    func presentsRoute(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && $0.route } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
         // An alert over the dialog is the top modal: its rows are its own.
@@ -326,8 +327,9 @@ final class DialogHost {
         if event.type == .keyDown, event.keyCode == 48 {
             // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
             // starts, as on the page (KeyViewLoopMac.swift's starts): the stop after it in tree order, Shift-Tab
-            // the one before it, and past either end the trap's first or last.
-            let start = dialog.window.flatMap(focusOwner)
+            // the one before it, and past either end the trap's first or last. With the focus given up by a control
+            // that became disabled, the start is that control (`Presenter.tabStart`).
+            let start = dialog.window.flatMap(focusOwner) ?? presenter?.tabStart
             let (views, before) = stops(dialog, start: start)
             let choices = candidates(views)
             guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }

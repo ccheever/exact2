@@ -480,8 +480,10 @@ impl<D: DataSource> Presenter<D> {
             ActKind::Click => {
                 self.host.log(format!("{what}: click (delivery: hatch)"));
                 if !self.toggle_control(id, now) {
-                    if let Some(target) = self.handler_target(id, EventKind::Press) {
-                        self.dispatch_press(target, now, false);
+                    if let Some(invoker) = self.top_invoker(id).filter(|_| self.has_windows()) {
+                        self.invoke(invoker, now, false);
+                    } else if let Some(target) = self.handler_target(id, EventKind::Press) {
+                        self.press_then_follow(target, now, false);
                     }
                 }
                 None

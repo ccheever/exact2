@@ -585,7 +585,7 @@ impl<D: DataSource> Presenter<D> {
             if self.has_windows() {
                 self.focus_for_press(hit, now_ms);
             }
-            return self.invoke(invoker, now_ms);
+            return self.invoke(invoker, now_ms, true);
         }
         if self.brush.region_blocks_action(hit) {
             return self.retained_press(hit, now_ms);
@@ -612,7 +612,7 @@ impl<D: DataSource> Presenter<D> {
             }
             return self.surface_pointer(hit, x, y, now_ms);
         };
-        self.dispatch_press(target, now_ms, true);
+        self.press_then_follow(target, now_ms, true);
         if let Some(href) = link {
             self.follow(hit, &href, now_ms);
         }

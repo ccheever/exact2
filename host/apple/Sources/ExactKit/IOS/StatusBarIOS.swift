@@ -109,7 +109,8 @@ extension Presenter {
         var up: UIView? = node
         while let v = up {
             if v.overrideUserInterfaceStyle != .unspecified { return v.overrideUserInterfaceStyle == .dark ? .lightContent : .darkContent }
-            up = v.superview
+            // Through a presented route's logical parents (LLP 1123 D2)
+            up = (v as? NodeView)?.presenter?.eventParent(of: v) ?? v.superview
         }
         return .default
     }

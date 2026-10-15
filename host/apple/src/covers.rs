@@ -2,7 +2,9 @@
 //! navigation and tab containers report their bars over a route, and the
 //! header a bar replaces; one layout for all of a turn's reports. And the
 //! containing block a native container gives a subtree it shows in a view
-//! of its own (LLP 1115.002 D8.2): a split's pane, a sheet.
+//! of its own (LLP 1115.002 D8.2): a split's pane, a sheet, and where it
+//! shows that subtree's root when it does not lift it to the top layer (a
+//! stack's route, LLP 1123 D2), which only the runner's geometry reads.
 
 use super::Host;
 use exact_kernel::{HostBlock, HostCover, ViewId};
@@ -13,21 +15,23 @@ impl<D: DataSource> Host<D> {
     /// for one view (it is gone) leaves the others set and is the batch's
     /// error.
     pub fn set_covers(&mut self, covers: &[(ViewId, Option<HostCover>)]) -> String {
-        self.set_claims(covers, &[])
+        self.set_claims(covers, &[], &[])
     }
 
     /// Several subtrees' containing blocks (`None` takes one back) under one
     /// layout: each root's frame comes back in its block's space, with the
     /// block's used size.
     pub fn set_blocks(&mut self, blocks: &[(ViewId, Option<HostBlock>)]) -> String {
-        self.set_claims(&[], blocks)
+        self.set_claims(&[], blocks, &[])
     }
 
-    /// Covers and containing blocks under one layout.
+    /// Covers, containing blocks and the blocks' placements under one
+    /// layout.
     pub fn set_claims(
         &mut self,
         covers: &[(ViewId, Option<HostCover>)],
         blocks: &[(ViewId, Option<HostBlock>)],
+        placements: &[(ViewId, Option<exact_runner::BlockPlacement>)],
     ) -> String {
         self.height_targets_dirty = true;
         let mut batch = crate::batch::Batch::new();
@@ -44,6 +48,7 @@ impl<D: DataSource> Host<D> {
                 Err(e) => drop(error.get_or_insert(format!("block: {e:?}"))),
             }
         }
+        self.runner.place_blocks(placements);
         if let Err(e) = self.layout(&mut batch) {
             error.get_or_insert(e);
         }

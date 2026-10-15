@@ -35,7 +35,8 @@ extension NodeView {
         #if os(macOS)
         let chain = sequence(first: self as NSView, next: \.superview)
         #else
-        let chain = sequence(first: self as UIView, next: \.superview)
+        // Up the logical ancestry, out of a presentation too (LLP 1123 D2)
+        let chain = presenter?.logicalAncestry(of: self) ?? sequence(first: self as UIView, next: \.superview)
         #endif
         guard let node = chain.lazy.compactMap({ $0 as? NodeView }).first(where: { $0.handlers.contains(name) && !$0.disabled }) else { return nil }
         return (kind, node)

@@ -690,3 +690,86 @@ fn removing_a_token_keeps_fmts_blanks_and_names_find_roles_as_the_checker_does()
         broken
     );
 }
+
+#[test]
+fn a_plan_counts_its_hunk_names_each_change_by_file_and_skips_a_file_left_alone() {
+    let app = "tamber a\n\ntheme\n  ink = #000000\n  edge = ink\n".to_string();
+    let brand = "tamber b\n\ntheme\n  ink = #101010".to_string();
+    let files = [
+        ("app.tamber".to_string(), app),
+        ("brand.tamber".to_string(), brand),
+    ];
+    let set = |file: &str, value: &str| {
+        (
+            file.to_string(),
+            Op::SetToken {
+                name: "ink".into(),
+                when: Vec::new(),
+                value: value.into(),
+                at: None,
+                comment: None,
+            },
+        )
+    };
+    let planned = exact_tamber::plan(
+        &files,
+        &[set("brand.tamber", "#202020"), set("app.tamber", "#111111")],
+        &vocab(),
+        false,
+    )
+    .unwrap();
+    let changed: Vec<(&str, &str)> = planned
+        .changed
+        .iter()
+        .map(|(f, t)| (f.as_str(), t.as_str()))
+        .collect();
+    assert_eq!(
+        changed,
+        [
+            ("app.tamber", "edge"),
+            ("app.tamber", "ink"),
+            ("brand.tamber", "ink")
+        ]
+    );
+    assert!(planned
+        .diff
+        .contains("@@ -4,1 +4,1 @@\n-  ink = #000000\n+  ink = #111111\n"));
+    assert!(planned.diff.contains(
+        "-  ink = #101010\n\\ No newline at end of file\n+  ink = #202020\n\\ No newline at end of file\n"
+    ));
+    // Setting a value it already has writes nothing.
+    let same =
+        exact_tamber::plan(&files, &[set("app.tamber", "#000000")], &vocab(), false).unwrap();
+    assert!(same.files.is_empty() && same.diff.is_empty());
+}
+
+#[test]
+fn an_axis_goes_after_the_axes_there_are_or_in_a_new_block_after_the_header() {
+    let with = "tamber t\n\naxes\n  density = default | compact\n\ntheme\n  ink = #000000\n";
+    let add = Op::AddAxis {
+        name: "theme".into(),
+        values: vec!["default".into(), "blue".into()],
+        under_dark: false,
+    };
+    let done = apply(with, &add, &vocab()).unwrap();
+    assert_eq!(done.text, "tamber t\n\naxes\n  density = default | compact\n  theme = default | blue\n\ntheme\n  ink = #000000\n");
+    assert_eq!(
+        undo(&done.text, &done.inverse, &vocab()).unwrap().text,
+        with
+    );
+    let without = "tamber t\n\ntheme\n  ink = #000000\n";
+    let done = apply(without, &add, &vocab()).unwrap();
+    assert_eq!(
+        done.text,
+        "tamber t\n\naxes\n  theme = default | blue\n\ntheme\n  ink = #000000\n"
+    );
+    assert_eq!(format(&done.text).unwrap(), done.text);
+    assert!(apply(&done.text, &add, &vocab()).is_err());
+    // The header's own comments stay with it.
+    let commented = "tamber t\n// the brand\n\ntheme\n  ink = #000000\n";
+    let done = apply(commented, &add, &vocab()).unwrap();
+    assert_eq!(
+        done.text,
+        "tamber t\n// the brand\n\naxes\n  theme = default | blue\n\ntheme\n  ink = #000000\n"
+    );
+}

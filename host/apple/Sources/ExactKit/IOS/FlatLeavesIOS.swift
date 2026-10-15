@@ -149,8 +149,7 @@ final class FlatLeaves {
     func styleChanged(_ id: UInt32) { reconsider.insert(id) }
 
     private func demote(_ id: UInt32) {
-        // A view whose geometry a sheet holds stays one: its replay is the view's
-        guard let view = presenter.views[id], view.kind == "view", view.paintRank == 0, !presenter.modals.holdsGeometry(id),
+        guard let view = presenter.views[id], view.kind == "view", view.paintRank == 0,
               view.handlers.isEmpty, view.props.isEmpty, view.subviews.isEmpty, !holdsLeaves(id),
               view.surface == nil, view.boxFilter == nil,
               let flat = FlatPaint(view.style) else { return }

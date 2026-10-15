@@ -7,9 +7,11 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod admission;
+mod advance;
 mod background;
 mod commit;
 mod control;
+mod errors;
 mod event;
 pub mod faults;
 mod field;
@@ -24,10 +26,12 @@ mod reorder;
 mod reorder_codec;
 mod reorder_group;
 pub use intersect::Intersection;
+pub use shown::BlockPlacement;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod mode;
 mod root_font;
+mod shown;
 mod sounds;
 mod theme;
 pub use event::{
@@ -112,10 +116,10 @@ pub struct Timed {
     pub receipt: CommitReceipt,
 }
 
-/// What one `advance_timed` or collection feedback call did: the commits in order, each at its due
-/// time; the clock afterwards — the requested time, or the last time reached
-/// before a refusal (or, advancing until a request, the due time of the timer
-/// that sent it); and that refusal, if any. Commits before a refusal are
+/// What one `advance_timed` or collection feedback call did: the commits in order, each at the time
+/// it committed (on a seek clock its due time); the clock afterwards — the requested time, or the
+/// last time reached before a refusal or, advancing until a request, at the timer that sent it
+/// (on a live clock, the last sample if later); and that refusal, if any. Commits before a refusal are
 /// kept: they are in the kernel, and a host must show them.
 #[derive(Debug)]
 pub struct Advanced {
@@ -224,27 +228,6 @@ pub enum RunnerError {
     StringTooLong {
         name: String,
     },
-}
-
-impl From<Trap> for RunnerError {
-    fn from(t: Trap) -> Self {
-        RunnerError::Trap(t)
-    }
-}
-
-impl From<InstanceError> for RunnerError {
-    fn from(e: InstanceError) -> Self {
-        match e {
-            InstanceError::SlotType { slot } => RunnerError::SlotType { slot },
-            other => RunnerError::Instance(other),
-        }
-    }
-}
-
-impl From<KernelError> for RunnerError {
-    fn from(e: KernelError) -> Self {
-        RunnerError::Kernel(e)
-    }
 }
 
 #[derive(Clone)]
@@ -379,8 +362,7 @@ pub struct Runner<D: DataSource> {
     ids: Ids,
     now_ms: f64,
     timers: Vec<Timer>,
-    /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4).
-    presenting: bool,
+    clock: advance::Clock,
     batch: u64,
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
@@ -830,7 +812,7 @@ impl<D: DataSource> Runner<D> {
             ids: Ids::default(),
             now_ms,
             timers: Vec::new(),
-            presenting: false,
+            clock: Default::default(),
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),

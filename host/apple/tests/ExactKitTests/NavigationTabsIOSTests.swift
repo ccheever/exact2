@@ -234,9 +234,11 @@ final class NavigationTabsIOSTests: XCTestCase {
         container.frame = CGRect(x: 0, y: 300, width: 402, height: 574)
         p.navigation.reportCovers()
         XCTAssertEqual(p.navigation.covers[list.id], protected, "the root's tablist is not measured under a sheet")
-        session.view?.fit()
-        XCTAssertEqual(p.viewport.frame, container.bounds, "route covers protect the sheet exactly once")
-        XCTAssertEqual(p.viewport.bounds.width, container.bounds.width, accuracy: 0.5)
+        let view = try XCTUnwrap(session.view)
+        view.fit()
+        // The document stays in the session's view; the sheet lays its own
+        // routes out in their blocks (LLP 1123 D1, D2)
+        XCTAssertEqual(p.viewport.frame, view.bounds, "a sheet does not move or resize the document")
     }
 
     func testAuthoredTabsLeaveLandscapeNavigationBackgroundAtTheEdges() throws {

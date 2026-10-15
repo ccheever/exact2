@@ -212,9 +212,16 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
 - **A gate reads state at commits.** A gated task (`task hide when toast != ""
   key=toastUntil`) is armed or dropped by the commit that changes its gate or
   key, never as the clock moves: so a gate cannot read `performanceNow()` (refused), and the
-  `after`'s action runs at its deadline exactly, `performanceNow()` equal to it. An action
-  that re-tests `performanceNow() > toastUntil` there does nothing and the toast stays up
-  forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+  `after`'s action runs at its deadline, `performanceNow()` equal to it under a test's or the
+  agent's clock. An action that re-tests `performanceNow() > toastUntil` there does nothing
+  and the toast stays up forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
+- **Counting ticks is not measuring time.** On a device a repeating task that missed ticks
+  while the app was suspended or busy fires once, not once per missed tick, and its action
+  observes the time it actually runs; only a test's or the agent's `clock +N` fires every
+  tick. So `elapsed = elapsed + 16` per tick, or `ticks / 10` shown as seconds, falls behind.
+  Fix: measure with `performanceNow()` (`elapsed = elapsed + (now - stepped)`, `stepped =
+  now`; seconds as `floor(busyMs / 1000)`), and keep counters for what really counts
+  deliveries, such as a spinner's frame.
 - **An "on return" task also runs at every launch.** Cause: a gated task arms
   when its gate becomes true and at boot when it is already true (LLP 1092 D8),
   and the page is `visible` at launch: `task returned when page.visibilityState
@@ -1077,16 +1084,17 @@ This list holds what the [agent guide](contract-for-agents.md)'s rules don't mak
   locked, an `AXUIElement` read from any process stops at the application.
   (X84, 2026-10-12.)
 - **An AppKit accessibility action answers the first accessibility error
-  recorded while it runs.** AXPress on an inline run landed and answered
-  `kAXErrorAttributeUnsupported` (-25205) to another process. Cause: AppKit's
-  request handler ignores the action's `Bool` and returns the first error
-  recorded until it returns. The press's update reads values back
+  recorded while it runs.** AXPress on an inline run, a button, a checkbox or
+  a switch landed and answered `kAXErrorAttributeUnsupported` (-25205) to
+  another process. Cause: AppKit's request handler ignores the action's
+  `Bool` and returns the first error recorded until it returns. The press's update reads values back
   (`accessibilitySubrole()`, `isAccessibilityRequired()`) from a `NodeView`,
   which overrides the legacy `accessibilityAttributeValue`, so AppKit asks
   through the legacy API and records each attribute the view lacks. Fix: an
   `accessibilityPerform…` that runs the app does it after the request returns
   (`DispatchQueue.main.async`), as AppKit's `NSMenuItem` does its AXPress, and
-  a test asserts nothing ran inside the call. (X78 follow-up, 2026-10-14.)
+  a test asserts nothing ran inside the call; for AppKit's own control, call
+  `super`'s action there. (X78 follow-up, 2026-10-14; buttons, 2026-10-16.)
 - **A sub-agent's half-written crate breaks every build in the worktree.**
   Cause: a crate listed in the root `Cargo.toml`'s `members` is resolved by
   every `cargo` command, so one that does not parse or compile yet stops

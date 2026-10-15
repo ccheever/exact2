@@ -36,7 +36,8 @@ extension NodeView {
         var document = false, chrome = false
         var current: AncestorView? = self
         while let view = current {
-            current = view.superview
+            // Through a presented route's logical parents (LLP 1123 D2)
+            current = presenter?.eventParent(of: view) ?? view.superview
             guard let node = view as? NodeView else { continue }
             switch node.style["user_select"]?.string {
             case "none": return false

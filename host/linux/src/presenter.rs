@@ -111,6 +111,7 @@ mod visibility_tests;
 #[cfg(test)]
 mod spacing_tests;
 
+pub use clock::{wall_since, Wall};
 pub use device::Device;
 pub use hosted::action as field_action;
 use painter::cpu_info;
@@ -131,6 +132,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
     /// The scroller the last wheel moved.
     last_wheel: Option<ViewId>,
+    /// The display's clock while it owns time, given to every host (`clock.rs`)
+    live_clock: Option<clock::Wall>,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -470,6 +473,7 @@ impl<D: DataSource> Presenter<D> {
             boxes_serial: 0,
             dirty: true,
             deferred_collections: None,
+            live_clock: None,
             scheme: (None, false),
             device: None,
             pointer_kind: PointerKind::Mouse,
@@ -1329,6 +1333,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.give_clock();
         // A new kernel may have the same epoch.
         self.brush.paint_epoch = None;
         // A new runner reuses view ids and node keys: an unbound control's

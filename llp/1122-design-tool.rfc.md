@@ -242,7 +242,10 @@ and behaviour stay with Contract source (D14).
 ### D2 — Architecture
 
 - **A web JS-target Exact app** (LLP 1121 D13). Its TypeScript data module is its only
-  client code, speaking `tamber/1` over one socket with the project's local token.
+  client code, speaking `tamber/1` with the project's local token. *As built in Tamber stage 3
+  (LLP 1121 §10):* requests are `POST /__tamber`, and the tool follows changes by the long poll
+  `POST /__tamber/events`, because a JS-target data module's `fetch` reads a whole body and
+  `exactStream` merges a server-sent stream. There is no WebSocket.
 - **The Tamber server**, in the dev loop (LLP 1121 D13), owns:
   - the design files and every write to them (`set-row`, `commit`, held proposals, scrubs);
   - the selection join: a build's report plus that build's source map (D5);
@@ -612,7 +615,8 @@ A component with no params shows its rows (D5) and an offer to promote one to a 
 ### D10 — Agents as co-editors
 
 An agent is a client with the same token, reads and writes.
-- **Attribution.** Each event in `subscribe` names its client; the tool outlines an agent's
+- **Attribution.** Every write carries its `client` (not a `hello`: clients share one server;
+  as built in Tamber stage 3), and each event names it; the tool outlines an agent's
   edits in its own colour.
 - **Held proposals**, a server addition. An agent's `propose` can be held: the server keeps
   the transaction in memory (with an expiry) and announces it on `subscribe`. The tool
