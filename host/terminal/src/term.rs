@@ -902,6 +902,7 @@ fn run_raw<D: DataSource>(host: &mut Host<D>, signal_rx: &UnixStream) -> std::io
     }));
     host.announced();
     let start = Instant::now();
+    host.live_from(start);
     let now = || start.elapsed().as_secs_f64() * 1000.0;
     let mut parser = Parser::new();
     let mut decoder = Decoder::default();
