@@ -4,6 +4,13 @@
 //! running builds take it in the live table or rebuild. The server
 //! (`contract tamber serve`) owns the digests, the lock, the journal and
 //! every write; this owns none.
+//!
+//! `live` here is judged on the design alone: its shape (axes, dials, the
+//! tokens with their kinds and roles) unchanged. D13's closure through the
+//! compiler (Contract's synthetic consumers, a `color-mix()` over a token
+//! that becomes a role) waits for running builds to report what they
+//! consume (stage 4), and kinds substituted at build (durations, easings)
+//! for stage 6.
 
 use crate::edit::{self, Op};
 use crate::{Diagnostic, Folding, Vocab};
@@ -29,13 +36,15 @@ impl Class {
     }
 }
 
-/// A transaction planned: every edited file's new text and inverse.
+/// A transaction planned: every edited file's new text and inverse. A file
+/// its operations leave byte for byte as it was is not among them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Planned {
     /// Each edited file: its path, its new text, its inverse.
     pub files: Vec<(String, String, Vec<Op>)>,
-    /// The tokens whose values change, added or removed, by name.
-    pub changed: Vec<String>,
+    /// The tokens whose values change, added or removed: the file and the
+    /// name, sorted.
+    pub changed: Vec<(String, String)>,
     /// What running builds do with it.
     pub class: Class,
     /// A diff per edited file, the lines removed (`-`) and added (`+`).
@@ -78,11 +87,18 @@ pub fn plan(
                 .map(|d| (path.clone(), d))
                 .collect::<Refused>()
         })?;
+        if edited.text == *text {
+            continue;
+        }
         let (before, after) = (
             crate::check(text, vocab).ok(),
             crate::check(&edited.text, vocab).ok(),
         );
-        changed.extend(changed_tokens(before.as_ref(), after.as_ref()));
+        changed.extend(
+            changed_tokens(before.as_ref(), after.as_ref())
+                .into_iter()
+                .map(|t| (path.clone(), t)),
+        );
         structure |= match (&before, &after) {
             (Some(b), Some(a)) => shape(b) != shape(a),
             _ => true,
@@ -103,6 +119,7 @@ pub fn plan(
             )]);
         }
     }
+    changed.sort();
     changed.dedup();
     Ok(Planned {
         files: out,
@@ -168,9 +185,14 @@ fn shape(f: &Folding) -> String {
     s
 }
 
-/// One hunk: the lines `a` and `b` differ in, `-` and `+`, under the path.
+/// One unified hunk: the lines `a` and `b` differ in, `-` and `+`, under
+/// the path, with each side's start and count; a last line with no newline
+/// is marked so.
 fn file_diff(path: &str, a: &str, b: &str) -> String {
-    let (x, y): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
+    let (x, y): (Vec<&str>, Vec<&str>) = (
+        a.split_inclusive('\n').collect(),
+        b.split_inclusive('\n').collect(),
+    );
     let start = x.iter().zip(&y).take_while(|(p, q)| p == q).count();
     let end = x[start..]
         .iter()
@@ -178,16 +200,23 @@ fn file_diff(path: &str, a: &str, b: &str) -> String {
         .zip(y[start..].iter().rev())
         .take_while(|(p, q)| p == q)
         .count();
+    let (old, new) = (&x[start..x.len() - end], &y[start..y.len() - end]);
+    // An empty side starts at the line before it (unified diff's rule).
+    let at = |n: usize| if n == 0 { start } else { start + 1 };
     let mut out = format!(
-        "--- {path}\n+++ {path}\n@@ -{} +{} @@\n",
-        start + 1,
-        start + 1
+        "--- {path}\n+++ {path}\n@@ -{},{} +{},{} @@\n",
+        at(old.len()),
+        old.len(),
+        at(new.len()),
+        new.len()
     );
-    for l in &x[start..x.len() - end] {
-        out.push_str(&format!("-{l}\n"));
-    }
-    for l in &y[start..y.len() - end] {
-        out.push_str(&format!("+{l}\n"));
+    for (sign, lines) in [('-', old), ('+', new)] {
+        for l in lines {
+            match l.strip_suffix('\n') {
+                Some(l) => out.push_str(&format!("{sign}{l}\n")),
+                None => out.push_str(&format!("{sign}{l}\n\\ No newline at end of file\n")),
+            }
+        }
     }
     out
 }
