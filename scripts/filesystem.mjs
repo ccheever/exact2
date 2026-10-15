@@ -145,7 +145,9 @@ export async function filesystemLock(root, path, fn) {
   const rejectAll = (error) => { failure = error; for (const item of pending.splice(0)) item.reject(error); };
   child.on('error', rejectAll);
   child.stdin.on('error', rejectAll);
-  child.on('exit', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
+  // Fail what is pending only once its output is read: a reply written just before exiting (a held lock's refusal)
+  // answers its request, as the reader's does
+  child.on('close', (code, signal) => { rejectAll(new Error(`filesystem lock holder exited (status ${code}, signal ${signal ?? 'none'})${stderr ? `: ${stderr}` : ''}`)); });
   lines.on('line', (line) => {
     const item = pending.shift();
     if (!item) return;
