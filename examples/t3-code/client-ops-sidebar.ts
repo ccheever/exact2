@@ -9,6 +9,8 @@ import { storeSidebarWidth } from './r4-polish-sidebar-width';
 import { str, initialShell, applyShell } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 import { letGo } from './let-go';
+import { settingsGroups } from './projects-fleet';
+import { backgroundProjectThreads, forgetBackgroundDrafts, isBackground, writeBackgroundProject } from './legacy-sidebar-fleet';
 
 /** Thread search, the sidebar's open state and width, and project grouping. */
 export async function sidebarOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -42,8 +44,8 @@ export async function sidebarWrites(this: T3Client, op: string, id: string, valu
     else if (op === 'rename-group' || op === 'remove-group') await manageGroup.call(this, native, storage, op, id, value);
     else if (op === 'remove-group-member') {
       this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
-      if (!this.projectGroups().some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
-      await manageProject.call(this, native, storage, 'remove-project', id, '');
+      if (!settingsGroups(this).some(group => group.key === value && group.members.some(member => member.id === id))) throw new ClientError('Project group membership changed. Reopen its settings.');
+      await manageMember.call(this, native, storage, 'remove-project', id, '');
     }
     else return false;
     return true;
@@ -59,18 +61,27 @@ async function addProject(this: T3Client, native: Native, storage: Files, path: 
   this.projectId = projectId; this.threadId = ''; this.thread = null; this.threadLive = true; this.chooseDefaults();
 }
 async function manageGroup(this: T3Client, native: Native, storage: Files, op: string, key: string, title: string): Promise<void> {
-  // Resolve the current server members, never a cached list from a dialog.
+  // Resolve the current server members, never a cached list from a dialog. The group spans every environment
+  // (useSettingsProjectGroups); each member is written through its own (projects-fleet.ts).
   this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell'));
-  const group = this.projectGroups().find(group => group.key === key);
+  const group = settingsGroups(this).find(group => group.key === key);
   if (!group) throw new ClientError('That project group is no longer available.');
   if (op === 'rename-group' && !title.trim()) throw new ClientError('Project title cannot be empty');
   for (const member of group.members) {
-    if (!this.projectGroups().some(group => group.key === key && group.members.some(current => current.id === member.id))) {
+    if (!settingsGroups(this).some(group => group.key === key && group.members.some(current => current.id === member.id))) {
       throw new ClientError('Project group membership changed. Reopen its settings.');
     }
-    try { await manageProject.call(this, native, storage, op === 'rename-group' ? 'rename-project' : 'remove-project', str(member.id), title); }
+    try { await manageMember.call(this, native, storage, op === 'rename-group' ? 'rename-project' : 'remove-project', str(member.id), title); }
     catch (error) { if (letGo(error)) throw error; throw new ClientError(`Could not ${op === 'rename-group' ? 'rename' : 'remove'} checkout ${str(member.workspaceRoot)}: ${message(error)}`); }
   }
+}
+/** projectEnvironment.update / .delete on the member's own environment: the focused one's outbox, or a background one's transport. */
+async function manageMember(this: T3Client, native: Native, storage: Files, op: string, id: string, title: string): Promise<void> {
+  if (!isBackground(this, id)) return manageProject.call(this, native, storage, op, id, title);
+  if (op === 'rename-project' && !title.trim()) throw new ClientError('Project title cannot be empty');
+  const threads = backgroundProjectThreads(this, id);
+  await writeBackgroundProject(this, native, id, op === 'rename-project' ? { type: 'project.update', title: title.trim() } : { type: 'project.delete', force: true });
+  if (op === 'remove-project') forgetBackgroundDrafts(this, id, threads);
 }
 async function manageProject(this: T3Client, native: Native, storage: Files, op: string, id: string, title: string): Promise<void> {
   const project = this.shell.projects.find(project => project.id === id);

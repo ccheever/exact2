@@ -21,6 +21,8 @@ import { deviceHostsCommand } from './settings-a-hosts';
 import { deviceScopedCommand } from './settings-integrations-scope';
 import { applyDeviceSetting } from './settings-core'; // "Open links in"
 import { copyThreadReference } from './thread-reference'; // ⇧⌘C copies the PR link or the thread ID
+import { byEnvironment, environmentClient, groupOfMember } from './projects-fleet';
+import { fleetThreadId, parseFleetThreadId } from './settings-b-fleet';
 
 /** Contract sends `a=encodeURIComponent(x)&b=…`; Hermes has no URLSearchParams. */
 export function params(value: string): Record<string, string> {
@@ -34,6 +36,12 @@ export function params(value: string): Record<string, string> {
   return out;
 }
 
+/** `<environment>:fleet:<background environment>:<project>`: a background environment's project as the settings scope names it. */
+export function fleetScope(scope: string): { environmentId: string; projectId: string } | null {
+  const at = scope.indexOf(':fleet:');
+  const ref = at < 0 ? null : parseFleetThreadId(scope.slice(at + 1));
+  return ref ? { environmentId: ref.environmentId, projectId: ref.threadId } : null;
+}
 export function splitScope(scope: string): { environmentId: string; projectId: string } {
   const parts = scope.split(':');
   if (parts.length !== 2) throw new ClientError('That environment or project is no longer selected.');
@@ -108,6 +116,10 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
   if (op === 'bitbucket') return bitbucketCommand(client, native, str(params(value).environment), params(value), () => { viewState(client).rescan++; });
   if (op.startsWith('diag-')) return telemetryCommand(client, native, op, params(value)); // settings-a-telemetry.ts
   if (op.startsWith('hosts-')) return deviceHostsCommand(client, native, op, params(value), splitScope(scope).projectId !== ''); // settings-a-hosts.ts
+  // A background environment's project (Settings › Projects over every environment): its writes go through that
+  // environment under its own project id (projects-fleet.ts).
+  const focused = client, background = fleetScope(scope);
+  if (background) { client = environmentClient(client, background.environmentId, native); scope = `${background.environmentId}:${background.projectId}`; }
   const access = client.restAccess(native);
   const input = params(value);
   if (op === 'storage') {
@@ -160,17 +172,22 @@ export async function restCommand(client: T3Client, native: Native, storage: Fil
     return '';
   }
   if (op === 'project-icon') {
-    // ProjectSettingsPanel setProjectIcon({ faviconPath: null, projectIcon: null }), fanned out to the group.
-    const { projectId, shell } = await currentScope(client, access, scope);
-    const group = client.projectGroups().find(candidate => candidate.members.some(member => member.id === projectId));
+    // ProjectSettingsPanel setProjectIcon({ faviconPath: null, projectIcon: null }), fanned out to the group on every
+    // environment, each member through its own.
+    const { projectId } = await currentScope(client, access, scope);
+    const group = projectId ? groupOfMember(focused, background ? fleetThreadId(background.environmentId, projectId) : projectId) : undefined;
     if (!projectId || !group) throw new ClientError('Choose a project to change its icon.');
-    for (const member of group.members) {
-      if (!shell.projects.some(project => project.id === member.id)) throw new ClientError('Project group membership changed. Reopen its settings.');
-      const [commandId] = await access.ids(1);
-      await access.write(storage, { method: 'projects.mutate', description: 'Reset project icon', threadId: '', text: '', uncertain: false,
-        payload: { type: 'project.update', commandId, projectId: str(member.id), faviconPath: null, projectIcon: null } });
+    for (const [environmentId, ids] of byEnvironment(focused, group.members.map(member => str(member.id)))) {
+      const home = environmentClient(focused, environmentId, native), homeAccess = home.restAccess(native);
+      const shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
+      for (const id of ids) {
+        if (!shell.projects.some(project => project.id === id)) throw new ClientError('Project group membership changed. Reopen its settings.');
+        const [commandId] = await homeAccess.ids(1);
+        await homeAccess.write(storage, { method: 'projects.mutate', description: 'Reset project icon', threadId: '', text: '', uncertain: false,
+          payload: { type: 'project.update', commandId, projectId: id, faviconPath: null, projectIcon: null } });
+      }
+      home.shell = applyShell(initialShell(), await homeAccess.http('/api/orchestration/shell'));
     }
-    client.shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
     return '';
   }
   if (op === 'keybinding-open') {

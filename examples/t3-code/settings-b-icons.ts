@@ -12,6 +12,7 @@ import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { faviconPickLabel } from './desktop-shell-favicon';
 import { letGo } from './let-go';
+import { byEnvironment, environmentClient } from './projects-fleet';
 
 /** PROJECT_ICON_COLORS: swatch bg-*-500; icon ink text-*-600 / dark:text-*-400. */
 export const ICON_COLORS: { value: string; label: string; swatch: string; ink: string; surface: string; inkLight: string; inkDark: string }[] = ([
@@ -233,16 +234,19 @@ export async function runIconOp(client: T3Client, native: Native, storage: Files
       change = { faviconPath: null, projectIcon: encodeIcon({ kind, name: '', color: str(input.color), text: monogram.text, emoji: '' }) };
     } else throw new ClientError('Choose an icon, emoji, or monogram.');
   }
-  const access = client.restAccess(native);
   try {
-    const shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
-    for (const projectId of ids) {
-      if (!shell.projects.some(project => str(project.id) === projectId)) throw new ClientError('Project group membership changed. Reopen its settings.');
-      const [commandId] = await access.ids(1);
-      await access.write(storage, { method: 'projects.mutate', description: 'Update project icon', threadId: '', text: '', uncertain: false,
-        payload: { type: 'project.update', commandId, projectId, ...change } });
+    // Every member on its own environment (setProjectIcon → updateAllMembers; projects-fleet.ts).
+    for (const [environmentId, projectIds] of byEnvironment(client, ids)) {
+      const home = environmentClient(client, environmentId, native), access = home.restAccess(native);
+      const shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
+      for (const projectId of projectIds) {
+        if (!shell.projects.some(project => str(project.id) === projectId)) throw new ClientError('Project group membership changed. Reopen its settings.');
+        const [commandId] = await access.ids(1);
+        await access.write(storage, { method: 'projects.mutate', description: 'Update project icon', threadId: '', text: '', uncertain: false,
+          payload: { type: 'project.update', commandId, projectId, ...change } });
+      }
+      home.shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
     }
-    client.shell = applyShell(initialShell(), await access.http('/api/orchestration/shell'));
     faviconCache.clear();
   } catch (error) {
     if (letGo(error)) throw error;

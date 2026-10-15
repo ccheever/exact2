@@ -471,7 +471,11 @@ fn chat_runs(value: &Value) -> Value {
             _ => String::new(),
         };
         let start = !href.is_empty() && href != previous;
-        previous = href.clone();
+        // The words after an image inside a link's text continue that link.
+        previous = match media_link(&href) {
+            (_, "") => href.clone(),
+            (_, link) => link.to_string(),
+        };
         if let (Some(target), Value::Record(fields)) = (href.strip_prefix(FILE_LINK), run) {
             let label = fields[1].as_str().unwrap_or("");
             if !isMarkdownFileLinkLabel(label, target) {
@@ -623,6 +627,7 @@ fn document_with_links(
     // An image inside a line of text is a media run.
     let text = inline_image_links(&text);
     let mut doc = markdown_parse::parse(&text, &|href| image_link(&link_href, href));
+    linked_images(&mut doc.blocks, &|href| image_link(&link_href, href));
     if !cwd {
         links_without_cwd(&mut doc.blocks);
     }

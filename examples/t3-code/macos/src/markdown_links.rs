@@ -202,7 +202,8 @@ fn task_items(blocks: &mut [markdown_parse::Block], text: &str) -> Vec<(&'static
 /// `link`) carries the whole link's text, as the reference's one `<a>` reads; every other run has "". FlowRuns draws a
 /// link word by word: the first word is the link node named with this text, and its other words, which carry the same
 /// label, are hidden from assistive tech. A link that starts with a code span is no different: its
-/// link node holds the code span (after a web link's favicon).
+/// link node holds the code span (after a web link's favicon). Then each run's `link`: the destination of the link
+/// around an image inside a link's text, "" for every other run.
 fn link_labels(runs: Vec<Value>) -> Vec<Value> {
     let field = |run: &Value, index: usize| match run {
         Value::Record(fields) => fields
@@ -211,6 +212,13 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
             .unwrap_or("")
             .to_string(),
         _ => String::new(),
+    };
+    // Whether a run belongs to the link to `href`: one of its words, or an image inside its text (whose alt text the
+    // link's name reads, as an `<a>` around an `<img>` does).
+    let within = |run: &Value, href: &str| match field(run, 6).as_str() {
+        "link" => field(run, 5) == href,
+        "media" => media_link(&field(run, 5)).1 == href,
+        _ => false,
     };
     // The link the walk is in: its href and its label.
     let mut link: Option<(String, String)> = None;
@@ -221,13 +229,13 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
         if kind == "link-start" {
             let mut label = field(run, 1);
             for next in &runs[at + 1..] {
-                if field(next, 6) != "link" || field(next, 5) != href {
+                if !within(next, &href) {
                     break;
                 }
                 label.push_str(&field(next, 1));
             }
             link = Some((href, label.trim().to_string()));
-        } else if kind != "link" || link.as_ref().is_some_and(|(open, _)| *open != href) {
+        } else if !link.as_ref().is_some_and(|(open, _)| within(run, open)) {
             link = None;
         }
         labels.push(link.as_ref().map_or_else(String::new, |(_, label)| label.clone()));
@@ -237,7 +245,14 @@ fn link_labels(runs: Vec<Value>) -> Vec<Value> {
         .map(|(run, label)| match run {
             Value::Record(fields) => {
                 let mut fields = fields.to_vec();
+                // An image inside a link's text keeps its own href and names the link around it (`link`).
+                let href = fields.get(5).and_then(Value::as_str).unwrap_or("").to_string();
+                let (image, link) = media_link(&href);
+                if !link.is_empty() {
+                    fields[5] = Value::str(image);
+                }
                 fields.push(Value::str(&label));
+                fields.push(Value::str(link));
                 Value::record(fields)
             }
             other => other,
@@ -495,8 +510,8 @@ mod link_tests {
                     };
                     assert_eq!(
                         fields.len(),
-                        9,
-                        "id, text, weight, slant, mono, href, kind, icon, label"
+                        10,
+                        "id, text, weight, slant, mono, href, kind, icon, label, link"
                     );
                     let text = |at: usize| fields[at].as_str().unwrap_or("").to_string();
                     (text(1), text(6), fields[4] == Value::Bool(true), text(8))

@@ -9,6 +9,7 @@ import { dismissThreadError } from './requests';
 import { clearRowDrops } from './legacy-sidebar-drop';
 import { composerTakesFocus } from './legacy-sidebar-links';
 import { heroCarry, heroLand, ensureScratchProject } from './pages-home';
+import { homeTarget } from './home-landing';
 import { obj, str, messages } from './domain';
 import { ClientError, type Native, type Files } from './protocol';
 
@@ -23,6 +24,14 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       resultMessage = 'Copied message';
     } else if (op === 'dismiss-error') { dismissThreadError(this); this.error = ''; }
     else if (op === 'select-project' || op === 'new-thread' || op.startsWith('pages:hero-')) {
+      this.homePending = false; this.homeMove = null; // a choice made before the launch's landing picked keeps it
+      // Try again lands as the index route does: the most recent project of every environment (home-landing.ts).
+      const home = op === 'pages:hero-retry' ? homeTarget(this) : null;
+      if (home && home.environmentId !== this.environmentId) {
+        const focused = await focusFleetProject(this, native, home.environmentId, home.projectId);
+        this.adoptStatus(focused.value, focused.generation);
+        return true;
+      }
       // A project named with its environment (a clone toast's Open project, project-clones.ts): the focused one's draft
       // opens here, another environment's opens there (settings-b-fleet.ts focusFleetProject).
       const named = op === 'new-thread' ? parseFleetThreadId(id) : null;
@@ -41,6 +50,7 @@ export async function threadOps(this: T3Client, op: string, id: string, value: s
       if (this.connection === 'connected') await this.call(native, { op: 'unsubscribe', key: 'thread' });
       if (carry) heroLand(this, carry);
     } else if (op === 'select-thread') {
+      this.homePending = false; this.homeMove = null;
       // A notification names its thread with its environment (shell-notify.ts): the focused one's opens here.
       const pressed = id, before = `${this.environmentId}\n${this.threadId}`;
       const qualified = parseFleetThreadId(id);
