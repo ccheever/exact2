@@ -216,8 +216,8 @@ component SettingsWindow
   // font list's popovers and the recorder are `aria-modal` too, and the dialogs make this view inert (below).
   derive escapeOwned = routeKeyboard.phase != "" or settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or themeInspecting or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen or (settingsRoute == "keybindings" and (keybindingRecording or (keybindingSearch and escapeFocus == "keybindings-filter"))) or (settingsRoute == "open-source-licenses" and licenseSearchOpen and escapeFocus == "license-search") or (settingsRoute == "providers" and (providerPage.escapeOwned or (modelAddingShown and escapeFocus == "custom-model-slug")))
   // A Settings dialog is modal (Base UI Dialog): the page behind it is inert, so Back's Escape is the dialog's.
-  // "Remove from this device…" (EnvironmentRemoveDialog) counts here; the other Connections confirmations are `aria-modal`,
-  // and Network access's stays asked for after its serial moves on, when no dialog shows.
+  // "Remove from this device…" (EnvironmentRemoveDialog) counts here; Network access's confirmation does not, as it stays
+  // asked for after its serial moves on, when no dialog shows. Both are `aria-modal` too.
   derive dialogShown = restEditor != "" or settingsCore.saOpen or settingsCore.archiveConfirm.id != "" or connectionsPage.environments.filter(environment => environment.key == connectionRemove).length > 0
   action editSettingsQuery(value: string)
     settingsEscapeHeld = false

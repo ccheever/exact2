@@ -65,42 +65,23 @@ describe('Snooze: Escape returns the focus to the trigger', () => {
 });
 
 describe('Return on a focused menu or launcher row presses it', () => {
-  const cases = [
-    ['r4-surfaces.contract', 'R4AddItem', ['choose', 'hidePopover:r4-add-surface'], {}],
-    ['browser-surface.contract', 'BrowserAddItem', ['choose', 'hidePopover:r4-add-surface'], {}],
-    ['sidebar-row.contract', 'SnoozeMenuItem', ['press', 'hidePopover:snooze-thread'], { popId: 'snooze-thread' }],
-    // The shared row kits: Settings' menus and selects (SkMenuItem), Settings › Connections' menus and selects, Load
-    // balancing's machine rows included (CnMenuItem).
-    ['settings-kit.contract', 'SkMenuItem', ['choose', 'hidePopover:settings-menu'], { menuId: 'settings-menu' }],
-    ['settings-b-kit.contract', 'CnMenuItem', ['choose', 'hidePopover:load-weight-env-menu'], { menuId: 'load-weight-env-menu', submenu: '', itemId: 'load-weight-env-option-2' }],
-  ] as const;
-  for (const [file, name, pressed, props] of cases) {
-    test(`${name}: Return presses the row and closes its menu; a chord or a repeat does not`, () => {
-      const item = contractComponent(file, name);
-      const run = (args: unknown[]) => {
-        const { calls, scope } = recorder(['choose', 'press', 'hidePopover', 'togglePopover', 'preventDefault', 'stopPropagation'], props);
-        item.call('rowKey', item.state(), scope, args);
-        return calls;
-      };
-      expect(run(key('Enter'))).toEqual(['preventDefault', 'stopPropagation', ...pressed]);
-      expect(run(key('Enter', { repeat: true }))).toEqual(['preventDefault', 'stopPropagation']);
-      expect(run(key('Enter', { metaKey: true }))).toEqual([]);
-      expect(run(key(' '))).toEqual([]);
-    });
-  }
-  for (const name of ['CoreMenu', 'TraitsMenu']) {
-    test(`${name} (Settings' selects and trait menus): Return chooses the focused option and closes the menu`, () => {
-      const menu = contractComponent('settings-rows.contract', name);
-      const { calls, scope } = recorder(['choose', 'hidePopover', 'preventDefault', 'stopPropagation'], { menuId: 'time-format-menu' });
-      menu.call('rowKey', menu.state(), scope, ['24-hour', ...key('Enter')]);
-      expect(calls).toEqual(['preventDefault', 'stopPropagation', 'choose:24-hour', 'hidePopover:time-format-menu']);
-    });
-  }
-  test('a Connections row that opens a submenu toggles it on Return, as its click does', () => {
-    const item = contractComponent('settings-b-kit.contract', 'CnMenuItem');
-    const { calls, scope } = recorder(['choose', 'hidePopover', 'togglePopover', 'preventDefault', 'stopPropagation'], { menuId: 'machine-menu', submenu: 'icon-menu', itemId: 'icon' });
-    item.call('rowKey', item.state(), scope, key('Enter'));
-    expect(calls).toEqual(['preventDefault', 'stopPropagation', 'choose', 'togglePopover:icon-menu,{"source":"icon"}']);
+  // The Mac host presses a focused menuitem, menuitemradio or option on Return as on Space (its popovertarget
+  // included), so these rows take no key of their own: a handler that pressed too would press twice.
+  test('the + menu rows, the snooze rows and the kits leave Return to the host', async () => {
+    const read = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
+    const rows = [
+      ['r4-surfaces.contract', 'popovertarget="r4-add-surface" popovertargetaction="hide" focus=', 1],
+      ['browser-surface.contract', 'button id="add-surface-browser" press=choose popovertarget="r4-add-surface" popovertargetaction="hide" focus=', 1],
+      ['sidebar-row.contract', 'popovertarget=popId popovertargetaction="hide" hover=hover', 1],
+      ['settings-kit.contract', 'button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" hover=hover', 1],
+      ['settings-b-kit.contract', 'popovertargetaction=(submenu != "" ? "toggle" : "hide") hover=hover', 1],
+      ['settings-rows.contract', 'press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover', 2],
+    ] as const;
+    for (const [file, row, count] of rows) {
+      const source = await read(file);
+      expect(source.split(row).length - 1).toBe(count);
+      expect(source).not.toContain('kmReturn');
+    }
   });
   test('the composer\'s Run on and Workspace rows: Return on the focused row sends its press', () => {
     const menus = contractComponent('composer-controls.contract', 'ComposerMenus');
@@ -117,15 +98,6 @@ describe('Return on a focused menu or launcher row presses it', () => {
     // The popup itself (no row focused) and a chord press nothing.
     expect(run('composer-menu', key('Enter'))).toEqual([]);
     expect(run('workspace-local', key('Enter', { metaKey: true }))).toEqual([]);
-  });
-  test('the + menu rows, the snooze rows and the kits carry the handler', async () => {
-    const read = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
-    expect(await read('r4-surfaces.contract')).toContain('popovertarget="r4-add-surface" popovertargetaction="hide" key=rowKey');
-    expect(await read('browser-surface.contract')).toContain('button id="add-surface-browser" press=choose popovertarget="r4-add-surface" popovertargetaction="hide" key=rowKey');
-    expect(await read('sidebar-row.contract')).toContain('popovertarget=popId popovertargetaction="hide" key=rowKey');
-    expect(await read('settings-kit.contract')).toContain('button id=itemId press=choose popovertarget=menuId popovertargetaction="hide" key=rowKey');
-    expect(await read('settings-b-kit.contract')).toContain('popovertargetaction=(submenu != "" ? "toggle" : "hide") key=rowKey');
-    expect((await read('settings-rows.contract')).split('popovertargetaction="hide" key=rowKey(option.value)').length - 1).toBe(2);
   });
   test('a launcher row: Return opens its surface and stays out of the launcher\'s own Enter', () => {
     const row = contractComponent('shell-panels.contract', 'SurfaceRow');

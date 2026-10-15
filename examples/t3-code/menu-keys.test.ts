@@ -343,7 +343,7 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     expect(value(shown, { ...state, hovering: false })).toBe(false);
     expect(value(shown, { ...state, hovering: true })).toBe(true);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
-    expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" key=rowKey hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
+    expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
     expect(item).toContain('background-color=(lit ?');
     expect(item).not.toMatch(/\b(inside|pointer): action|\b(inside|pointer)=/);
     const actions = await component('sidebar-row.contract', 'SidebarCardActions');

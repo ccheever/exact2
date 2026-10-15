@@ -121,9 +121,8 @@ component SurfaceLauncher
   derive ids = surfaces.filter((entry) => entry.available).map((entry) => entry.id)
   derive lit = ids.length == 0 ? -1 : min(highlight, ids.length - 1)
   derive letters = surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).concat(surfaces.filter((entry) => entry.available).map((entry) => entry.letter))
-  // focusOnMount calls `node.focus()` as the launcher mounts, whatever held the focus. `autofocus` alone takes it
-  // only when nothing does, and on macOS a launcher mounted again may not get it at all
-  // (issues/20261014-macos-a-reinserted-autofocus-node-is.md): its first layout focuses it here, every mount.
+  // focusOnMount calls `node.focus()` as the launcher mounts, whatever held the focus. `autofocus` takes it only
+  // when nothing does (HTML's rule), so the launcher's first layout focuses it here, on every mount.
   state placed = false
   action laidOut(width: number, height: number)
     if not placed and width > 0 and height > 0

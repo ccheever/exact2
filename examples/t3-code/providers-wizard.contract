@@ -413,7 +413,7 @@ component HubRemoveDialog
   derive dialogTargets = ["usage-hub-remove-cancel", "usage-hub-remove-confirm"]
   view
     column class=PvOverlay testId="usage-hub-remove-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove ${hub.label}?` testId="usage-hub-remove-dialog" id="usage-hub-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("usage-hub-remove-dialog") key=dialogFallback("usage-hub-remove-dialog", dialogTargets)
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label=`Remove ${hub.label}?` testId="usage-hub-remove-dialog" id="usage-hub-remove-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("usage-hub-remove-dialog") key=dialogFallback("usage-hub-remove-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract).
         FocusGuard(guardId="usage-hub-remove-guard-start", targets=dialogTargets, popup="usage-hub-remove-dialog")
         DialogOpenFocus(target="usage-hub-remove-cancel")

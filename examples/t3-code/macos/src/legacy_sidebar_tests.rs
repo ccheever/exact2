@@ -334,11 +334,8 @@ fn options_steppers_are_no_tab_stops_so_a_clamp_never_strands_the_focus() {
             matches!(tab_index.as_deref(), Some("Int(-1)" | "Float(-1.0)")),
             "{id}: {tab_index:?}"
         );
-        assert_eq!(
-            prop(runner, id, "retainFocus"),
-            Some("Bool(true)".to_owned()),
-            "{id}"
-        );
+        // A clicked button takes no focus on the Mac whatever its tabindex, so the field keeps it with no retainFocus.
+        assert_eq!(prop(runner, id, "retainFocus"), None, "{id}");
     }
     assert_eq!(prop(runner, "legacy-preview-count", "tabIndex"), None);
 }

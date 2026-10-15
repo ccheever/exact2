@@ -17,8 +17,8 @@ fn kmOpenKey(k: string): bool = k == "Enter" or k == " " or k == "Space"
 // ↓ and ↑ on a trigger open its menu too, at the first and the last item (Base UI Menu's trigger).
 fn kmArrow(k: string): bool = k == "ArrowDown" or k == "ArrowUp"
 fn kmTriggerKey(k: string): bool = kmArrow(k) or kmOpenKey(k)
-// Return on a focused row presses it, as Base UI's MenuItem and a native menu do. The Mac host leaves Return to a
-// dialog's default button (LLP 1115.000 D7.3) and a focused button ignores it, so a painted menu's row handles it.
+// Return on a focused row presses it, as Base UI's MenuItem and a native menu do. The Mac host presses a focused
+// menuitem or option on Return itself; a row whose Return does more than its press handles the key with this.
 fn kmReturn(k: string, e: KeyboardEvent): bool = k == "Enter" and not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
 // One eligible endpoint, or an empty target when there are no rows. Never focus a wrapper
 // for public popover opening: AppKit needs the actual menu item before tracking begins.

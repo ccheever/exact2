@@ -172,7 +172,7 @@ component ComposerImageDialog
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="chip-image-preview" id="chip-image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-image-preview") key=keys
       ControlGuard(guardId="chip-image-preview-guard-start", targets=dialogTargets, popup="chip-image-preview")
       DialogOpenFocus(target="chip-image-close")
-      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 retainFocus=true position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
+      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
       row width=(windowWidth * 0.92) align-items="center" justify-content="space-between" pointer-events="none"
         box pointer-events="auto"
           PreviewStep(label="Previous media", shown=preview.many, flip=true, press=command("editorlocal:chip-image-previous", "", "", 0), elementId="chip-image-previous", testId="chip-image-previous")
