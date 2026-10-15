@@ -55,7 +55,6 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let text = files.first().map(|(_, t)| t.clone()).unwrap_or_default();
     // The design it is planned against: the app's, or none yet.
     let current = match app
         .as_deref()
@@ -79,24 +78,11 @@ pub fn run(args: &[String]) -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let imported = match kind.as_str() {
-        "shadcn" => shadcn::import(
-            &text,
-            prefix.as_deref().unwrap_or("shadcn"),
-            &design,
-            &contract_lower::tamber_vocab(),
-        ),
-        "tailwind" => tailwind::import(&text, prefix.as_deref().unwrap_or("tw"), &design),
-        "dtcg" => dtcg::import(&files, prefix.as_deref().unwrap_or("dtcg"), &design),
-        "astryx" => astryx::import(
-            &text,
-            prefix.as_deref().unwrap_or("astryx"),
-            &design,
-            &contract_lower::tamber_vocab(),
-        ),
-        other => {
+    let imported = match import_with(&kind, &files, prefix.as_deref(), &design) {
+        Some(i) => i,
+        None => {
             eprintln!(
-                "contract tamber import: no importer `{other}` (shadcn, tailwind, dtcg, astryx)"
+                "contract tamber import: no importer `{kind}` (shadcn, tailwind, dtcg, astryx)"
             );
             return ExitCode::from(2);
         }
@@ -112,6 +98,63 @@ pub fn run(args: &[String]) -> ExitCode {
             }
             ExitCode::from(1)
         }
+    }
+}
+
+/// The importer `kind` over the source's files, planned against `design`;
+/// `None` when there is no such importer.
+fn import_with(
+    kind: &str,
+    files: &[(String, String)],
+    prefix: Option<&str>,
+    design: &exact_tamber::Design,
+) -> Option<Result<Import, Vec<exact_tamber::Diagnostic>>> {
+    let text = files.first().map(|(_, t)| t.as_str()).unwrap_or_default();
+    let vocab = contract_lower::tamber_vocab();
+    Some(match kind {
+        "shadcn" => shadcn::import(text, prefix.unwrap_or("shadcn"), design, &vocab),
+        "tailwind" => tailwind::import(text, prefix.unwrap_or("tw"), design),
+        "dtcg" => dtcg::import(files, prefix.unwrap_or("dtcg"), design),
+        "astryx" => astryx::import(text, prefix.unwrap_or("astryx"), design, &vocab),
+        _ => return None,
+    })
+}
+
+/// The design server's `import-plan` `{kind, source, name?, prefix?}` (LLP
+/// 1122 T1a), for the wire's `import`: the source's text, as a person picked
+/// it in the tool, planned against `current`, the app's design as it is.
+/// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
+/// its modes). Astryx is not taken here: resolving its package needs a Bun
+/// install, which its CLI does.
+pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
+    let bad = |m: &str| json!({"message": m});
+    let field = |k: &str| match &request[k] {
+        Value::Null => Ok(None),
+        Value::String(s) => Ok(Some(s.clone())),
+        _ => Err(bad(&format!("`{k}` is a string"))),
+    };
+    let kind = field("kind")?.ok_or_else(|| bad("`kind` is shadcn, tailwind or dtcg"))?;
+    if kind == "astryx" {
+        return Err(bad("Astryx resolves its theme package with a Bun install: run `bun exact.mjs tamber import astryx <source> <url> --app <app>`"));
+    }
+    let source = field("source")?.ok_or_else(|| bad("`source` is the file's text"))?;
+    let name = field("name")?.unwrap_or_else(|| "source".into());
+    let design = exact_tamber::parse(current).map_err(|all| {
+        json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
+    })?;
+    match import_with(
+        &kind,
+        &[(name, source)],
+        field("prefix")?.as_deref(),
+        &design,
+    ) {
+        None => Err(bad(&format!(
+            "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
+        ))),
+        Some(Err(all)) => Err(
+            json!({"message": "the source is refused", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()}),
+        ),
+        Some(Ok(import)) => Ok(import_json(&kind, &import)),
     }
 }
 

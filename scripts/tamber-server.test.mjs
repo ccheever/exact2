@@ -253,7 +253,7 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     const base = `http://127.0.0.1:${port}`;
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
     const hello = await (await fetch(`${base}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}' })).json();
-    expect(hello.ok.protocol).toBe('tamber/1.0');
+    expect(hello.ok.protocol).toBe('tamber/1.1');
     expect(Object.keys(hello.ok.files)).toContain('app.tamber');
   } finally {
     if (dev.exitCode === null && dev.signalCode === null) {
@@ -454,3 +454,137 @@ test("an import is held as proposals: the tokens as one, each role override apar
   expect(said).toContain('nothing to propose: the design has every mapped value already');
   stream.close();
 }, 120_000);
+
+// LLP 1122 T1's server additions (`tamber/1.1`): `history`, `revert`,
+// `import`, and the design tool's files.
+test('the design tool is served to a local request only, its base at its path', async () => {
+  const port = 8802;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }, { origin: `http://192.168.1.20:${port}` }], port);
+  const toolDir = mkdtempSync(join(tmpdir(), 'exact-tamber-tool-'));
+  const unbuilt = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, toolDir: join(toolDir, 'none') });
+  const local = { host: `127.0.0.1:${port}` };
+  const missing = await ask(unbuilt, gate, { path: '/__tamber/tool/', headers: local });
+  expect(missing.status).toBe(404);
+  expect(missing.body.message).toContain('bun exact.mjs tamber tool');
+  unbuilt.close();
+  writeFileSync(join(toolDir, 'index.html'), '<!doctype html>\n<base href="/">\n<script type="module" src="./app.js"></script>\n');
+  writeFileSync(join(toolDir, 'app.js'), 'export {};\n');
+  const tamber = tamberServer({ appDir: '/nowhere', spawnServe: fakeServe, log: () => {}, toolDir });
+  const raw = async (path, extra = {}) => {
+    const req = Object.assign(new PassThrough(), { method: 'GET', headers: local, socket: { remoteAddress: '127.0.0.1' }, ...extra });
+    let status = 0, head = {}, text = '';
+    const res = { writeHead(s, h = {}) { status = s; head = h; }, write(t) { text += t; }, end(t) { text += t ?? ''; } };
+    req.end();
+    await tamber.handle(req, res, new URL(path, 'http://x'), gate.check(req));
+    return { status, head, text };
+  };
+  expect((await raw('/__tamber/tool')).head.location).toBe('/__tamber/tool/');
+  const page = await raw('/__tamber/tool/');
+  expect(page.status).toBe(200);
+  expect(page.head['content-type']).toContain('text/html');
+  expect(page.text).toContain('<base href="/__tamber/tool/">');
+  expect((await raw('/__tamber/tool/app.js')).head['content-type']).toBe('text/javascript');
+  // No dot path, no way out, no write, and nothing to a request from off this machine.
+  for (const path of ['/__tamber/tool/.exact-build.json', '/__tamber/tool/a%2f..%2f..%2fsecret', '/__tamber/tool/nope.js']) expect((await raw(path)).status).toBe(404);
+  expect((await raw('/__tamber/tool/', { method: 'POST' })).status).toBe(404);
+  expect((await raw('/__tamber/tool/', { headers: { host: `192.168.1.20:${port}` }, socket: { remoteAddress: '192.168.1.30' } })).status).toBe(404);
+  tamber.close();
+  rmSync(toolDir, { recursive: true, force: true });
+});
+
+test('history reads three design commits as token edits; a revert applies, is recomputed on moved files, and is refused', async () => {
+  const V1 = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
+  const V2 = V1.replace('#101010', '#202020');
+  const V3 = V2.replace('#000000', '#111111') + '  card = #303030\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-history-'));
+  const ada = { GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: { ...process.env, ...ada } });
+  writeFileSync(join(repo, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  g('init', '-q');
+  for (const [text, message] of [[V1, 'a design'], [V2, 'a darker edge'], [V3, 'ink and a card']]) {
+    writeFileSync(join(repo, 'app.tamber'), text);
+    g('add', '.'); g('commit', '-q', '-m', message);
+  }
+  // A commit that touches no design file is not the design's history.
+  writeFileSync(join(repo, 'notes.txt'), 'n\n'); g('add', '.'); g('commit', '-q', '-m', 'notes');
+  const sha = rev => g('rev-parse', rev).stdout.trim();
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    await wire.ready;
+    const at = `http://127.0.0.1:${port}`;
+    const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+    const call = async request => {
+      const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+      return { status: res.status, ...(await res.json()) };
+    };
+    const log = await call({ method: 'history' });
+    expect(log.status, JSON.stringify(log)).toBe(200);
+    expect(log.ok.commits.map(c => c.message.split('\n')[0])).toEqual(['ink and a card', 'a darker edge', 'a design']);
+    expect(log.ok.more).toBe(false);
+    const [third, second, first] = log.ok.commits;
+    expect(second).toMatchObject({ commit: sha('HEAD~2'), author: 'Ada', email: 'ada@example.test' });
+    expect(second.files).toHaveLength(1);
+    expect(second.files[0]).toMatchObject({ file: 'app.tamber', status: 'M', edits: [{ what: 'token', name: 'edge', when: [], before: '#101010', after: '#202020' }] });
+    expect(second.files[0].diff).toContain('+  edge = #202020');
+    expect(third.files[0].edits.map(e => [e.name, e.before, e.after])).toEqual([['ink', '#000000', '#111111'], ['card', null, '#303030']]);
+    expect(first.files[0].status).toBe('A');
+    expect(first.files[0].edits.map(e => [e.what, e.name])).toEqual([['other', 'name'], ['token', 'ink'], ['token', 'edge']]);
+    const page = await call({ method: 'history', limit: 1, skip: 1 });
+    expect(page.ok.commits.map(c => c.message.split('\n')[0])).toEqual(['a darker edge']);
+    expect(page.ok.more).toBe(true);
+    expect((await call({ method: 'history', limit: 0 })).status).toBe(400);
+    // Refused: the file moved on the commit's own edit.
+    const digest = () => createHash('sha256').update(readFileSync(join(repo, 'app.tamber'))).digest('hex');
+    const moved = await call({ method: 'transaction', client: 'agent', files: { 'app.tamber': digest() }, ops: [{ op: 'set-token', name: 'edge', value: '#2a2a2a' }] });
+    expect(moved.status).toBe(200);
+    expect((await call({ method: 'revert', commit: second.commit })).status).toBe(400);
+    const refused = await call({ method: 'revert', client: 'design-tool:ada', commit: second.commit });
+    expect(refused.status).toBe(409);
+    expect(refused.error.message).toContain('edge');
+    expect(refused.error.refused).toEqual([{ file: 'app.tamber', edit: { what: 'token', name: 'edge', when: [], before: '#101010', after: '#202020' }, now: '#2a2a2a', why: 'changed since' }]);
+    // Recomputed: the third commit reverted on a file moved since, the later edit kept.
+    const held = await call({ method: 'revert', client: 'design-tool:ada', commit: third.commit });
+    expect(held.status, JSON.stringify(held)).toBe(200);
+    expect(held.ok.review.revert).toMatchObject({ commit: third.commit, subject: 'ink and a card', moved: ['app.tamber'] });
+    expect(held.ok.ops.map(o => o.op.op)).toEqual(['set-token', 'remove-token']);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toContain('card');
+    expect((await call({ method: 'accept', client: 'design-tool:ada', proposal: held.ok.proposal })).status).toBe(200);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#101010', '#2a2a2a'));
+    // Applied: the edit put back as the commit left it, then reverted.
+    await call({ method: 'transaction', client: 'agent', files: { 'app.tamber': digest() }, ops: [{ op: 'set-token', name: 'edge', value: '#202020' }] });
+    const again = await call({ method: 'revert', client: 'design-tool:ada', commit: second.commit });
+    expect(again.status, JSON.stringify(again)).toBe(200);
+    expect((await call({ method: 'accept', client: 'design-tool:ada', proposal: again.ok.proposal })).status).toBe(200);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1);
+    const nothing = await call({ method: 'revert', client: 'design-tool:ada', commit: second.commit });
+    expect(nothing.status).toBe(409);
+    expect(nothing.error.message).toContain('nothing to revert');
+    expect((await call({ method: 'revert', client: 'design-tool:ada', commit: sha('HEAD') })).error.message).toContain('changed no design file');
+    expect((await call({ method: 'revert', client: 'design-tool:ada', commit: '--all' })).status).toBe(400);
+    expect((await call({ method: 'revert', client: 'design-tool:ada', commit: 'f'.repeat(40) })).status).toBe(404);
+    // An import the tool starts from a file's text, held with its review.
+    const css = readFileSync(resolve(ROOT, 'tamber/tests/import/shadcn-neutral.css'), 'utf8');
+    expect((await call({ method: 'import', kind: 'shadcn', source: css })).status).toBe(400);
+    const imported = await call({ method: 'import', client: 'design-tool:ada', kind: 'shadcn', source: css, name: 'globals.css' });
+    expect(imported.status, JSON.stringify(imported)).toBe(200);
+    expect(imported.ok.client).toBe('design-tool:ada');
+    expect(imported.ok.ops).toHaveLength(28);
+    expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
+    expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1);
+    const astryx = await call({ method: 'import', client: 'design-tool:ada', kind: 'astryx', source: '{}' });
+    expect(astryx.status).toBe(400);
+    expect(astryx.error.message).toContain('bun exact.mjs tamber import astryx');
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);

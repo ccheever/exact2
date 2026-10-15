@@ -35,6 +35,10 @@
 //!   digest it carries is checked as a transaction's is.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
 //!   design or of the `file` it names.
+//! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
+//!   `revert-plan` read texts the wire took from git (`tamber_history.rs`),
+//!   and `import-plan` plans an import from a source's text against the
+//!   design (`tamber_import.rs`). None writes.
 //! - **A request** is one JSON object on a line of at most 1 MiB; a field
 //!   of the wrong type is an error, not absent.
 
@@ -48,7 +52,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
 
 /// The protocol this server speaks (D13: minor versions only add).
-pub const PROTOCOL: &str = "tamber/1.0";
+pub const PROTOCOL: &str = "tamber/1.1";
 
 /// The longest request line it reads; a longer one is refused whole.
 const LINE_LIMIT: usize = 1 << 20;
@@ -495,6 +499,15 @@ impl Server {
         Ok(out)
     }
 
+    /// Each design file there now, its path and text.
+    fn texts(&self) -> Result<Vec<(String, String)>, Value> {
+        Ok(self
+            .read_files(true)?
+            .into_iter()
+            .map(|(f, t, _)| (f, t))
+            .collect())
+    }
+
     fn handle(&mut self, line: &str) -> Vec<Value> {
         let request: Value = match serde_json::from_str(line) {
             Ok(v @ Value::Object(_)) => v,
@@ -518,6 +531,17 @@ impl Server {
             Some("propose") => vec![reply(self.transaction(&request, false))],
             Some("transaction") => self.commit_reply(&request, reply, false),
             Some("undo") => self.commit_reply(&request, reply, true),
+            // The wire's own, for `history`, `revert` and `import`.
+            Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
+            Some("revert-plan") => {
+                vec![reply(self.texts().and_then(|now| {
+                    crate::tamber_history::revert_plan(&request, &now)
+                }))]
+            }
+            Some("import-plan") => vec![reply(self.texts().and_then(|now| {
+                let design = now.iter().find(|(f, _)| *f == self.design).map(|(_, t)| t);
+                crate::tamber_import::plan(&request, design.map_or("tamber app\n", |t| t))
+            }))],
             other => vec![reply(Err(
                 json!({"message": format!("no method {}", other.unwrap_or("(none)"))}),
             ))],

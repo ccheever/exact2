@@ -33,6 +33,20 @@
 //     (an import's offers by item, its unmapped report and count).
 //   - A conflict names who last changed each file that moved (`by`: a
 //     client, or "changed on disk").
+//   - `history` `{limit?, skip?}` (`tamber/1.1`, LLP 1122 D9): the git log of
+//     the design's files, newest first (20, at most 100), each commit's
+//     files with their diff and their token-level edits (`what`, `name`,
+//     `when`, `before`, `after`), scripts/tamber-history.mjs reading git.
+//   - `revert` `{commit, client}`: that commit's inverse, planned on the
+//     files as they are now and held as a proposal (its `review.revert`
+//     says which files moved since). Refused, with each edit that cannot
+//     apply (`refused`), when the files have moved there.
+//   - `import` `{kind, source, name?, prefix?, client}` (LLP 1122 T1a): a
+//     shadcn or Tailwind stylesheet or a DTCG file's text, imported as `bun
+//     exact.mjs tamber import` does and held with its `review`. Astryx keeps
+//     its CLI: resolving its package needs a Bun install.
+// - `GET /__tamber/tool/…`: the design tool's built files (`TOOL_DIST`), to
+//   a local request only, its pages' base set to that path.
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
 //
 // Mounted by both dev loops (host/web/dev.mjs, host/web-js/dev.mjs) when the
@@ -47,13 +61,18 @@ import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 import { designSession } from './tamber-commit.mjs';
+import { designCommit, designLog } from './tamber-history.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
 const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop']);
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop', 'history', 'revert', 'import']);
+/** Where `bun exact.mjs tamber tool` builds the design tool, and the wire
+ * serves it from. */
+export const TOOL_DIST = resolve(ROOT, 'target/design-tool-web');
+const TOOL_TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.plan': 'application/octet-stream' };
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -81,7 +100,7 @@ function spawnContract(appDir) {
 /** The wire for one app: `handle(req, res, url, access)` answers the
  * `/__tamber` paths (true when it did); `close()` stops the server and
  * resolves once it has let go of the design's lock. */
-export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50 }) {
+export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50, toolDir = TOOL_DIST }) {
   const token = randomBytes(32).toString('hex');
   // This run's name on every event: a number from another run means nothing.
   const epoch = randomBytes(8).toString('hex');
@@ -240,7 +259,31 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     try { const v = JSON.parse(text); return v && typeof v === 'object' && !Array.isArray(v) ? v : null; } catch { return null; }
   };
 
+  /** The design tool's files, to a local request only. */
+  function tool(req, res, url, access) {
+    if (!['GET', 'HEAD'].includes(req.method) || !access.local) return notFound(res);
+    if (url.pathname === '/__tamber/tool') { res.writeHead(308, { location: '/__tamber/tool/', 'cache-control': 'no-store' }); return res.end(); }
+    let rel;
+    try { rel = decodeURIComponent(url.pathname.slice('/__tamber/tool/'.length)); } catch { return notFound(res); }
+    // No dot segment (the build's own `.gen`, `.exact`), no way out.
+    if (rel.split('/').some(s => s.startsWith('.')) || /[\\\0]/.test(rel)) return notFound(res);
+    let file = resolve(toolDir, rel || 'index.html');
+    if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
+    try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
+    let bytes;
+    try { bytes = readFileSync(file); } catch {
+      if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
+      return notFound(res);
+    }
+    const type = TOOL_TYPES[file.slice(file.lastIndexOf('.'))] ?? 'application/octet-stream';
+    // Its pages anchor their files at the root; here that is this path.
+    if (type.startsWith('text/html')) bytes = Buffer.from(bytes.toString('utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
+    res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
+    res.end(req.method === 'HEAD' ? undefined : bytes);
+  }
+
   async function handle(req, res, url, access) {
+    if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { tool(req, res, url, access); return true; }
     if (url.pathname === '/__tamber/token') {
       if (req.method !== 'GET' || !access.local) notFound(res);
       else json(res, 200, { token });
@@ -320,6 +363,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
+    if (request.method === 'history') return history(request);
+    if (request.method === 'revert') return needsClient(request) ?? revert(request);
+    if (request.method === 'import') return needsClient(request) ?? importHeld(request);
     if (request.method === 'drop') {
       const refused = needsClient(request);
       if (refused) return refused;
@@ -450,6 +496,56 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done;
   }
 
+  const designRel = () => relative(appDir, designPath(appDir) ?? resolve(appDir, design));
+  /** The git log of the design's files, each commit's files as edits. */
+  async function history(request) {
+    const { limit = 20, skip = 0 } = request;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { status: 400, error: { message: '`limit` is a count from 1 to 100' } };
+    if (!Number.isInteger(skip) || skip < 0) return { status: 400, error: { message: '`skip` is a count' } };
+    let log;
+    try { log = designLog(appDir, designRel(), { limit, skip }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    if (!log.ok) return log;
+    const commits = [];
+    for (const c of log.ok.commits) {
+      const compared = await ask({ method: 'compare', pairs: c.files.map(({ file, before, after }) => ({ file, before, after })) });
+      const why = compared.ok ? null : compared.error?.message ?? 'not compared';
+      commits.push({ ...c, files: c.files.map(({ before, after, ...f }, i) => {
+        const read = compared.ok?.files[i];
+        return { ...f, edits: read?.edits ?? null, ...(read?.refused || why ? { refused: read?.refused ?? why } : {}) };
+      }) });
+    }
+    return { ok: { commits, more: log.ok.more } };
+  }
+  /** A past commit's inverse on today's files, held for review. */
+  async function revert(request) {
+    let c;
+    try { c = designCommit(appDir, designRel(), request.commit); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    if (!c.ok) return c;
+    if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
+    const planned = await ask({ method: 'revert-plan', pairs: c.ok.files.map(({ file, before, after }) => ({ file, before, after })) });
+    if (!planned.ok) return planned;
+    const { ops, already, conflicts, moved } = planned.ok;
+    const short = c.ok.commit.slice(0, 12);
+    if (conflicts.length) {
+      const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
+      return { status: 409, error: { message: `revert of ${short} refused: ${named.join('; ')}`, refused: conflicts } };
+    }
+    if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
+    const subject = c.ok.message.split('\n')[0];
+    return hold(request.client, ops, undefined, undefined, { revert: { commit: c.ok.commit, subject, moved, already } });
+  }
+  /** An import the tool started: planned by the server from the source's
+   * text, held with its review. */
+  async function importHeld(request) {
+    for (const k of ['kind', 'source']) if (typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
+    for (const k of ['name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
+    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, prefix: request.prefix });
+    if (!planned.ok) return planned;
+    const { ops, review } = importReview(planned.ok);
+    if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: 'nothing to propose: the design has every mapped value already' } };
+    return hold(request.client, ops, undefined, undefined, review);
+  }
+
   function close() {
     clearTimeout(timer);
     clearInterval(expiry);
@@ -532,6 +628,20 @@ export async function op(argv) {
   return res.ok ? 0 : 1;
 }
 
+/** An importer's proposal (`contract tamber import`'s JSON) as one held
+ * proposal's operations: the tokens, then each role override as its own
+ * items, for the review to leave off until ticked (accepting some items
+ * recomputes); and the review the tool reads. */
+function importReview(imported) {
+  const ops = [...imported.ops];
+  const offers = imported.offers.map(o => {
+    const items = o.ops.map((op, k) => ops.length + k);
+    ops.push(...o.ops);
+    return { role: o.role, token: o.token, items, note: o.note };
+  });
+  return { ops, review: { importer: imported.importer, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length } };
+}
+
 /** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]
  * [--prefix <p>]`: another system's theme (LLP 1121 D14) as held proposals
  * on the design server: its transaction as one, each role override it
@@ -555,20 +665,13 @@ export async function importTheme(argv) {
   const { source: n, mapped, reported } = imported.counted;
   console.log(`${kind}: ${n} source values, ${mapped} mapped, ${reported} reported`);
   for (const u of imported.unmapped) console.log(`  unmapped ${u.block} ${u.name}: ${u.value || '(empty)'} (${u.why}${u.token ? `; would be ${u.token}` : ''})`);
-  // One proposal: the tokens, then each role override as its own items, for
-  // the review to leave off until ticked (accepting some items recomputes).
-  const ops = [...imported.ops];
-  const offers = imported.offers.map(o => {
-    const items = o.ops.map((op, k) => ops.length + k);
-    ops.push(...o.ops);
-    return { role: o.role, token: o.token, items, note: o.note };
-  });
+  const { ops, review } = importReview(imported);
+  const { offers } = review;
   const offered = offers.flatMap(o => o.items);
   for (const o of offers) console.log(`  offer ${o.role} → ${o.token}${o.items.length ? `: items ${o.items.join(', ')}` : `: ${o.note}`}`);
   // The source as the design has it already: nothing to propose; a role
   // override declined before is not offered again on its own.
   if (!imported.ops.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
-  const review = { importer: kind, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length };
   const res = await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'propose', hold: true, client, ops, review }) });
   const held = await res.json();
   if (!held.ok) { console.error(`tamber import: ${held.error?.message}`); return 1; }

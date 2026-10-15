@@ -61,3 +61,5 @@ What to know:
 - **Edit it while it runs** (development only): the dev loop serves
   `/__tamber`. `bun exact.mjs tamber op <url> '{"method":"describe"}'` reads;
   a `transaction` names its `client` and the file's digest, and writes a line.
+  `{"method":"history"}` reads the design's git log as token edits, and
+  `revert` holds a past commit's inverse for review.
