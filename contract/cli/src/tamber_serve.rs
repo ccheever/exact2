@@ -21,10 +21,11 @@
 //!   and is overwritten; the digests narrow that window, they do not close
 //!   it. Development builds only, on macOS and Linux.
 //! - **At start** a record is completed: every rename judged first, then
-//!   done when its temporary file has the recorded digest, already done
-//!   when the file has it. A record that names anything else, or cannot be read, is kept
-//!   and the server refuses to start. Temporary files no record names are
-//!   removed.
+//!   done when its temporary file has the recorded digest and the file the
+//!   text it replaces, already done when the file has the new text. A set
+//!   none of which landed, over a file changed since, is withdrawn. A
+//!   record that names anything else, or cannot be read, is kept and the
+//!   server refuses to start. Temporary files no record names are removed.
 //! - **The inverse** a transaction returns is an id, unique to this run:
 //!   `undo` with it applies the restores the server issued, only while each
 //!   file it restores is as the write left it. The last 256 are kept. A
@@ -145,19 +146,21 @@ struct Issued {
 type Snapshot = Vec<(String, String, String)>;
 
 /// One rename the journal records: the temporary file in `.exact`, the
-/// design file it becomes, and that new text's digest.
+/// design file it becomes, that new text's digest, and the digest of the
+/// text it replaces.
 struct Rename {
     tmp: String,
     file: String,
     digest: String,
+    before: String,
 }
 
 struct Server {
     /// The app's directory, canonical.
     dir: PathBuf,
-    /// `.exact` as the lock was taken in it: a directory put in its place
-    /// later is refused.
-    state_id: (u64, u64),
+    /// The lock file held, by device and inode: a `.exact` put in place of
+    /// the one it is in is refused.
+    lock_id: (u64, u64),
     /// The design's files, by path from the app's directory.
     files: Vec<String>,
     /// Held while the server runs: the one writer.
@@ -270,6 +273,8 @@ impl Server {
                 .map_err(|e| format!("{}: {e}", state.display()))?,
             Err(e) => return Err(format!("{}: {e}", state.display())),
         }
+        // `.exact`'s entry durable, whichever start made it.
+        sync_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let lock = no_follow(OpenOptions::new().create(true).truncate(false).write(true))
             .open(state.join("tamber.lock"))
             .map_err(|e| format!("the lock: {e}"))?;
@@ -296,11 +301,12 @@ impl Server {
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let state_id = std::fs::symlink_metadata(&state)
+        let lock_id = lock
+            .metadata()
             .map(|m| identity(&m))
-            .map_err(|e| format!("{}: {e}", state.display()))?;
+            .map_err(|e| format!("the lock: {e}"))?;
         let server = Server {
-            state_id,
+            lock_id,
             dir,
             files,
             _lock: lock,
@@ -311,8 +317,13 @@ impl Server {
             next: 0,
             client: None,
         };
+        server.same_state()?;
         server.recover()?;
-        server.sweep();
+        // A journal's removal flushed before its temporaries go: unflushed,
+        // the journal could come back without them.
+        if sync_dir(&server.state()).is_ok() {
+            server.sweep();
+        }
         Ok(server)
     }
 
@@ -320,18 +331,22 @@ impl Server {
         self.dir.join(".exact")
     }
 
-    /// Whether `.exact` is still the directory the lock is in.
+    /// Whether `.exact` is still the directory the held lock is in.
     fn same_state(&self) -> Result<(), String> {
-        match std::fs::symlink_metadata(self.state()) {
-            Ok(m) if m.is_dir() && identity(&m) == self.state_id => Ok(()),
+        let state = std::fs::symlink_metadata(self.state());
+        let lock = std::fs::symlink_metadata(self.state().join("tamber.lock"));
+        match (state, lock) {
+            (Ok(d), Ok(l)) if d.is_dir() && l.is_file() && identity(&l) == self.lock_id => Ok(()),
             _ => Err(".exact is not the directory this server locked; restart it".into()),
         }
     }
 
     /// Complete a transaction a crash left between its renames. Each rename
-    /// is done when its temporary file is there with the recorded digest, or
-    /// already done when the file has it; anything else keeps the journal
-    /// and refuses, for a person to look at.
+    /// is done when its temporary file is there with the recorded digest and
+    /// the file still has the text it replaces, or already done when the
+    /// file has the new text. A set none of which landed, with a file moved
+    /// since it was planned, is withdrawn, as its write would have been;
+    /// anything else keeps the journal and refuses, for a person to look at.
     fn recover(&self) -> Result<(), String> {
         let journal = self.state().join("tamber.journal");
         let Some(bytes) = read_plain(&journal).map_err(|e| format!("the journal: {e}"))? else {
@@ -344,11 +359,17 @@ impl Server {
         sync_dir(&self.state()).map_err(|e| format!(".exact: {e}; the journal is kept"))?;
         // Every rename judged before any is done: a set that cannot complete
         // is left as it is.
-        let mut pending = Vec::new();
+        let (mut pending, mut moved, mut landed) = (Vec::new(), Vec::new(), false);
         for r in &renames {
             let tmp = self.state().join(&r.tmp);
             match read_plain(&tmp)? {
-                Some(b) if digest(&b) == r.digest => pending.push((tmp, r)),
+                Some(b) if digest(&b) == r.digest => {
+                    let now = read_plain(&self.dir.join(&r.file))?.map(|b| digest(&b));
+                    match now {
+                        Some(d) if d == r.before || d == r.digest => pending.push((tmp, r)),
+                        _ => moved.push(r.file.as_str()),
+                    }
+                }
                 Some(_) => {
                     return Err(format!(
                         "{} is not the text the journal records for {}; the journal is kept",
@@ -362,8 +383,23 @@ impl Server {
                             r.file
                         ));
                     }
+                    landed = true;
                 }
             }
+        }
+        if !moved.is_empty() {
+            if landed {
+                return Err(format!(
+                    "{} changed since the journal's write was planned, and part of it landed; the journal is kept",
+                    moved.join(", ")
+                ));
+            }
+            eprintln!(
+                "contract tamber serve: {} changed since the journal's write was planned, and none of it landed: withdrawn",
+                moved.join(", ")
+            );
+            std::fs::remove_file(&journal).map_err(|e| format!("the journal: {e}"))?;
+            return sync_dir(&self.state()).map_err(|e| format!(".exact: {e}"));
         }
         for (tmp, r) in pending {
             std::fs::rename(&tmp, self.dir.join(&r.file))
@@ -392,6 +428,7 @@ impl Server {
                 tmp: field(v, "tmp")?,
                 file: field(v, "file")?,
                 digest: field(v, "digest")?,
+                before: field(v, "before")?,
             };
             if !temp_name(&r.tmp) {
                 return Err(format!("`{}` is no temporary file of this server", r.tmp));
@@ -788,6 +825,11 @@ impl Server {
                 tmp,
                 file: path.clone(),
                 digest: digest(text.as_bytes()),
+                before: expected
+                    .iter()
+                    .find(|(p, _)| p == path)
+                    .map(|(_, d)| d.clone())
+                    .unwrap_or_default(),
             });
         }
         // The temporaries' names durable before a record names them.
@@ -795,7 +837,7 @@ impl Server {
             clean(&renames);
             return Err(fail(format!(".exact: {e}")));
         }
-        let record = json!({"renames": renames.iter().map(|r| json!({"tmp": r.tmp, "file": r.file, "digest": r.digest})).collect::<Vec<_>>()});
+        let record = json!({"renames": renames.iter().map(|r| json!({"tmp": r.tmp, "file": r.file, "digest": r.digest, "before": r.before})).collect::<Vec<_>>()});
         let staged = state.join("tamber.journal.tmp");
         let published = no_follow(OpenOptions::new().write(true).create_new(true))
             .open(&staged)
@@ -846,7 +888,7 @@ impl Server {
         for (n, r) in renames.iter().enumerate() {
             if let Err(e) = std::fs::rename(state.join(&r.tmp), self.dir.join(&r.file)) {
                 eprintln!("contract tamber serve: {}: {e}", r.file);
-                return self.complete_or_exit();
+                return self.complete_or_exit(&renames);
             }
             // A test's crash between renames (the gate: a restart completes them).
             if n == 0 && std::env::var_os("EXACT_TAMBER_CRASH_AFTER_RENAME").is_some() {
@@ -859,7 +901,7 @@ impl Server {
             .and_then(|()| std::fs::remove_file(&journal).map_err(|e| format!("the journal: {e}")));
         if let Err(e) = done {
             eprintln!("contract tamber serve: {e}");
-            return self.complete_or_exit();
+            return self.complete_or_exit(&renames);
         }
         // A removed record that came back would be replayed over later
         // writes: its removal is flushed, or the server stops.
@@ -877,9 +919,22 @@ impl Server {
 
     /// After a write stopped with its journal on disk: complete it now, or
     /// stop serving and leave the journal for the next start.
-    fn complete_or_exit(&self) -> Result<(), Value> {
+    fn complete_or_exit(&self, renames: &[Rename]) -> Result<(), Value> {
+        // Done only when each file has its new text: a journal gone from
+        // view is not by itself a write completed.
+        let landed = || {
+            renames.iter().all(|r| {
+                read_plain(&self.dir.join(&r.file))
+                    .ok()
+                    .flatten()
+                    .is_some_and(|b| digest(&b) == r.digest)
+            })
+        };
         match self.recover() {
-            Ok(()) => Ok(()),
+            Ok(()) if landed() => Ok(()),
+            Ok(()) => {
+                self.stop("a write stopped part way, and its files do not have its new text".into())
+            }
             Err(e) => self.stop(format!(
                 "a write stopped part way and could not be completed: {e}"
             )),
