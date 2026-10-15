@@ -82,24 +82,28 @@ function chatClient() {
 }
 
 describe('a chat Markdown image is a "Preview <alt>" button that opens the expanded image dialog over its message\'s images', () => {
-  test('the press opens the gallery of the document\'s images in order (a video, a table cell\'s image left out), stepping round both ways', async () => {
+  test('the press opens the gallery of the document\'s images in order (a video left out, a table cell\'s kept), stepping round both ways', async () => {
     const { client } = chatClient();
     const chips = messageChips({ text: TEXT }, '/repo', [], '["t1","m1"]');
     expect(markdownDocument('["t1","m1"]')?.text).toBe(TEXT);
-    expect(markdownGallery(markdownDocument('["t1","m1"]')!).map(item => item.name)).toEqual(['Shot', 'Logo', 'Badge']);
+    expect(markdownGallery(markdownDocument('["t1","m1"]')!).map(item => item.name)).toEqual(['Shot', 'Logo', 'Badge', 'Cell']);
+    // An image inside a link's text is the link's (expandableMarkdownImageProps returns early inside an `<a>`).
+    expect(markdownGallery({ text: 'See [![Linked](l.png)](https://a.com) and ![Own](o.png)', root: '/repo', scope: {} }).map(item => item.name)).toEqual(['Own']);
     const shot = chips.find(chip => chip.kind === 'media' && chip.label === 'Shot')!;
     imagePreviewAction(client, 'image-md-open', shot.target, `${shot.owner}\nmedia-${shot.owner}-b1\n0`);
-    expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'media:/repo/docs/shot.png', imagePreviewName: 'Shot', imagePreviewPosition: '(1/3)',
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'media:/repo/docs/shot.png', imagePreviewName: 'Shot', imagePreviewPosition: '(1/4)',
       imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewTip: '/repo/docs/shot.png', imagePreviewReturn: 'media-["t1","m1"]-b1' });
     expect(JSON.parse(imagePreviewView(client).imagePreviewSource)).toMatchObject({ kind: 'image', name: 'Shot', reference: { kind: 'file', path: '/repo/docs/shot.png', relativePath: 'docs/shot.png' } });
     imagePreviewAction(client, 'image-step', '', 'next');
-    expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Logo', imagePreviewPosition: '(2/3)' });
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewName: 'Logo', imagePreviewPosition: '(2/4)' });
     imagePreviewAction(client, 'image-step', '', 'next');
-    expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'http://127.0.0.1:16483/badge.png', imagePreviewName: 'Badge', imagePreviewPosition: '(3/3)', imagePreviewTip: 'http://127.0.0.1:16483/badge.png' });
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'http://127.0.0.1:16483/badge.png', imagePreviewName: 'Badge', imagePreviewPosition: '(3/4)', imagePreviewTip: 'http://127.0.0.1:16483/badge.png' });
+    imagePreviewAction(client, 'image-step', '', 'next');
+    expect(imagePreviewView(client)).toMatchObject({ imagePreviewId: 'media:/repo/docs/cell.png', imagePreviewName: 'Cell', imagePreviewPosition: '(4/4)' });
     imagePreviewAction(client, 'image-step', '', 'next');
     expect(imagePreviewView(client).imagePreviewName).toBe('Shot');
     imagePreviewAction(client, 'image-step', '', 'previous');
-    expect(imagePreviewView(client).imagePreviewName).toBe('Badge');
+    expect(imagePreviewView(client).imagePreviewName).toBe('Cell');
     // The dialog's URL list holds the web image as written and the host paths signed through the thread.
     const urls = (await attachmentUrls(client, native, 0)).items.map(item => [item.id, item.url]);
     expect(urls).toContainEqual(['http://127.0.0.1:16483/badge.png', 'http://127.0.0.1:16483/badge.png']);
@@ -141,8 +145,8 @@ describe('a chat Markdown image is a "Preview <alt>" button that opens the expan
     expect(body).toContain('if kind == "video" or (brokenUrl != "" and brokenUrl == url)\n      MediaActions(source=source, tip=tip, local=local, elementId="", testId=(kind == "video" ? "markdown-video-actions" : "markdown-image-actions"))');
     expect(component('media-markdown.contract', 'MarkdownMedia')).toContain('open=local("image-md-open", target, `${owner}\\n${nodeId}\\n${galleryIds.map((id) => `media-${owner}-${id}`).indexOf(nodeId)}`), nodeId=nodeId)');
     const markdown = source('markdown.contract');
-    expect(markdown).toContain('standalone=true, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
-    expect(markdown).toContain('standalone=(run.icon == "standalone"), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
+    expect(markdown).toContain('standalone=true, link="", linkLabel="", favicon=false, owner=chip.owner, nodeId=`media-${chip.owner}-${block.id}`)');
+    expect(markdown).toContain('standalone=(run.icon == "standalone"), link=run.link, linkLabel=(run.label != "" ? run.label : run.text), favicon=(webLink(run.link) and linkLeads(runs, run.id, run.link)), owner=chip.owner, nodeId=`media-${chip.owner}-${blockId}-${run.id}`)');
     const button = component('media-actions.contract', 'MediaPreviewActions');
     expect(button).toMatch(/action pointerMenu\n\s+hover\(false\)\n\s+focus\(nodeId\)\n\s+local\("media-menu", source, "pointer"\)/);
     // Its tooltip is the hover layer's "code" tip at the button's frame, after Base UI's 600 ms (hover-layer.contract).

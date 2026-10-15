@@ -49,10 +49,20 @@ fn cell_width(runs: &[markdown_parse::Run], header: bool) -> f64 {
     width + 24.0
 }
 
-/// One cell as Markdown source: emphasis, code and links restored, pipes escaped.
+/// One cell as Markdown source: emphasis, code, links and images restored, pipes escaped.
 fn cell_markdown(runs: &[markdown_parse::Run]) -> String {
     let mut out = String::new();
     for run in runs {
+        if run.href.starts_with(IMAGE_MARK) {
+            // The image's `data-markdown-copy`, inside its link's anchor when it has one.
+            let (image, link) = media_link(&run.href);
+            let copy = image_markdown(&run.text, image);
+            out.push_str(&match cell_link(link) {
+                Some(href) => format!("[{copy}]({href})"),
+                None => copy,
+            });
+            continue;
+        }
         let skill_source = run.href.strip_prefix("t3-skill:");
         let mut text = if run.code {
             format!("`{}`", run.text)
@@ -88,8 +98,10 @@ fn cell_link(href: &str) -> Option<&str> {
         .any(|prefix| lower.starts_with(prefix))
         .then_some(href)
 }
+/// A cell's text content, as ToCsv reads it: an image has none.
 fn cell_plain(runs: &[markdown_parse::Run]) -> String {
     runs.iter()
+        .filter(|run| !run.href.starts_with(IMAGE_MARK))
         .map(|run| run.href.strip_prefix("t3-skill:").unwrap_or(&run.text))
         .collect::<String>()
         .split_whitespace()
