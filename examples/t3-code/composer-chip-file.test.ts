@@ -121,10 +121,13 @@ describe('the window draws it as the reference\'s Dialog', () => {
   test('max-w-4xl, h-[min(85vh,52rem)], named by the file, the header in its dialog form; Escape closes', () => {
     const dialog = source('composer-chip-file.contract');
     expect(dialog).toContain('max-width="56rem" height=min(windowHeight * 0.85, 52 * rem)');
-    expect(dialog).toContain('role="dialog" aria-label=att.name');
+    // Base UI's Dialog is modal: VoiceOver reads the dialog alone, and only shortcuts inside it are heard, so Escape
+    // is the dialog's Close (in the header's dialog form), not the backdrop's.
+    expect(dialog).toContain('role="dialog" aria-modal=true aria-label=att.name');
     expect(dialog).toContain('sheet=true');
-    expect(dialog).toContain('aria-keyshortcuts="Escape"');
+    expect(dialog).not.toContain('aria-keyshortcuts="Escape"');
     const header = source('r5-panels.contract');
+    expect(header).toContain('aria-keyshortcuts=(ids != "" and id == "close" ? "Escape" : "")');
     expect(header).toContain('text att.origin');
     expect(header).toContain('label="Remove from draft", icon="trash"');
     expect(header).toContain('label="Close", icon="x"');

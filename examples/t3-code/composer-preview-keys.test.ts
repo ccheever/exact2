@@ -34,9 +34,11 @@ describe('Tab follows Keyboard Navigation', () => {
 describe('a press on the backdrop keeps the focus in the dialog, so closing gives it back', () => {
   test.each([['composer-chip-file.contract', 'chip-file-preview-backdrop'], ['composer-chip-image.contract', 'chip-image-backdrop']])('%s', (file, testId) => {
     const backdrop = line(file, `testId="${testId}"`);
-    // A clicked `tabindex` box takes the focus on the Mac; retainFocus leaves it on the dialog's control.
-    expect(backdrop).toContain('tabindex=-1 retainFocus=true');
-    expect(backdrop).toContain('aria-keyshortcuts="Escape"');
+    // A clicked button takes no focus on the Mac, whatever its tabindex: the focus stays on the dialog's control.
+    expect(backdrop).toContain('tabindex=-1 position="absolute"');
+    expect(backdrop).not.toContain('retainFocus');
+    // The file preview is aria-modal and its backdrop outside it, so its Escape is the dialog's Close.
+    if (file === 'composer-chip-image.contract') expect(backdrop).toContain('aria-keyshortcuts="Escape"');
   });
 });
 

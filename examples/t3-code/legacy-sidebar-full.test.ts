@@ -1134,7 +1134,7 @@ describe('the complete Sidebar options focus boundary', () => {
     const source = readFileSync(`${import.meta.dir}/legacy-sidebar.contract`, 'utf8').split('\n');
     const stepper = (id: string) => source.find(line => line.includes(`button cursor="pointer" id="${id}"`))!;
     for (const [id, disabled] of [['legacy-preview-decrease', 'count <= 1'], ['legacy-preview-increase', 'count >= 15']] as const) {
-      expect(stepper(id)).toContain(' tabindex=-1 retainFocus=true ');
+      expect(stepper(id)).toContain(' tabindex=-1 disabled=');
       expect(stepper(id)).toContain(`disabled=(${disabled})`);
     }
     // The field stays the one stop, at the clamp's maximum and minimum alike, and closes the popup on its way out.
