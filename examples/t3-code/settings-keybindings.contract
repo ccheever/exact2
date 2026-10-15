@@ -238,14 +238,21 @@ component CaptureField
     setKey: action
     record: action
     capture: action
+  // A recorded chord ends recording, but the reference's input keeps the focus and goes on taking keys until it is
+  // left: the next chord replaces the draft and Escape restores the binding without leaving Settings. `held` keeps
+  // the recorder mounted, and so focused, from its first key to its blur.
+  state held = false
+  action took(key: string)
+    held = key != "blur"
+    capture(original, key)
   view
-    if recording
-      // The recorder takes every key while it records (`data-keybinding-capture`: the
+    if recording or held
+      // The recorder takes every key while it has the focus (`data-keybinding-capture`: the
       // reference's shortcut listeners and its Escape-to-go-back skip it), so it is the window's modal scope:
       // no shortcut button outside it hears a chord (Settings' Back its Escape, the palette its ⌘K). Leaving it
       // (blur) stops recording and keeps the draft, as the reference's input does.
       row class=KbCapture align-items="center" aria-modal=true testId="keybinding-recording"
-        KeyRecorder(prompt="Press shortcut", label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=capture(original), cancel=capture(original, "blur"))
+        KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=took, cancel=took("blur"))
     else
       button press=record aria-label=`Keybinding for ${label}` class=KbCapture display="flex" flex-direction="row" align-items="center" testId=`keybinding-capture-${label}`
         text (value == "" ? "Unassigned" : value) font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")

@@ -2,7 +2,8 @@
 // LICENSE-T3), Settings › Keybindings' and the project action editor's: a Contract focus target that takes the
 // keyboard as it mounts (`autofocus`) and hears every keydown first (`keycapture`), the chord's own default
 // cancelled, so the next chord becomes a T3 binding (`mod+shift+k`) through `capture`; Escape sends "escape", which
-// restores the row's binding, and leaving the field runs `cancel`. A modifier alone records nothing
+// restores the row's binding, and leaving the field runs `cancel`. It shows `value`, or `prompt` (the placeholder)
+// while that is empty. A modifier alone records nothing
 // (keybindingFromKeyboardEvent). The app's shortcut buttons outside the field do not hear the chord: the field sits
 // in an `aria-modal` row, the window's modal scope while it records (contract-grammar "Shortcuts"). Replaces the
 // native T3KeyRecorder view.
@@ -21,18 +22,23 @@ fn recorderBinding(key: string, code: string, meta: bool, ctrl: bool, alt: bool,
 component KeyRecorder
   props
     prompt: string
+    value: string
+    // False once a chord is recorded and the field still has the focus: Tab then moves the focus on, as the
+    // reference's input lets it; every other key is still taken.
+    recording: bool
     label: string
     testId: string // also its `id`, which an opener that keeps the focus moves it to
     capture: action // the binding, or "escape"
     cancel: action // the focus left the field
   // Tab is recorded like any key while recording (its default, the focus moving on, is cancelled with the rest).
   action keys(k: string, e: KeyboardEvent)
-    preventDefault()
-    stopPropagation()
-    if k == "Escape"
-      capture("escape")
-    else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey) != ""
-      capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
+    if recording or k != "Tab"
+      preventDefault()
+      stopPropagation()
+      if k == "Escape"
+        capture("escape")
+      else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey) != ""
+        capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
   view
     box id=testId tabindex=0 autofocus keycapture=keys blur=cancel aria-label=label testId=testId flex=1 min-width=0 height="1.5rem" display="flex" align-items="center" cursor="text"
-      text prompt font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color="light-dark(#71717b, #818181)" pointer-events="none"
+      text (value == "" ? prompt : value) font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") pointer-events="none"

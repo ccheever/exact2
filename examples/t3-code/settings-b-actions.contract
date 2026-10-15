@@ -129,7 +129,7 @@ component ProjectActionEditor
             // While it records the row is the window's modal scope, as Settings' recorder is (no shortcut button outside it hears the chord).
             if recording
               row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"
-                KeyRecorder(prompt="Press shortcut", label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
+                KeyRecorder(prompt="Press shortcut", value="", recording=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
             else
               button press=record aria-label="Keybinding" disabled=busy class=AeField display="flex" flex-direction="row" align-items="center" testId="action-keybinding"
                 text (keybinding == "" ? "Press shortcut" : keybinding) font-size="0.875rem" line-height="1.25rem" line-clamp=1 color=(keybinding == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
