@@ -82,7 +82,7 @@ beforeAll(async () => {
   writeFileSync(join(dir, 'app.tamber'), DESIGN);
   writeFileSync(join(dir, 'brand.tamber'), BRAND);
   const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: dir });
-  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  git('init', '-q'); git('config', 'user.email', 't@example.test'); git('config', 'user.name', 't'); git('add', '.'); git('commit', '-q', '-m', 'design');
   server = createServer();
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
@@ -103,6 +103,15 @@ afterAll(async () => {
   server?.close();
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
+
+/** The wire stopped and started again: a new session, a new token. */
+async function freshWire() {
+  await tamber.close();
+  tamber = tamberServer({ appDir: dir, log: () => {}, settle: 250 });
+  await tamber.ready;
+  const { token } = await (await fetch(`${origin}/__tamber/token`)).json();
+  headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
+}
 
 const post = async request => {
   const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: JSON.stringify(request) });
@@ -156,7 +165,7 @@ test('two clients writing one token: the second conflicts, and the write is anno
   expect(undone.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toBe(DESIGN);
   writeFileSync(join(dir, 'brand.tamber'), BRAND);
-  await stream.until(e => e.at(-1).files['brand.tamber'] === sha(BRAND));
+  await stream.until(e => e.at(-1)?.files['brand.tamber'] === sha(BRAND));
   stream.close();
 }, 30_000);
 
@@ -174,7 +183,7 @@ test('a hand edit made before a write is its own event, not the writer\'s', asyn
   await stream.until(e => e.slice(at).some(x => x.client === null && x.edited.includes('brand.tamber')));
   await post({ method: 'undo', client: 'one', inverse: done.ok.inverse });
   writeFileSync(join(dir, 'brand.tamber'), BRAND);
-  await stream.until(e => e.at(-1).files['brand.tamber'] === sha(BRAND) && e.at(-1).files['app.tamber'] === sha(DESIGN));
+  await stream.until(e => e.at(-1)?.files['brand.tamber'] === sha(BRAND) && e.at(-1)?.files['app.tamber'] === sha(DESIGN));
   stream.close();
 }, 30_000);
 
@@ -184,7 +193,7 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#303030'));
   await stream.until(e => e.some(x => x.event === 'changed' && x.client === null && x.edited.includes('brand.tamber')));
   writeFileSync(join(dir, 'app.tamber'), DESIGN.replace('#101010', '#121212'));
-  await stream.until(e => e.at(-1).files['app.tamber'] === sha(DESIGN.replace('#101010', '#121212')));
+  await stream.until(e => e.at(-1)?.files['app.tamber'] === sha(DESIGN.replace('#101010', '#121212')));
   const before = stream.events.length;
   // A checkout puts both files back: one change, or two, each a hand edit.
   spawnSync('git', ['checkout', '--', 'app.tamber', 'brand.tamber'], { cwd: dir });
@@ -203,12 +212,12 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   const late = await post({ method: 'propose', ops: [{ op: 'set-token', file: 'late.tamber', name: 'late.ink', value: '#414141' }] });
   expect(late.status).toBe(200);
   rmSync(join(dir, 'late.tamber'));
-  await stream.until(e => !('late.tamber' in e.at(-1).files));
+  await stream.until(e => !('late.tamber' in e.at(-1)?.files));
   // The design itself removed and checked out again.
   rmSync(join(dir, 'app.tamber'));
-  await stream.until(e => !('app.tamber' in e.at(-1).files) && e.at(-1).edited.includes('app.tamber'));
+  await stream.until(e => !('app.tamber' in e.at(-1)?.files) && e.at(-1)?.edited.includes('app.tamber'));
   spawnSync('git', ['checkout', '--', 'app.tamber'], { cwd: dir });
-  await stream.until(e => e.at(-1).files['app.tamber'] === sha(DESIGN));
+  await stream.until(e => e.at(-1)?.files['app.tamber'] === sha(DESIGN));
   stream.close();
 }, 30_000);
 
@@ -255,3 +264,111 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     rmSync(dist, { recursive: true, force: true });
   }
 }, 600_000);
+
+// LLP 1122 D9 and D10 on the wire (stage 3 commit 5): who changed a file,
+// `commit`'s guard, held proposals.
+const gitIn = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: dir, encoding: 'utf8' });
+const head = () => gitIn('rev-parse', 'HEAD').stdout.trim();
+
+test('a conflict names who last changed the file', async () => {
+  const seen = { 'app.tamber': disk('app.tamber') };
+  const first = await post({ method: 'transaction', client: 'agent', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#151515' }] });
+  const stale = await post({ method: 'transaction', client: 'person', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#161616' }] });
+  expect(stale.status).toBe(409);
+  expect(stale.error.by).toEqual({ 'app.tamber': 'agent' });
+  writeFileSync(join(dir, 'app.tamber'), DESIGN);
+  const stream = await subscribe();
+  await stream.until(e => e.at(-1)?.files?.['app.tamber'] === sha(DESIGN));
+  const again = await post({ method: 'undo', client: 'agent', inverse: first.ok.inverse });
+  expect(again.status).toBe(409);
+  expect(again.error.by['app.tamber']).toBe('changed on disk');
+  stream.close();
+}, 30_000);
+
+test("commit takes the session's files only, keeps other staging, and never pushes", async () => {
+  // Every file as HEAD has it, a remote, and something else staged.
+  gitIn('checkout', '--', '.');
+  const bare = mkdtempSync(join(tmpdir(), 'exact-tamber-remote-'));
+  spawnSync('git', ['init', '-q', '--bare', bare]);
+  gitIn('remote', 'add', 'origin', bare);
+  writeFileSync(join(dir, 'notes.txt'), 'staged elsewhere\n');
+  gitIn('add', 'notes.txt');
+  // Earlier tests wrote these files through this wire: a session begins
+  // with a wire of its own.
+  await freshWire();
+  const stream = await subscribe();
+  await stream.until(e => e[0]?.event === 'subscribed');
+  const before = head();
+  const done = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#171717' }] });
+  expect(done.status).toBe(200);
+  const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge' });
+  expect(committed.status, JSON.stringify(committed)).toBe(200);
+  expect(committed.ok.files).toEqual(['app.tamber']);
+  expect(gitIn('rev-parse', 'HEAD~1').stdout.trim()).toBe(before);
+  const message = gitIn('log', '-1', '--format=%B').stdout;
+  expect(message).toContain('design: a darker edge');
+  expect(message).toContain('- agent: edge (app.tamber)');
+  expect(gitIn('show', '--name-only', '--format=', 'HEAD').stdout.trim()).toBe(`${''}${gitIn('ls-files', '--full-name', 'app.tamber').stdout.trim()}`);
+  // notes.txt is still staged, and not in the commit; app.tamber is clean.
+  expect(gitIn('diff', '--cached', '--name-only').stdout.trim()).toBe('notes.txt');
+  expect(gitIn('status', '--porcelain', 'app.tamber').stdout).toBe('');
+  expect(spawnSync('git', ['for-each-ref'], { cwd: bare, encoding: 'utf8' }).stdout).toBe('');
+  await stream.until(e => e.some(x => x.event === 'committed'));
+  stream.close();
+  rmSync(bare, { recursive: true, force: true });
+}, 30_000);
+
+test('commit refuses a file dirty at its baseline, and one changed by hand between writes', async () => {
+  // brand.tamber differs from HEAD before the session writes it.
+  writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#242424'));
+  const stream = await subscribe();
+  await stream.until(e => e.at(-1)?.files?.['brand.tamber'] === sha(BRAND.replace('#202020', '#242424')));
+  await post({ method: 'transaction', client: 'agent', files: { 'brand.tamber': disk('brand.tamber') }, ops: [{ op: 'set-token', file: 'brand.tamber', name: 'brand.ink', value: '#252525' }] });
+  // app.tamber: written, edited by hand, written again.
+  const at = head();
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#181818' }] });
+  writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#181818', '#191919'));
+  await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'ink', value: '#1a1a1a' }] });
+  const refused = await post({ method: 'commit', client: 'person' });
+  expect(refused.status).toBe(400);
+  expect(refused.error.refused.map(r => r.file).sort()).toEqual(['app.tamber', 'brand.tamber']);
+  expect(refused.error.refused.find(r => r.file === 'brand.tamber').why).toContain('differed from HEAD');
+  expect(refused.error.refused.find(r => r.file === 'app.tamber').why).toContain('someone other than this server');
+  expect(head()).toBe(at);
+  stream.close();
+}, 30_000);
+
+test('a held proposal is accepted, and one gone stale or taken in part is recomputed', async () => {
+  gitIn('checkout', '--', 'app.tamber');
+  const stream = await subscribe();
+  await stream.until(e => e.at(-1)?.files?.['app.tamber'] === disk('app.tamber'));
+  const held = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1b1b1b' }] });
+  expect(held.status).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1b1b1b');
+  await stream.until(e => e.some(x => x.event === 'proposal' && x.proposal === held.ok.proposal));
+  const taken = await post({ method: 'accept', client: 'person', proposal: held.ok.proposal });
+  expect(taken.status).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
+  await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
+  expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
+  // Stale: the file moves after review; the accept gives a new diff to accept.
+  const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
+  writeFileSync(join(dir, 'app.tamber'), readFileSync(join(dir, 'app.tamber'), 'utf8').replace('#1b1b1b', '#1d1d1d'));
+  await stream.until(e => e.at(-1)?.client === null && e.at(-1)?.edited.includes('app.tamber'));
+  const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
+  expect(stale.ok.recomputed).toBe(true);
+  expect(stale.ok.proposal).not.toBe(second.ok.proposal);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
+  expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
+  expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
+  // In part: the one item kept is a new proposal.
+  const two = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#1e1e1e' }, { op: 'set-token', name: 'edge', value: '#1f1f1f' }] });
+  const part = await post({ method: 'accept', client: 'person', proposal: two.ok.proposal, items: [1] });
+  expect(part.ok.recomputed).toBe(true);
+  expect(part.ok.items).toBe(1);
+  expect(part.ok.diff).toContain('#1f1f1f');
+  expect(part.ok.diff).not.toContain('#1e1e1e');
+  expect((await post({ method: 'drop', proposal: part.ok.proposal })).status).toBe(200);
+  stream.close();
+}, 30_000);

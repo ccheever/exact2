@@ -20,6 +20,16 @@
 //     none: for a client whose `fetch` reads a body whole, as a JS-target
 //     data module's does. A number this run did not give, or one older than
 //     the events kept, is `missed`: no events, and the files to start from.
+// - The wire's own requests (LLP 1122 D9, D10), beside the server's:
+//   - `commit` `{client, message?}`: the files this session wrote, committed
+//     to git as scripts/tamber-commit.mjs guards it; never pushed.
+//   - `propose` with `hold: true` and a `client`: kept 15 min for review
+//     and announced (`proposal`). `accept` `{proposal, client, items?}`
+//     applies it against the digests it was planned with; a file moved
+//     since, or only some items, recomputes it as a new proposal for a fresh
+//     accept. `drop` `{proposal}` forgets it.
+//   - A conflict names who last changed each file that moved (`by`: a
+//     client, or "changed on disk").
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
 //
 // Mounted by both dev loops (host/web/dev.mjs, host/web-js/dev.mjs) when the
@@ -33,13 +43,14 @@ import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
+import { designSession } from './tamber-commit.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
-const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256;
-const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo']);
+const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000;
+const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop']);
 const WRITES = new Set(['transaction', 'undo']);
 
 const json = (res, status, body) => {
@@ -74,7 +85,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   // Each file's digest as last announced: what a later change is told from.
   const known = new Map();
-  let next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true;
+  let next = 0, seq = 0, out = '', stderr = '', down = null, writing = 0, again = false, timer = null, first = true, proposalCount = 0;
+  // What `commit` needs of the session, and who last changed each file.
+  const session = designSession(appDir), lastBy = new Map();
   const design = basename(designPath(appDir) ?? 'app.tamber');
 
   const send = event => {
@@ -91,6 +104,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const [path, d] of Object.entries(files)) known.set(path, d);
     for (const path of gone) known.delete(path);
     edited.push(...gone);
+    for (const path of edited) lastBy.set(path, rest.client ?? 'changed on disk');
+    if (!rest.client) session.seen(Object.fromEntries(edited.map(path => [path, files[path] ?? ''])));
     if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, epoch, ...rest, files: Object.fromEntries(known), edited });
   };
 
@@ -266,14 +281,46 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       json(res, 400, { error: { message: `a request is an object whose method is one of ${[...METHODS].join(', ')}` } });
       return true;
     }
-    const write = WRITES.has(request.method);
-    if (write && (typeof request.client !== 'string' || !request.client)) {
-      json(res, 400, { error: { message: 'a write names its `client`' } });
-      return true;
-    }
     delete request.id;
-    // A write is announced from the server's reply, even one that comes
-    // after the client was told it timed out; the watcher waits for it.
+    const reply = await dispatch(request);
+    const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
+    json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
+    return true;
+  }
+
+  const needsClient = request => typeof request.client === 'string' && request.client ? null : { status: 400, error: { message: `${request.method} names its \`client\`` } };
+
+  /** One request: the server's, or one of the wire's own (`commit`, a held
+   * proposal's `accept` and `drop`). */
+  async function dispatch(request) {
+    if (WRITES.has(request.method)) return needsClient(request) ?? write(request);
+    if (request.method === 'commit') {
+      const refused = needsClient(request);
+      if (refused) return refused;
+      if (request.message !== undefined && typeof request.message !== 'string') return { status: 400, error: { message: '`message` is a string' } };
+      const done = session.commit({ client: request.client, message: request.message });
+      if (done.ok) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
+      return done;
+    }
+    if (request.method === 'propose' && request.hold !== undefined) {
+      if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
+      return needsClient(request) ?? hold(request.client, request.ops, request.files);
+    }
+    if (request.method === 'accept') return needsClient(request) ?? accept(request);
+    if (request.method === 'drop') {
+      const p = proposals.get(request.proposal);
+      if (!p) return { status: 404, error: { message: `no held proposal \`${request.proposal}\`` } };
+      proposals.delete(request.proposal);
+      send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: request.proposal });
+      return { ok: { dropped: request.proposal } };
+    }
+    return ask(request);
+  }
+
+  /** A write, announced from the server's reply, even one that comes after
+   * the client was told it timed out; the watcher waits for it. A conflict
+   * names who last changed each file that moved. */
+  async function write(request, extra = {}) {
     const announce = v => {
       if (typeof v?.ok?.inverse === 'string') {
         // What moved by hand since the last announcement, as the write read
@@ -282,15 +329,61 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         const written = new Set(v.ok.written ?? []);
         const others = Object.fromEntries(Object.entries(v.ok.files).filter(([path]) => !written.has(path)));
         publish({ ...others, ...v.ok.before }, { changed: null, client: null }, [...known.keys()].filter(path => !(path in v.ok.files)));
-        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client });
+        for (const path of written) {
+          session.wrote(path, { before: v.ok.before[path], after: v.ok.files[path], client: v.ok.client, tokens: (v.ok.changed ?? []).filter(c => c.file === path).map(c => c.token) });
+        }
+        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client, ...extra });
       }
       if (--writing === 0 && again) { again = false; rescan(); }
     };
-    if (write) writing++;
-    const reply = await ask(request, write ? { done: announce } : {});
-    const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
-    json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
-    return true;
+    writing++;
+    const reply = await ask(request, { done: announce });
+    if (reply.error?.conflict) {
+      reply.error.by = Object.fromEntries((reply.error.stale ?? []).map(path => [path, lastBy.get(path) ?? 'changed on disk']));
+    }
+    return reply;
+  }
+
+  // Held proposals (LLP 1122 D10): an agent's transaction kept for review,
+  // with the digests it was planned against, until accepted, dropped or
+  // expired.
+  const proposals = new Map();
+  const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) proposals.delete(id); };
+  async function hold(client, ops, files) {
+    expire();
+    const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }) });
+    if (!planned.ok) return planned;
+    const id = `prop-${epoch}-${++proposalCount}`;
+    const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
+    const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
+    const expires = Date.now() + HOLD_MS;
+    proposals.set(id, { client, ops, base, expires });
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), items: ops.length };
+    send({ event: 'proposal', seq: ++seq, epoch, ...shown });
+    return { ok: { ...planned.ok, ...shown } };
+  }
+  /** Accept a held proposal: applied against the digests it was reviewed
+   * with; a file moved since, or only some `items` accepted, recomputes it
+   * on the current files as a new proposal, for a fresh accept. */
+  async function accept(request) {
+    expire();
+    const p = proposals.get(request.proposal);
+    if (!p) return { status: 404, error: { message: `no held proposal \`${request.proposal}\` (accepted, dropped or expired)` } };
+    const items = request.items;
+    if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
+      return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
+    }
+    const recompute = async ops => {
+      proposals.delete(request.proposal);
+      const fresh = await hold(p.client, ops);
+      return fresh.ok ? { ok: { recomputed: true, replaces: request.proposal, ...fresh.ok } } : fresh;
+    };
+    const some = items && new Set(items).size < p.ops.length;
+    if (some) return recompute([...new Set(items)].sort((a, b) => a - b).map(i => p.ops[i]));
+    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops }, { acceptedBy: request.client, proposal: request.proposal });
+    if (done.error?.conflict) return recompute(p.ops);
+    if (done.ok) proposals.delete(request.proposal);
+    return done;
   }
 
   function close() {

@@ -676,16 +676,20 @@ impl Server {
             false => None,
         };
         let snap = self.snapshot()?;
-        let stale = snap.iter().any(|(p, _, d)| {
-            ops.iter().any(|(f, _)| f == p)
-                && match seen.get(p) {
-                    Some(s) => s != d,
-                    None => write,
-                }
-        });
-        if stale {
+        let stale: Vec<&String> = snap
+            .iter()
+            .filter(|(p, _, d)| {
+                ops.iter().any(|(f, _)| f == p)
+                    && match seen.get(p) {
+                        Some(s) => s != d,
+                        None => write,
+                    }
+            })
+            .map(|(p, _, _)| p)
+            .collect();
+        if !stale.is_empty() {
             return Err(
-                json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap)}),
+                json!({"conflict": true, "message": "a file changed since the client read it", "files": files_json(&snap), "stale": stale}),
             );
         }
         self.run(&snap, &ops, client, false)
@@ -700,13 +704,19 @@ impl Server {
             json!({"message": format!("no inverse `{id}`: this server issued none by that id, or it has dropped it (it keeps the last {ISSUED_LIMIT})")})
         })?;
         let snap = self.snapshot()?;
-        if issued.after.iter().any(|(p, d)| {
-            snap.iter()
-                .find(|(q, _, _)| q == p)
-                .is_none_or(|(_, _, e)| e != d)
-        }) {
+        let stale: Vec<&String> = issued
+            .after
+            .iter()
+            .filter(|(p, d)| {
+                snap.iter()
+                    .find(|(q, _, _)| q == p)
+                    .is_none_or(|(_, _, e)| e != d)
+            })
+            .map(|(p, _)| p)
+            .collect();
+        if !stale.is_empty() {
             return Err(
-                json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap)}),
+                json!({"conflict": true, "message": "a file changed since that write: its inverse no longer applies", "files": files_json(&snap), "stale": stale}),
             );
         }
         let result = self.run(&snap, &issued.ops, Some(client), true);
@@ -899,7 +909,7 @@ impl Server {
                     .map(|s| files_json(&s))
                     .unwrap_or(Value::Null);
                 return Err(
-                    json!({"conflict": true, "message": format!("{path} changed while the write was planned"), "files": files}),
+                    json!({"conflict": true, "message": format!("{path} changed while the write was planned"), "files": files, "stale": [path]}),
                 );
             }
         }
