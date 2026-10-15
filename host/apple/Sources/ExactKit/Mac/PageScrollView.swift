@@ -29,6 +29,7 @@ package final class PageScrollView: NSScrollView {
     package override func accessibilityChildren() -> [Any]? {
         modalAccessibilityChildren?() ?? super.accessibilityChildren()
     }
+    package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     package override func accessibilityContents() -> [Any]? {
         modalAccessibilityChildren?() ?? super.accessibilityContents()
     }

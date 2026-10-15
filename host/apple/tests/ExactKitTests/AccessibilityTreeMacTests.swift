@@ -645,6 +645,47 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(children(status), ["text Archived. ", "link Undo", "text  or keep it."], "each word once, in reading order")
     }
 
+    /// VoiceOver moves by `AXChildrenInNavigationOrder`. It is `AXChildren`,
+    /// the order the author wrote, wherever the frames are: AppKit's own sorts
+    /// by frame and read a chip over a textarea's top-left corner first.
+    /// Another process reads the method's answer (measured with
+    /// `AXUIElementCopyAttributeValue`); AppKit's in-process
+    /// `accessibilityAttributeValue` of the name does not consult it.
+    func testNavigationOrderIsTheTreeOrder() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "props": ["accessibilityRole": "group", "accessibilityLabel": "Composer"]],
+            ["op": "create", "id": 21, "kind": "textarea", "props": ["value": "", "accessibilityLabel": "Message"], "handlers": ["input"]],
+            ["op": "create", "id": 22, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Chip"]],
+            ["op": "create", "id": 23, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Send"]],
+            ["op": "create", "id": 24, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Corner"]],
+            ["op": "create", "id": 30, "kind": "view", "props": ["accessibilityRole": "list", "accessibilityLabel": "Chips"], "style": ["overflow_y": "scroll"]],
+            ["op": "create", "id": 31, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Below"]],
+            ["op": "create", "id": 32, "kind": "button", "handlers": ["press"], "props": ["accessibilityLabel": "Above"]],
+            ["op": "children", "id": 20, "ids": [21, 22, 23]],
+            ["op": "children", "id": 30, "ids": [31, 32]],
+            ["op": "children", "id": 1, "ids": [2, 3, 20, 30, 24]],
+            ["op": "frame", "id": 20, "x": 0.0, "y": 100.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 21, "x": 0.0, "y": 0.0, "w": 300.0, "h": 70.0],
+            ["op": "frame", "id": 22, "x": 4.0, "y": 4.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 23, "x": 0.0, "y": 76.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 210.0, "w": 200.0, "h": 80.0],
+            ["op": "frame", "id": 31, "x": 0.0, "y": 40.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 32, "x": 0.0, "y": 0.0, "w": 60.0, "h": 20.0],
+            ["op": "frame", "id": 24, "x": 0.0, "y": 0.0, "w": 20.0, "h": 20.0],
+        ]))
+        p.syncAccessibility()
+        let scroll = try XCTUnwrap(p.views[30]?.subviews.first { $0 is ChainingScrollView })
+        for parent in [try XCTUnwrap(p.views[20]), scroll, p.viewport] {
+            let children = try XCTUnwrap(parent.accessibilityChildren() as? [AnyObject])
+            XCTAssertGreaterThan(children.count, 1)
+            let order = try XCTUnwrap(Presenter.navigationOrder(parent) as? [AnyObject])
+            XCTAssertTrue(order.elementsEqual(children, by: ===), "\(parent): \(order) is not \(children)")
+        }
+        let order = elements(p.axElements(roots: [p.viewport])).compactMap { $0["name"] as? String }
+        XCTAssertEqual(order.filter { ["Message", "Chip", "Send", "Below", "Above", "Corner"].contains($0) }, ["Message", "Chip", "Send", "Below", "Above", "Corner"])
+    }
+
     func testATargetScopesTheReply() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport], scope: [2])

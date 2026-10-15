@@ -11,6 +11,7 @@ package final class ChainingScrollView: NSScrollView {
     /// Empty document and clip hits take this view. The node owns their
     /// mouse contact, even if a handler removes the scroll view mid-press.
     weak var pointerOwner: NodeView?
+    package override func accessibilityChildrenInNavigationOrder() -> [any NSAccessibilityElementProtocol]? { treeNavigationOrder }
     private var mouseHeld = false
     private var removeAfterMouseUp = false
     /// Removed mid-press, the view stays, transparent, until the up, which

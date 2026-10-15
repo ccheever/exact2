@@ -1,6 +1,7 @@
 # macOS: VoiceOver's navigation order is AppKit's geometric sort, not the tree order the author wrote
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: a node, the viewport and a scroll node's scroll view answer AXChildrenInNavigationOrder with their AXChildren, the tree order (AccessibilityTreeMacTests.testNavigationOrderIsTheTreeOrder)
 **Systems:** host/apple macOS, accessibility
 **Author:** Daehyeon Mun
 **Date:** 2026-10-15
