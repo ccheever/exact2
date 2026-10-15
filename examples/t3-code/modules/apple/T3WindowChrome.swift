@@ -14,18 +14,37 @@ final class T3WindowChrome {
 
     func install(_ element: ExactElement) {
         guard element.hatch == .t3Composer, let window = element.view?.window else { return }
-        if self.window !== window {
-            destroy()
-            self.window = window
-            applyAppearance()
-            toolbar = Self.titleRow(window)
-            for name in [NSWindow.didResizeNotification, NSWindow.didExitFullScreenNotification] {
-                observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    self?.positionControls()
-                })
-            }
-        }
+        attach(window)
         positionControls()
+    }
+
+    /// Styles `window` once and follows its resizes and full-screen changes.
+    func attach(_ window: NSWindow) {
+        guard self.window !== window else { return }
+        destroy()
+        self.window = window
+        applyAppearance()
+        toolbar = Self.titleRow(window)
+        fitToolbar()
+        func observe(_ name: Notification.Name, _ apply: @escaping (T3WindowChrome) -> Void) {
+            observations.append(NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
+                if let self { apply(self) }
+            })
+        }
+        observe(NSWindow.didResizeNotification) { $0.positionControls() }
+        // In full screen AppKit draws the toolbar as an opaque 52-pt bar over the full-size content, the band
+        // that covered the title row (realinput-1015). T3 Code's window keeps its title row at the top there,
+        // with no traffic lights to inset for: the toolbar leaves as the window enters full screen and comes
+        // back once it is windowed again, and the system titlebar only reveals at the top edge.
+        observe(NSWindow.willEnterFullScreenNotification) { $0.fitToolbar(fullScreen: true) }
+        observe(NSWindow.didExitFullScreenNotification) { $0.fitToolbar(fullScreen: false); $0.positionControls() }
+    }
+
+    /// The title row's toolbar is on the window only while it is windowed.
+    private func fitToolbar(fullScreen: Bool? = nil) {
+        guard let window, let toolbar else { return }
+        let wanted: NSToolbar? = (fullScreen ?? window.styleMask.contains(.fullScreen)) ? nil : toolbar
+        if window.toolbar !== wanted { window.toolbar = wanted }
     }
 
     /// AppKit's unified toolbar centers the real traffic lights at y=26.
