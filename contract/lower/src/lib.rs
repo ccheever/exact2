@@ -70,6 +70,7 @@ use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{ButtonSite, Declared, NodeSite, Origin, Sites};
 /// What a design is checked against (LLP 1121 D2): the schema's roles.
+pub use theme::synthetic_candidates;
 pub use theme::vocab as tamber_vocab;
 pub use warnings::{warnings, MAX_WARNINGS};
 

@@ -329,10 +329,12 @@ impl Server {
         Ok(server)
     }
 
-    /// The app's synthetic tokens: the expressions the compiler folded with
-    /// the design, read from the plan it builds, again only when a Contract
-    /// source changed. None when the app does not build.
-    fn synthetic(&mut self) -> Vec<String> {
+    /// The app's synthetic tokens: every expression over tokens its rows
+    /// write, folding or not, as the compiler finds them (the plan keeps
+    /// only those that fold). Read again when a Contract source or the
+    /// design's token names change, which is what decides them; a build
+    /// that stopped before the design is not kept, and is tried again.
+    fn synthetic(&mut self, snap: &Snapshot) -> Vec<String> {
         let root = self.dir.join("app.contract");
         let graph = contract::source_graph(&root);
         let mut key = String::new();
@@ -349,23 +351,27 @@ impl Server {
             );
             key.push('\n');
         }
+        if let Some(design) = snap
+            .iter()
+            .find(|(f, _, _)| *f == self.design)
+            .and_then(|(_, t, _)| exact_tamber::parse(t).ok())
+        {
+            for t in &design.tokens {
+                key.push_str(&t.name.value);
+                key.push('\n');
+            }
+        }
         if let Some((k, exprs)) = &self.synthetic {
             if *k == key {
                 return exprs.clone();
             }
         }
-        // A synthetic token is named by its whole expression; a design's
-        // token or a role by a name, which holds no parenthesis.
-        let exprs: Vec<String> = contract::compile_path(&root)
-            .map(|plan| {
-                plan.theme
-                    .iter()
-                    .map(|t| plan.str(t.name).to_string())
-                    .filter(|n| n.contains('('))
-                    .collect()
-            })
-            .unwrap_or_default();
-        self.synthetic = Some((key, exprs.clone()));
+        let built = contract::compile_path_all(&root, false);
+        let exprs = contract_lower::synthetic_candidates();
+        let reached = built.is_ok() || !exprs.is_empty();
+        if reached {
+            self.synthetic = Some((key, exprs.clone()));
+        }
         exprs
     }
 
@@ -828,7 +834,7 @@ impl Server {
             .iter()
             .map(|(f, t, _)| (f.clone(), t.clone()))
             .collect();
-        let exprs = self.synthetic();
+        let exprs = self.synthetic(snap);
         let synthetic = exact_tamber::Synthetic {
             file: &self.design,
             exprs: &exprs,

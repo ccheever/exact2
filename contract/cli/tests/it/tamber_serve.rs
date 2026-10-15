@@ -620,3 +620,28 @@ fn propose_judges_live_or_rebuild_by_the_closure() {
     assert_eq!(added["ok"]["class"], "rebuild", "{added}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A synthetic token that comes to fold is a rebuild (the plan's table
+/// gains it), and the server still knows it after a build that refused it:
+/// the next value edit is live and carries it.
+#[test]
+fn a_synthetic_token_that_comes_to_fold_is_rebuild_then_live() {
+    let dir = app("gained", "tamber app\n\ntheme\n  brand = AccentColor\n");
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"color-mix(in srgb, brand 60%, white)\"\n",
+    )
+    .unwrap();
+    let file = dir.join("app.tamber");
+    let mut s = Serve::start(&dir, &[]);
+    let op = |value: &str| json!([{"op": "set-token", "name": "brand", "value": value}]);
+    let (fixed, _) = s.ask(json!({"method": "transaction", "client": "one", "files": {"app.tamber": digest(&file)}, "ops": op("#0a7aff")}));
+    assert_eq!(fixed["ok"]["class"], "rebuild", "{fixed}");
+    let (next, _) = s.ask(json!({"method": "propose", "ops": op("#123456")}));
+    assert_eq!(next["ok"]["class"], "live", "{next}");
+    assert_eq!(
+        next["ok"]["synthetic"][0]["expr"],
+        "color-mix(in srgb, brand 60%, white)"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

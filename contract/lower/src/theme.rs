@@ -154,6 +154,7 @@ impl Lowerer<'_> {
         root: &Component,
     ) -> exact_kernel::style::theme::ThemeScope {
         AXES.with(|axes| axes.borrow_mut().clear());
+        CANDIDATES.with(|c| c.borrow_mut().clear());
         let Some((mut design, origin)) = self.design(file) else {
             return exact_kernel::style::theme::declarations([]);
         };
@@ -171,6 +172,8 @@ impl Lowerer<'_> {
             }
             !named
         });
+        CANDIDATES
+            .with(|c| *c.borrow_mut() = said.synthetic.iter().map(|s| s.expr.clone()).collect());
         // A synthetic token from a literal no colour row is known to read
         // (a `fn`'s, a state's) is dropped when it does not fold.
         let folding = loop {
@@ -491,6 +494,17 @@ thread_local! {
     /// The app's axes while its styles are lowered, each with its values:
     /// what a `-exact-mode` pin may name.
     static AXES: std::cell::RefCell<Vec<(String, Vec<String>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    /// The synthetic tokens the last design lowered on this thread could
+    /// have (D3), each its expression, before those that do not fold are
+    /// dropped: what the design server re-folds (LLP 1121 stage 4).
+    static CANDIDATES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// The synthetic tokens the last build on this thread could have, folding
+/// or not, each its expression: a value edit that changes which fold
+/// changes the plan's table, so it is a rebuild.
+pub fn synthetic_candidates() -> Vec<String> {
+    CANDIDATES.with(|c| c.borrow().clone())
 }
 
 /// Bind `file`'s design's axes for the pins a pass checks before lowering

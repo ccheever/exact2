@@ -111,8 +111,8 @@ pub fn plan(
         } else {
             &[]
         };
-        let (before, after, lost) = folded(text, &edited.text, exprs, vocab);
-        structure |= lost;
+        let (before, after, moved_set) = folded(text, &edited.text, exprs, vocab);
+        structure |= moved_set;
         let tokens = changed_tokens(before.as_ref(), after.as_ref());
         // A role override's value is the hosts' at boot: a change reaches
         // it, directly or through what it names, only by a rebuild.
@@ -171,26 +171,37 @@ pub fn plan(
     })
 }
 
-/// A file's fold before and after, each with the synthetic tokens appended
-/// as `~<index>` (as the compiler folds them). One that does not fold on a
-/// side is left out of both, so the two stay comparable; `lost` says one
-/// folded before and no longer does (the build would refuse it).
+/// A file's fold before and after, each with the synthetic tokens that
+/// fold appended as `~<index>` (as the compiler folds them, dropping those
+/// that do not). `moved` says the two sides fold different ones: the plan's
+/// table would gain or lose an entry, which only a build makes.
 fn folded(
     before: &str,
     after: &str,
     exprs: &[String],
     vocab: &Vocab,
 ) -> (Option<Folding>, Option<Folding>, bool) {
-    let mut lost = false;
-    let with = |text: &str, kept: &[usize]| -> Result<Folding, Vec<usize>> {
-        let mut design = crate::parse(text).map_err(|_| Vec::new())?;
-        for &i in kept {
+    let (b, kept_b) = foldable(before, exprs, vocab);
+    let (a, kept_a) = foldable(after, exprs, vocab);
+    let moved = b.is_some() && a.is_some() && kept_b != kept_a;
+    (b, a, moved)
+}
+
+/// `text` folded with each synthetic token that folds with it, and which.
+fn foldable(text: &str, exprs: &[String], vocab: &Vocab) -> (Option<Folding>, Vec<usize>) {
+    let Ok(design) = crate::parse(text) else {
+        return (None, Vec::new());
+    };
+    let mut kept: Vec<usize> = (0..exprs.len()).collect();
+    loop {
+        let mut checked = design.clone();
+        for &i in &kept {
             let at = |value: String| crate::At {
                 value,
                 line: SYNTHETIC + i as u32,
                 col: 1,
             };
-            design.tokens.push(crate::Token {
+            checked.tokens.push(crate::Token {
                 name: at(format!("~{i}")),
                 kind: None,
                 value: at(exprs[i].clone()),
@@ -198,37 +209,17 @@ fn folded(
                 meta: Vec::new(),
             });
         }
-        crate::check_design(design, vocab).map_err(|all| {
-            all.iter()
-                .filter(|d| d.line >= SYNTHETIC)
-                .map(|d| (d.line - SYNTHETIC) as usize)
-                .collect()
-        })
-    };
-    let mut kept: Vec<usize> = (0..exprs.len()).collect();
-    loop {
-        match (with(before, &kept), with(after, &kept)) {
-            (Ok(b), Ok(a)) => return (Some(b), Some(a), lost),
-            (b, a) => {
-                let empty = Vec::new();
-                let before_bad = b.as_ref().err().unwrap_or(&empty);
-                lost |= a
-                    .as_ref()
-                    .err()
-                    .is_some_and(|bad| bad.iter().any(|i| !before_bad.contains(i)));
-                let bad: Vec<usize> = [&b, &a]
+        match crate::check_design(checked, vocab) {
+            Ok(f) => return (Some(f), kept),
+            Err(all) => {
+                let bad: Vec<usize> = all
                     .iter()
-                    .filter_map(|r| r.as_ref().err())
-                    .flatten()
-                    .copied()
+                    .filter(|d| d.line >= SYNTHETIC)
+                    .map(|d| (d.line - SYNTHETIC) as usize)
                     .collect();
-                if bad.is_empty() || kept.is_empty() {
-                    // The file itself does not fold on a side: no synthetic.
-                    return (
-                        crate::check(before, vocab).ok(),
-                        crate::check(after, vocab).ok(),
-                        lost,
-                    );
+                if bad.is_empty() || bad.len() < all.len() {
+                    // The file itself does not fold.
+                    return (None, Vec::new());
                 }
                 kept.retain(|i| !bad.contains(i));
             }

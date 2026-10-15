@@ -815,4 +815,11 @@ fn plan_refolds_the_synthetic_tokens_and_a_lost_one_is_rebuild() {
     // Over a host's colour the mix no longer folds at build.
     let lost = exact_tamber::plan(&files, &set("AccentColor"), &vocab(), false, synthetic).unwrap();
     assert_eq!(lost.class, exact_tamber::Class::Rebuild);
+    // And one that comes to fold is a rebuild too: the plan's table gains it.
+    let host = vec![(
+        "app.tamber".to_string(),
+        "tamber app\n\ntheme\n  brand = AccentColor\n".to_string(),
+    )];
+    let gained = exact_tamber::plan(&host, &set("#0a7aff"), &vocab(), false, synthetic).unwrap();
+    assert_eq!(gained.class, exact_tamber::Class::Rebuild);
 }
