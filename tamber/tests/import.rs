@@ -360,9 +360,9 @@ fn an_authored_when_on_another_axis_stays_and_a_role_offer_clears_its_own() {
 }
 
 /// A role has one value (LLP 1121 D5), judged on the design as accepted:
-/// a `when` the design keeps on its own axis makes the token vary, and a
-/// role the design already binds to a token the import makes vary is
-/// offered for removal.
+/// a `when` the design keeps on its own axis makes the token vary, and any
+/// role the design has that would then vary is named, with no operations
+/// (removing it could break what reads its colour).
 #[test]
 fn a_role_whose_token_varies_once_accepted_is_not_offered() {
     let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.background = #ffffff\n    when density=compact: #fafafa\n  -exact-background = #000000\n";
@@ -375,23 +375,32 @@ fn a_role_whose_token_varies_once_accepted_is_not_offered() {
         .as_deref()
         .unwrap()
         .starts_with("not offered"));
-    let design =
-        "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  AccentColor = shadcn.primary\n";
+    // Roles bound to the token, under any spelling, and one with `when`
+    // lines on the axis the import widens.
+    let design = "tamber app\n\naxes\n  theme = old\n\ntheme\n  shadcn.primary = #ff0000\n  AccentColor = shadcn.primary\n  -exact-fill = shadcn.primary\n  -exact-label = shadcn.primary\n  Canvas = label\n  CanvasText = #000000\n    when theme=old: #111111\n";
     let css = ":root { --primary: #ff0000; } .theme-blue { --primary: #0000ff; }";
     let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
-    assert_eq!(
-        import.offers[0].ops,
-        [Op::RemoveToken {
-            name: "AccentColor".into()
-        }]
+    assert!(
+        import.offers.iter().all(|o| o.ops.is_empty()),
+        "{:?}",
+        import.offers
     );
-    assert!(import.offers[0]
+    let named: Vec<&str> = import.offers[1..].iter().map(|o| o.role.as_str()).collect();
+    assert_eq!(
+        named,
+        [
+            "AccentColor",
+            "-exact-fill",
+            "-exact-label",
+            "Canvas",
+            "CanvasText"
+        ]
+    );
+    assert!(import.offers[1..].iter().all(|o| o
         .note
         .as_deref()
         .unwrap()
-        .contains("offered for removal"));
-    let text = accepted(design, &import);
-    assert!(!text.contains("AccentColor"), "{text}");
+        .contains("tamber-role-axis")));
 }
 
 #[test]

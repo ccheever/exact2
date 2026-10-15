@@ -134,9 +134,8 @@ fn a_shadcn_import_with_every_offer_accepted_compiles() {
         .unwrap()
     };
     let empty = "tamber app\n";
-    // Each fixture over an empty design; then a design whose own axis keeps
-    // a `when` on the token, and one whose role names a token the import
-    // makes vary.
+    // Each fixture over an empty design, then a design whose own axis keeps
+    // a `when` on the token.
     for (file, before, css) in [
         ("shadcn-neutral.css", empty, read("shadcn-neutral.css")),
         ("shadcn-blue.css", empty, read("shadcn-blue.css")),
@@ -145,11 +144,6 @@ fn a_shadcn_import_with_every_offer_accepted_compiles() {
             "kept-when",
             "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.primary = #111111\n    when density=compact: #222222\n",
             ":root { --primary: #333333; --background: #ffffff; }".to_string(),
-        ),
-        (
-            "bound-role",
-            "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  shadcn.background = #ffffff\n  AccentColor = shadcn.primary\n",
-            ":root { --primary: #ff0000; --background: #ffffff; } .theme-blue { --primary: #0000ff; }".to_string(),
         ),
     ] {
         let import = shadcn::import(&css, "shadcn", &exact_tamber::parse(before).unwrap(), &vocab).unwrap();
@@ -166,4 +160,39 @@ fn a_shadcn_import_with_every_offer_accepted_compiles() {
             panic!("{file}: {e:?}\n{design}");
         }
     }
+}
+
+/// A role the design already binds to a token the import makes vary is
+/// named in an offer, with no operations; accepted as it is, the build
+/// refuses it with the rule the note quotes.
+#[test]
+fn a_design_role_a_shadcn_import_makes_vary_is_named_and_refused() {
+    use exact_tamber::import::shadcn;
+    let vocab = contract_lower::tamber_vocab();
+    let before =
+        "tamber app\n\ntheme\n  shadcn.primary = #ff0000\n  AccentColor = shadcn.primary\n";
+    let css = ":root { --primary: #ff0000; } .theme-blue { --primary: #0000ff; }";
+    let import =
+        shadcn::import(css, "shadcn", &exact_tamber::parse(before).unwrap(), &vocab).unwrap();
+    let named = import.offers.iter().find(|o| {
+        o.note
+            .as_deref()
+            .is_some_and(|n| n.starts_with("the design's `AccentColor`"))
+    });
+    assert!(
+        named.is_some_and(|o| o.ops.is_empty()),
+        "{:?}",
+        import.offers
+    );
+    let design = exact_tamber::apply_all(before, &import.ops, &vocab)
+        .unwrap()
+        .text;
+    let dir = app("bound-role", &design);
+    std::fs::write(
+        dir.join("app.contract"),
+        "component App\n  view\n    text \"a\" color=\"shadcn.primary\"\n",
+    )
+    .unwrap();
+    let e = contract::compile_path(&dir.join("app.contract")).unwrap_err();
+    assert_eq!(e.id, "tamber-role-axis", "{e:?}");
 }

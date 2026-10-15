@@ -960,7 +960,7 @@ pub(crate) fn token_index(
 }
 
 /// The role a name spells, by its schema name, or `None` for a plain name.
-fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
+pub(crate) fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
     let lower = n.to_ascii_lowercase();
     let found = match lower.strip_prefix("-exact-") {
         Some(bare) => roles

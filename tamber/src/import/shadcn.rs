@@ -579,7 +579,7 @@ pub fn import(
         vec![("theme".to_string(), values)]
     };
     let ops = reconcile(design, &axes, OWNED, &tokens);
-    let offers = offers(prefix, design, vocab, &tokens);
+    let offers = offers(prefix, design, vocab, &axes, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();
     let counted = counted(source, mapped, unmapped.len() - derived)?;
     Ok(Import {
@@ -601,9 +601,16 @@ fn looks_like_length(v: &str) -> bool {
 /// The role overrides the mapped tokens mean, each offered alone; none
 /// where the design has it so already, under any spelling of the role. A
 /// role has one value (LLP 1121 D5): one whose token varies by an app axis
-/// once the import is accepted is not offered, and a role the design has
-/// that names a varying token is offered for removal, each with a note.
-fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Vec<Offer> {
+/// once the import is accepted is not offered, and any role the design has
+/// that would vary then is named, each with a note and no operations
+/// (removing a role can break what reads its colour; the person decides).
+fn offers(
+    prefix: &str,
+    design: &Design,
+    vocab: &Vocab,
+    axes: &[(String, Vec<String>)],
+    tokens: &[Mapped],
+) -> Vec<Offer> {
     let has = |name: &str| tokens.iter().any(|t| t.name == name);
     let roles: Vec<(String, bool)> = vocab
         .roles
@@ -625,28 +632,12 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
         let existing = crate::edit::token_index(design, &roles, role)
             .ok()
             .map(|i| &design.tokens[i]);
-        if varies(&token, tokens, design, &mut Vec::new()) {
-            let vary = |v: &str| words(v).any(|w| varies(w, tokens, design, &mut Vec::new()));
-            let bound = existing
-                .filter(|t| vary(&t.value.value) || t.whens.iter().any(|w| vary(&w.value.value)));
-            let why = format!("`{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)");
+        if varies(&token, tokens, design, &roles, &mut Vec::new()) {
             out.push(Offer {
                 role: role.into(),
-                note: Some(match bound {
-                    Some(t) => format!(
-                        "{why}: the design's `{}` names it, offered for removal",
-                        t.name.value
-                    ),
-                    None => format!("not offered: {why}"),
-                }),
+                note: Some(format!("not offered: `{token}` varies by an app axis, and a role has one value, which the hosts' own surfaces read (LLP 1121 D5)")),
                 token,
-                ops: bound
-                    .map(|t| {
-                        vec![Op::RemoveToken {
-                            name: t.name.value.clone(),
-                        }]
-                    })
-                    .unwrap_or_default(),
+                ops: Vec::new(),
             });
             continue;
         }
@@ -682,6 +673,41 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
             note: None,
         });
     }
+    // The design's own role overrides that would vary once the import is
+    // accepted, unless an offer above rebinds them: naming a token that
+    // varies, or with `when` lines on an axis the import adds values to.
+    for t in &design.tokens {
+        let Some(key) = crate::edit::role_key(&roles, &t.name.value) else {
+            continue;
+        };
+        let rebound = out.iter().any(|o| {
+            !o.ops.is_empty() && crate::edit::role_key(&roles, &o.role).as_ref() == Some(&key)
+        });
+        let values = std::iter::once(&t.value.value).chain(t.whens.iter().map(|w| &w.value.value));
+        let named = values
+            .flat_map(|v| words(v))
+            .find(|w| varies(w, tokens, design, &roles, &mut Vec::new()));
+        let widened = t.whens.iter().any(|w| {
+            w.conds
+                .iter()
+                .any(|(a, _)| axes.iter().any(|(n, _)| n == a))
+        });
+        if rebound || (named.is_none() && !widened) {
+            continue;
+        }
+        let what = match named {
+            Some(n) => {
+                format!("names `{n}`, which varies by an app axis once this import is accepted")
+            }
+            None => "has `when` lines on an axis this import adds values to".into(),
+        };
+        out.push(Offer {
+            role: t.name.value.clone(),
+            token: named.unwrap_or(&t.value.value).to_string(),
+            ops: Vec::new(),
+            note: Some(format!("the design's `{}` {what}: a role has one value (LLP 1121 D5), so the build refuses it (`tamber-role-axis`) until it names one colour", t.name.value)),
+        });
+    }
     out
 }
 
@@ -696,6 +722,7 @@ fn varies<'a>(
     name: &'a str,
     tokens: &'a [Mapped],
     design: &'a Design,
+    roles: &[(String, bool)],
     seen: &mut Vec<&'a str>,
 ) -> bool {
     if seen.contains(&name) {
@@ -703,7 +730,10 @@ fn varies<'a>(
     }
     seen.push(name);
     let mapped = tokens.iter().find(|t| t.name == name);
-    let have = design.tokens.iter().find(|t| t.name.value == name);
+    // A design's token under any spelling of its role, as lowering reads it.
+    let have = crate::edit::token_index(design, roles, name)
+        .ok()
+        .map(|i| &design.tokens[i]);
     let kept = have.is_some_and(|t| {
         t.whens
             .iter()
@@ -717,7 +747,7 @@ fn varies<'a>(
         (None, Some(t)) => t.value.value.as_str(),
         (None, None) => return false,
     };
-    words(value).any(|w| varies(w, tokens, design, seen))
+    words(value).any(|w| varies(w, tokens, design, roles, seen))
 }
 
 /// The names a value may hold.
