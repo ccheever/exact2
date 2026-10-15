@@ -32,7 +32,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     await run('bun', ['game/new.mjs', app]);
     // A game is the files its author writes; no manifest, lock or app.json. Outside
     // this checkout it gets an app's runner and notes too (LLP 1086).
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -77,7 +77,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.gitignore','.vscode','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
@@ -191,6 +191,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
     cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
+    symlinkSync(resolve(import.meta.dir, '../scripts'), resolve(parent, 'scripts')); // shells.mjs imports ../../scripts/app.mjs
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
