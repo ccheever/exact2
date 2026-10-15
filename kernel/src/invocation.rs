@@ -51,9 +51,9 @@ impl Invocation {
         if !button {
             return None;
         }
-        let named = |prop| source.props.str(prop).filter(|name| !name.is_empty());
-        if let Some(element) = named(PropId::Commandfor).and_then(|name| element(kernel, name)) {
-            let Named::View(commanded) = element else {
+        let named_by = |prop| source.props.str(prop).filter(|name| !name.is_empty());
+        if let Some(target) = named_by(PropId::Commandfor).and_then(|name| named(kernel, name)) {
+            let Named::View(commanded) = target else {
                 return None;
             };
             let popover = commanded.props.get(PropId::Popover).is_some();
@@ -77,7 +77,7 @@ impl Invocation {
                 action,
             });
         }
-        let Named::View(popover) = element(kernel, named(PropId::Popovertarget)?)? else {
+        let Named::View(popover) = named(kernel, named_by(PropId::Popovertarget)?)? else {
             return None;
         };
         popover.props.get(PropId::Popover)?;
@@ -92,10 +92,38 @@ impl Invocation {
         })
     }
 
+    /// Whether it can put its target up (`show`, `toggle`, `show-modal`).
+    pub fn opens(&self) -> bool {
+        !matches!(self.action, Action::Hide | Action::Close)
+    }
+
+    /// Whether it closes `target` while that shows modally or as a popover:
+    /// HTML's dialog `close` closes a modal dialog, and `hide-popover` a
+    /// popover.
+    pub fn closes(&self, target: &NodeRef<'_>, modally: bool) -> bool {
+        let dialog = target.props.str(PropId::SemanticTag) == Some("dialog");
+        let closing = if modally && dialog {
+            Action::Close
+        } else {
+            Action::Hide
+        };
+        self.target == target.key && self.action == closing
+    }
+
     /// Whether it opens a popover, as a header's menu button does:
     /// `show-modal` on a `dialog` that is also a popover is no menu.
     pub fn opens_popover(&self) -> bool {
         matches!(self.action, Action::Show | Action::Toggle)
+    }
+}
+
+/// The element an action's command names by `id` (`showModal(id)`,
+/// `showPopover(id)`), by the rule a button's `commandfor` follows; `None`
+/// when nothing does or what does is a run, which no command acts on.
+pub fn element(kernel: &Kernel, name: &str) -> Option<NodeKey> {
+    match named(kernel, name)? {
+        Named::View(node) => Some(node.key),
+        Named::Run => None,
     }
 }
 
@@ -110,7 +138,7 @@ enum Named<'a> {
 /// (a `text` inside a paragraph), then the lowest node id, as the Apple hosts
 /// resolve it. HTML takes the first in tree order; the two differ only for
 /// duplicate ids, which HTML forbids.
-fn element<'a>(kernel: &'a Kernel, name: &str) -> Option<Named<'a>> {
+fn named<'a>(kernel: &'a Kernel, name: &str) -> Option<Named<'a>> {
     let run = |node: &NodeRef<'_>| {
         node.node_type == NodeType::Text
             && node
