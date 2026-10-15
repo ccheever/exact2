@@ -6,7 +6,7 @@
 use common::vocab;
 use exact_tamber::check;
 
-mod common;
+use crate::common;
 use std::path::Path;
 
 #[test]

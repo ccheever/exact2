@@ -4,7 +4,7 @@
 use common::vocab;
 use exact_tamber::{check, format};
 
-mod common;
+use crate::common;
 use std::path::Path;
 
 fn designs() -> Vec<std::path::PathBuf> {
