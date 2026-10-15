@@ -217,18 +217,18 @@ final class ComposerChipPressTests: XCTestCase {
         XCTAssertEqual(elements.first?.accessibilityRole(), .popUpButton)
         // An enabled button, as the reference's PopoverTrigger (the default is disabled).
         XCTAssertEqual(elements.first?.isAccessibilityEnabled(), true)
-        let children = fixture.view.accessibilityChildren() as? [NSAccessibilityElement] ?? []
-        XCTAssertTrue(children.contains { $0 === elements.first }, "the text view lists the chip's button")
-        // As the agent's accessibility walk reads it (AgentAccessibility.swift axFacts), without trapping.
-        let ordered: [Any] = fixture.view.accessibilityChildrenInNavigationOrder() ?? []
-        XCTAssertTrue(NSAccessibility.unignoredChildren(from: ordered).contains { $0 as AnyObject === elements.first }, "and navigates to it")
-        XCTAssertTrue(elements.first?.accessibilityParent() as AnyObject === fixture.view)
-        XCTAssertTrue(elements.first!.accessibilityPerformPress())
+        // The Settings sample's chips follow its text area as the composer's do (T3ComposerChipOrder), so VO-Right reaches
+        // the skill chip; read as the agent's accessibility walk reads it (AgentAccessibility.swift axFacts), without trapping.
+        let siblings = NSAccessibility.unignoredChildren(from: [fixture.scroller])
+        XCTAssertTrue(siblings.first as AnyObject === fixture.view)
+        XCTAssertTrue(siblings.dropFirst().first as AnyObject === elements.first, "the skill chip right after the text area")
+        XCTAssertTrue(elements.first?.accessibilityParent() as AnyObject === NSAccessibility.unignoredAncestor(of: fixture.scroller) as AnyObject)
+        XCTAssertTrue(axPress(elements.first!))
         XCTAssertTrue(fixture.preview.styler.press.isOpen)
         // The mention chip is the reference's "Preview <path>" button: pressable, its press an action rather than details.
         XCTAssertEqual(elements.filter { $0 is T3ComposerChipPopupElement }.count, 2)
         XCTAssertEqual(elements.last?.accessibilityRole(), .button)
-        XCTAssertTrue(elements.last!.accessibilityPerformPress())
+        XCTAssertTrue(axPress(elements.last!))
         XCTAssertFalse(fixture.preview.styler.press.isOpen)
         XCTAssertEqual(fixture.preview.styler.press.state["act"] as? String, "mention")
     }

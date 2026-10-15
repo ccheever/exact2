@@ -113,6 +113,16 @@ final class T3ComposerChipPress {
         return taken
     }
 
+    /// An accessibility press (VO-Space, AXPress) on a chip's element: what a pointer press on the chip does, the chip
+    /// selected in the editor, which takes the focus, then its action (`action`) or its details. A dialog the action opens
+    /// (a file's or an image's preview) then gives the focus back to the prompt as it closes, as after a click.
+    func accessibilityPress(_ chip: T3ComposerChip, action: Bool) {
+        if let view = styler?.view, let window = view.window, !view.hasMarkedText(), self.chip?.kind != "citation" {
+            select(chip, in: view, window: window)
+        }
+        if action { act(chip) } else { press(chip) }
+    }
+
     /// ProseMirror's NodeSelection of the pressed chip: its whole source, in the editor that has the focus.
     private func select(_ chip: T3ComposerChip, in view: NSTextView, window: NSWindow) {
         if window.firstResponder !== view { window.makeFirstResponder(view) }
@@ -354,18 +364,18 @@ final class T3ComposerChipPress {
 
     // MARK: Accessibility (T3ComposerAccessibility.swift)
 
-    /// Every chip's element (a citation's link and comment button), children of the text view in text order.
+    /// Every chip's element (a citation's link and comment button), in text order after the text area (`T3ComposerChipOrder`).
     func refreshAccessibility() {
         guard let styler, let view = styler.view else { elements = []; return }
         if styler.chips.isEmpty && elements.isEmpty { return }
         elements = T3ComposerChipNames.elements(styler, view: view)
-        view.setAccessibilityChildren(elements.isEmpty ? nil : elements)
+        T3ComposerChipOrder.expose(elements, beside: view)
     }
 
     func detach() {
         if let monitor { NSEvent.removeMonitor(monitor) }
         monitor = nil
-        if let view = styler?.view, !elements.isEmpty { view.setAccessibilityChildren(nil) }
+        if let view = styler?.view, !elements.isEmpty { T3ComposerChipOrder.withdraw(beside: view) }
         elements = []
         acted = nil
         close()
