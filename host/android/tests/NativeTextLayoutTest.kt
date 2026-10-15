@@ -43,7 +43,31 @@ internal object NativeTextLayoutTest {
                     }
                 }
             }
+            lineHeightBelongsToEachLayout(before, after)
             return "NativeTextLayoutTest: PASS (SDK metrics/pixels, fractional sizes, restored line-height span)"
         } finally { before.recycle(); after.recycle() }
+    }
+
+    private fun lineHeightBelongsToEachLayout(before: Bitmap, after: Bitmap) {
+        val value = "a a a a a a 😀 中文 العربية"
+        fun source() = NativeText(SpannableString(value).apply {
+            setSpan(android.text.style.AbsoluteSizeSpan(31), value.indexOf(' ', value.length / 3), length, 33)
+        }, TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textSize = 17.25f; color = Color.BLACK }, 0, 0, 24f, false) { false }
+        fun metrics(p: NativeParagraph) = listOf(p.height.toRawBits(), p.firstBaseline.toRawBits(), p.lineCount) +
+            (0 until p.lineCount).map { p.getLineWidth(it).toRawBits() }
+        val shared = source()
+        val retained = NativeParagraph(shared, 210, 2, false)
+        val retainedMetrics = metrics(retained)
+        before.eraseColor(Color.WHITE); retained.paint(Canvas(before), Color.BLACK)
+        val min = kotlin.math.ceil(shared.minIntrinsicWidth.toDouble()).toInt()
+        NativeParagraph(shared, min, Int.MAX_VALUE, false)
+        val narrowed = NativeParagraph(shared, 40, 2, false)
+        after.eraseColor(Color.WHITE); retained.paint(Canvas(after), Color.BLACK)
+        check(retainedMetrics == metrics(retained) && before.sameAs(after)) { "New offer changed a retained SDK layout" }
+        val fresh = NativeParagraph(source(), 40, 2, false)
+        check(metrics(narrowed) == metrics(fresh)) { "Intrinsic offer leaked its first-line metrics into final layout" }
+        before.eraseColor(Color.WHITE); after.eraseColor(Color.WHITE)
+        narrowed.paint(Canvas(before), Color.BLACK); fresh.paint(Canvas(after), Color.BLACK)
+        check(before.sameAs(after)) { "Intrinsic offer changed final SDK pixels" }
     }
 }

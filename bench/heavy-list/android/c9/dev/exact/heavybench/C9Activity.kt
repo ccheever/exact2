@@ -34,6 +34,7 @@ class C9Activity : Activity() {
         HeavyWindow.configure(this)
         C9Config.setLive(HeavyOptions.boolean(intent, "BENCH_LIVE"))
         if (HeavyOptions.boolean(intent, "BENCH_VERIFY")) {
+            Log.i("HeavyBench", com.exact.android.NativeTextLayoutTest.run())
             Log.i("HeavyBench", InlineTextPaintTest.run(this))
             Log.i("HeavyBench", NativeBorderTest.run())
             Log.i("HeavyBench", PendingIntrinsicsTest.run())

@@ -96,6 +96,7 @@ internal class NativeText(val text: SpannableString, val paint: TextPaint,
             else null
         }
     }
+    fun resetLineHeight() { heightSpan?.reset() }
     // StaticLayout returns the fractional advance; BoringLayout rounds it up.
     // Keep the previous metric answer when enabling its single-line renderer.
     var singleLineWidth = 0f
@@ -127,6 +128,7 @@ internal class NativeText(val text: SpannableString, val paint: TextPaint,
         private var originalDescent = 0
         private var ascent = 0
         private var descent = 0
+        fun reset() { originalAscent = Int.MIN_VALUE }
         override fun chooseHeight(text: CharSequence, start: Int, end: Int, top: Int, y: Int,
             metrics: Paint.FontMetricsInt) {
             val oldHeight = metrics.descent - metrics.ascent
@@ -151,13 +153,17 @@ internal class NativeParagraph(private val source: NativeText, width: Int, maxLi
             1f, 0f, metrics, false, if (ellipsis) TextUtils.TruncateAt.END else null, width, true)
         else BoringLayout(source.text, source.paint, width, source.alignment, 1f, 0f, metrics, false,
             if (ellipsis) TextUtils.TruncateAt.END else null, width)
-    } ?: StaticLayout.Builder.obtain(source.text, 0, source.text.length, source.paint, width)
+    } ?: run {
+        // A line-height span's first-line metrics belong to this layout offer.
+        source.resetLineHeight()
+        StaticLayout.Builder.obtain(source.text, 0, source.text.length, source.paint, width)
         .setAlignment(source.alignment).setTextDirection(source.textDirection)
         .setIncludePad(false).setUseLineSpacingFromFallbacks(true)
         .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE).setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
         .setJustificationMode(if (source.align == 3) Layout.JUSTIFICATION_MODE_INTER_WORD else Layout.JUSTIFICATION_MODE_NONE)
         .setMaxLines(maxLines).setEllipsize(if (ellipsis) TextUtils.TruncateAt.END else null)
         .setEllipsizedWidth(width).build()
+    }
     val lineCount = minOf(layout.lineCount, maxLines)
     val height = layout.getLineBottom(lineCount - 1).toFloat()
     val firstBaseline = layout.getLineBaseline(0).toFloat()
