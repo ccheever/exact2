@@ -1365,6 +1365,28 @@ fn astryx_names_a_design_role_a_changed_value_could_split() {
     );
 }
 
+/// Rebinding a role that is a dial's only use would leave the dial unused,
+/// which the design refuses: not offered. And a role spelled otherwise is
+/// named once.
+#[test]
+fn astryx_offers_no_rebinding_that_orphans_a_dial_and_names_a_role_once() {
+    use exact_tamber::import::astryx;
+    let json = r##"{"source": "test", "light": {"--color-accent": "#333333"}, "dark": {"--color-accent": "#333333"}}"##;
+    let design = "tamber app\n\ndials\n  brand: color = #111111\n\ntheme\n  AccentColor = brand\n";
+    let import = astryx::import(json, "astryx", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(import.offers.len(), 1);
+    assert!(import.offers[0].ops.is_empty());
+    assert!(import.offers[0]
+        .note
+        .as_deref()
+        .unwrap()
+        .contains("tamber-dial-inert"));
+    accepted(design, &import);
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  astryx.accent = #111111\n    when density=compact: #222222\n  accentcolor = astryx.accent\n";
+    let import = astryx::import(json, "astryx", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(import.offers.len(), 1, "{:?}", import.offers);
+}
+
 #[test]
 fn astryx_reports_a_second_variable_to_one_token() {
     use exact_tamber::import::astryx;

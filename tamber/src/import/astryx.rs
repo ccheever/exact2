@@ -289,6 +289,15 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
         let existing = crate::edit::token_index(design, &roles, role)
             .ok()
             .map(|i| &design.tokens[i]);
+        if let Some(dial) = existing.and_then(|t| super::orphaned_dial(design, t)) {
+            out.push(Offer {
+                role: role.into(),
+                note: Some(format!("not offered: the design's `{}` is the only use of the dial `{dial}`, which rebinding it would leave unused (`tamber-dial-inert`)", existing.map_or(role, |t| t.name.value.as_str()))),
+                token,
+                ops: Vec::new(),
+            });
+            continue;
+        }
         let ops = match existing {
             Some(t) if t.value.value.trim() == token && t.whens.is_empty() => continue,
             Some(t) => std::iter::once(Op::SetToken {

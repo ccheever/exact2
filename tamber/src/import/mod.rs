@@ -449,7 +449,7 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
 /// in `offered` rebinds, and holds a `when` line anywhere, can fold to a
 /// different colour per tuple once accepted (LLP 1121 D5). Each is named,
 /// with no operations; one an offer rebinds, or one `offered` already
-/// names, is left out.
+/// names under any spelling, is left out.
 pub(super) fn split_roles(
     design: &Design,
     roles: &[(String, bool)],
@@ -470,7 +470,7 @@ pub(super) fn split_roles(
         if rebound(&k)
             || offered
                 .iter()
-                .any(|o| o.ops.is_empty() && o.role == t.name.value)
+                .any(|o| o.ops.is_empty() && key(&o.role).as_ref() == Some(&k))
         {
             continue;
         }
@@ -517,5 +517,22 @@ fn words_of(t: &crate::Token) -> impl Iterator<Item = &str> {
         .flat_map(|v| {
             v.split(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')))
                 .filter(|w| !w.is_empty())
+        })
+}
+
+/// The dial whose only use is the role `t`: rebinding `t` would leave it
+/// unused, which the design refuses (`tamber-dial-inert`).
+pub(super) fn orphaned_dial<'a>(design: &'a Design, t: &crate::Token) -> Option<&'a str> {
+    design
+        .dials
+        .iter()
+        .map(|d| d.name.value.as_str())
+        .find(|d| {
+            words_of(t).any(|w| w == *d)
+                && !design
+                    .tokens
+                    .iter()
+                    .filter(|o| !std::ptr::eq(*o, t))
+                    .any(|o| words_of(o).any(|w| w == *d))
         })
 }
