@@ -3,8 +3,8 @@
 // ProviderUpdatePrimaryNotification.tsx, ProviderUpdateLaunchNotification
 // .logic.ts, providerUpdateDismissal.ts). The window's focus is the page's
 // (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
-// (notification center, sound, Dock badge, a click that opens the thread: #224)
-// is modules/apple/T3Notifications.swift.
+// (notification center, sound, Dock badge, a click that opens the thread) is
+// modules/apple/T3Notifications.swift, which says why it is not `showNotification`.
 import type { T3Client } from './client';
 import { pushToast } from './toast';
 import { arr, obj, str, type Shell } from './domain';
