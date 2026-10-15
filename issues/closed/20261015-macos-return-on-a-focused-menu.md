@@ -1,6 +1,7 @@
 # macOS: Return on a focused menu row in an open popover does nothing
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: on the Mac a focused button or pressable whose role is menuitem, menuitemradio, menuitemcheckbox or option chooses on Return as on Space, before a dialog's default button (choosesOnReturn)
 **Systems:** host/apple macOS, keyboard, menus
 **Author:** Daehyeon Mun
 **Date:** 2026-10-15

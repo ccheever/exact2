@@ -236,6 +236,41 @@ final class PopoverMacTests: XCTestCase {
         XCTAssertTrue(field.currentEditor() === window.firstResponder)
         p.menus.reset()
     }
+    /// A painted menu's focused row chooses on Return as on Space, and the
+    /// menu closes as its row says (LLP 1115.000 D7.3, as an `NSMenu`'s
+    /// highlighted item takes Return); a focused button that is no row
+    /// still does nothing with Return.
+    func testReturnChoosesAFocusedMenuRowAndClosesTheMenuAsSpaceDoes() throws {
+        let p = fixture(), pop = try XCTUnwrap(p.views[3]), window = try XCTUnwrap(p.viewport.window)
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "button", "handlers": ["press"],
+             "props": ["accessibilityRole": "menuitem", "popovertarget": "form", "popovertargetaction": "hide"]],
+            ["op": "create", "id": 21, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 3, "ids": [4, 5, 20, 21]],
+            ["op": "frame", "id": 20, "x": 10, "y": 90, "w": 200, "h": 24],
+            ["op": "frame", "id": 21, "x": 10, "y": 116, "w": 200, "h": 24],
+        ]))
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        func send(_ chars: String, _ code: UInt16) {
+            let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                         context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)!
+            if !p.routeKey(event, focused: true, in: window) { window.sendEvent(event) }
+        }
+        for (key, code) in [("\r", UInt16(36)), (" ", 49)] {
+            p.press(2)
+            XCTAssertTrue(p.menus.isOpen(pop))
+            pressed.removeAll()
+            XCTAssertTrue(window.makeFirstResponder(p.views[21]))
+            send("\r", 36)
+            XCTAssertEqual(pressed, [], "a focused button that is no row does nothing with Return")
+            XCTAssertTrue(window.makeFirstResponder(p.views[20]))
+            send(key, code)
+            XCTAssertEqual(pressed, [20], "the row chose once on \(code)")
+            XCTAssertFalse(p.menus.isOpen(pop), "and the menu closed on \(code)")
+        }
+        p.menus.reset()
+    }
     func testToggleShowHideAndAppActionRefreshAreOrdered() {
         let p = fixture(), pop = p.views[3]!
         p.views[2]!.handlers = ["press"]
