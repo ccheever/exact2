@@ -187,7 +187,7 @@ extension Presenter {
             if keyDown(event, in: window) { return true }
             if contextMenuKey(event, in: window) { return true }
         }
-        return menus.key(event) || dialogs.key(event)
+        return menus.key(event) || dialogs.key(event) || tabFromStart(event, in: window)
     }
     /// A keydown at the window's first responder, before AppKit delivers
     /// it: true when a handler prevented its default, and the caller drops

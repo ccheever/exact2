@@ -327,8 +327,9 @@ final class DialogHost {
         if event.type == .keyDown, event.keyCode == 48 {
             // A node that holds the focus and is no stop (the dialog itself, a `tabindex=-1` box) is where Tab
             // starts, as on the page (KeyViewLoopMac.swift's starts): the stop after it in tree order, Shift-Tab
-            // the one before it, and past either end the trap's first or last.
-            let start = dialog.window.flatMap(focusOwner)
+            // the one before it, and past either end the trap's first or last. With the focus given up by a control
+            // that became disabled, the start is that control (`Presenter.tabStart`).
+            let start = dialog.window.flatMap(focusOwner) ?? presenter?.tabStart
             let (views, before) = stops(dialog, start: start)
             let choices = candidates(views)
             guard let window = dialog.window, !choices.isEmpty else { enterFocus(); return true }

@@ -1345,6 +1345,11 @@ package final class Presenter {
     var keyViewLoopStale = false
     var keyViewLoopMode: Bool?
     let keyViewBefore = NSMapTable<NSView, NSView>.weakToWeakObjects()
+    /// The control that lost the focus by becoming disabled, while nothing
+    /// has taken it since: HTML's sequential focus navigation starting
+    /// point, which its focus fixup rule leaves there, so Tab goes on from
+    /// the control's place (`tabFromStart`).
+    weak var tabStart: NSView?
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
     /// through captures again at the end of the batch — the canvas above

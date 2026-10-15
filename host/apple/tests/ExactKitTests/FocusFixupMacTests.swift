@@ -46,6 +46,40 @@ final class FocusFixupMacTests: XCTestCase {
     }
     private func focused(_ p: Presenter) -> String? { p.focusedNode?.props["id"] }
 
+    /// A focused control that becomes disabled loses the focus, and its blur
+    /// is heard; Tab and Shift-Tab go on from where it stands, with Keyboard
+    /// Navigation on (it was a stop) and off (an action had focused it).
+    func testAFocusedControlThatBecomesDisabledLosesTheFocusAndTabGoesOnFromIt() throws {
+        for navigation in [true, false] {
+            for (id, name, back, next) in [(UInt32(4), "middle", false, "field"), (4, "middle", true, "bare"), (3, "bare", false, "middle"),
+                                           (2, "first", false, "bare")] {
+                let p = try fixture(navigation: navigation)
+                var blurs: [UInt32] = []
+                p.onBlur = { blurs.append($0) }
+                p.focusElement([name])
+                XCTAssertEqual(focused(p), name)
+                p.apply(wireBatch([["op": "props", "id": id, "set": ["disabled": "true"]]]))
+                XCTAssertNil(p.focusedNode, "\(name), navigation \(navigation): a disabled control holds no focus")
+                XCTAssertFalse(window.firstResponder === p.keyView(of: try XCTUnwrap(p.views[id])))
+                XCTAssertEqual(blurs, [id])
+                try tab(p, back: back)
+                // With Keyboard Navigation off the buttons are no stops: the field is the next and the only one.
+                XCTAssertEqual(focused(p), navigation ? next : "field", "\(name), navigation \(navigation), back \(back)")
+                window.close(); window = nil
+            }
+        }
+    }
+
+    /// The place is the disabled control's until the focus goes elsewhere.
+    func testTheDisabledControlsPlaceLastsUntilTheFocusMoves() throws {
+        let p = try fixture(navigation: true)
+        p.focusElement(["middle"])
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["disabled": "true"]]]))
+        XCTAssertTrue(p.tabStart === p.controls.controls[4])
+        p.focusElement(["first"])
+        XCTAssertNil(p.tabStart, "a focus taken since is where Tab goes on from")
+    }
+
     /// `aria-hidden` takes a subtree out of the accessibility tree only: the
     /// button in it keeps the focus and Tab goes on from it. `inert` and a
     /// hidden view still take the focus away.

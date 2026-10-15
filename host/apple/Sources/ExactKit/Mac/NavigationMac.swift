@@ -209,13 +209,17 @@ final class NavigationHost {
 
     /// Top-layer ownership changes the same native input/AX gates as inert.
     /// The focus leaves a node input no longer reaches (a hidden view, an
-    /// inert one: authored, a route's, behind a dialog). `aria-hidden` takes
-    /// a node out of the accessibility tree only, and the focus stays, as in
-    /// Chrome.
+    /// inert one: authored, a route's, behind a dialog) and a control that
+    /// became disabled (HTML's focus fixup rule), whose place Tab goes on
+    /// from (`Presenter.tabStart`). `aria-hidden` takes a node out of the
+    /// accessibility tree only, and the focus stays, as in Chrome.
     func refreshInputGates(_ nodes: [NodeView]) {
         for node in nodes {
             let inert = node.inert
             let unreachable = inert || node.isHiddenOrHasHiddenAncestor
+            // Read before a field is disabled below, which can end its editing.
+            let window = node.window, responder = window?.firstResponder as? NSView
+            let focused = responder.map { $0 === node || $0.isDescendant(of: node) || node.field?.currentEditor() === $0 } ?? false
             // The AX getter can traverse the legacy unsupported-attribute path
             // for non-elements; writing this property is cheaper than querying it.
             node.setAccessibilityHidden(node.accessibilityInert || node.isHiddenOrHasHiddenAncestor || node.accessibilityHiddenByProp)
@@ -223,10 +227,13 @@ final class NavigationHost {
             if let field = node.field, field.isEnabled != enabled { field.isEnabled = enabled }
             let editable = enabled && node.props["editable"] != "false"
             if let area = node.textArea, area.isEditable != editable { area.isEditable = editable }
-            if unreachable, let responder = node.window?.firstResponder as? NSView,
-               responder === node || responder.isDescendant(of: node) || node.field?.currentEditor() === responder {
-                node.window?.makeFirstResponder(nil)
+            guard focused, unreachable || node.formDisabled, let window else { continue }
+            if !unreachable {
+                presenter.tabStart = presenter.keyView(of: node)
+                presenter.keyViewLoopStale = true
             }
+            // A field that was disabled may have ended its editing already.
+            if window.firstResponder === responder { window.makeFirstResponder(nil) }
         }
     }
 }
