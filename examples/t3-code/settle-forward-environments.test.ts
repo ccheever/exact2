@@ -10,6 +10,7 @@ import type { Files, Native } from './protocol';
 import { sidebarCommand } from './sidebar-commands';
 import { setRuntimeClock } from './sidebar-state';
 import { fleet, type FleetEntry } from './settings-b-fleet';
+import { toasts } from './toast';
 
 beforeEach(() => setRuntimeClock(() => Date.now()));
 afterEach(() => { setRuntimeClock(() => Number.NaN); fleet.entries.clear(); });
@@ -90,5 +91,58 @@ describe('a thread the shell does not hold', () => {
     expect(bounded(backend, 'gone')).toBe(1);
     expect(client.threadId).toBe('gone');
     expect(client.thread).not.toBeNull();
+  });
+});
+
+// A background environment's row in the flat sidebar (`fleet:<environment>:<id>`) settles on that environment
+// (useThreadActions.settleThread over the row's scoped thread ref), and its undo un-settles there too.
+describe('settling a background environment\'s row', () => {
+  function harness(threads: Obj[], capabilities: Obj = CAPS) {
+    const entry = { ...background(threads), config: { environment: { environmentId: 'env-b', label: 'Lane Second', capabilities } } }, focusedRequests: Obj[] = [], sent: Obj[] = [];
+    fleet.entries.set(entry.key, entry);
+    const client = focused([row('a', 'p1', iso(-1_000))], 'a').client;
+    (client as unknown as { restAccess: unknown }).restAccess = () => ({ ids: async (count: number) => Array.from({ length: count }, (_, index) => `c${index}`),
+      request: async (method: string, payload: Obj) => { focusedRequests.push({ method, ...payload }); return {}; }, call: async () => ({}) });
+    const native = { available: true, watch() {}, later: async (request: unknown) => {
+      const value = obj(request);
+      if (value.op === 'request' && value.fleet === entry.key) sent.push(obj(value.payload));
+      return { ok: true, generation: entry.generation, value: {} };
+    } } as unknown as Native;
+    return { client, native, sent, focusedRequests };
+  }
+
+  test('the hover Settle reaches the background environment with its own thread id, and Undo un-settles it there', async () => {
+    const { client, native, sent, focusedRequests } = harness([row('tb', 'pb', iso(-60_000))]);
+    await sidebarCommand(client, native, {} as Files, 'settle', 'fleet:env-b:tb', '');
+    expect(toasts(client)).toEqual([]);
+    expect(sent).toMatchObject([{ type: 'thread.settle', threadId: 'tb' }]);
+    expect(focusedRequests).toEqual([]);
+    await sidebarCommand(client, native, {} as Files, 'undo', '', '');
+    expect(sent.map(payload => [payload.type, payload.threadId, payload.reason])).toEqual([['thread.settle', 'tb', undefined], ['thread.unsettle', 'tb', 'user']]);
+    expect(focusedRequests).toEqual([]);
+  });
+
+  test('Undo restores a pinned, snoozed background thread\'s pin (by that environment\'s capabilities) and snooze there', async () => {
+    const pinned = { ...row('tb', 'pb', iso(-60_000)), pinnedAt: iso(-30_000), pinOrderKey: 'a0', snoozedUntil: iso(3_600_000) };
+    const { client, native, sent } = harness([pinned], { ...CAPS, threadPinReorder: true });
+    await sidebarCommand(client, native, {} as Files, 'settle', 'fleet:env-b:tb', '');
+    await sidebarCommand(client, native, {} as Files, 'undo', '', '');
+    expect(sent.map(payload => payload.type)).toEqual(['thread.settle', 'thread.unsettle', 'thread.pin', 'thread.snooze']);
+    expect(sent.every(payload => payload.threadId === 'tb')).toBe(true);
+    expect(sent[2]).toMatchObject({ orderKey: 'a0' });
+  });
+
+  test('Un-settle and Wake on a background row go to its environment', async () => {
+    const { client, native, sent } = harness([{ ...row('tb', 'pb', iso(-60_000)), settledOverride: 'settled', settledAt: iso(-1_000) }]);
+    await sidebarCommand(client, native, {} as Files, 'unsettle', 'fleet:env-b:tb', '');
+    await sidebarCommand(client, native, {} as Files, 'unsnooze', 'fleet:env-b:tb', '');
+    expect(sent.map(payload => [payload.type, payload.threadId])).toEqual([['thread.unsettle', 'tb'], ['thread.unsnooze', 'tb']]);
+  });
+
+  test('a row no environment holds still reads Thread unavailable', async () => {
+    const { client, native, sent } = harness([]);
+    await sidebarCommand(client, native, {} as Files, 'settle', 'fleet:env-b:gone', '');
+    expect(sent).toEqual([]);
+    expect(toasts(client).map(toast => toast.title)).toEqual(['Thread unavailable']);
   });
 });
