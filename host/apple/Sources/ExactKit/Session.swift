@@ -638,9 +638,8 @@ public final class ExactSession {
             case .canvas: canvasInFlight = false
             }
             guard state != .destroyed, next.generation == generation else {
-                // A slice from before a commit applies nothing, but its
-                // landing still frees what it held.
-                if case .fill(let view) = next.kind { landedFill(view) }
+                // A slice from before a commit applies nothing; its landing frees what it held.
+                if case .fill(let view) = next.kind { landedFill(view, stale: true) }
                 continue
             }
             let batch = next.batch
@@ -654,13 +653,16 @@ public final class ExactSession {
         }
     }
 
-    /// The reports a slice held, and the work that waited for it.
-    private func landedFill(_ view: UInt32) {
-        let waiting = afterFill
+    /// The reports a slice held, and the work that waited for it. A stale
+    /// slice can land inside the commit's own batch, before its views are:
+    /// that work waits for the next turn.
+    private func landedFill(_ view: UInt32, stale: Bool = false) {
+        let waiting = afterFill.filter { $0.generation == nil || $0.generation == generation }.map(\.work)
         afterFill.removeAll()
         guard state != .destroyed else { return }
         presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
-        for (bound, work) in waiting where bound == nil || bound == generation { work() }
+        guard stale else { return waiting.forEach { $0() } }
+        DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { for work in waiting { whenIdle(work) } } }
     }
 
     /// Land every session's slice in flight.
@@ -1006,7 +1008,7 @@ public final class ExactSession {
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
     /// Tests: a list's slice in flight, published as of `generation`.
     func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
-    func holdFillForTests() { fillInFlight = true }
+    func holdFillForTests() { fillInFlight = true }; func commitForTests() { generation += 1 }
     func oweColorsForTests() { colorsOwed = true }
     #endif
 

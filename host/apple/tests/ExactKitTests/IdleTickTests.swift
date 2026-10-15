@@ -85,9 +85,10 @@ final class IdleTickTests: XCTestCase {
     }
 
     /// What waited for a slice runs when it lands, even a slice from before
-    /// a commit: a wake's pump dropped there left every later reply in the
-    /// executor, whose wake re-arms only on a pump. Work bound to the
-    /// presenter's views is dropped once a generation commits.
+    /// a commit (in the next turn, after the commit's batch): a wake's pump
+    /// dropped there left every later reply in the executor, whose wake
+    /// re-arms only on a pump. Work bound to the presenter's views is
+    /// dropped once a generation commits.
     func testWorkWaitingForAStaleSliceStillRuns() throws {
         let session = ExactApp.shared.makeSession(label: "stale-slice")
         defer { session.destroy() }
@@ -97,11 +98,16 @@ final class IdleTickTests: XCTestCase {
         session.whenIdle(bound: true) { bound += 1 }
         XCTAssertEqual(free + bound, 0, "both wait for the slice")
         let before = session.appliedBatches
+        // The slice was sent before a commit; it lands after.
         let stale = wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]])
-        session.publishFillForTests(1, stale, generation: session.generation - 1)
+        session.publishFillForTests(1, stale, generation: session.generation)
+        session.commitForTests()
         session.drainFill()
         XCTAssertFalse(session.fillInFlight)
         XCTAssertEqual(session.appliedBatches, before, "the stale slice applies nothing")
+        XCTAssertEqual(free, 0, "what waited runs after the commit's batch, in the next turn")
+        let deadline = Date().addingTimeInterval(5)
+        while free == 0, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
         XCTAssertEqual(free, 1, "the pump still runs")
         XCTAssertEqual(bound, 0, "the old views' news does not")
         // A slice of this generation runs both.
