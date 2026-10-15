@@ -1,6 +1,7 @@
 # macOS: a reinserted autofocus node is not focused
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by macOS release removing the node's record from autofocusProcessed, as iOS does; FocusFixupMacTests
 **Systems:** host/apple macOS, focus
 **Author:** Daehyeon Mun
 **Date:** 2026-10-14

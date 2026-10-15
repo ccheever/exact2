@@ -102,5 +102,25 @@ final class FocusFixupMacTests: XCTestCase {
         p.navigation.refreshInputGates([try XCTUnwrap(p.views[4])])
         XCTAssertNotEqual(focused(p), "middle", "a hidden view takes it")
     }
+
+    /// An `autofocus` node removed and inserted again takes the focus each
+    /// time it is inserted. The record that a node was offered goes with it.
+    func testAnAutofocusNodeInsertedAgainTakesTheFocusAgain() throws {
+        let p = try fixture(navigation: false)
+        p.launchAutofocusReleased = true
+        for round in 0..<3 {
+            let id = UInt32(10 + round)
+            p.apply(wireBatch([
+                ["op": "create", "id": id, "kind": "button", "props": ["id": "row", "autofocus": "true"], "handlers": ["press"]],
+                ["op": "frame", "id": id, "x": 0, "y": 200, "w": 120, "h": 30],
+                ["op": "children", "id": 1, "ids": [2, 5, 6, id]]]))
+            p.syncAccessibility()
+            XCTAssertEqual(p.focusedNode?.id, id, "round \(round): the inserted autofocus node has the focus")
+            let row = try XCTUnwrap(p.views[id])
+            p.apply(wireBatch([["op": "children", "id": 1, "ids": [2, 5, 6]], ["op": "destroy", "id": id]]))
+            XCTAssertFalse(p.autofocusProcessed.contains(ObjectIdentifier(row)), "round \(round): a released node's record goes with it")
+            withExtendedLifetime(row) {}
+        }
+    }
 }
 #endif

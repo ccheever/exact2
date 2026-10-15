@@ -811,6 +811,8 @@ package final class Presenter {
         transformBindings.removeValue(forKey: id)
         transformGeometry.retire(id)
         session?.text.readerParagraphs.removeValue(forKey: id)
+        // A view made later may have this one's identifier: its `autofocus` is its own to offer.
+        if let view = views[id] { autofocusProcessed.remove(ObjectIdentifier(view)) }
         let gone = views.removeValue(forKey: id)
         chrome.forget(id)
         scrollers.remove(id)
