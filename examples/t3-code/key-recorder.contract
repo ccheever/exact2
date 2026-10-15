@@ -1,5 +1,5 @@
 // The keybinding capture field (KeybindingsSettings.tsx captureKeybinding, projectScriptEditor.tsx; MIT, see
-// LICENSE-T3), Settings › Keybindings' and the project action editor's: a read-only text field that takes the
+// LICENSE-T3), Settings › Keybindings' and the project action editor's: a text field that takes the
 // keyboard as it mounts (`autofocus`) and hears every keydown first (`keycapture`), the chord's own default
 // cancelled, so the next chord becomes a T3 binding (`mod+shift+k`) through `capture`; Escape sends "escape", which
 // restores the row's binding, and leaving the field runs `cancel`. It shows `value`, or `prompt` (the placeholder)
@@ -39,10 +39,11 @@ component KeyRecorder
         capture("escape")
       else if recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey) != ""
         capture(recorderBinding(k, e.code, e.metaKey, e.ctrlKey, e.altKey, e.shiftKey))
-  // The reference's element: an `Input` named "Keybinding for <command>" whose placeholder is the prompt, so
-  // assistive technology meets a text field with that name as the focus lands in it. It is read-only: every key
-  // is taken above, and a menu's Paste has nothing to write.
+  // The reference's element: an editable `Input` named "Keybinding for <command>" whose placeholder is the prompt,
+  // so assistive technology meets a text field with that name as the focus lands in it. It stays editable, as the
+  // reference's does: AppKit serves a non-editable field as static text, not a text field. Typing writes nothing,
+  // since every key is taken above.
   view
-    input id=testId readonly=true autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.8125rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" cursor="text"
+    input id=testId autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt autocorrect="off" spellcheck="false" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.8125rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" cursor="text"
       ::placeholder
         color="light-dark(#71717b, #818181)"

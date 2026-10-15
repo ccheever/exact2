@@ -104,7 +104,7 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
     expect(actions).toContain('row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"');
     const view = await source('key-recorder.contract');
     // The reference's Input: a text field named for its command, the prompt its placeholder (VoiceOver reads both).
-    expect(view).toContain('input id=testId readonly=true autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt');
+    expect(view).toContain('input id=testId autofocus keycapture=keys blur=cancel aria-label=label testId=testId value=value placeholder=prompt');
     const editor = contractComponent('settings-b-actions.contract', 'ProjectActionEditor');
     const state = (keybinding: string) => ({ ...editor.state({ item: { keybinding, previewUrl: '', setup: false, wait: false, autoOpen: false, name: '', command: '', icon: 'play', id: '' } }), keybinding, recording: true });
     for (const [value, expected] of [['escape', 'mod+k'], ['esc', 'mod+k'], ['tab', 'mod+k'], ['backspace', ''], ['mod+shift+j', 'mod+shift+j']] as const) {
