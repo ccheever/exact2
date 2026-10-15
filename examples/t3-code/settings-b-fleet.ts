@@ -17,7 +17,7 @@ import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
 import { letGo } from './let-go';
-import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
+import { dropPrimaryDuplicates, focusedOnPrimary, isPrimaryEnvironment, primary, primaryEntry, withoutPrimaryDuplicates, type LocalPrimary } from './local-primary';
 import { usageFleetEvent, usageFleetReset, usageFleetSynced } from './usage-replies';
 import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
 import { automationFleetEvent } from './browser-automation';
@@ -323,6 +323,18 @@ export const fleetThreadId = (environmentId: string, threadId: string) => `fleet
 export function parseFleetThreadId(id: string): { environmentId: string; threadId: string } | null {
   const match = /^fleet:([^:]+):(.+)$/.exec(id);
   return match ? { environmentId: match[1]!, threadId: match[2]! } : null;
+}
+/**
+ * Whether a sidebar thread lives off the primary environment, and that environment's machine kind and
+ * label: isRemoteThread (`thread.environmentId !== primaryEnvironmentId`, LegacySidebar.tsx and
+ * Sidebar.tsx). The focused environment is remote too when it is not the primary, as after opening a
+ * background environment's thread; with no primary every thread is remote.
+ */
+export function remoteThread(client: T3Client, thread: Obj, source: LocalPrimary = primary): { machine: string; label: string } | null {
+  const background = parseFleetThreadId(str(thread.id));
+  if (background ? isPrimaryEnvironment(background.environmentId, source) : focusedOnPrimary(client, source)) return null;
+  return background ? { machine: str(thread.fleetMachine, 'server'), label: str(thread.fleetEnvironmentLabel) }
+    : { machine: kindOf(client.config), label: str(obj(client.config.environment).label) };
 }
 /** Every synchronized background environment's shell threads, decorated for the sidebar. */
 export function fleetThreads(source: EnvironmentFleet = fleet): Obj[] {
