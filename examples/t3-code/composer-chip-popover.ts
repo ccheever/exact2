@@ -19,7 +19,7 @@ import { workspaceValues } from './composer-workspace-snapshots';
 import { selectedProvider, workspaceCwd } from './composer-editor';
 import { openFileSurface } from './r4-surfaces-panel';
 import { citationCommentLocal, citationPopover, citedStart } from './citation-comment';
-import { chipAct, composerImageStep, contextDetails, draftContextRecords } from './composer-chip-details';
+import { chipAct, composerImageStep, performChipAct, contextDetails, draftContextRecords } from './composer-chip-details';
 import { composerFileLocal } from './composer-chip-file';
 
 export type ChipPopover = {
@@ -129,6 +129,7 @@ export async function chipPopoverView(client: T3Client, native: Native | null | 
 export async function chipPopoverLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op.startsWith('chip-cite-') && ['save', 'send', 'commit', 'cancel', 'escape'].includes(op.slice(10))) return citationCommentLocal(native, op, id, value);
   if (op === 'chip-act') return chipAct(client, native, Number(id) || 0); // a mention, thread, citation, pull request or attachment press (composer-chip-details.ts)
+  if (op === 'chip-image-open') return performChipAct(client, native, { act: 'image', context: `image_${id}` }); // a shelf thumbnail's Preview button
   if (op.startsWith('chip-image-')) return composerImageStep(client, op); // the expanded image preview's close and steps
   if (op === 'chip-file') return composerFileLocal(client, native, id, value); // a file chip's preview (composer-chip-file.ts)
   if (op !== 'chip-close' && op !== 'chip-instructions') throw new ClientError(`Unknown editor action: ${op}`);
