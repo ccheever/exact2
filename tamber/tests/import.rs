@@ -786,8 +786,12 @@ fn a_tokens_studio_sample_imports_counted_its_groups_proposed_axes() {
     let files = tree("tokens-studio");
     let first = dtcg::import(&files, "ts", &parse(EMPTY).unwrap()).unwrap();
     assert_eq!(
-        first.counted.mapped + first.counted.reported,
-        first.counted.source
+        (
+            first.counted.source,
+            first.counted.mapped,
+            first.counted.reported
+        ),
+        (49, 44, 5)
     );
     assert!(first
         .unmapped
@@ -818,7 +822,11 @@ fn a_resolver_documents_modifiers_are_the_scheme_and_an_axis() {
         (6, 6, 0)
     );
     let text = accepted(EMPTY, &first);
-    assert_eq!(token_value(&text, "ds.color.ink"), "#1a1a1a");
+    // The colour space is the value; `hex` its fallback.
+    assert_eq!(
+        token_value(&text, "ds.color.ink"),
+        "color(srgb 0.1 0.1 0.1)"
+    );
     assert_eq!(
         token_value(&text, "ds.color.surface"),
         "light-dark(ds.color.paper, oklch(0.2 0.01 250))"
@@ -827,4 +835,186 @@ fn a_resolver_documents_modifiers_are_the_scheme_and_an_axis() {
     assert!(text.contains("when brand=loud: #ff3366"), "{text}");
     let again = dtcg::import(&files, "ds", &parse(&text).unwrap()).unwrap();
     assert_eq!(again.ops, []);
+}
+
+fn dtcg_files(list: &[(&str, &str)]) -> Vec<(String, String)> {
+    list.iter()
+        .map(|(n, t)| (n.to_string(), t.to_string()))
+        .collect()
+}
+
+#[test]
+fn dtcg_resolves_each_mode_tuple_in_order() {
+    use exact_tamber::import::dtcg;
+    // Inline entries; a context naming a set; a set after a modifier wins.
+    let resolver = r##"{
+      "sets": {
+        "base": { "sources": [ { "c": { "$type": "color", "a": { "$value": "#111111" }, "late": { "$value": "#121212" } } } ] },
+        "dark": { "sources": [ { "c": { "$type": "color", "a": { "$value": "#222222" }, "late": { "$value": "#000000" } } } ] }
+      },
+      "resolutionOrder": [
+        { "$ref": "#/sets/base" },
+        { "name": "mode", "contexts": {
+            "light": [ { "c": { "$type": "color", "late": { "$value": "#ffffff" } } } ],
+            "dark": [ { "$ref": "#/sets/dark" } ] } },
+        { "name": "fix", "sources": [ { "c": { "$type": "color", "late": { "$value": "#343434" } } } ] }
+      ]
+    }"##
+    .to_string();
+    let import = dtcg::import(
+        &dtcg_files(&[("r.json", &resolver)]),
+        "ds",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ds.c.a"), "light-dark(#111111, #222222)");
+    // The set after the modifier wins both sides.
+    assert_eq!(token_value(&text, "ds.c.late"), "#343434");
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+}
+
+#[test]
+fn dtcg_reads_the_format_as_written() {
+    use exact_tamber::import::dtcg;
+    let tokens = r##"{
+      "brand": { "$type": "color",
+        "$root": { "$value": "#0000ff" },
+        "p3": { "$value": { "colorSpace": "display-p3", "components": [1, 0, 0], "hex": "#ff0000" } },
+        "ref": { "$value": { "$ref": "#/brand/p3/$value" } },
+        "part": { "$value": { "$ref": "#/brand/p3/$value/components/0" } }
+      },
+      "base": { "$type": "color", "ink": { "$value": "#101010" } },
+      "theme": { "$extends": "{base}", "paper": { "$type": "color", "$value": "#fefefe" } },
+      "plain": { "value": { "$type": "color", "$value": "#202020" } },
+      "alias": { "$value": "{base.ink}" },
+      "dangling": { "$type": "color", "$value": "{missing.path}" }
+    }"##;
+    let import = dtcg::import(
+        &dtcg_files(&[("tokens.json", tokens)]),
+        "ds",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    let why = |name: &str| {
+        import
+            .unmapped
+            .iter()
+            .find(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .unwrap_or_default()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "ds.brand.root"), "#0000ff");
+    assert_eq!(token_value(&text, "ds.brand.p3"), "color(display-p3 1 0 0)");
+    assert_eq!(token_value(&text, "ds.brand.ref"), "ds.brand.p3");
+    assert!(why("brand.part").contains("part of a value"));
+    assert_eq!(token_value(&text, "ds.theme.ink"), "#101010");
+    assert_eq!(token_value(&text, "ds.plain.value"), "#202020");
+    // An untyped alias takes its target's type.
+    assert_eq!(token_value(&text, "ds.alias"), "ds.base.ink");
+    assert!(why("dangling").contains("no token"));
+}
+
+#[test]
+fn tokens_studio_modifiers_empty_themes_and_set_precedence() {
+    use exact_tamber::import::dtcg;
+    let single = r##"{
+      "core": { "c": { "type": "color", "a": { "value": "#010101" }, "m": { "value": "#020202", "$extensions": { "studio.tokens": { "modify": { "type": "lighten", "value": "0.2" } } } } } },
+      "over": { "c": { "a": { "value": "#030303", "type": "color" } } },
+      "$themes": [],
+      "$metadata": { "tokenSetOrder": ["core", "over"] }
+    }"##;
+    let import = dtcg::import(
+        &dtcg_files(&[("tokens.json", single)]),
+        "ts",
+        &parse(EMPTY).unwrap(),
+    )
+    .unwrap();
+    let text = accepted(EMPTY, &import);
+    // No themes: every set, in order, the later winning.
+    assert_eq!(token_value(&text, "ts.c.a"), "#030303");
+    assert!(import
+        .unmapped
+        .iter()
+        .any(|u| u.name == "c.m" && u.why.contains("modify")));
+    assert!(!text.contains("ts.c.m ="));
+}
+
+#[test]
+fn dtcg_drops_a_token_a_mode_lacks_and_refuses_host_axes() {
+    use exact_tamber::import::dtcg;
+    let files = dtcg_files(&[
+        (
+            "Theme.Light.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#ffffff" }, "only": { "$value": "#eeeeee" } } }"##,
+        ),
+        (
+            "Theme.Dark.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#000000" }, "only": { "$value": 4, "$type": "number" } } }"##,
+        ),
+        (
+            "extra.json",
+            r##"{ "c": { "$type": "color", "b": { "$value": "#777777" } } }"##,
+        ),
+    ]);
+    let import = dtcg::import(&files, "f", &parse(EMPTY).unwrap()).unwrap();
+    let text = accepted(EMPTY, &import);
+    // The extra file is the base; Light and Dark still the scheme.
+    assert_eq!(token_value(&text, "f.c.a"), "light-dark(#ffffff, #000000)");
+    assert_eq!(token_value(&text, "f.c.b"), "#777777");
+    // A colour in one mode, a number in the other: no token.
+    assert!(!text.contains("f.c.only ="), "{text}");
+    let host = dtcg_files(&[
+        (
+            "Contrast.High.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#000" } } }"##,
+        ),
+        (
+            "Contrast.Low.json",
+            r##"{ "c": { "$type": "color", "a": { "$value": "#111" } } }"##,
+        ),
+    ]);
+    let refused = dtcg::import(&host, "f", &parse(EMPTY).unwrap()).unwrap_err();
+    assert_eq!(refused[0].id, "tamber-import-axis");
+}
+
+#[test]
+fn dtcg_scheme_and_axis_together_keep_the_scheme_in_the_default() {
+    use exact_tamber::import::dtcg;
+    let files = dtcg_files(&[
+        (
+            "Tokens.Light.json",
+            r##"{ "c": { "$type": "color", "surface": { "$value": "#ffffff" } } }"##,
+        ),
+        (
+            "Tokens.Dark.json",
+            r##"{ "c": { "$type": "color", "surface": { "$value": "#000000" } } }"##,
+        ),
+        (
+            "Brand.Calm.json",
+            r##"{ "c": { "$type": "color", "accent": { "$value": "#0000ff" } } }"##,
+        ),
+        (
+            "Brand.Loud.json",
+            r##"{ "c": { "$type": "color", "accent": { "$value": "#ff0000" }, "surface": { "$value": "#ff00ff" } } }"##,
+        ),
+    ]);
+    let import = dtcg::import(&files, "f", &parse(EMPTY).unwrap()).unwrap();
+    let text = accepted(EMPTY, &import);
+    assert!(text.contains("  brand = calm | loud\n"), "{text}");
+    // Calm, the default, leaves the scheme; loud's surface wins both sides.
+    assert!(
+        text.contains(
+            "  f.c.surface = light-dark(#ffffff, #000000)\n    when brand=loud: #ff00ff\n"
+        ),
+        "{text}"
+    );
 }

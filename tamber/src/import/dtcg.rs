@@ -1,39 +1,45 @@
 //! DTCG JSON (LLP 1121 D14, importer 3): Format 2025.10, with the Resolver
 //! Module where present, from Tokens Studio and from Figma Variables
-//! exports. The source is a set of files:
+//! exports. The source is a set of files read as layers, each the base, one
+//! side of the scheme, or one value of a proposed axis, in precedence order:
 //!
-//! - **Figma:** `<Collection>.<Mode>.json`, one file a collection's mode. A
-//!   collection whose modes are `Light` and `Dark` is the scheme; one with
-//!   one mode is the base; any other's modes are a proposed axis named for
-//!   the collection, its first mode (by name) the default.
-//! - **Tokens Studio:** `$themes.json` and its token sets (`primitive/colors`
-//!   …), or one file holding them all. A theme group of one theme is the
-//!   base; a group whose themes are `light` and `dark` is the scheme; any
-//!   other group's themes are a proposed axis. Sets merge in
-//!   `$metadata.tokenSetOrder`, a later set winning. Tokens Studio's legacy
-//!   `value` and `type` are read as `$value` and `$type`.
-//! - **A resolver** (`resolutionOrder`): its sets are the base; a modifier
-//!   whose contexts are `light` and `dark` is the scheme; any other is a
-//!   proposed axis with its contexts as values.
-//! - **One DTCG file:** the base.
+//! - **Figma:** `<Collection>.<Mode>.json`. A collection whose modes are
+//!   `Light` and `Dark` is the scheme; one with one mode is the base; any
+//!   other's modes are a proposed axis named for the collection, its first
+//!   mode (by name) the default. Any other file is the base.
+//! - **Tokens Studio:** `$themes.json` and its token sets, or one file holding
+//!   them all. A group of one theme is the base; a group whose themes are
+//!   `light` and `dark` is the scheme; any other group (ungrouped themes are
+//!   one group) a proposed axis. A theme's `source` sets come before its
+//!   `enabled` ones, each in `$metadata.tokenSetOrder`; a set no theme turns
+//!   on is reported. The legacy `value`/`type` form is read as
+//!   `$value`/`$type`; a value Tokens Studio modifies (`studio.tokens`
+//!   `modify`) is reported.
+//! - **A resolver** (`resolutionOrder`): each set the base, a modifier whose
+//!   contexts are `light` and `dark` the scheme, any other a proposed axis;
+//!   references resolved (`#/sets/…`, files relative to the document),
+//!   sibling keys overriding what they name, in the order the document gives.
+//! - **Any other DTCG file:** the base.
 //!
-//! Tokens are mapped by `$type`: `color` to a colour (a string, or 2025.10's
-//! object form), `{a.b}` aliases to references; other types are
-//! `kind pending (stage 6)` with the token each would become, and borders,
-//! transitions, gradients and stroke styles are reported, as are Figma's
-//! strings and booleans. A group path becomes a dotted name, each segment
-//! made an identifier (`Primary Color` → `Primary-Color`, a leading digit
-//! taking `s`); two paths that would be one name are reported.
+//! Each mode tuple (a side of the scheme with a value of every axis) is
+//! resolved on its own, its layers merged in order (a later one winning,
+//! whatever its kind), and every `{a.b}` or `$ref` alias followed there. A
+//! token is a colour in every tuple or makes no token; its default is the
+//! default tuple's (a `light-dark()` of the scheme's sides), and each other
+//! tuple Tamber would not otherwise select its value in is a `when` line.
+//! Other `$type`s are `kind pending (stage 6)` with the token each would
+//! become; borders, transitions, gradients and stroke styles are reported, as
+//! are strings and booleans. Names come from group paths, each segment made
+//! an identifier (`$root` is `root`); collisions are reported.
 
 use super::{colour_literal, counted, reconcile, Import, Mapped, Unmapped};
 use crate::{Design, Diagnostic};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
-/// Where a layer's tokens apply.
+/// Where a layer applies.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Scope {
-    /// Always.
     Base,
     /// One side of the scheme: `true` dark.
     Scheme(bool),
@@ -41,24 +47,50 @@ enum Scope {
     Axis(String, String),
 }
 
-/// One token as a layer declares it.
+/// One token as a source declares it.
 #[derive(Debug, Clone)]
 struct Def {
-    /// The file it is in, for the report.
+    /// Where it came from, for the report.
     file: String,
+    path: String,
     ty: Option<String>,
     value: Value,
+    /// Why it cannot be mapped whatever its type (a Tokens Studio modifier).
+    refused: Option<String>,
 }
 
-/// A layer: where it applies, and its tokens by path.
+/// A layer: where it applies, and its tokens (indices into the defs).
 struct Layer {
     scope: Scope,
-    tokens: Vec<(String, Def)>,
+    defs: Vec<usize>,
+}
+
+/// What the files make: every def, the layers in precedence order, and the
+/// defs no layer uses (a set no theme turns on), with why.
+#[derive(Default)]
+struct Read {
+    defs: Vec<Def>,
+    layers: Vec<Layer>,
+    unused: Vec<(usize, String)>,
+}
+
+impl Read {
+    fn layer(&mut self, scope: Scope, found: Vec<Def>) {
+        let start = self.defs.len();
+        self.defs.extend(found);
+        self.layers.push(Layer {
+            scope,
+            defs: (start..self.defs.len()).collect(),
+        });
+    }
 }
 
 /// A name segment as an identifier: spaces and other characters a name may
-/// not hold become `-`, a leading digit takes `s`.
+/// not hold become `-`, a leading digit takes `s`; `$root` is `root`.
 fn segment(raw: &str) -> String {
+    if raw == "$root" {
+        return "root".into();
+    }
     let mut out: String = raw
         .trim()
         .chars()
@@ -85,50 +117,117 @@ fn ident(raw: &str) -> String {
     segment(raw).to_ascii_lowercase()
 }
 
-/// Every token in a DTCG (or Tokens Studio) tree: its dotted path and
-/// definition, `$type` inherited from groups.
-fn tokens(file: &str, tree: &Value, out: &mut Vec<(String, Def)>) {
+/// A Tokens Studio legacy token: `value` beside a `type` string, or a
+/// `value` that is no group (a DTCG member may be named `value`).
+fn legacy(map: &Map<String, Value>) -> bool {
+    !map.contains_key("$value")
+        && map
+            .get("value")
+            .is_some_and(|v| map.get("type").is_some_and(Value::is_string) || !v.is_object())
+}
+
+/// A group `$extends` or `$ref` names: `{a.b}` or a JSON pointer.
+fn group<'a>(root: &'a Value, target: &str) -> Option<&'a Value> {
+    let t = target.trim();
+    if let Some(pointer) = t.strip_prefix('#') {
+        return root.pointer(pointer);
+    }
+    let path = t.strip_prefix('{')?.strip_suffix('}')?;
+    path.split('.').try_fold(root, |node, seg| node.get(seg))
+}
+
+/// Every token in a tree: its dotted path and definition, `$type` (or a
+/// legacy group `type`) inherited from groups, `$root` a token of its group,
+/// `$extends` and a group's `$ref` merged under it (its own members
+/// overriding).
+fn tokens(file: &str, tree: &Value) -> Vec<Def> {
     fn walk(
         file: &str,
+        root: &Value,
         node: &Value,
         path: &mut Vec<String>,
         ty: Option<String>,
-        out: &mut Vec<(String, Def)>,
+        depth: usize,
+        out: &mut Vec<Def>,
     ) {
         let Some(map) = node.as_object() else { return };
-        let ty = map
-            .get("$type")
-            .or_else(|| map.get("type").filter(|_| map.contains_key("value")))
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .or(ty);
-        let value = map
-            .get("$value")
-            .or_else(|| map.get("value").filter(|_| !map.contains_key("$value")));
-        if let Some(value) = value {
-            out.push((
-                path.join("."),
-                Def {
-                    file: file.to_string(),
-                    ty,
-                    value: value.clone(),
-                },
-            ));
+        if depth > 32 {
             return;
         }
+        let is_token = map.contains_key("$value") || legacy(map);
+        let own_ty = map
+            .get("$type")
+            .and_then(Value::as_str)
+            .or_else(|| {
+                map.get("type")
+                    .filter(|_| !map.contains_key("$value"))
+                    .and_then(Value::as_str)
+            })
+            .map(str::to_string);
+        // A group it extends lends its type when it has none of its own.
+        let lent = ["$extends", "$ref"].iter().find_map(|k| {
+            let target = map.get(*k)?.as_str()?;
+            group(root, target)?
+                .get("$type")?
+                .as_str()
+                .map(str::to_string)
+        });
+        let ty = own_ty.or(lent).or(ty);
+        if is_token {
+            let value = map
+                .get("$value")
+                .or_else(|| map.get("value"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let refused = map
+                .get("$extensions")
+                .and_then(|e| e.get("studio.tokens"))
+                .and_then(|s| s.get("modify"))
+                .map(|_| {
+                    "a value Tokens Studio modifies (`modify`), which no Tamber value is yet"
+                        .to_string()
+                });
+            out.push(Def {
+                file: file.to_string(),
+                path: path.join("."),
+                ty,
+                value,
+                refused,
+            });
+            return;
+        }
+        // What the group inherits, then its own members over it.
+        let mut members: Vec<(String, Value)> = Vec::new();
+        for key in ["$extends", "$ref"] {
+            if let Some(target) = map.get(key).and_then(Value::as_str) {
+                if let Some(inherited) = group(root, target).and_then(Value::as_object) {
+                    for (k, v) in inherited {
+                        if !k.starts_with('$') || k == "$root" {
+                            members.push((k.clone(), v.clone()));
+                        }
+                    }
+                }
+            }
+        }
         for (k, v) in map {
-            if k.starts_with('$') {
+            if k.starts_with('$') && k != "$root" {
                 continue;
             }
-            path.push(k.clone());
-            walk(file, v, path, ty.clone(), out);
+            members.retain(|(m, _)| m != k);
+            members.push((k.clone(), v.clone()));
+        }
+        for (k, v) in members {
+            path.push(k);
+            walk(file, root, &v, path, ty.clone(), depth + 1, out);
             path.pop();
         }
     }
-    walk(file, tree, &mut Vec::new(), None, out);
+    let mut out = Vec::new();
+    walk(file, tree, tree, &mut Vec::new(), None, 0, &mut out);
+    out
 }
 
-/// Whether two mode names are the scheme's sides.
+/// Whether mode names are the scheme's sides.
 fn scheme(modes: &[String]) -> bool {
     let mut lower: Vec<String> = modes
         .iter()
@@ -142,8 +241,13 @@ fn is_dark(mode: &str) -> bool {
     mode.trim().eq_ignore_ascii_case("dark")
 }
 
+fn stem(name: &str) -> String {
+    let base = name.rsplit('/').next().unwrap_or(name);
+    base.strip_suffix(".json").unwrap_or(base).to_string()
+}
+
 /// The layers a source's files make, or why it cannot be read.
-fn layers(files: &[(String, String)]) -> Result<Vec<Layer>, String> {
+fn read(files: &[(String, String)]) -> Result<Read, String> {
     let parsed: Vec<(String, Value)> = files
         .iter()
         .map(|(name, text)| {
@@ -152,11 +256,6 @@ fn layers(files: &[(String, String)]) -> Result<Vec<Layer>, String> {
                 .map_err(|e| format!("{name}: {e}"))
         })
         .collect::<Result<_, _>>()?;
-    let stem = |name: &str| {
-        let base = name.rsplit('/').next().unwrap_or(name);
-        base.strip_suffix(".json").unwrap_or(base).to_string()
-    };
-    // Tokens Studio: `$themes` beside its sets, or in one file.
     let themes_file = parsed.iter().find(|(n, _)| stem(n) == "$themes");
     let single = parsed.iter().find(|(_, v)| v.get("$themes").is_some());
     if themes_file.is_some() || single.is_some() {
@@ -184,71 +283,58 @@ fn layers(files: &[(String, String)]) -> Result<Vec<Layer>, String> {
                     .collect(),
             ),
         };
-        return studio(&themes, metadata.as_ref(), &sets);
+        return Ok(studio(&themes, metadata.as_ref(), &sets));
     }
-    if let Some((name, resolver)) = parsed
+    if let Some((name, doc)) = parsed
         .iter()
         .find(|(_, v)| v.get("resolutionOrder").is_some())
     {
-        return resolve(name, resolver, &parsed);
+        return resolver(name, doc, &parsed);
     }
-    // Figma: `<Collection>.<Mode>.json`.
-    let figma: Vec<(String, String, &Value)> = parsed
-        .iter()
-        .filter_map(|(n, v)| {
-            let s = stem(n);
-            let (collection, mode) = s.rsplit_once('.')?;
-            Some((collection.to_string(), mode.to_string(), v))
-        })
-        .collect();
-    if parsed.len() > 1 && figma.len() == parsed.len() {
-        let mut collections: BTreeMap<String, Vec<(String, &Value)>> = BTreeMap::new();
-        for (c, m, v) in figma {
-            collections.entry(c).or_default().push((m, v));
+    // Figma's `<Collection>.<Mode>.json`, each file on its own; any other
+    // file is the base.
+    let mut out = Read::default();
+    let mut collections: BTreeMap<String, Vec<(String, &Value, String)>> = BTreeMap::new();
+    let mut plain: Vec<(&String, &Value)> = Vec::new();
+    for (n, v) in &parsed {
+        match stem(n).rsplit_once('.') {
+            Some((c, m)) if !c.is_empty() && !m.is_empty() => collections
+                .entry(c.to_string())
+                .or_default()
+                .push((m.to_string(), v, n.clone())),
+            _ => plain.push((n, v)),
         }
-        let mut out = Vec::new();
-        for (collection, mut modes) in collections {
-            modes.sort_by(|a, b| a.0.cmp(&b.0));
-            let names: Vec<String> = modes.iter().map(|(m, _)| m.clone()).collect();
-            for (mode, v) in &modes {
-                let scope = match (modes.len(), scheme(&names)) {
-                    (1, _) => Scope::Base,
-                    (_, true) => Scope::Scheme(is_dark(mode)),
-                    _ => Scope::Axis(ident(&collection), ident(mode)),
-                };
-                let mut found = Vec::new();
-                tokens(&format!("{collection}.{mode}"), v, &mut found);
-                out.push(Layer {
-                    scope,
-                    tokens: found,
-                });
-            }
-        }
-        return Ok(out);
     }
-    // DTCG files, each the base.
-    Ok(parsed
-        .iter()
-        .map(|(n, v)| {
-            let mut found = Vec::new();
-            tokens(n, v, &mut found);
-            Layer {
-                scope: Scope::Base,
-                tokens: found,
-            }
-        })
-        .collect())
+    for (n, v) in plain {
+        out.layer(Scope::Base, tokens(n, v));
+    }
+    for (collection, mut modes) in collections {
+        modes.sort_by(|a, b| a.0.cmp(&b.0));
+        let names: Vec<String> = modes.iter().map(|(m, _, _)| m.clone()).collect();
+        for (mode, v, file) in &modes {
+            let scope = match (modes.len(), scheme(&names)) {
+                (1, _) => Scope::Base,
+                (_, true) => Scope::Scheme(is_dark(mode)),
+                _ => Scope::Axis(ident(&collection), ident(mode)),
+            };
+            out.layer(scope, tokens(file, v));
+        }
+    }
+    // The base, then the scheme, then the axes: a collection's own modes over
+    // what every mode shares.
+    out.layers.sort_by_key(|l| match l.scope {
+        Scope::Base => 0,
+        Scope::Scheme(_) => 1,
+        Scope::Axis(..) => 2,
+    });
+    Ok(out)
 }
 
-/// A Tokens Studio theme: its name and the sets it turns on.
+/// A Tokens Studio theme: its name and its sets, `source` ones first.
 type Theme = (String, Vec<String>);
 
 /// Tokens Studio's themes: each group a dimension (base, scheme or axis).
-fn studio(
-    themes: &Value,
-    metadata: Option<&Value>,
-    sets: &[(String, Value)],
-) -> Result<Vec<Layer>, String> {
+fn studio(themes: &Value, metadata: Option<&Value>, sets: &[(String, Value)]) -> Read {
     let order: Vec<String> = metadata
         .and_then(|m| m.get("tokenSetOrder"))
         .and_then(Value::as_array)
@@ -258,138 +344,229 @@ fn studio(
                 .collect()
         })
         .unwrap_or_default();
-    // A set's place: `tokenSetOrder` names sets by their last segment or
-    // whole; unnamed sets keep the files' order after them.
+    // A set's place: its exact id in `tokenSetOrder`, else its last segment
+    // when that names one set only; sets it does not name keep their order
+    // after the ones it does.
     let rank = |set: &str| {
-        let last = set.rsplit('/').next().unwrap_or(set);
-        order
-            .iter()
-            .position(|o| o == set || o == last)
-            .unwrap_or(order.len())
-    };
-    let set_tokens = |names: &[String]| {
-        let mut chosen: Vec<&(String, Value)> =
-            sets.iter().filter(|(n, _)| names.contains(n)).collect();
-        chosen.sort_by_key(|(n, _)| rank(n));
-        let mut found = Vec::new();
-        for (n, v) in chosen {
-            tokens(n, v, &mut found);
+        if let Some(i) = order.iter().position(|o| o == set) {
+            return i;
         }
-        found
+        let last = set.rsplit('/').next().unwrap_or(set);
+        let alike = sets
+            .iter()
+            .filter(|(n, _)| n.rsplit('/').next() == Some(last))
+            .count();
+        match (alike, order.iter().position(|o| o == last)) {
+            (1, Some(i)) => i,
+            _ => order.len(),
+        }
     };
-    let Some(list) = themes.as_array() else {
-        // No themes: every set is the base.
-        let all: Vec<String> = sets.iter().map(|(n, _)| n.clone()).collect();
-        return Ok(vec![Layer {
-            scope: Scope::Base,
-            tokens: set_tokens(&all),
-        }]);
-    };
-    // Each group: its themes, each with the sets it turns on.
+    let mut out = Read::default();
+    let mut used: BTreeSet<String> = BTreeSet::new();
+    let list: Vec<&Value> = themes
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
+    if list.is_empty() {
+        // No themes: every set is the base, in order.
+        let mut all: Vec<&(String, Value)> = sets.iter().collect();
+        all.sort_by_key(|(n, _)| rank(n));
+        let mut found = Vec::new();
+        for (n, v) in all {
+            found.extend(tokens(n, v));
+        }
+        out.layer(Scope::Base, found);
+        return out;
+    }
     let mut groups: Vec<(String, Vec<Theme>)> = Vec::new();
     for t in list {
         let name = t["name"].as_str().unwrap_or("").to_string();
-        let group = t["group"].as_str().unwrap_or(&name).to_string();
-        let on: Vec<String> = t["selectedTokenSets"]
+        // Ungrouped themes are one group.
+        let group = t["group"].as_str().unwrap_or("").to_string();
+        let mut on: Vec<(u8, String)> = t["selectedTokenSets"]
             .as_object()
             .into_iter()
             .flatten()
-            .filter(|(_, s)| matches!(s.as_str(), Some("enabled" | "source")))
-            .map(|(k, _)| k.clone())
+            .filter_map(|(k, s)| match s.as_str() {
+                Some("source") => Some((0, k.clone())),
+                Some("enabled") => Some((1, k.clone())),
+                _ => None,
+            })
             .collect();
+        // `source` sets under `enabled` ones, each in the set order.
+        on.sort_by_key(|(status, k)| (*status, rank(k)));
+        let on: Vec<String> = on.into_iter().map(|(_, k)| k).collect();
         match groups.iter_mut().find(|(g, _)| *g == group) {
             Some((_, members)) => members.push((name, on)),
             None => groups.push((group, vec![(name, on)])),
         }
     }
-    let mut out = Vec::new();
-    for (group, members) in groups {
+    for (group, members) in &groups {
         let names: Vec<String> = members.iter().map(|(n, _)| n.clone()).collect();
-        for (theme, on) in &members {
+        for (theme, on) in members {
             let scope = match (members.len(), scheme(&names)) {
                 (1, _) => Scope::Base,
                 (_, true) => Scope::Scheme(is_dark(theme)),
-                _ => Scope::Axis(ident(&group), ident(theme)),
+                _ => Scope::Axis(
+                    ident(if group.is_empty() { "theme" } else { group }),
+                    ident(theme),
+                ),
             };
-            out.push(Layer {
-                scope,
-                tokens: set_tokens(on),
-            });
+            let mut found = Vec::new();
+            for set in on {
+                if let Some((n, v)) = sets.iter().find(|(n, _)| n == set) {
+                    used.insert(n.clone());
+                    found.extend(tokens(n, v));
+                }
+            }
+            out.layer(scope, found);
         }
     }
-    // The base first, as every theme sits on it.
-    out.sort_by_key(|l| l.scope != Scope::Base);
-    Ok(out)
+    out.layers.sort_by_key(|l| l.scope != Scope::Base);
+    // A set no theme turns on: its tokens counted and reported.
+    for (n, v) in sets.iter().filter(|(n, _)| !used.contains(n)) {
+        for def in tokens(n, v) {
+            out.unused
+                .push((out.defs.len(), "in a set no theme turns on".into()));
+            out.defs.push(def);
+        }
+    }
+    out
 }
 
-/// A Resolver Module document: its sets, then its modifiers.
-fn resolve(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Vec<Layer>, String> {
-    // A source: an inline token tree, or `$ref` to a file (or a part of
-    // this document).
-    let source = |src: &Value| -> Result<Vec<(String, Def)>, String> {
-        let mut found = Vec::new();
-        match src.get("$ref").and_then(Value::as_str) {
-            Some(r) if r.starts_with('#') => {
-                let pointer = r.trim_start_matches('#');
-                let node = doc
-                    .pointer(pointer)
-                    .ok_or_else(|| format!("{name}: no `{r}`"))?;
-                tokens(name, node, &mut found);
-            }
-            Some(r) => {
-                let (file, pointer) = r.split_once('#').map_or((r, ""), |(f, p)| (f, p));
-                let (fname, tree) = files
-                    .iter()
-                    .find(|(n, _)| n == file || n.ends_with(&format!("/{file}")))
-                    .ok_or_else(|| format!("{name}: no file `{file}` among the sources"))?;
-                let node = if pointer.is_empty() {
-                    tree
-                } else {
-                    tree.pointer(pointer)
-                        .ok_or_else(|| format!("{fname}: no `{pointer}`"))?
-                };
-                tokens(fname, node, &mut found);
-            }
-            None => tokens(name, src, &mut found),
-        }
-        Ok(found)
+/// A reference object resolved against `doc` and the source files: the node
+/// it names, its sibling keys merged over it, its own references followed;
+/// and the file it came from (empty for `doc` itself).
+fn deref(
+    doc: &Value,
+    files: &[(String, Value)],
+    relative: &dyn Fn(&str) -> String,
+    node: &Value,
+    depth: usize,
+) -> Result<(String, Value), String> {
+    if depth > 16 {
+        return Err("references nest too deep".into());
+    }
+    let Some(r) = node.get("$ref").and_then(Value::as_str) else {
+        return Ok((String::new(), node.clone()));
     };
-    let mut out = Vec::new();
-    for entry in doc["resolutionOrder"].as_array().into_iter().flatten() {
-        let r = entry.get("$ref").and_then(Value::as_str).unwrap_or("");
-        let pointer = r.trim_start_matches('#');
-        let node = doc.pointer(pointer).unwrap_or(entry);
-        if pointer.starts_with("/modifiers/") || node.get("contexts").is_some() {
-            let modifier = pointer.rsplit('/').next().unwrap_or("modifier");
-            let contexts = node["contexts"].as_object().cloned().unwrap_or_default();
+    let (file, pointer) = r.split_once('#').map_or((r, ""), |(f, p)| (f, p));
+    let (from, base) = match file {
+        "" => (String::new(), doc),
+        f => {
+            let path = relative(f);
+            let (n, v) = files
+                .iter()
+                .find(|(n, _)| *n == path)
+                .ok_or_else(|| format!("no file `{path}` among the sources"))?;
+            (n.clone(), v)
+        }
+    };
+    let target = match pointer {
+        "" => base,
+        p => base.pointer(p).ok_or_else(|| format!("no `{r}`"))?,
+    };
+    let (inner, mut value) = deref(doc, files, relative, target, depth + 1)?;
+    if let (Some(over), Some(obj)) = (node.as_object(), value.as_object_mut()) {
+        for (k, v) in over {
+            if k != "$ref" {
+                obj.insert(k.clone(), v.clone());
+            }
+        }
+    }
+    Ok((if inner.is_empty() { from } else { inner }, value))
+}
+
+/// A Resolver Module document.
+fn resolver(name: &str, doc: &Value, files: &[(String, Value)]) -> Result<Read, String> {
+    let dir = name.rsplit_once('/').map_or("", |(d, _)| d);
+    // A path relative to the document, normalised.
+    let relative = |r: &str| {
+        let mut parts: Vec<&str> = match dir {
+            "" => Vec::new(),
+            d => d.split('/').collect(),
+        };
+        for seg in r.split('/') {
+            match seg {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                s => parts.push(s),
+            }
+        }
+        parts.join("/")
+    };
+    let source = |src: &Value| -> Result<Vec<Def>, String> {
+        let (from, tree) = deref(doc, files, &relative, src, 0)?;
+        // A set reached by reference brings its own sources.
+        if let Some(srcs) = tree.get("sources").and_then(Value::as_array) {
+            let mut out = Vec::new();
+            for s in srcs {
+                let (f, t) = deref(doc, files, &relative, s, 0)?;
+                out.extend(tokens(if f.is_empty() { name } else { &f }, &t));
+            }
+            return Ok(out);
+        }
+        Ok(tokens(if from.is_empty() { name } else { &from }, &tree))
+    };
+    let mut out = Read::default();
+    let order = doc["resolutionOrder"]
+        .as_array()
+        .ok_or("`resolutionOrder` is a list")?;
+    for entry in order {
+        let (_, node) =
+            deref(doc, files, &relative, entry, 0).map_err(|e| format!("{name}: {e}"))?;
+        let label = entry
+            .get("$ref")
+            .and_then(Value::as_str)
+            .and_then(|r| r.rsplit('/').next())
+            .or_else(|| node.get("name").and_then(Value::as_str))
+            .unwrap_or("modifier")
+            .to_string();
+        if let Some(contexts) = node.get("contexts") {
+            let contexts = contexts
+                .as_object()
+                .filter(|c| !c.is_empty())
+                .ok_or_else(|| format!("{name}: the modifier `{label}` has no contexts"))?;
             let mut names: Vec<String> = contexts.keys().cloned().collect();
-            // The declared default first.
-            if let Some(d) = node["default"].as_str() {
+            if let Some(d) = node.get("default") {
+                let d = d
+                    .as_str()
+                    .ok_or_else(|| format!("{name}: `{label}`'s default is a context's name"))?;
+                if !contexts.contains_key(d) {
+                    return Err(format!(
+                        "{name}: `{label}`'s default `{d}` is no context of it"
+                    ));
+                }
                 names.sort_by_key(|n| n != d);
             }
             for context in &names {
                 let scope = match scheme(&names) {
                     true => Scope::Scheme(is_dark(context)),
-                    false => Scope::Axis(ident(modifier), ident(context)),
+                    false => Scope::Axis(ident(&label), ident(context)),
                 };
                 let mut found = Vec::new();
-                for src in contexts[context].as_array().into_iter().flatten() {
-                    found.extend(source(src)?);
+                let sources = contexts[context]
+                    .as_array()
+                    .ok_or_else(|| format!("{name}: `{label}.{context}` is a list of sources"))?;
+                for src in sources {
+                    found.extend(source(src).map_err(|e| format!("{name}: {e}"))?);
                 }
-                out.push(Layer {
-                    scope,
-                    tokens: found,
-                });
+                out.layer(scope, found);
             }
         } else {
+            let sources = node
+                .get("sources")
+                .and_then(Value::as_array)
+                .ok_or_else(|| {
+                    format!("{name}: `{label}` is a set (with `sources`) or a modifier (with `contexts`)")
+                })?;
             let mut found = Vec::new();
-            for src in node["sources"].as_array().into_iter().flatten() {
-                found.extend(source(src)?);
+            for src in sources {
+                found.extend(source(src).map_err(|e| format!("{name}: {e}"))?);
             }
-            out.push(Layer {
-                scope: Scope::Base,
-                tokens: found,
-            });
+            out.layer(Scope::Base, found);
         }
     }
     Ok(out)
@@ -417,226 +594,178 @@ fn kind(ty: Option<&str>) -> Kind {
         "typography" => Kind::Pending("type"),
         "border" => Kind::Reported("no Tamber kind: a border"),
         "transition" => Kind::Reported("no Tamber kind: a transition"),
-        "gradient" => Kind::Reported("no Tamber kind: a gradient"),
+        "gradient" => Kind::Reported("no Tamber kind: a gradient (its stops stay where they are)"),
         "strokeStyle" => Kind::Reported("no Tamber kind: a stroke style"),
         "boolean" | "string" => Kind::Reported("no Tamber kind: a string or a boolean"),
-        "" => Kind::Reported("no `$type`, on it or a group around it"),
+        "" => Kind::Reported("no `$type`, on it, a group around it, or the token it aliases"),
         _ => Kind::Reported("a `$type` Tamber's DTCG mapping does not name"),
     }
 }
 
-/// A colour value as Tamber writes it: a string, or 2025.10's object form.
+/// A colour value as Tamber writes it: a string, or 2025.10's object form
+/// (its colour space first; `hex` only without one).
 fn colour(value: &Value) -> Option<String> {
     if let Some(s) = value.as_str() {
         return colour_literal(s);
     }
     let obj = value.as_object()?;
-    if let Some(hex) = obj.get("hex").and_then(Value::as_str) {
-        let alpha = obj
-            .get("alpha")
-            .and_then(Value::as_f64)
-            .filter(|a| *a < 1.0);
-        let text = match alpha {
-            Some(a) => format!("{hex}{:02x}", (a * 255.0).round() as u8),
-            None => hex.to_string(),
-        };
-        return colour_literal(&text);
-    }
-    let space = obj.get("colorSpace")?.as_str()?;
-    let parts: Vec<String> = obj
-        .get("components")?
-        .as_array()?
-        .iter()
-        .map(|c| match c {
-            Value::String(s) if s == "none" => Some("none".to_string()),
-            c => c.as_f64().map(|n| format!("{n}")),
-        })
-        .collect::<Option<_>>()?;
     let alpha = obj
         .get("alpha")
         .and_then(Value::as_f64)
-        .filter(|a| *a < 1.0)
-        .map_or(String::new(), |a| format!(" / {a}"));
-    let text = match space {
-        "oklch" | "oklab" | "lab" | "lch" | "hsl" | "hwb" => {
-            format!("{space}({}{alpha})", parts.join(" "))
+        .filter(|a| *a < 1.0);
+    let space = obj.get("colorSpace").and_then(Value::as_str);
+    let components = obj.get("components").and_then(Value::as_array);
+    if let (Some(space), Some(components)) = (space, components) {
+        let parts: Option<Vec<String>> = components
+            .iter()
+            .map(|c| match c {
+                Value::String(s) if s == "none" => Some("none".to_string()),
+                c => c.as_f64().map(|n| format!("{n}")),
+            })
+            .collect();
+        if let Some(parts) = parts {
+            let a = alpha.map_or(String::new(), |a| format!(" / {a}"));
+            let text = match space {
+                "oklch" | "oklab" | "lab" | "lch" | "hsl" | "hwb" => {
+                    Some(format!("{space}({}{a})", parts.join(" ")))
+                }
+                "srgb" | "srgb-linear" | "display-p3" | "a98-rgb" | "prophoto-rgb" | "rec2020"
+                | "xyz-d50" | "xyz-d65" => Some(format!("color({space} {}{a})", parts.join(" "))),
+                _ => None,
+            };
+            if let Some(c) = text.and_then(|t| colour_literal(&t)) {
+                return Some(c);
+            }
         }
-        "srgb" | "srgb-linear" | "display-p3" | "a98-rgb" | "prophoto-rgb" | "rec2020"
-        | "xyz-d50" | "xyz-d65" => {
-            format!("color({space} {}{alpha})", parts.join(" "))
-        }
+    }
+    let hex = obj.get("hex").and_then(Value::as_str)?;
+    let full = match (hex.len(), alpha) {
+        (_, None) => hex.to_string(),
+        (7, Some(a)) => format!("{hex}{:02x}", (a * 255.0).round() as u8),
         _ => return None,
     };
-    colour_literal(&text)
+    colour_literal(&full)
 }
 
-/// `{a.b}`'s path.
-fn alias(value: &Value) -> Option<&str> {
-    let s = value.as_str()?.trim();
-    s.strip_prefix('{')?
-        .strip_suffix('}')
-        .filter(|p| !p.contains(['{', '}']))
+/// An alias's target path: `{a.b}`, or `{"$ref": "#/a/b/$value"}`;
+/// `Err` for a reference to part of a value.
+fn alias(value: &Value) -> Option<Result<String, String>> {
+    if let Some(s) = value.as_str() {
+        let p = s.trim().strip_prefix('{')?.strip_suffix('}')?;
+        return (!p.contains(['{', '}'])).then(|| Ok(p.to_string()));
+    }
+    let r = value
+        .as_object()
+        .filter(|o| o.len() == 1)?
+        .get("$ref")?
+        .as_str()?;
+    let pointer = r.strip_prefix("#/")?;
+    let segs: Vec<&str> = pointer.split('/').collect();
+    match segs.iter().position(|s| *s == "$value") {
+        Some(i) if i + 1 == segs.len() => Some(Ok(segs[..i].join("."))),
+        Some(_) => Some(Err(format!(
+            "`{r}` names part of a value, which no Tamber value reads"
+        ))),
+        None => Some(Ok(segs.join("."))),
+    }
 }
 
-/// Import `files` (each its name and JSON) under `prefix`, planned against
+/// One mode tuple: the scheme's side and a value of each axis.
+type Tuple = (bool, Vec<String>);
+
+/// A path's colour in one tuple: as written (a reference a token's name),
+/// resolved, and the path it references.
+type Colour = (String, String, Option<String>);
+
+/// A path's colour in one tuple, or why not.
+type Seen = Result<Colour, String>;
+
+/// A path's type in a tuple: its own, else the type of what it aliases.
+fn type_of(defs: &[Def], w: &BTreeMap<&str, usize>, path: &str, depth: usize) -> Option<String> {
+    let d = &defs[*w.get(path)?];
+    if d.ty.is_some() || depth > 16 {
+        return d.ty.clone();
+    }
+    match alias(&d.value) {
+        Some(Ok(target)) => type_of(defs, w, &target, depth + 1),
+        _ => None,
+    }
+}
+
+/// A path's colour in a tuple, aliases followed there.
+fn seen(
+    defs: &[Def],
+    w: &BTreeMap<&str, usize>,
+    names: &BTreeMap<String, String>,
+    path: &str,
+    visiting: &mut Vec<String>,
+) -> Seen {
+    let Some(&i) = w.get(path) else {
+        return Err(format!("`{{{path}}}` is no token in this mode"));
+    };
+    let d = &defs[i];
+    if let Some(why) = &d.refused {
+        return Err(why.clone());
+    }
+    match alias(&d.value) {
+        Some(Ok(target)) => {
+            if visiting.contains(&target) {
+                return Err(format!("a cycle of aliases through `{{{target}}}`"));
+            }
+            visiting.push(target.clone());
+            let found = seen(defs, w, names, &target, visiting);
+            visiting.pop();
+            let (_, resolved, _) = found?;
+            match names.get(&target) {
+                Some(n) => Ok((n.clone(), resolved, Some(target))),
+                None => Ok((resolved.clone(), resolved, None)),
+            }
+        }
+        Some(Err(why)) => Err(why),
+        None => colour(&d.value)
+            .map(|c| (c.clone(), c, None))
+            .ok_or_else(|| match d.value.as_str() {
+                Some(s) if exact_color::parse(s).is_some() => {
+                    "a colour Tamber does not fold yet".to_string()
+                }
+                _ => "not a colour Tamber reads".to_string(),
+            }),
+    }
+}
+
+/// A tuple as a report names it: `dark, brand=loud`.
+fn tuple_name(t: &Tuple, scheme: bool, axes: &[(String, Vec<String>)]) -> String {
+    let mut parts = Vec::new();
+    if scheme {
+        parts.push(if t.0 { "dark" } else { "light" }.to_string());
+    }
+    for ((a, _), v) in axes.iter().zip(&t.1) {
+        parts.push(format!("{a}={v}"));
+    }
+    match parts.is_empty() {
+        true => "the base".into(),
+        false => parts.join(", "),
+    }
+}
+
+/// Import `files` (each its path and JSON) under `prefix`, planned against
 /// `design`.
 pub fn import(
     files: &[(String, String)],
     prefix: &str,
     design: &Design,
 ) -> Result<Import, Vec<Diagnostic>> {
-    let refuse = |m: String| vec![Diagnostic::new("tamber-import-source", m, 1, 1)];
-    let layers = layers(files).map_err(refuse)?;
-    let mut unmapped = Vec::new();
-    let mut report = |file: &str, path: &str, value: &Value, why: String, token: Option<String>| {
-        unmapped.push(Unmapped {
-            block: file.to_string(),
-            name: path.to_string(),
-            value: match value {
-                Value::String(s) => s.clone(),
-                v => v.to_string(),
-            },
-            why,
-            token,
-        });
-    };
-    let source: usize = layers.iter().map(|l| l.tokens.len()).sum();
-    // Names: each path's segments as identifiers; a collision reported.
-    let mut names: BTreeMap<String, String> = BTreeMap::new();
-    let mut taken: BTreeMap<String, String> = BTreeMap::new();
-    let mut collided: BTreeMap<String, String> = BTreeMap::new();
-    for layer in &layers {
-        for (path, _) in &layer.tokens {
-            if names.contains_key(path) || collided.contains_key(path) {
-                continue;
-            }
-            let name = std::iter::once(prefix.to_string())
-                .chain(path.split('.').map(segment))
-                .collect::<Vec<_>>()
-                .join(".");
-            match taken.get(&name) {
-                Some(first) => {
-                    collided.insert(path.clone(), first.clone());
-                }
-                None => {
-                    taken.insert(name.clone(), path.clone());
-                    names.insert(path.clone(), name);
-                }
-            }
-        }
-    }
-    // The colour paths: typed colour in some layer.
-    let colour_paths: BTreeSet<&String> = layers
+    let refuse = |id: &'static str, m: String| vec![Diagnostic::new(id, m, 1, 1)];
+    let read = read(files).map_err(|m| refuse("tamber-import-source", m))?;
+    let defs = &read.defs;
+    // The dimensions: the scheme, and each axis with its values in order.
+    let has_scheme = read
+        .layers
         .iter()
-        .flat_map(|l| l.tokens.iter())
-        .filter(|(p, d)| {
-            matches!(kind(d.ty.as_deref()), Kind::Colour) && !collided.contains_key(p.as_str())
-        })
-        .map(|(p, _)| p)
-        .collect();
-    // Each colour value by path and scope, the later layer (and set) winning;
-    // the rest reported.
-    let mut values: BTreeMap<(String, Scope), (String, String)> = BTreeMap::new();
-    let mut mapped = 0;
-    let mut winners: BTreeMap<(String, Scope), (String, Value)> = BTreeMap::new();
-    for layer in &layers {
-        for (path, def) in &layer.tokens {
-            if let Some(first) = collided.get(path) {
-                report(
-                    &def.file,
-                    path,
-                    &def.value,
-                    format!("its name is `{first}`'s ({})", names[first]),
-                    None,
-                );
-                continue;
-            }
-            match kind(def.ty.as_deref()) {
-                Kind::Colour => {
-                    let key = (path.clone(), layer.scope.clone());
-                    if let Some((file, old)) =
-                        winners.insert(key, (def.file.clone(), def.value.clone()))
-                    {
-                        report(
-                            &file,
-                            path,
-                            &old,
-                            "declared again by a later set or file, which wins".into(),
-                            None,
-                        );
-                    }
-                }
-                Kind::Pending(k) => report(
-                    &def.file,
-                    path,
-                    &def.value,
-                    format!("kind pending (stage 6): {k}"),
-                    Some(names[path].clone()),
-                ),
-                Kind::Reported(why) => report(&def.file, path, &def.value, why.to_string(), None),
-            }
-        }
-    }
-    // An alias names its token; a cycle of aliases is no colour.
-    let alias_of = |v: &Value| alias(v).map(str::to_string);
-    let cyclic = |start: &str| {
-        let mut seen = BTreeSet::new();
-        let mut at = start.to_string();
-        loop {
-            if !seen.insert(at.clone()) {
-                return true;
-            }
-            let next = winners
-                .iter()
-                .find(|((p, _), _)| *p == at)
-                .and_then(|(_, (_, v))| alias_of(v));
-            match next {
-                Some(n) if n == start => return true,
-                Some(n) => at = n,
-                None => return false,
-            }
-        }
-    };
-    for ((path, scope), (file, value)) in &winners {
-        let text = match alias(value) {
-            Some(target) if colour_paths.contains(&target.to_string()) && !cyclic(path) => {
-                Some(names[target].clone())
-            }
-            Some(target) => {
-                report(
-                    file,
-                    path,
-                    value,
-                    format!("`{{{target}}}` names no colour token"),
-                    Some(names[path].clone()),
-                );
-                continue;
-            }
-            None => colour(value),
-        };
-        match text {
-            Some(t) => {
-                mapped += 1;
-                values.insert((path.clone(), scope.clone()), (t, file.clone()));
-            }
-            None => {
-                let why = match colour_literal(value.as_str().unwrap_or("")) {
-                    None if value
-                        .as_str()
-                        .is_some_and(|s| exact_color::parse(s).is_some()) =>
-                    {
-                        "a colour Tamber does not fold yet".to_string()
-                    }
-                    _ => "not a colour Tamber reads".to_string(),
-                };
-                report(file, path, value, why, Some(names[path].clone()));
-            }
-        }
-    }
-    // The tokens: the base, the scheme's sides, the axes' `when` lines.
+        .any(|l| matches!(l.scope, Scope::Scheme(_)));
     let mut axes: Vec<(String, Vec<String>)> = Vec::new();
-    for layer in &layers {
-        if let Scope::Axis(a, v) = &layer.scope {
+    for l in &read.layers {
+        if let Scope::Axis(a, v) = &l.scope {
             match axes.iter_mut().find(|(n, _)| n == a) {
                 Some((_, vs)) if !vs.contains(v) => vs.push(v.clone()),
                 Some(_) => {}
@@ -644,97 +773,307 @@ pub fn import(
             }
         }
     }
-    let pair = |l: Option<&String>, d: Option<&String>| match (l, d) {
-        (Some(l), Some(d)) if l == d => Some(l.clone()),
-        (Some(l), Some(d)) => Some(format!("light-dark({l}, {d})")),
-        (Some(x), None) | (None, Some(x)) => Some(x.clone()),
-        (None, None) => None,
-    };
-    let mut paths: Vec<&String> = values.keys().map(|(p, _)| p).collect();
-    paths.dedup();
-    let mut tokens = Vec::new();
-    let mut dropped_axes: Vec<(String, Scope)> = Vec::new();
-    for path in paths {
-        let get = |scope: &Scope| values.get(&(path.clone(), scope.clone())).map(|(t, _)| t);
-        let base = get(&Scope::Base);
-        let default = match (get(&Scope::Scheme(false)), get(&Scope::Scheme(true))) {
-            (None, None) => base.cloned(),
-            (l, d) => pair(l.or(base), d.or(base)),
-        };
-        // A token one axis sets; a second axis's lines would both hold.
-        let mut owner: Option<&String> = None;
-        let mut whens = Vec::new();
-        for (axis, vals) in &axes {
-            for v in vals {
-                let scope = Scope::Axis(axis.clone(), v.clone());
-                if let Some(t) = get(&scope) {
-                    match owner {
-                        Some(o) if o != axis => dropped_axes.push((path.clone(), scope)),
-                        _ => {
-                            owner = Some(axis);
-                            whens.push((vec![(axis.clone(), v.clone())], t.clone()));
-                        }
-                    }
-                }
+    // An axis the host owns, or one the design has with another default:
+    // no proposal can make it.
+    for (a, vs) in &axes {
+        if matches!(a.as_str(), "scheme" | "contrast" | "color-scheme") {
+            return Err(refuse(
+                "tamber-import-axis",
+                format!("a mode `{a}` is the host's trait, not an app axis: name it otherwise in the source"),
+            ));
+        }
+        if let Some(have) = design.axes.iter().find(|x| x.name.value == *a) {
+            if have.values.first() != vs.first() {
+                return Err(refuse(
+                    "tamber-import-axis",
+                    format!(
+                        "the design's axis `{a}` defaults to `{}`, the source's to `{}`",
+                        have.values.first().cloned().unwrap_or_default(),
+                        vs[0]
+                    ),
+                ));
             }
         }
-        let Some(value) = default.or_else(|| whens.first().map(|(_, v)| v.clone())) else {
-            continue;
-        };
-        whens.retain(|(_, v)| *v != value);
-        tokens.push(Mapped {
-            name: names[path].clone(),
-            value,
-            whens,
-        });
     }
-    for (path, scope) in dropped_axes {
-        if let Some((_, file)) = values.get(&(path.clone(), scope.clone())) {
-            mapped -= 1;
-            let (axis, value) = match &scope {
-                Scope::Axis(a, v) => (a.clone(), v.clone()),
-                _ => unreachable!(),
-            };
-            report(
-                file,
-                &path,
-                &Value::String(format!("{axis}={value}")),
-                "set by a second axis too: two `when` lines would both hold".into(),
-                None,
-            );
-        }
-    }
-    // The tuples the axes would make.
+    // The tuples, the default first; their count capped as a design's is.
+    let sides: &[bool] = if has_scheme { &[false, true] } else { &[false] };
     let others: usize = design
         .axes
         .iter()
         .filter(|a| !axes.iter().any(|(n, _)| *n == a.name.value))
         .map(|a| a.values.len())
         .product();
-    let total: usize = axes
+    let app_tuples = axes
         .iter()
-        .map(|(n, vs)| {
-            let have = design
-                .axes
-                .iter()
-                .find(|a| a.name.value == *n)
-                .map_or(Vec::new(), |a| a.values.clone());
-            have.len() + vs.iter().filter(|v| !have.contains(v)).count()
-        })
-        .product::<usize>()
-        * others;
-    if !axes.is_empty() && total > crate::MAX_TUPLES {
-        return Err(vec![Diagnostic::new(
+        .try_fold(others, |acc, (_, vs)| acc.checked_mul(vs.len()));
+    if app_tuples.is_none_or(|t| t > crate::MAX_TUPLES) {
+        return Err(refuse(
             "tamber-import-tuples",
-            format!("the proposed axes would take the design to {total} tuples; a design has at most {}", crate::MAX_TUPLES),
-            1,
-            1,
-        )]);
+            format!(
+                "the proposed axes would take the design past {} tuples",
+                crate::MAX_TUPLES
+            ),
+        ));
+    }
+    let mut tuples: Vec<Tuple> = sides.iter().map(|s| (*s, Vec::new())).collect();
+    for (_, vs) in &axes {
+        tuples = tuples
+            .iter()
+            .flat_map(|(s, picked)| {
+                vs.iter().map(move |v| {
+                    let mut p = picked.clone();
+                    p.push(v.clone());
+                    (*s, p)
+                })
+            })
+            .collect();
+    }
+    // Names: each path's segments as identifiers; a collision reported.
+    let mut names: BTreeMap<String, String> = BTreeMap::new();
+    let mut taken: BTreeMap<String, String> = BTreeMap::new();
+    let mut collided: BTreeMap<String, String> = BTreeMap::new();
+    for d in defs {
+        if names.contains_key(&d.path) || collided.contains_key(&d.path) {
+            continue;
+        }
+        let name = std::iter::once(prefix.to_string())
+            .chain(d.path.split('.').map(segment))
+            .collect::<Vec<_>>()
+            .join(".");
+        match taken.get(&name) {
+            Some(first) => {
+                collided.insert(d.path.clone(), first.clone());
+            }
+            None => {
+                taken.insert(name.clone(), d.path.clone());
+                names.insert(d.path.clone(), name);
+            }
+        }
+    }
+    // Each tuple's winners: its layers merged in order, a later one winning
+    // whatever its kind.
+    let active = |t: &Tuple, scope: &Scope| match scope {
+        Scope::Base => true,
+        Scope::Scheme(dark) => *dark == t.0,
+        Scope::Axis(a, v) => axes
+            .iter()
+            .position(|(n, _)| n == a)
+            .is_some_and(|i| t.1[i] == *v),
+    };
+    let unused: BTreeSet<usize> = read.unused.iter().map(|(i, _)| *i).collect();
+    let winners: Vec<BTreeMap<&str, usize>> = tuples
+        .iter()
+        .map(|t| {
+            let mut w = BTreeMap::new();
+            for l in read.layers.iter().filter(|l| active(t, &l.scope)) {
+                for &i in l.defs.iter().filter(|i| !unused.contains(i)) {
+                    if !collided.contains_key(&defs[i].path) {
+                        w.insert(defs[i].path.as_str(), i);
+                    }
+                }
+            }
+            w
+        })
+        .collect();
+    // Every path's colour in every tuple, or why it makes no token.
+    let paths: Vec<&str> = names.keys().map(String::as_str).collect();
+    let mut values: BTreeMap<&str, Vec<Colour>> = BTreeMap::new();
+    let mut fates: BTreeMap<&str, String> = BTreeMap::new();
+    for &path in &paths {
+        let mut per = Vec::new();
+        let mut failure: Option<String> = None;
+        for (t, w) in tuples.iter().zip(&winners) {
+            let label = tuple_name(t, has_scheme, &axes);
+            if !w.contains_key(path) {
+                failure.get_or_insert(format!(
+                    "not set in {label}, and no value of it is invented"
+                ));
+                continue;
+            }
+            match kind(type_of(defs, w, path, 0).as_deref()) {
+                Kind::Colour => match seen(defs, w, &names, path, &mut vec![path.to_string()]) {
+                    Ok(v) => per.push(v),
+                    Err(why) => {
+                        failure.get_or_insert(format!("{why} ({label})"));
+                    }
+                },
+                _ => {
+                    failure.get_or_insert(String::new());
+                }
+            }
+        }
+        match failure {
+            None => {
+                values.insert(path, per);
+            }
+            Some(why) => {
+                fates.insert(path, why);
+            }
+        }
+    }
+    // A reference to a token not made is written as its colour; one round a
+    // cycle of tokens too.
+    let made: BTreeSet<&str> = values.keys().copied().collect();
+    let mut graph: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
+    for (path, per) in values.iter_mut() {
+        for v in per.iter_mut() {
+            if let Some(target) = v.2.clone() {
+                if made.contains(target.as_str()) {
+                    graph.entry(path).or_default().insert(target);
+                } else {
+                    *v = (v.1.clone(), v.1.clone(), None);
+                }
+            }
+        }
+    }
+    let reaches = |from: &str| {
+        let mut stack: Vec<String> = graph
+            .get(from)
+            .map_or(Vec::new(), |s| s.iter().cloned().collect());
+        let mut visited = BTreeSet::new();
+        while let Some(n) = stack.pop() {
+            if n == from {
+                return true;
+            }
+            if visited.insert(n.clone()) {
+                stack.extend(graph.get(n.as_str()).into_iter().flatten().cloned());
+            }
+        }
+        false
+    };
+    let cyclic: BTreeSet<&str> = graph.keys().copied().filter(|p| reaches(p)).collect();
+    for (path, per) in values.iter_mut() {
+        if cyclic.contains(path) {
+            for v in per.iter_mut() {
+                *v = (v.1.clone(), v.1.clone(), None);
+            }
+        }
+    }
+    // The tokens: the default tuple's value, and a `when` line for each other
+    // tuple Tamber would not otherwise select its value in.
+    let pair = |l: &str, d: &str| match l == d {
+        true => l.to_string(),
+        false => format!("light-dark({l}, {d})"),
+    };
+    let value_at = |per: &Vec<Colour>, combo: &Vec<String>| {
+        let at = |dark: bool| {
+            tuples
+                .iter()
+                .position(|t| t.0 == dark && t.1 == *combo)
+                .map(|i| per[i].0.clone())
+                .unwrap_or_default()
+        };
+        match has_scheme {
+            true => pair(&at(false), &at(true)),
+            false => at(false),
+        }
+    };
+    let default_combo: Vec<String> = axes.iter().map(|(_, vs)| vs[0].clone()).collect();
+    let mut combos: Vec<&Vec<String>> = tuples
+        .iter()
+        .filter(|t| !t.0 && t.1 != default_combo)
+        .map(|t| &t.1)
+        .collect();
+    // Fewer conditions first: a line naming more axes is added only where the
+    // ones naming fewer leave the value wrong or ambiguous.
+    combos.sort_by_key(|c| c.iter().zip(&default_combo).filter(|(a, b)| a != b).count());
+    let mut tokens = Vec::new();
+    for (path, per) in &values {
+        let value = value_at(per, &default_combo);
+        let mut whens: Vec<(Vec<(String, String)>, String)> = Vec::new();
+        for combo in &combos {
+            let conds: Vec<(String, String)> = axes
+                .iter()
+                .zip(combo.iter())
+                .filter(|((_, vs), v)| **v != vs[0])
+                .map(|((a, _), v)| (a.clone(), v.clone()))
+                .collect();
+            let want = value_at(per, combo);
+            let holding: Vec<&(Vec<(String, String)>, String)> = whens
+                .iter()
+                .filter(|(c, _)| c.iter().all(|x| conds.contains(x)))
+                .collect();
+            let most = holding.iter().map(|(c, _)| c.len()).max();
+            let top: Vec<&String> = holding
+                .iter()
+                .filter(|(c, _)| Some(c.len()) == most)
+                .map(|(_, v)| v)
+                .collect();
+            let selected = match top.len() {
+                0 => Some(&value),
+                1 => Some(top[0]),
+                _ => None,
+            };
+            if selected != Some(&want) {
+                whens.push((conds, want));
+            }
+        }
+        tokens.push(Mapped {
+            name: names[*path].clone(),
+            value,
+            whens,
+        });
+    }
+    // Each def: mapped when it wins a tuple of a token made, else reported.
+    let wins: BTreeSet<usize> = winners.iter().flat_map(|w| w.values().copied()).collect();
+    let mut unmapped = Vec::new();
+    let mut mapped = 0;
+    for (i, d) in defs.iter().enumerate() {
+        let report = |why: String, token: Option<String>| Unmapped {
+            block: d.file.clone(),
+            name: d.path.clone(),
+            value: match &d.value {
+                Value::String(s) => s.clone(),
+                v => v.to_string(),
+            },
+            why,
+            token,
+        };
+        if let Some((_, why)) = read.unused.iter().find(|(j, _)| *j == i) {
+            unmapped.push(report(why.clone(), None));
+            continue;
+        }
+        if let Some(first) = collided.get(&d.path) {
+            unmapped.push(report(
+                format!("its name is `{first}`'s ({})", names[first]),
+                None,
+            ));
+            continue;
+        }
+        if !wins.contains(&i) {
+            unmapped.push(report(
+                "declared again by a later layer, which wins".into(),
+                None,
+            ));
+            continue;
+        }
+        if values.contains_key(d.path.as_str()) {
+            mapped += 1;
+            continue;
+        }
+        let token = names.get(&d.path).cloned();
+        let ty =
+            d.ty.clone()
+                .or_else(|| winners.iter().find_map(|w| type_of(defs, w, &d.path, 0)));
+        let why = match (&d.refused, kind(ty.as_deref())) {
+            (Some(why), _) => why.clone(),
+            (None, Kind::Pending(k)) => format!("kind pending (stage 6): {k}"),
+            (None, Kind::Reported(why)) => {
+                unmapped.push(report(why.to_string(), None));
+                continue;
+            }
+            (None, Kind::Colour) => fates
+                .get(d.path.as_str())
+                .cloned()
+                .filter(|w| !w.is_empty())
+                .unwrap_or_else(|| "a colour in some modes, another kind in others".into()),
+        };
+        unmapped.push(report(why, token));
     }
     let owned: Vec<&str> = axes.iter().map(|(a, _)| a.as_str()).collect();
     let ops = reconcile(design, &axes, &owned, &tokens);
     let reported = unmapped.len();
-    let counted = counted(source, mapped, reported)?;
+    let counted = counted(defs.len(), mapped, reported)?;
     Ok(Import {
         ops,
         offers: Vec::new(),

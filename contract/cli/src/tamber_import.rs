@@ -107,7 +107,9 @@ pub fn run(args: &[String]) -> ExitCode {
     }
 }
 
-/// A source path's files: the file, or each `.json` under the directory.
+/// A source path's files: the file, or each `.json` under the directory
+/// (any case; links to directories not followed; at most 10,000), by their
+/// paths from it.
 fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
     if !path.is_dir() {
         let name = path
@@ -119,10 +121,18 @@ fn read_source(path: &Path) -> std::io::Result<Vec<(String, String)>> {
     let mut stack = vec![path.to_path_buf()];
     while let Some(dir) = stack.pop() {
         for entry in std::fs::read_dir(&dir)? {
-            let p = entry?.path();
-            if p.is_dir() {
+            let entry = entry?;
+            let p = entry.path();
+            let kind = entry.file_type()?;
+            if kind.is_dir() {
                 stack.push(p);
-            } else if p.extension().is_some_and(|e| e == "json") {
+            } else if kind.is_file()
+                && p.extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+            {
+                if out.len() >= 10_000 {
+                    return Err(std::io::Error::other("more than 10,000 JSON files"));
+                }
                 let name = p
                     .strip_prefix(path)
                     .unwrap_or(&p)
