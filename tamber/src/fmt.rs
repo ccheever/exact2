@@ -165,6 +165,15 @@ fn axis(l: &Line) -> String {
 
 /// `name: kind = value  in low..high  meta=…`.
 fn dial(l: &Line) -> String {
+    dial_value(l, None)
+}
+
+/// [`dial`] with its value replaced by `value` (an edit, `set-dial`).
+pub(crate) fn dial_with(l: &Line, value: &str) -> String {
+    dial_value(l, Some(value))
+}
+
+fn dial_value(l: &Line, with: Option<&str>) -> String {
     let Some((lhs, value)) = lex::split_top(&l.text, '=') else {
         return l.text.clone();
     };
@@ -179,7 +188,7 @@ fn dial(l: &Line) -> String {
         "{}: {} = {}",
         name.trim(),
         kind.trim(),
-        value_text(value, &words, end)
+        with.unwrap_or(value_text(value, &words, end))
     );
     let mut i = end;
     if words.get(i).is_some_and(|(_, w)| *w == "in") {
@@ -197,6 +206,15 @@ fn dial(l: &Line) -> String {
 
 /// `name = value  meta=…`, `name: kind = value`.
 fn token(l: &Line) -> String {
+    token_value(l, None)
+}
+
+/// [`token`] with its value replaced by `value` (an edit, `set-token`).
+pub(crate) fn token_with(l: &Line, value: &str) -> String {
+    token_value(l, Some(value))
+}
+
+fn token_value(l: &Line, with: Option<&str>) -> String {
     let Some((lhs, value)) = lex::split_top(&l.text, '=') else {
         return l.text.clone();
     };
@@ -211,7 +229,7 @@ fn token(l: &Line) -> String {
         .take_while(|&i| meta(words[i].1))
         .last()
         .unwrap_or(words.len());
-    let mut out = format!("{lhs} = {}", value_text(value, &words, end));
+    let mut out = format!("{lhs} = {}", with.unwrap_or(value_text(value, &words, end)));
     metadata(&mut out, &words[end..]);
     out
 }
