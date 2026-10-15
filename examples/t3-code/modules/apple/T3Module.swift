@@ -64,7 +64,7 @@ final class T3Module: ExactModule {
         attach = T3ComposerAttach(dataRoot: context.data, agent: context.agent)
         rowDrop = T3RowDrop(attach: attach, changed: changed)
         video = T3ComposerVideo(dataRoot: context.data, muted: context.agent)
-        media = R6MediaPreview(agent: context.agent)
+        media = R6MediaPreview(agent: context.agent, stagedFile: attach.stagedFile) // a draft file's preview reads its staged copy
         let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
         activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: context.data, pageFacts: true)
         transport = T3Transport(persistent: !context.agent, dataDirectory: context.data, credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)

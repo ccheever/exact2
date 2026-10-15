@@ -148,10 +148,10 @@ final class PanelsTests: XCTestCase {
         XCTAssertNil(T3AttachmentFiles.assetURL("https://user@host/api/assets/x"))
     }
 
-    private func perform(_ request: [String: Any], exports: URL? = nil) -> [String: Any] {
+    private func perform(_ request: [String: Any], exports: URL? = nil, staged: @escaping (String) -> URL? = { _ in nil }) -> [String: Any] {
         let done = expectation(description: "reply")
         var value: [String: Any] = [:]
-        T3AttachmentFiles.perform(request, exportsRoot: exports) { reply in value = reply["value"] as? [String: Any] ?? [:]; done.fulfill() }
+        T3AttachmentFiles.perform(request, exportsRoot: exports, stagedFile: staged) { reply in value = reply["value"] as? [String: Any] ?? [:]; done.fulfill() }
         wait(for: [done], timeout: 10)
         return value
     }
@@ -184,6 +184,34 @@ final class PanelsTests: XCTestCase {
         StubAssets.status = 404
         value = perform(["op": "attachmentSave", "url": "http://127.0.0.1:9/api/assets/b", "name": "x"], exports: root)
         XCTAssertEqual(value["message"] as? String, "The file could not be loaded. Try again.")
+        try? FileManager.default.removeItem(at: root)
+    }
+
+    /// A composer file chip's preview reads the draft's own bytes (AttachmentFilePreview's `file` Blob): a staged copy, or a
+    /// folded paste's text, never a URL.
+    func testADraftsStagedCopyAndPasteAreReadAndSavedHere() throws {
+        let root = URL(fileURLWithPath: ProcessInfo.processInfo.environment["T3_PANELS_TEST_DIR"] ?? NSTemporaryDirectory()).appendingPathComponent("staged-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let id = UUID().uuidString.lowercased(), copy = root.appendingPathComponent(id)
+        try Data("let a = 1\n".utf8).write(to: copy)
+        let staged = { (name: String) in name == id ? copy : nil }
+        var value = perform(["op": "attachmentText", "staged": id], staged: staged)
+        XCTAssertEqual(value["text"] as? String, "let a = 1\n")
+        XCTAssertEqual(value["truncated"] as? Bool, false)
+        try Data(repeating: 0x61, count: 1_048_577).write(to: copy)
+        value = perform(["op": "attachmentText", "staged": id], staged: staged)
+        XCTAssertEqual(value["truncated"] as? Bool, true)
+        XCTAssertEqual((value["text"] as? String)?.count, 1_048_576)
+        value = perform(["op": "attachmentText", "staged": "gone"], staged: staged)
+        XCTAssertEqual(value["message"] as? String, "Could not load this file.")
+        let exports = root.appendingPathComponent("exports")
+        value = perform(["op": "attachmentSave", "staged": id, "name": "notes.swift"], exports: exports, staged: staged)
+        XCTAssertEqual(value["saved"] as? Bool, true)
+        XCTAssertEqual(try Data(contentsOf: exports.appendingPathComponent("notes.swift")).count, 1_048_577)
+        value = perform(["op": "attachmentText", "base64": Data("pasted".utf8).base64EncodedString()])
+        XCTAssertEqual(value["text"] as? String, "pasted")
+        value = perform(["op": "attachmentSave", "base64": Data("pasted".utf8).base64EncodedString(), "name": "pasted-text.txt"], exports: exports)
+        XCTAssertEqual(try String(contentsOf: exports.appendingPathComponent("pasted-text.txt"), encoding: .utf8), "pasted")
         try? FileManager.default.removeItem(at: root)
     }
 }

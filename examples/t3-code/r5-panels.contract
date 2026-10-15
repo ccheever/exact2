@@ -142,10 +142,12 @@ component R5AttachmentBody
     scheme: string
     sheet: bool
     local: action
+    // The header actions' element ids are `<actionIds>-<action>` in a dialog that moves the focus to them; "" elsewhere.
+    actionIds: string
   view
     // AttachmentFilePreview paints bg-background over the panel (the sheet's own fill is white).
     column flex=1 min-height=0 width="100%" position="relative" overflow="hidden" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="attachment-surface"
-      R5AttachmentHeader(att=att, sheet=sheet, local=local)
+      R5AttachmentHeader(att=att, sheet=sheet, local=local, actionIds=actionIds)
       if att.truncatedNote != ""
         text att.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
       if att.preview == "loading"
@@ -174,7 +176,7 @@ component R5AttachmentBody
         column flex=1 min-height=0 width="100%" padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" overflow="hidden" testId="attachment-image"
           image att.url aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" width="100%" height="100%" object-fit="contain"
       // PDF, rendered HTML, audio and video (r6-media.contract).
-      if att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "video"
+      if att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "audio-local" or att.preview == "video"
         R6MediaBody(att=att, local=local)
       if att.preview == "none"
         column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" testId="attachment-no-preview"
@@ -202,6 +204,7 @@ component R5AttachmentHeader
     att: R5Attachment
     sheet: bool
     local: action
+    actionIds: string
   state hovered = ""
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
@@ -209,24 +212,29 @@ component R5AttachmentHeader
     // FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel; 40pt over a hairline in a sheet.
     row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" testId="attachment-subheader"
       row flex=1 min-width=0 align-items="center" overflow="hidden"
-        text "Attachment" flex-shrink=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" color=r5Muted()
+        text att.origin flex-shrink=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" color=r5Muted()
         box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
         text att.name min-width=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" testId="attachment-name"
         text att.size margin-left="0.5rem" flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=r5Muted() testId="attachment-size"
       if att.canRender
-        R5Action(id="render", label=att.renderLabel, icon=att.renderIcon, toggle=true, pressed=att.rendered, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-render", att.id, ""))
+        R5Action(id="render", ids=actionIds, label=att.renderLabel, icon=att.renderIcon, toggle=true, pressed=att.rendered, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-render", att.id, ""))
       if att.showWrap
-        R5Action(id="wrap", label=(att.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", toggle=true, pressed=att.wrap, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-wrap", att.id, ""))
+        R5Action(id="wrap", ids=actionIds, label=(att.wrap ? "Disable word wrap" : "Enable word wrap"), icon="wrap-text", toggle=true, pressed=att.wrap, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-wrap", att.id, ""))
       if att.canCopy
-        R5Action(id="copy", label=att.copyLabel, icon=(att.copied ? "check" : "copy"), toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-copy", att.id, ""))
+        R5Action(id="copy", ids=actionIds, label=att.copyLabel, icon=(att.copied ? "check" : "copy"), toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-copy", att.id, ""))
       if att.canSave
-        R5Action(id="save", label=att.saveLabel, icon="download", toggle=false, pressed=false, disabled=att.saving, hovered=hovered, hover=hover, press=local("surface-r5-att-save", att.id, ""))
+        R5Action(id="save", ids=actionIds, label=att.saveLabel, icon="download", toggle=false, pressed=false, disabled=att.saving, hovered=hovered, hover=hover, press=local("surface-r5-att-save", att.id, ""))
+      if att.canRemove
+        R5Action(id="remove", ids=actionIds, label="Remove from draft", icon="trash", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-remove", att.id, ""))
+      if att.canClose
+        R5Action(id="close", ids=actionIds, label="Close", icon="x", toggle=false, pressed=false, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-close", att.id, ""))
 
 // FileSurfaceAction: 28pt; a toggle wears the accent fill when pressed, a command is a ghost icon button.
 component R5Action
   props
     id: string
+    ids: string
     label: string
     icon: string
     toggle: bool
@@ -237,8 +245,8 @@ component R5Action
     press: action
   view
     box position="relative" flex-shrink=0
-      button press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
-        if icon == "copy" or icon == "download" or icon == "check"
+      button id=(ids != "" ? `${ids}-${id}` : "") press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` data-focus-stop=(ids != "" and not disabled ? "enabled" : "") width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000") title=""
+        if icon == "copy" or icon == "download" or icon == "check" or icon == "trash"
           ShellIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
         else
           R4Icon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))

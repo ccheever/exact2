@@ -25,8 +25,21 @@ import { sourceGutter } from './r9-device-crumbs'; // the reference's line-numbe
 import { letGo } from './let-go';
 
 export type AttachmentMeta = { id: string; name: string; mimeType: string; sizeBytes: number };
+type Content = { text: string; truncated: boolean };
+/**
+ * Where a preview's bytes come from. A sent attachment (and a draft file the send already uploaded) is the server's,
+ * read at a signed asset URL; a draft's staged file or folded paste is this device's (AttachmentFilePreview's `file`
+ * Blob): `local.url` names it to the media bodies, `text` reads its first megabyte and `save` saves it. `id` names the
+ * preview to the window and `key` keeps its state; `origin` is the first crumb, and a draft's preview in its dialog
+ * has Remove from draft and Close.
+ */
+export type PreviewSource = {
+  id: string; key: string; origin: string; dialog: boolean;
+  local: { url: string; text: () => Promise<Obj>; save: () => Promise<Obj> } | null;
+};
+const sentSource = (meta: AttachmentMeta): PreviewSource => ({ id: meta.id, key: meta.id, origin: 'Attachment', dialog: false, local: null });
 export type AttachmentView = {
-  id: string; name: string; size: string; preview: string; error: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
+  id: string; origin: string; canRemove: boolean; canClose: boolean; name: string; size: string; preview: string; error: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   showWrap: boolean; wrap: boolean; canCopy: boolean; copyLabel: string; copied: boolean; canSave: boolean; saving: boolean; saveLabel: string;
   truncatedNote: string; table: { id: string; header: boolean; cells: { id: string; text: string; syntax: string }[] }[];
   lines: CodeLine[]; gutter: number; url: string; noPreview: string;
@@ -35,7 +48,6 @@ export type AttachmentView = {
   markdownSource: MarkdownSource[]; md: MarkdownEnv; code: ReturnType<typeof messageCodeBlocks>; diagrams: MermaidDiagramView[];
   mdUrls: { id: string; url: string; fill: string; hover: string; border: string; ink: string }[]; codeCopied: string; codeCopyNonce: number;
 };
-type Content = { text: string; truncated: boolean };
 type State = { url: string; urlAt: number; urlError: string; content: Content | null; contentError: string; rendered: boolean; saving: boolean; copiedAt: number; mediaError: string };
 const states = new WeakMap<T3Client, Map<string, State>>();
 const STALE_URL_MS = 5 * 60_000; // AttachmentFilePreview: signed URLs live an hour; re-mint after five minutes
@@ -115,23 +127,30 @@ const NO_MARKDOWN = () => ({ markdownSource: [], md: { codeFont: 'ui-monospace',
  * web URL loads as written, and a host path, relative or absolute, is "Image unavailable · <alt>" (MarkdownImage's
  * ChatMarkdownImageFallback), so nothing is signed.
  */
-async function renderedAttachment(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, text: string) {
+async function renderedAttachment(client: T3Client, native: Native | null | undefined, id: string, text: string) {
   const copy = timelineView(client).codeCopy, copied = copy.threadId === client.threadId;
   const diagrams = await filesMermaid(client, native, text);
   return {
-    markdownSource: [{ id: `attachment:${meta.id}`, kind: 'attachment', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${meta.id}`, { thread: false }) }, // the owner names the document
+    markdownSource: [{ id: `attachment:${id}`, kind: 'attachment', title: '', body: text }],
+    md: { ...markdownEnv(client), chips: messageChips({ text }, '', [], `attachment:${id}`, { thread: false }) }, // the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: [],
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };
 }
 
 /** The surface's projection: the URL (minted on first view), the text body for text kinds, and the header's controls. */
-export async function attachmentView(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, now: number): Promise<AttachmentView> {
-  const state = stateOf(client, meta.id), kind = previewKind(meta), delimiter = previewDelimiter(meta);
+export async function attachmentView(client: T3Client, native: Native | null | undefined, meta: AttachmentMeta, now: number, source = sentSource(meta)): Promise<AttachmentView> {
+  const state = stateOf(client, source.key), kind = previewKind(meta), delimiter = previewDelimiter(meta);
   const renderedMode = kind === 'markdown' ? 'markdown' : kind === 'html' ? 'html' : delimiter ? 'table' : '';
   const needsText = kind === 'text' || kind === 'markdown' || (kind === 'html' && !state.rendered);
-  if (native?.available && client.ready) {
+  if (source.local) {
+    state.url = source.local.url;
+    if (needsText && !state.content && !state.contentError) {
+      const reply = obj(await source.local.text().catch(error => { if (letGo(error)) throw error; return { ok: false, message: message(error, 'Could not load this file.') }; }));
+      if (reply.ok === true) state.content = { text: str(reply.text), truncated: reply.truncated === true };
+      else state.contentError = str(reply.message, 'Could not load this file.');
+    }
+  } else if (native?.available && client.ready) {
     if (!state.urlError && (!state.url || (needsText && !state.content && !state.contentError && now && now - state.urlAt > STALE_URL_MS))) {
       try { state.url = await mint(client, native, meta, 'inline'); state.urlAt = now; }
       catch (error) { if (letGo(error)) throw error; state.urlError = message(error, 'The attachment is unavailable.'); }
@@ -147,7 +166,7 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   const showsRawText = !failure && needsText && !!content && !(delimiter && rendered) && !(kind === 'markdown' && rendered);
   const preview = failure ? 'error' : !state.url || (needsText && !content) ? 'loading'
     : needsText && content ? (delimiter && rendered ? 'table' : kind === 'markdown' && rendered ? 'markdown' : 'code')
-      : kind === 'image' ? 'image' : mediaBody(kind, rendered) || 'none';
+      : kind === 'image' ? 'image' : source.local && kind === 'audio' ? 'audio-local' : mediaBody(kind, rendered) || 'none';
   const text = content?.text ?? '';
   const table = preview === 'table' ? tableRows(meta.name, text) : null;
   const lines = preview === 'code' ? codeLines(meta.name, text) : [];
@@ -155,9 +174,9 @@ export async function attachmentView(client: T3Client, native: Native | null | u
   // useCopyToClipboard: "Copied" for two seconds of the window's clock, stamped by the first view after the copy.
   if (state.copiedAt < 0 && now) state.copiedAt = now;
   const copied = state.copiedAt < 0 || (state.copiedAt > 0 && now - state.copiedAt < 2000);
-  const rich = preview === 'markdown' ? await renderedAttachment(client, native, meta, text) : NO_MARKDOWN();
+  const rich = preview === 'markdown' ? await renderedAttachment(client, native, source.id, text) : NO_MARKDOWN();
   return {
-    id: meta.id, name: meta.name, size: formatAttachmentSize(meta.sizeBytes), preview, error: failure,
+    id: source.id, origin: source.origin, canRemove: source.dialog, canClose: source.dialog, name: meta.name, size: formatAttachmentSize(meta.sizeBytes), preview, error: failure,
     canRender: !!renderedMode, rendered,
     renderLabel: renderedMode === 'markdown' ? (rendered ? 'Show markdown source' : 'Show rendered markdown') : renderedMode === 'table' ? (rendered ? 'Show source' : 'Show table') : renderedMode === 'html' ? (rendered ? 'Show HTML source' : 'Show rendered page') : '',
     renderIcon: rendered ? 'code' : renderedMode === 'table' ? 'table' : 'eye',
@@ -166,23 +185,32 @@ export async function attachmentView(client: T3Client, native: Native | null | u
     canSave: !!state.url, saving: state.saving, saveLabel: state.saving ? 'Preparing file…' : 'Save file',
     truncatedNote: content?.truncated ? `Preview limited to the first 1 MB of a ${meta.sizeBytes.toLocaleString('en-US')} byte file. Save the file to read it in full.` : '',
     ...rich, table: table?.rows ?? [],
-    lines, gutter: sourceGutter(lines.length), url: preview === 'image' || mediaBody(preview, true) ? state.url : '',
+    lines, gutter: sourceGutter(lines.length), url: preview === 'image' || preview === 'audio-local' || mediaBody(preview, true) ? state.url : '',
     // The unsupported body.
     noPreview: preview === 'none' ? `Save it to open in an app that supports ${extension} files.` : '',
   };
 }
 export const emptyAttachment = (): AttachmentView => ({
-  id: '', name: '', size: '', preview: '', error: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', showWrap: false, wrap: true, canCopy: false,
+  id: '', origin: 'Attachment', canRemove: false, canClose: false, name: '', size: '', preview: '', error: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', showWrap: false, wrap: true, canCopy: false,
   copyLabel: 'Copy contents', copied: false, canSave: false, saving: false, saveLabel: 'Save file', truncatedNote: '', table: [], lines: [], gutter: 0, url: '', noPreview: '', ...NO_MARKDOWN(),
 });
 export const attachmentToken = (name: string) => fileIconToken(name);
 
+/** Drops a preview's state (a draft's preview opens afresh, as its dialog mounts a new AttachmentFilePreview). */
+export function forgetPreview(client: T3Client, key: string): void { states.get(client)?.delete(key); }
+
 /** `surface-r5-att-*`: the header's controls. */
 export async function attachmentLocal(client: T3Client, native: Native, op: string, id: string, now: number): Promise<string> {
-  const meta = requireAttachment(client, id), state = stateOf(client, id);
+  const meta = requireAttachment(client, id);
+  return attachmentOp(client, native, meta, sentSource(meta), op, now);
+}
+
+/** A preview's header controls (and its media body's error), on the bytes `source` names. */
+export async function attachmentOp(client: T3Client, native: Native, meta: AttachmentMeta, source: PreviewSource, op: string, now: number): Promise<string> {
+  const state = stateOf(client, source.key);
   if (op === 'render') { state.rendered = !state.rendered; if (previewKind(meta) === 'html') state.contentError = ''; return ''; }
   if (op === 'wrap') { client.local.clientSettings.wordWrap = client.local.clientSettings.wordWrap === false; return ''; }
-  if (op === 'retry') { state.url = ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; return ''; }
+  if (op === 'retry') { state.url = source.local?.url ?? ''; state.urlError = ''; state.content = null; state.contentError = ''; state.mediaError = ''; return ''; }
   // The audio/video player's `error` event; a late one from a body already gone is ignored.
   if (op === 'media-error') { if (state.url && !state.mediaError) state.mediaError = mediaErrorMessage(previewKind(meta)); return ''; }
   if (op === 'copy') {
@@ -195,8 +223,8 @@ export async function attachmentLocal(client: T3Client, native: Native, op: stri
     if (state.saving) return '';
     state.saving = true;
     try {
-      const url = await mint(client, native, meta, 'attachment');
-      const reply = obj(await client.restAccess(native).call({ op: 'attachmentSave', url, name: meta.name }));
+      const reply = source.local ? obj(await source.local.save())
+        : obj(await client.restAccess(native).call({ op: 'attachmentSave', url: await mint(client, native, meta, 'attachment'), name: meta.name }));
       if (reply.ok !== true) throw new ClientError(str(reply.message, 'Please try again.'));
     } catch (error) {
       if (letGo(error)) throw error;

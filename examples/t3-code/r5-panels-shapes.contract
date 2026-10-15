@@ -54,6 +54,10 @@ shape R5PrSurface
   label: string
 shape R5Attachment
   id: string
+  // The first crumb: "Attachment", or "Draft" for a composer file chip's preview, which also has Remove from draft and Close.
+  origin: string
+  canRemove: bool
+  canClose: bool
   name: string
   size: string
   preview: string
@@ -85,3 +89,7 @@ shape R5Attachment
   mdUrls: AttachmentUrl[]
   codeCopied: string
   codeCopyNonce: number
+// A composer file chip's preview (composer-chip-file.ts): open while its draft file is in the open draft.
+shape ComposerFilePreview
+  open: bool
+  file: R5Attachment
