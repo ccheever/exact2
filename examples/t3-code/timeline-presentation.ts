@@ -1,4 +1,5 @@
 import { notePreviewHover } from './pages-pr-links';
+import { openPullRequest } from './pr-chip-open';
 import { runnableShellCommands } from './terminal-integrations';
 import { runTerminalCommand } from './terminal-drawer-view';
 import { toolActivityIconSources } from './timeline-tool-icons';
@@ -129,6 +130,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     try { return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : []); }
     finally { view.citing--; }
   }
+  if (op === 'chip-pr') { if (!id) throw new ClientError('That pull request is no longer available.'); await openPullRequest(client, native, id); return ''; } // a sent pull request chip (pr-chip-open.ts)
   if (op === 'chip-thread') {
     if (!id || !client.shell.threads.some(thread => thread.id === id)) throw new ClientError('Thread no longer available');
     await client.openSelected(native, id);
