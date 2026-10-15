@@ -126,6 +126,8 @@ extension Presenter {
             v.view.nextKeyView = tabbable[(i + 1) % tabbable.count].view
         }
         start.nextKeyView = tabbable[0].view
+        // Shift-Tab from the start (`tabFromStart`): the loop's last.
+        keyViewBefore.setObject(tabbable[tabbable.count - 1].view, forKey: start)
     }
 
     /// Tab, or Shift-Tab, from a focused node's view: AppKit's loop from a
@@ -140,21 +142,42 @@ extension Presenter {
         } else if back { window.selectPreviousKeyView(view) } else { window.selectNextKeyView(view) }
     }
 
-    /// Tab, or Shift-Tab, while the window holds the focus a disabled
-    /// control gave up: on from that control's place, as Chrome goes on
-    /// from its starting point, not from the top. True when taken.
-    func tabFromStart(_ event: NSEvent, in other: NSWindow?) -> Bool {
+    /// Tab, or Shift-Tab, while the window itself is the first responder:
+    /// nothing in it holds the focus, after `blur()` or once a menu a click
+    /// opened has closed. With the focus given up by a control that became disabled, on
+    /// from that control's place, as Chrome goes on from its starting point.
+    /// Otherwise, for the session that hears the window's keys (`focused`),
+    /// the loop's first stop, and Shift-Tab its last, as AppKit's
+    /// `selectNextKeyView(_:)` goes from a window that is its own first
+    /// responder to its `initialFirstResponder` and on. AppKit's own answer
+    /// here is nothing: the window's initial first responder is the
+    /// session's view, which is no key view and has no next one. True when
+    /// taken.
+    func tabFromStart(_ event: NSEvent, focused: Bool, in other: NSWindow?) -> Bool {
         guard event.type == .keyDown, NodeView.keyName(event) == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
-              let start = tabStart, let window = start.window, window === (other ?? event.window),
-              !start.isHiddenOrHasHiddenAncestor, keyTarget(start)?.inert != true else { return false }
-        let current = window.firstResponder
-        guard current == nil || current === window || current === window.contentView || current === viewport || current === session?.view else { return false }
-        // AppKit's `selectNextKeyView` goes on from the first responder, which here is the window.
+              let window = other ?? event.window, windowHoldsFocus(window) else { return false }
+        let back = event.modifierFlags.contains(.shift)
+        if let start = tabStart, start.window === window, !start.isHiddenOrHasHiddenAncestor, keyTarget(start)?.inert != true {
+            // AppKit's `selectNextKeyView` goes on from the first responder, which here is the window.
+            flushKeyViewLoop()
+            if !back { window.selectKeyView(following: start) }
+            else if start.previousValidKeyView != nil { window.selectKeyView(preceding: start) }
+            else { tab(from: start, back: true, in: window) }
+            return true
+        }
+        // An open dialog's sheet holds the keyboard and has its own Tab (`Dialogs.key`).
+        guard focused, window === viewport.window, dialogs.active == nil else { return false }
         flushKeyViewLoop()
-        if !event.modifierFlags.contains(.shift) { window.selectKeyView(following: start) }
-        else if start.previousValidKeyView != nil { window.selectKeyView(preceding: start) }
-        else { tab(from: start, back: true, in: window) }
+        guard viewport.nextValidKeyView != nil else { return false }
+        if back { tab(from: viewport, back: true, in: window) } else { window.selectKeyView(following: viewport) }
         return true
+    }
+    /// Whether nothing of this session's in `window` holds the focus: the
+    /// window is its own first responder, or a view that stands for the
+    /// whole page is.
+    private func windowHoldsFocus(_ window: NSWindow) -> Bool {
+        let current = window.firstResponder
+        return current == nil || current === window || current === window.contentView || current === viewport || current === session?.view
     }
 
     /// The view a new window's caret goes to (LLP 1115.000 D7.5): the first
@@ -181,9 +204,7 @@ extension Presenter {
     func focusInitialKeyView() {
         guard let view = session?.view, view.focusesFirstKeyView, let window = view.window else { return }
         view.focusesFirstKeyView = false
-        let current = window.firstResponder
-        guard current == nil || current === window || current === window.contentView || current === viewport || current === view,
-              let first = initialKeyView else { return }
+        guard windowHoldsFocus(window), let first = initialKeyView else { return }
         window.makeFirstResponder(first)
     }
 

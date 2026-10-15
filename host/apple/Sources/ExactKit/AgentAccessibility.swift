@@ -492,6 +492,7 @@ extension Presenter {
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
                       "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXImage": "image", "AXList": "list",
+                      "AXMenu": "menu", "AXMenuBar": "menubar", "AXMenuItem": "menuitem",
                       // A live-region or dialog role is a group by its subrole, as WebKit serves one.
                       "AXGroup": ["AXApplicationStatus": "status", "AXApplicationAlert": "alert", "AXApplicationDialog": "dialog",
                                   "AXApplicationAlertDialog": "alertdialog"][f.subrole ?? ""] ?? "group",
