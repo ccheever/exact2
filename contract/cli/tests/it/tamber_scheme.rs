@@ -249,3 +249,14 @@ fn the_mark_passes_only_to_a_whole_alias_by_any_spelling() {
     assert!(found[0].2.starts_with("`ink`"), "{found:?}");
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
+
+#[test]
+fn a_translucent_one_colour_token_is_an_overlay_and_not_reported() {
+    let path = app(
+        "overlay",
+        "tamber t\n\ntheme\n  black_50 = rgba(0, 0, 0, 0.5)\n",
+        "component App\n  view\n    column background-color=\"black_50\"\n      text \"a\"\n",
+    );
+    assert_eq!(one_scheme(&path), Vec::new());
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}

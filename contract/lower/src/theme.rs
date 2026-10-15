@@ -674,7 +674,7 @@ fn inline_design(theme: &contract_syntax::ThemeDecl) -> tamber::Design {
     }
 }
 
-/// The app's tokens that are one colour in light and dark in some app
+/// The app's tokens that are one opaque colour in light and dark in some app
 /// tuple and not marked `scheme=fixed` (LLP 1121 D3), each by its name as
 /// declared with that colour's text and whether it is one colour in every
 /// tuple (only then may it be marked): what `lower-colour-one-scheme` reports
@@ -725,11 +725,12 @@ pub(crate) fn one_scheme_tokens(file: &File) -> Vec<(String, String, bool)> {
         .into_iter()
         .filter(|(_, declared)| !fixed.contains(&declared.name.value))
         .filter_map(|(t, declared)| {
-            // A transparent token paints nothing a scheme could change.
+            // Opaque only: a translucent one is an overlay, which reads over
+            // either scheme's ground, and a transparent one paints nothing.
             let one = t
                 .values
                 .iter()
-                .find(|v| matches!(v, tamber::Folded::One(h) if h.wide().alpha > 0.0))?;
+                .find(|v| matches!(v, tamber::Folded::One(h) if h.wide().alpha >= 1.0 - 1e-9))?;
             let every = t.values.iter().all(|v| matches!(v, tamber::Folded::One(_)));
             Some((declared.name.value.clone(), one.css(), every))
         })
