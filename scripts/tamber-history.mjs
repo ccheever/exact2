@@ -75,16 +75,10 @@ function commitOf(root, dir, sha, specs) {
   return { commit: sha, parent, author, email, date, message: message.join('\0').trimEnd(), files };
 }
 
-/** The diff of each of `files` in commit `c`, by app path. */
-function diffs(root, dir, c) {
-  if (!c.files.length) return {};
-  const text = git(root, ['diff', '--no-color', '--no-renames', '--no-ext-diff', c.parent ?? EMPTY_TREE, c.commit, '--', ...c.files.map(f => `:(literal)${f.repoPath}`)]).toString();
-  const out = {};
-  for (const part of text.split(/^(?=diff --git )/m).filter(Boolean)) {
-    const f = c.files.find(f => part.startsWith(`diff --git a/${f.repoPath} `));
-    if (f) out[f.file] = part;
-  }
-  return out;
+/** The diff of each of `files` in commit `c`, by app path: one git diff a
+ * file, by its literal path, so a name git would quote is no matter. */
+function diffs(root, c) {
+  return Object.fromEntries(c.files.map(f => [f.file, git(root, ['diff', '--no-color', '--no-renames', '--no-ext-diff', c.parent ?? EMPTY_TREE, c.commit, '--', `:(literal)${f.repoPath}`]).toString()]));
 }
 
 /** Up to `limit` commits that touched the design's files, newest first,
@@ -104,7 +98,7 @@ export function designLog(appDir, designFile, { limit = 20, skip = 0 } = {}) {
   }
   const commits = shas.slice(0, limit).map(sha => {
     const c = commitOf(root, dir, sha, specs);
-    const diff = diffs(root, dir, c);
+    const diff = diffs(root, c);
     return { ...c, files: c.files.map(({ repoPath, ...f }) => ({ ...f, diff: diff[f.file] ?? '' })) };
   });
   return { ok: { commits, more: shas.length > limit } };

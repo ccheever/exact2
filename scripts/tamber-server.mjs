@@ -34,16 +34,19 @@
 //   - A conflict names who last changed each file that moved (`by`: a
 //     client, or "changed on disk").
 //   - `history` `{limit?, skip?}` (`tamber/1.1`, LLP 1122 D9): the git log of
-//     the design's files, newest first (20, at most 100), each commit's
+//     the design's files, newest first (20, at most 100; at most 10,000
+//     skipped), each commit's
 //     files with their diff and their token-level edits (`what`, `name`,
 //     `when`, `before`, `after`), scripts/tamber-history.mjs reading git.
 //   - `revert` `{commit, client}`: that commit's inverse, planned on the
 //     files as they are now and held as a proposal (its `review.revert`
 //     says which files moved since). Refused, with each edit that cannot
-//     apply (`refused`), when the files have moved there.
+//     apply (`refused`), when the files have moved there. Accepted after
+//     the files move, it is planned again from the commit.
 //   - `import` `{kind, source, name?, prefix?, client}` (LLP 1122 T1a): a
-//     shadcn or Tailwind stylesheet or a DTCG file's text, imported as `bun
-//     exact.mjs tamber import` does and held with its `review`. Astryx keeps
+//     shadcn or Tailwind stylesheet or a DTCG file's text (several DTCG
+//     files as `sources: [{name, text}]`), imported as `bun exact.mjs tamber
+//     import` does and held with its `review`. Astryx keeps
 //     its CLI: resolving its package needs a Bun install.
 // - `GET /__tamber/tool/…`: the design tool's built files (`TOOL_DIST`), to
 //   a local request only, its pages' base set to that path.
@@ -56,7 +59,7 @@
 // server-sent events and no WebSocket, so stage 3 streams a POST's response.
 import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, statSync, watch } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
@@ -271,7 +274,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (file !== toolDir && !file.startsWith(toolDir + sep)) return notFound(res);
     try { if (statSync(file).isDirectory()) file = resolve(file, 'index.html'); } catch { /* below */ }
     let bytes;
-    try { bytes = readFileSync(file); } catch {
+    try {
+      // Through no link out of the build, nor to a dot file in it.
+      const root = realpathSync(toolDir), real = realpathSync(file);
+      if (!real.startsWith(root + sep) || relative(root, real).split(sep).some(s => s.startsWith('.'))) return notFound(res);
+      bytes = readFileSync(real);
+    } catch {
       if (!existsSync(resolve(toolDir, 'index.html'))) return json(res, 404, { message: 'the design tool is not built: run `bun exact.mjs tamber tool`' });
       return notFound(res);
     }
@@ -464,6 +472,20 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     proposals.delete(id);
     // The review rides along, its offers' items renumbered to the
     // operations kept.
+    // A revert is planned from git on the files as they were: moved since,
+    // it is planned again from the commit, never its old operations
+    // replayed; refused where the files moved on its edits.
+    const reverted = p.shown.review?.revert?.commit;
+    const replan = async () => {
+      const plan = await planRevert(reverted);
+      if (!plan.ok) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' }); return plan; }
+      return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review));
+    };
+    const replaced = fresh => {
+      if (!fresh.ok) { restore(id, p); return fresh; }
+      send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
+      return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
+    };
     const recompute = async (ops, kept = ops.map((_, i) => i)) => {
       const old = p.shown.review;
       const review = old && {
@@ -472,10 +494,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh;
-      try { fresh = await hold(p.client, ops, undefined, id, review); } catch (e) { restore(id, p); throw e; }
-      if (!fresh.ok) { restore(id, p); return fresh; }
-      send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
-      return { ok: { recomputed: true, replaces: id, ...fresh.ok } };
+      // Some of a revert's items: on the files it was planned on, or planned again.
+      try { fresh = await hold(p.client, ops, reverted ? p.base : undefined, id, review); } catch (e) { restore(id, p); throw e; }
+      if (reverted && fresh.error?.conflict) return replan();
+      return replaced(fresh);
     };
     const some = items && new Set(items).size < p.ops.length;
     if (some) {
@@ -492,7 +514,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     };
     const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops }, { acceptedBy: request.client, proposal: id }, settled);
     waiting = false;
-    if (done.error?.conflict) return recompute(p.ops);
+    if (done.error?.conflict) return reverted ? replan() : recompute(p.ops);
     return done;
   }
 
@@ -501,30 +523,45 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   async function history(request) {
     const { limit = 20, skip = 0 } = request;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { status: 400, error: { message: '`limit` is a count from 1 to 100' } };
-    if (!Number.isInteger(skip) || skip < 0) return { status: 400, error: { message: '`skip` is a count' } };
+    if (!Number.isInteger(skip) || skip < 0 || skip > 10_000) return { status: 400, error: { message: '`skip` is a count up to 10,000' } };
     let log;
     try { log = designLog(appDir, designRel(), { limit, skip }); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!log.ok) return log;
     const commits = [];
     for (const c of log.ok.commits) {
-      const compared = await ask({ method: 'compare', pairs: c.files.map(({ file, before, after }) => ({ file, before, after })) });
-      const why = compared.ok ? null : compared.error?.message ?? 'not compared';
-      commits.push({ ...c, files: c.files.map(({ before, after, ...f }, i) => {
-        const read = compared.ok?.files[i];
-        return { ...f, edits: read?.edits ?? null, ...(read?.refused || why ? { refused: read?.refused ?? why } : {}) };
-      }) });
+      const files = [];
+      // One file a request: each within the server's line, whatever the commit's size.
+      for (const { before, after, ...f } of c.files) {
+        const compared = await ask({ method: 'compare', pairs: [{ file: f.file, before, after }] });
+        if (!compared.ok && compared.status !== 413) return compared;
+        const read = compared.ok?.files[0];
+        files.push({ ...f, edits: read?.edits ?? null, ...(compared.ok ? (read?.refused ? { refused: read.refused } : {}) : { refused: 'its versions are too large to compare (over 1 MiB)' }) });
+      }
+      commits.push({ ...c, files });
     }
     return { ok: { commits, more: log.ok.more } };
   }
   /** A past commit's inverse on today's files, held for review. */
   async function revert(request) {
+    const plan = await planRevert(request.commit);
+    return plan.ok ? hold(request.client, plan.ok.ops, plan.ok.files, undefined, plan.ok.review) : plan;
+  }
+  /** A past commit's inverse planned on today's files: its operations, the
+   * digests they were planned on, and the review; or refused, naming each
+   * edit that cannot apply. */
+  async function planRevert(rev) {
     let c;
-    try { c = designCommit(appDir, designRel(), request.commit); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
+    try { c = designCommit(appDir, designRel(), rev); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
     if (!c.ok.files.length) return { status: 400, error: { message: `commit ${c.ok.commit.slice(0, 12)} changed no design file` } };
-    const planned = await ask({ method: 'revert-plan', pairs: c.ok.files.map(({ file, before, after }) => ({ file, before, after })) });
-    if (!planned.ok) return planned;
-    const { ops, already, conflicts, moved } = planned.ok;
+    const ops = [], already = [], conflicts = [], moved = [], files = {};
+    // One file a request, each within the server's line.
+    for (const { file, before, after } of c.ok.files) {
+      const planned = await ask({ method: 'revert-plan', pairs: [{ file, before, after }] });
+      if (!planned.ok) return planned;
+      ops.push(...planned.ok.ops); already.push(...planned.ok.already); conflicts.push(...planned.ok.conflicts); moved.push(...planned.ok.moved);
+      if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
+    }
     const short = c.ok.commit.slice(0, 12);
     if (conflicts.length) {
       const named = conflicts.map(x => `${x.file}${x.edit ? ` ${x.edit.name}${x.edit.when.length ? ` when ${x.edit.when.map(w => `${w.axis}=${w.value}`).join(' ')}` : ''}` : ''}: ${x.why}`);
@@ -532,14 +569,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
-    return hold(request.client, ops, undefined, undefined, { revert: { commit: c.ok.commit, subject, moved, already } });
+    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already } } } };
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
   async function importHeld(request) {
-    for (const k of ['kind', 'source']) if (typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
-    for (const k of ['name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
-    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, prefix: request.prefix });
+    if (typeof request.kind !== 'string') return { status: 400, error: { message: '`kind` is a string' } };
+    for (const k of ['source', 'name', 'prefix']) if (request[k] !== undefined && typeof request[k] !== 'string') return { status: 400, error: { message: `\`${k}\` is a string` } };
+    // One file (`source`, `name`), or several (`sources`): the server reads either.
+    const planned = await ask({ method: 'import-plan', kind: request.kind, source: request.source, name: request.name, sources: request.sources, prefix: request.prefix });
     if (!planned.ok) return planned;
     const { ops, review } = importReview(planned.ok);
     if (!planned.ok.ops.length) return { ok: { proposal: null, review, message: 'nothing to propose: the design has every mapped value already' } };

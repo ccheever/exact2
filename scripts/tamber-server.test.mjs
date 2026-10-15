@@ -6,7 +6,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -485,7 +485,11 @@ test('the design tool is served to a local request only, its base at its path', 
   expect(page.text).toContain('<base href="/__tamber/tool/">');
   expect((await raw('/__tamber/tool/app.js')).head['content-type']).toBe('text/javascript');
   // No dot path, no way out, no write, and nothing to a request from off this machine.
-  for (const path of ['/__tamber/tool/.exact-build.json', '/__tamber/tool/a%2f..%2f..%2fsecret', '/__tamber/tool/nope.js']) expect((await raw(path)).status).toBe(404);
+  // A link out of the build, or to a dot file in it, serves nothing.
+  writeFileSync(join(toolDir, '.secret'), 'dot\n');
+  symlinkSync(join(ROOT, 'package.json'), join(toolDir, 'out.json'));
+  symlinkSync(join(toolDir, '.secret'), join(toolDir, 'alias.txt'));
+  for (const path of ['/__tamber/tool/.exact-build.json', '/__tamber/tool/a%2f..%2f..%2fsecret', '/__tamber/tool/nope.js', '/__tamber/tool/out.json', '/__tamber/tool/alias.txt']) expect((await raw(path)).status, path).toBe(404);
   expect((await raw('/__tamber/tool/', { method: 'POST' })).status).toBe(404);
   expect((await raw('/__tamber/tool/', { headers: { host: `192.168.1.20:${port}` }, socket: { remoteAddress: '192.168.1.30' } })).status).toBe(404);
   tamber.close();
@@ -567,6 +571,24 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(nothing.status).toBe(409);
     expect(nothing.error.message).toContain('nothing to revert');
     expect((await call({ method: 'revert', client: 'design-tool:ada', commit: sha('HEAD') })).error.message).toContain('changed no design file');
+    // Held, then the files move: on the revert's own edit, the accept is
+    // refused; elsewhere, it is planned again from the commit.
+    const setEdge = value => call({ method: 'transaction', client: 'agent', files: { 'app.tamber': digest() }, ops: [{ op: 'set-token', name: 'edge', value }] });
+    await setEdge('#202020');
+    const h1 = await call({ method: 'revert', client: 'design-tool:ada', commit: second.commit });
+    await setEdge('#303030');
+    const stale = await call({ method: 'accept', client: 'design-tool:ada', proposal: h1.ok.proposal });
+    expect(stale.status).toBe(409);
+    expect(stale.error.refused[0]).toMatchObject({ edit: { name: 'edge' }, now: '#303030' });
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toContain('edge = #303030');
+    await setEdge('#202020');
+    const h2 = await call({ method: 'revert', client: 'design-tool:ada', commit: second.commit });
+    await call({ method: 'transaction', client: 'agent', files: { 'app.tamber': digest() }, ops: [{ op: 'set-token', name: 'ink', value: '#121212' }] });
+    const replanned = await call({ method: 'accept', client: 'design-tool:ada', proposal: h2.ok.proposal });
+    expect(replanned.ok?.recomputed, JSON.stringify(replanned)).toBe(true);
+    expect(replanned.ok.ops).toEqual([{ index: 0, op: { op: 'set-token', file: 'app.tamber', name: 'edge', when: [], value: '#101010', comment: null } }]);
+    expect((await call({ method: 'accept', client: 'design-tool:ada', proposal: replanned.ok.proposal })).status).toBe(200);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
     expect((await call({ method: 'revert', client: 'design-tool:ada', commit: '--all' })).status).toBe(400);
     expect((await call({ method: 'revert', client: 'design-tool:ada', commit: 'f'.repeat(40) })).status).toBe(404);
     // An import the tool starts from a file's text, held with its review.
@@ -578,7 +600,20 @@ test('history reads three design commits as token edits; a revert applies, is re
     expect(imported.ok.ops).toHaveLength(28);
     expect(imported.ok.review).toMatchObject({ importer: 'shadcn', counted: { source: 47, mapped: 46, reported: 1 }, tokens: 23 });
     expect(imported.ok.review.offers.map(o => o.role)).toEqual(['-exact-background', '-exact-label', '-exact-secondary-background', '-exact-separator', 'AccentColor']);
-    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(V1.replace('#000000', '#121212'));
+    // Several DTCG files at once: a Figma export's modes, named as picked.
+    const figma = resolve(ROOT, 'tamber/tests/import/figma');
+    const sources = readdirSync(figma).map(name => ({ name, text: readFileSync(join(figma, name), 'utf8') }));
+    const modes = await call({ method: 'import', client: 'design-tool:ada', kind: 'dtcg', sources });
+    expect(modes.status, JSON.stringify(modes).slice(0, 400)).toBe(200);
+    expect(modes.ok.review.counted).toEqual({ source: 104, mapped: 40, reported: 64 });
+    // A design file whose name git quotes still has its diff.
+    writeFileSync(join(repo, 'ünï.tamber'), 'tamber u\n\ntheme\n  u.ink = #010101\n');
+    g('add', 'ünï.tamber'); g('commit', '-q', '-m', 'a named file');
+    const named = await call({ method: 'history', limit: 1 });
+    expect(named.ok.commits[0].files).toHaveLength(1);
+    expect(named.ok.commits[0].files[0]).toMatchObject({ file: 'ünï.tamber', status: 'A' });
+    expect(named.ok.commits[0].files[0].diff).toContain('+  u.ink = #010101');
     const astryx = await call({ method: 'import', client: 'design-tool:ada', kind: 'astryx', source: '{}' });
     expect(astryx.status).toBe(400);
     expect(astryx.error.message).toContain('bun exact.mjs tamber import astryx');

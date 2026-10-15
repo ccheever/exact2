@@ -120,7 +120,8 @@ fn import_with(
     })
 }
 
-/// The design server's `import-plan` `{kind, source, name?, prefix?}` (LLP
+/// The design server's `import-plan` `{kind, source, name?, prefix?}` or
+/// `{kind, sources: [{name, text}], prefix?}` (LLP
 /// 1122 T1a), for the wire's `import`: the source's text, as a person picked
 /// it in the tool, planned against `current`, the app's design as it is.
 /// `name` is the file's (a Figma export's `<Collection>.<Mode>.json` names
@@ -137,17 +138,27 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
     if kind == "astryx" {
         return Err(bad("Astryx resolves its theme package with a Bun install: run `bun exact.mjs tamber import astryx <source> <url> --app <app>`"));
     }
-    let source = field("source")?.ok_or_else(|| bad("`source` is the file's text"))?;
-    let name = field("name")?.unwrap_or_else(|| "source".into());
+    // One file's text (`source`, named by `name`), or several (`sources`, each
+    // `{name, text}`): a DTCG export of several modes, a set and its themes.
+    let files: Vec<(String, String)> = match &request["sources"] {
+        Value::Null => vec![(
+            field("name")?.unwrap_or_else(|| "source".into()),
+            field("source")?
+                .ok_or_else(|| bad("`source` is the file's text, or `sources` the files'"))?,
+        )],
+        Value::Array(all) if !all.is_empty() && all.len() <= 256 => all
+            .iter()
+            .map(|f| match (f["name"].as_str(), f["text"].as_str()) {
+                (Some(n), Some(t)) => Ok((n.to_string(), t.to_string())),
+                _ => Err(bad("each of `sources` is {name, text}")),
+            })
+            .collect::<Result<_, _>>()?,
+        _ => return Err(bad("`sources` is a list of 1 to 256 {name, text}")),
+    };
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;
-    match import_with(
-        &kind,
-        &[(name, source)],
-        field("prefix")?.as_deref(),
-        &design,
-    ) {
+    match import_with(&kind, &files, field("prefix")?.as_deref(), &design) {
         None => Err(bad(&format!(
             "no importer `{kind}` (shadcn, tailwind, dtcg; astryx through its CLI)"
         ))),

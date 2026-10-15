@@ -524,6 +524,22 @@ fn compare_revert_plan_and_import_plan() {
         json!({"source": 47, "mapped": 46, "reported": 1})
     );
     assert_eq!(imported["ok"]["offers"].as_array().unwrap().len(), 5);
+    // A DTCG export of several files, each named as the file picker gave it.
+    let figma =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tamber/tests/import/figma");
+    let sources: Vec<Value> = std::fs::read_dir(&figma)
+        .unwrap()
+        .map(|e| {
+            let p = e.unwrap().path();
+            json!({"name": p.file_name().unwrap().to_str().unwrap(), "text": std::fs::read_to_string(&p).unwrap()})
+        })
+        .collect();
+    let (figma, _) = s.ask(json!({"method": "import-plan", "kind": "dtcg", "sources": sources}));
+    assert_eq!(
+        figma["ok"]["counted"],
+        json!({"source": 104, "mapped": 40, "reported": 64}),
+        "{figma}"
+    );
     let (astryx, _) = s.ask(json!({"method": "import-plan", "kind": "astryx", "source": "{}"}));
     assert!(astryx["error"]["message"]
         .as_str()

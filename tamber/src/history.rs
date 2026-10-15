@@ -56,10 +56,16 @@ pub struct Edit {
 
 /// The edits from `old` to `new`; a version that is `None` (the file did not
 /// exist) declares nothing. In the newer version's order, then what it
-/// removed.
-pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Vec<Edit> {
+/// removed. A version that declares a name twice, or a token's `when` twice,
+/// has no one reading by name: refused, naming it.
+pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Result<Vec<Edit>, String> {
     let empty = Design::default();
     let (a, b) = (old.unwrap_or(&empty), new.unwrap_or(&empty));
+    for (d, which) in [(a, "the version before"), (b, "the version after")] {
+        if let Some(why) = ambiguous(d) {
+            return Err(format!("{which} {why}"));
+        }
+    }
     let mut out = Vec::new();
     let other =
         |out: &mut Vec<Edit>, name: String, before: Option<String>, after: Option<String>| {
@@ -150,7 +156,31 @@ pub fn edits(old: Option<&Design>, new: Option<&Design>) -> Vec<Edit> {
         })
     };
     other(&mut out, "exports".into(), exports(a), exports(b));
-    out
+    Ok(out)
+}
+
+/// What a design declares twice, in words, if anything: the checker refuses
+/// it, but a past version is read unchecked.
+fn ambiguous(d: &Design) -> Option<String> {
+    let twice = |names: Vec<&String>, what: &str| {
+        names
+            .iter()
+            .enumerate()
+            .find(|(i, n)| names[..*i].contains(n))
+            .map(|(_, n)| format!("declares the {what} `{n}` twice"))
+    };
+    twice(d.axes.iter().map(|x| &x.name.value).collect(), "axis")
+        .or_else(|| twice(d.dials.iter().map(|x| &x.name.value).collect(), "dial"))
+        .or_else(|| twice(d.tokens.iter().map(|x| &x.name.value).collect(), "token"))
+        .or_else(|| {
+            d.tokens.iter().find_map(|t| {
+                t.whens
+                    .iter()
+                    .enumerate()
+                    .any(|(i, w)| t.whens[..i].iter().any(|v| same_conds(&v.conds, &w.conds)))
+                    .then(|| format!("gives the token `{}` one `when` twice", t.name.value))
+            })
+        })
 }
 
 /// Why one edit of a past commit cannot be reverted on the file as it is.
@@ -184,7 +214,28 @@ pub struct Revert {
 pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
     let mut out = Revert::default();
     let (mut first, mut middle, mut last) = (Vec::new(), Vec::new(), Vec::new());
-    for edit in edits(Some(old), Some(new)) {
+    let read = edits(Some(old), Some(new)).and_then(|all| match ambiguous(now) {
+        Some(why) => Err(format!("the file now {why}")),
+        None => Ok(all),
+    });
+    let all = match read {
+        Ok(all) => all,
+        Err(why) => {
+            out.conflicts.push(Conflict {
+                edit: Edit {
+                    what: What::Other,
+                    name: "declarations".into(),
+                    when: Vec::new(),
+                    before: None,
+                    after: None,
+                },
+                now: None,
+                why,
+            });
+            return out;
+        }
+    };
+    for edit in all {
         let conflict = |out: &mut Revert, now: Option<String>, why: &str| {
             out.conflicts.push(Conflict {
                 edit: edit.clone(),
@@ -232,32 +283,57 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                         current.map(axis_text),
                         "no operation removes an axis",
                     ),
+                    (Some(x), Some(y), Some(c)) if !same_order(&x.values, &y.values) => conflict(
+                        &mut out,
+                        Some(axis_text(c)),
+                        "no operation reorders an axis's values (the first is its default)",
+                    ),
                     (Some(x), Some(y), Some(c))
                         if x.under_dark == y.under_dark && c.under_dark == y.under_dark =>
                     {
                         // Values the commit added go, where they still are;
                         // values it removed come back, before the next of
                         // the old ones the axis has now.
-                        for v in y.values.iter().filter(|v| !x.values.contains(v)) {
-                            if c.values.contains(v) {
-                                last.push(Op::RemoveAxisValue {
-                                    axis: edit.name.clone(),
-                                    value: v.clone(),
-                                });
-                            }
-                        }
+                        let gone: Vec<&String> = y
+                            .values
+                            .iter()
+                            .filter(|v| !x.values.contains(v) && c.values.contains(v))
+                            .collect();
+                        let mut list: Vec<&String> =
+                            c.values.iter().filter(|v| !gone.contains(v)).collect();
+                        let mut back = Vec::new();
                         for (i, v) in x.values.iter().enumerate() {
                             if !y.values.contains(v) && !c.values.contains(v) {
-                                first.push(Op::AddAxisValue {
+                                let before =
+                                    x.values[i + 1..].iter().find(|n| c.values.contains(n));
+                                let at = before
+                                    .and_then(|b| list.iter().position(|l| *l == b))
+                                    .unwrap_or(list.len());
+                                list.insert(at, v);
+                                back.push(Op::AddAxisValue {
                                     axis: edit.name.clone(),
                                     value: v.clone(),
-                                    before: x.values[i + 1..]
-                                        .iter()
-                                        .find(|n| c.values.contains(n))
-                                        .cloned(),
+                                    before: before.cloned(),
                                 });
                             }
                         }
+                        // The old values in their old order (the first the
+                        // default), or the file moved them since: refused.
+                        let kept: Vec<&String> =
+                            list.into_iter().filter(|v| x.values.contains(v)).collect();
+                        if kept != x.values.iter().collect::<Vec<_>>() {
+                            conflict(
+                                &mut out,
+                                Some(axis_text(c)),
+                                "its values have moved since; reverting would leave them in another order",
+                            );
+                            continue;
+                        }
+                        first.extend(back);
+                        last.extend(gone.into_iter().map(|v| Op::RemoveAxisValue {
+                            axis: edit.name.clone(),
+                            value: v.clone(),
+                        }));
                     }
                     (Some(_), Some(_), Some(_)) => conflict(
                         &mut out,
@@ -397,11 +473,20 @@ fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
     a.len() == b.len() && a.iter().all(|c| b.contains(c))
 }
 
-/// The same values on every branch.
+/// The same declaration: kind, metadata and the value on every branch.
 fn same_token(a: &Token, b: &Token) -> bool {
-    branches(Some(a), Some(b))
-        .iter()
-        .all(|w| branch(Some(a), w) == branch(Some(b), w))
+    token_shape(a) == token_shape(b)
+        && branches(Some(a), Some(b))
+            .iter()
+            .all(|w| branch(Some(a), w) == branch(Some(b), w))
+}
+
+/// Whether the values two lists share come in the same order.
+fn same_order(a: &[String], b: &[String]) -> bool {
+    let shared = |x: &[String], y: &[String]| -> Vec<String> {
+        x.iter().filter(|v| y.contains(v)).cloned().collect()
+    };
+    shared(a, b) == shared(b, a)
 }
 
 /// The first token after `name` in `old` that `now` has: where a removed
@@ -460,7 +545,7 @@ mod tests {
         let v2 = V1
             .replace("#eeeeee", "#dddddd")
             .replace("  edge = #101010\n", "  edge = #202020\n  card = #303030\n");
-        let all = edits(Some(&d(V1)), Some(&d(&v2)));
+        let all = edits(Some(&d(V1)), Some(&d(&v2))).unwrap();
         let dim = vec![("dark-style".to_string(), "dim".to_string())];
         assert_eq!(
             all,
@@ -489,7 +574,7 @@ mod tests {
             ]
         );
         // A new file: everything it declares, from nothing.
-        let fresh = edits(None, Some(&d(V1)));
+        let fresh = edits(None, Some(&d(V1))).unwrap();
         assert!(fresh
             .iter()
             .any(|e| e.what == What::Axis && e.before.is_none()));
@@ -499,7 +584,47 @@ mod tests {
             Some(&d(V1)),
             Some(&d(&V1.replace("= #101010", "=   #101010")))
         )
+        .unwrap()
         .is_empty());
+        // A version that declares a token twice has no reading by name.
+        let twice = format!("{V1}  edge = #202020\n");
+        assert!(edits(Some(&d(V1)), Some(&d(&twice)))
+            .unwrap_err()
+            .contains("`edge` twice"));
+        assert!(revert(&d(V1), &d(&twice), &d(&twice)).conflicts[0]
+            .why
+            .contains("twice"));
+    }
+
+    #[test]
+    fn a_reorder_or_a_later_declaration_change_is_refused_not_lost() {
+        // The commit reordered an axis (its default changed) and set a token.
+        let v2 = V1
+            .replace("black | dim", "dim | black")
+            .replace("#101010", "#202020");
+        let r = revert(&d(V1), &d(&v2), &d(&v2));
+        assert!(r
+            .conflicts
+            .iter()
+            .any(|c| c.edit.what == What::Axis && c.why.contains("reorders")));
+        // The commit added a token, and a later edit marked it: removing it
+        // would lose that.
+        let v2 = format!("{V1}  card = #303030\n");
+        let later = format!("{V1}  card = #303030  scheme=fixed\n");
+        let r = revert(&d(V1), &d(&v2), &d(&later));
+        assert!(r.ops.is_empty());
+        assert_eq!(r.conflicts[0].edit.name, "card");
+        // A value the commit removed comes back in its place, unless the
+        // values moved since.
+        let three = V1.replace("black | dim", "black | dim | navy");
+        let v2 = three.replace("black | dim | navy", "black | navy");
+        let back = revert(&d(&three), &d(&v2), &d(&v2));
+        let text = apply_all(&v2, &back.ops, &Vocab::default()).unwrap().text;
+        assert!(text.contains("black | dim | navy"), "{text}");
+        let moved = v2.replace("black | navy", "navy | black");
+        assert!(revert(&d(&three), &d(&v2), &d(&moved)).conflicts[0]
+            .why
+            .contains("moved since"));
     }
 
     #[test]
@@ -513,7 +638,10 @@ mod tests {
         let r = revert(&d(V1), &d(&v2), &d(&v2));
         assert!(r.conflicts.is_empty(), "{:?}", r.conflicts);
         let back = apply_all(&v2, &r.ops, &vocab).unwrap().text;
-        assert!(edits(Some(&d(V1)), Some(&d(&back))).is_empty(), "{back}");
+        assert!(
+            edits(Some(&d(V1)), Some(&d(&back))).unwrap().is_empty(),
+            "{back}"
+        );
         // Moved since, elsewhere: recomputed on today's file, the later edit kept.
         let today = v2.replace("#080808", "#0a0a0a");
         let r = revert(&d(V1), &d(&v2), &d(&today));
@@ -545,7 +673,10 @@ mod tests {
         let r = revert(&d(V1), &d(&v2), &d(&v2));
         assert!(r.conflicts.is_empty(), "{:?}", r.conflicts);
         let back = apply_all(&v2, &r.ops, &vocab).unwrap().text;
-        assert!(edits(Some(&d(V1)), Some(&d(&back))).is_empty(), "{back}");
+        assert!(
+            edits(Some(&d(V1)), Some(&d(&back))).unwrap().is_empty(),
+            "{back}"
+        );
         // A dial the commit added has no inverse.
         let with = "tamber t\n\ndials\n  accent: color = #1083fe\n\ntheme\n  ink = accent\n";
         let r = revert(

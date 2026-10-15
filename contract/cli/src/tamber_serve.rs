@@ -534,7 +534,7 @@ impl Server {
             // The wire's own, for `history`, `revert` and `import`.
             Some("compare") => vec![reply(crate::tamber_history::compare(&request))],
             Some("revert-plan") => {
-                vec![reply(self.texts().and_then(|now| {
+                vec![reply(self.read_files(true).and_then(|now| {
                     crate::tamber_history::revert_plan(&request, &now)
                 }))]
             }

@@ -66,10 +66,10 @@ pub fn compare(request: &Value) -> Result<Value, Value> {
         .iter()
         .map(|(file, before, after)| {
             match (parsed(before, "the version before"), parsed(after, "the version after")) {
-                (Ok(a), Ok(b)) => json!({
-                    "file": file,
-                    "edits": history::edits(a.as_ref(), b.as_ref()).iter().map(edit_json).collect::<Vec<_>>(),
-                }),
+                (Ok(a), Ok(b)) => match history::edits(a.as_ref(), b.as_ref()) {
+                    Ok(all) => json!({"file": file, "edits": all.iter().map(edit_json).collect::<Vec<_>>()}),
+                    Err(why) => json!({"file": file, "edits": null, "refused": why}),
+                },
                 (Err(why), _) | (_, Err(why)) => json!({"file": file, "edits": null, "refused": why}),
             }
         })
@@ -77,13 +77,14 @@ pub fn compare(request: &Value) -> Result<Value, Value> {
     Ok(json!({ "files": files }))
 }
 
-/// `now`: each design file as it is, its path and text.
-pub fn revert_plan(request: &Value, now: &[(String, String)]) -> Result<Value, Value> {
+/// `now`: each design file as it is, its path, text and digest. The reply's
+/// `files` are the digests it planned against, for the held proposal's base.
+pub fn revert_plan(request: &Value, now: &[(String, String, String)]) -> Result<Value, Value> {
     let (mut ops, mut already, mut conflicts, mut moved) = (vec![], vec![], vec![], vec![]);
     let whole =
         |file: &str, why: String| json!({"file": file, "edit": null, "now": null, "why": why});
     for (file, before, after) in pairs(request)? {
-        let current = now.iter().find(|(f, _)| *f == file).map(|(_, t)| t);
+        let current = now.iter().find(|(f, _, _)| *f == file).map(|(_, t, _)| t);
         let (old, new) = match (
             parsed(&before, "the version before"),
             parsed(&after, "the version after"),
@@ -143,5 +144,9 @@ pub fn revert_plan(request: &Value, now: &[(String, String)]) -> Result<Value, V
             );
         }
     }
-    Ok(json!({"ops": ops, "already": already, "conflicts": conflicts, "moved": moved}))
+    let files: serde_json::Map<String, Value> =
+        now.iter().map(|(f, _, d)| (f.clone(), json!(d))).collect();
+    Ok(
+        json!({"ops": ops, "already": already, "conflicts": conflicts, "moved": moved, "files": files}),
+    )
 }
