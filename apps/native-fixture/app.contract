@@ -652,6 +652,15 @@ component NativeFixture
                 // from Sheet's controller, and closing it returns to Sheet.
                 if e.name == "sheet"
                   column testId="sheet-body" padding=16
+                    // Two fields in a mounted sheet: focus bubbles out of it
+                    // to the document's ancestors (LLP 1123 D2)
+                    input id="sheet-a" testId="sheet-field-a" aria-label="Sheet A" height=32
+                    input id="sheet-b" testId="sheet-field-b" aria-label="Sheet B" height=32
+                    // A field low in a short scroller: revealed once the
+                    // sheet's keyboard has settled (LLP 1123 C26)
+                    scroll id="sheet-scroll" testId="sheet-scroll" height=60 flex-shrink=0
+                      column height=200
+                      input id="sheet-c" testId="sheet-field-c" aria-label="Sheet C" height=32
                     button press=openMenu testId="sheet-menu" height=44
                       text "Menu over the sheet"
                     button press=askMenu testId="sheet-ask" height=44

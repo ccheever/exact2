@@ -48,7 +48,7 @@ extension Agent {
     /// a navigation controller or tab bar controller of its own, a presented
     /// sheet's included, whose bars are outside both.
     static func shows(_ session: ExactSession, _ view: UIView) -> Bool {
-        if view.isDescendant(of: session.presenter.viewport) || session.view.map({ view.isDescendant(of: $0) }) == true { return true }
+        if session.presenter.mounts(view) || session.view.map({ view.isDescendant(of: $0) }) == true { return true }
         // A dialog's sheet holds the session's own nodes, outside its view (LLP 1115.000 D11.5).
         if session.presenter.menus.sheets.shows(view) { return true }
         let nav = session.presenter.navigation

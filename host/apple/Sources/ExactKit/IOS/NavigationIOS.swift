@@ -56,6 +56,8 @@ final class RouteController: UIViewController {
     }
     override func viewIsAppearing(_ animated: Bool) {
         super.viewIsAppearing(animated)
+        // Its block, at the size UIKit gives it, before its first frame (LLP 1123 D2)
+        host?.presenter.owners.publish()
         // UIKit has attached and sized the real destination. Finish its
         // content and focus here, before the transition's first frame.
         host?.presenter.afterBatch { [weak self] in
@@ -64,6 +66,12 @@ final class RouteController: UIViewController {
             host.presenter.syncAccessibility()
             host.presenter.paintVisibleText()
         }
+    }
+
+    // Its route is laid out in this view's bounds (LLP 1123 D2).
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        host?.presenter.owners.publish()
     }
 
     override func loadView() {
@@ -415,8 +423,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         refitForBars()
     }
 
-    /// A container that starts or stops showing its bars changes the view
-    /// the session takes (ExactViewIOS `fit`): lay it out again this turn.
+    /// A native primary container coming or going changes the view the
+    /// session takes (ExactViewIOS `fit`, LLP 1123 D1), whatever its bars
+    /// show: lay it out again this turn.
     func refitForBars() {
         guard wantsWholeView != tookWholeView else { return }
         tookWholeView = wantsWholeView
@@ -438,12 +447,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         defer { syncing = false; presenter.flushPendingFocus() }
         guard let p = projection(batch) else { settled = true; return }
         let root = p.root, wanted = p.chosen
-        let parts = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
+        // A presentation whose route a logical ancestor's `display: none`
+        // hides is not presented, nor is any above it: its sheet is out of
+        // the document's tree, which no longer hides it (LLP 1123 D2)
+        let segments = NavigationRules.segments(presentations: p.routes[...p.selected].map { $0.props["navigationPresentation"] })
+        let parts = Array(segments.enumerated().prefix { $0.offset == 0 || !logicallyHidden(wanted[$0.element.lowerBound].node) }.map(\.element))
         reshape(p)
         installPrimary(p, first: Array(wanted[parts[0]]))
         // The other tabs' stacks, the selected tab and its items (LLP 1075.003 §3.7).
         if p.tabs != nil { syncTabs(p) }
-        // Initial content draws before presentation takes over its viewport.
+        // Initial content draws before a presentation covers it.
         if parts.count > 1, let session = presenter.session, session.firstDrawMs == nil { return }
         guard !changing, !presenter.modals.inTransition else { pendingSync = true; return }
         pendingSync = false
@@ -478,16 +491,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             return
         }
         if boundaries.count > mounted.count, let background = modalNavigation ?? primaryOwner, let owner {
-            let source = navigation?.topViewController as? RouteController
             let part = parts[mounted.count + 1], route = wanted[part.lowerBound].node
             guard presenter.modals.canPresent(from: owner, route: route) else { return }
+            // The sheet mounts its own navigation (`ModalHost.present`)
             let nav = makeNavigation(first: route)
-            owner.addChild(nav)
-            root.addSubview(nav.view)
-            nav.view.setPaintForeground(aboveAuthored: false)
             nav.view.frame = root.bounds
-            nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-            nav.didMove(toParent: owner)
             presentedNavigations.append(nav)
             prepareRoutes(Array(wanted[part]), in: nav)
             nav.setViewControllers(Array(wanted[part]), animated: false)
@@ -496,12 +504,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             nav.view.layoutIfNeeded()
             pendingSync = boundaries.count > mounted.count + 1
             let preceding = part.lowerBound > 0 ? wanted[part.lowerBound - 1].node : nil
-            presenter.modals.present(route, navigation: nav, from: background, node: source?.node,
+            presenter.modals.present(route, navigation: nav, from: background,
                                      preceding: preceding, owner: owner)
         }
-        if let top = modalNavigation ?? primaryOwner {
+        // A presented navigation fills its sheet; the primary owner the root,
+        // which no presentation resizes (LLP 1123 D1)
+        if let top = primaryOwner {
             top.view.frame = ownerFrame(top, in: root)
-            if top === primaryOwner { placeOwner() } else { root.bringSubviewToFront(top.view) }
+            placeOwner()
             top.view.layoutIfNeeded()
         }
         for (id, c) in controllers where !routeIDs.contains(id) { end(c) }
@@ -510,6 +520,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+        // A route that left every stack gives its block back (LLP 1123 D2)
+        presenter.owners.publish()
         settled = true
     }
 
@@ -630,8 +642,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
     }
 
-    /// The removed editor stays in its outgoing presentation while the
-    /// viewport returns independently to the destination owner.
+    /// The removed editor stays in its outgoing presentation while UIKit
+    /// dismisses it.
     func preserveModalContent(in parent: UIViewController) -> UIViewController? {
         guard let nav = presentedNavigations.first(where: { $0.parent === parent }) else { return nil }
         let frame = nav.view.convert(nav.view.bounds, to: parent.view)
@@ -677,16 +689,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return ["route": root?.props["navigationKey"] ?? NSNull(), "stack": stack, "transition": transition]
     }
 
-    func move(to parent: UIViewController, mount: () -> Void) {
-        guard let nav = modalNavigation ?? primaryOwner, nav.parent !== parent else { mount(); return }
-        let container = nav.view.superview
-        nav.willMove(toParent: nil)
-        nav.view.removeFromSuperview()
-        nav.removeFromParent()
-        parent.addChild(nav)
-        mount()
-        container?.addSubview(nav.view)
-        nav.didMove(toParent: parent)
+    /// Whether a route or a logical ancestor of it (`eventParent`) is
+    /// `display: none`.
+    func logicallyHidden(_ route: NodeView) -> Bool {
+        presenter.logicalAncestry(of: route).prefix { $0 !== presenter.root }
+            .contains { ($0 as? NodeView)?.style["display"]?.string == "none" }
     }
 
     func invokeBack(from source: NodeView) {
@@ -859,20 +866,22 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         return popStillMayBegin
     }
 
-    /// One viewport holds both routes, and with the keyboard up it ends at
-    /// the keyboard's top: the route a back swipe revealed showed only what
-    /// was above the keys (a list's top half; its bottom half once the swipe
-    /// ended). The keyboard goes as the swipe is recognized, before UIKit
-    /// fixes the routes' frames for the transition, and the viewport grows
-    /// to the screen first.
+    /// With the keyboard up, the routes of the navigation being swiped end
+    /// at its top (`OwnerBlocks.block`: a document's routes where the
+    /// document ends, a sheet's at its keyboard layout guide): the route a
+    /// back swipe revealed showed only what was above the keys (a list's top
+    /// half; its bottom half once the swipe ended). The keyboard goes as the
+    /// swipe is recognized, before UIKit fixes the routes' frames for the
+    /// transition, and their blocks grow to the navigation's whole height
+    /// first.
     private func dropKeyboard() {
         guard presenter.hasKeyboardEditor || presenter.keyboardTop != nil,
               navigation?.view.window != nil else { return }
         keyboardDropped = true
         // This session's editor only: another session's in the same window
         // keeps its focus (LLP 1035.001 D5).
-        droppedEditor = (FirstResponder.current as? UIView).flatMap { $0.isDescendant(of: presenter.viewport) ? $0 : nil }
-        presenter.viewport.endEditing(true)
+        droppedEditor = (FirstResponder.current as? UIView).flatMap { presenter.mounts($0) ? $0 : nil }
+        presenter.endEditing()
         presenter.flushKeyboardResize()
         presenter.session?.view?.fit()
         navigation?.view.layoutIfNeeded()
@@ -897,7 +906,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// not leave its route — only if it is still this session's, on screen,
     /// and nothing has taken or been given the focus since.
     private func restoreEditor(_ editor: UIView?) {
-        guard let editor, editor.window != nil, editor.isDescendant(of: presenter.viewport),
+        guard let editor, editor.window != nil, presenter.mounts(editor),
               FirstResponder.current == nil || FirstResponder.current === presenter.session?.view,
               !pendingSync, presenter.pendingFocusNode == nil else { return }
         _ = editor.becomeFirstResponder()
@@ -975,6 +984,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         keyboardDropped = false
         nativeMoved = true
         stopRevealing()
+        // The route a pop took away keeps its block until it leaves the stack (LLP 1123 D2)
+        defer { presenter.owners.publish() }
         defer {
             // Tree updates during UIKit's transition retain their latest
             // intent. Apply it once the native stack is available again.
@@ -1075,6 +1086,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         droppedEditor = nil
         lastTransition = "idle"
         if clearFocus { presenter.cancelPendingFocus() }
+        // The routes no stack holds now give their blocks back (LLP 1123 D2)
+        presenter.owners.publish()
     }
 }
 #if os(tvOS)

@@ -99,15 +99,15 @@ pub use request::{
 };
 pub use runner::{
     canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, BackgroundState,
-    CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command, ControlValue, DataError,
-    DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent, Event, FieldSelection,
-    FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight, InputDetails, Interrupt,
-    Intersection, KeyModifiers, KeyboardEvent, Limits, ListTextPolicy, ListTextPosition, Native,
-    NativeCall, NativeHandler, Overlaid, Picked, PickerLinks, PickerRequest, PointerEvent,
-    PreloadWake, ResizeRect, RouterChange, RouterLink, Routing, Runner, RunnerError, RunnerLinks,
-    ScrollEvent, SelectionDirection, StackSplit, StreamCount, SurfaceAnswer, Target, Timed,
-    WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
-    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    BlockPlacement, CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command,
+    ControlValue, DataError, DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent,
+    Event, FieldSelection, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight,
+    InputDetails, Interrupt, Intersection, KeyModifiers, KeyboardEvent, Limits, ListTextPolicy,
+    ListTextPosition, Native, NativeCall, NativeHandler, Overlaid, Picked, PickerLinks,
+    PickerRequest, PointerEvent, PreloadWake, ResizeRect, RouterChange, RouterLink, Routing,
+    Runner, RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, StackSplit, StreamCount,
+    SurfaceAnswer, Target, Timed, WheelEvent, Write, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS,
+    PICKED, QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};

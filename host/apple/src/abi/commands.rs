@@ -67,10 +67,11 @@ impl<D: DataSource> Bridge<D> {
         }
     }
 
-    /// `exact_top_layer`: the presenter's currently open popovers and dialogs.
-    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])]) {
+    /// `exact_top_layer`: the presenter's open top-layer boxes, and where
+    /// the frontmost modal presentation begins among them.
+    pub fn top_layer(&mut self, frames: &[(u32, [f64; 4])], modal: Option<usize>) {
         if let Some(h) = self.host.as_mut() {
-            h.runner_mut().top_layer_frames(frames);
+            h.runner_mut().top_layer_frames(frames, modal);
         }
     }
 

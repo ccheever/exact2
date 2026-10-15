@@ -54,6 +54,7 @@ final class DialogHost {
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
+    func presentsRoute(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node && $0.route } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
         // An alert over the dialog is the top modal: its rows are its own.

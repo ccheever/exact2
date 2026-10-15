@@ -363,7 +363,7 @@ macro_rules! host {
         /// # Safety
         /// `views` points to `count` valid ids, `rects` to `count * 4` doubles.
         #[no_mangle]
-        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32) {
+        pub unsafe extern "C" fn exact_top_layer(rt: u32, views: *const u32, rects: *const f64, count: u32, modal: u32) {
             let ids = if count == 0 { &[] } else {
                 // SAFETY: the caller keeps `count` ids live for this synchronous call.
                 unsafe { std::slice::from_raw_parts(views, count as usize) }
@@ -374,7 +374,8 @@ macro_rules! host {
             };
             let frames: Vec<_> = ids.iter().zip(rects.chunks_exact(4))
                 .map(|(&id, r)| (id, [r[0], r[1], r[2], r[3]])).collect();
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames), |_| ())
+            let modal = (modal != u32::MAX).then_some(modal as usize);
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.top_layer(&frames, modal), |_| ())
         }
 
         /// Copy current region source/paint metadata. No returned bytes outlive exact_out.

@@ -9,6 +9,7 @@ mod aria;
 mod at;
 mod auth;
 mod baked_release;
+mod blocks;
 mod borders;
 mod branch;
 mod button_migration;

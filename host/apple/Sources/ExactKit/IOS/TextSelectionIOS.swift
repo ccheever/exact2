@@ -432,7 +432,7 @@ extension NodeView {
         while let view = next {
             if let node = view as? NodeView,
                node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return node }
-            next = view.superview
+            next = presenter.touchParent(of: view)
         }
         return nil
     }

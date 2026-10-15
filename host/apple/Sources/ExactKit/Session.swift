@@ -418,7 +418,7 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [() -> Void] = []
+    private var afterFill: [(generation: Int, work: () -> Void)] = []
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -581,7 +581,7 @@ public final class ExactSession {
 
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3).
     func whenIdle(_ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append(work) } else { work() }
+        if fillInFlight { afterFill.append((generation, work)) } else { work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -650,8 +650,10 @@ public final class ExactSession {
             case .canvas: canvasInFlight = false
             }
             guard state != .destroyed, next.generation == generation else {
-                if case .fill = next.kind { afterFill.removeAll() }
-                continue
+                // A replaced runtime's slice: its waiters go, the current runtime's run
+                guard case .fill = next.kind else { continue }
+                let current = state == .destroyed ? [] : afterFill.filter { $0.generation == generation }
+                afterFill.removeAll(); current.forEach { $0.work() }; continue
             }
             let batch = next.batch
             if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
@@ -663,7 +665,7 @@ public final class ExactSession {
             presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
             let waiting = afterFill
             afterFill.removeAll()
-            for work in waiting { work() }
+            for entry in waiting { entry.work() }
         }
     }
 
@@ -678,7 +680,7 @@ public final class ExactSession {
         landFill()
     }
     private func wire() {
-        runtime.topLayer = { [weak self] in self?.presenter.openTopLayerFrames ?? [] }
+        runtime.topLayer = { [weak self] in self?.presenter.openTopLayer ?? ([], nil) }
         runtime.setInlineGeometry { [weak self] id in self?.presenter.inlineFrame(id) }
         if ExactSession.asyncFills {
             // @ref LLP 1072 §8.5 — main does not wait for a canvas's draw.

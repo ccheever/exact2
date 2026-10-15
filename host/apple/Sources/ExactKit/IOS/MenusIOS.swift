@@ -381,7 +381,7 @@ final class MenuHost {
                 guard let pop = view as? NodeView, isConfirmation(pop),
                       pop.props["popover"] != nil || isDialog(pop) else { return false }
             }
-            ancestor = view.superview
+            ancestor = presenter?.eventParent(of: view) ?? view.superview
         }
         return true
     }

@@ -203,7 +203,7 @@ extension Agent {
         let vp = presenter.viewport
         var p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         var seen = win.hitTest(p, with: nil)
-        if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
+        if !presenter.reach(of: v).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }

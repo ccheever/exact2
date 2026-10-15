@@ -24,10 +24,12 @@ mod reorder;
 mod reorder_codec;
 mod reorder_group;
 pub use intersect::Intersection;
+pub use shown::BlockPlacement;
 mod resize;
 pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod mode;
 mod root_font;
+mod shown;
 mod sounds;
 mod theme;
 pub use event::{
