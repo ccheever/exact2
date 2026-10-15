@@ -498,7 +498,8 @@ fallback API; before tvOS 26 these layers stay standard range.
   `corner-shape` the layer can't do), and a paragraph drawn rather than
   rastered (small text on macOS, a failed raster). When that drawing
   reaches past SDR white:
-  - the backing store is `RGBA16Float`
+  - the backing store requests `RGBA16Float`; `contentsFormat` is a hint,
+    so a redraw is requested only if the layer's actual format changes
   - the layer sets `contentsHeadroom` to the peak, because a backing store
     has no tag of its own
   - the layer asks for the limit's range
@@ -508,6 +509,8 @@ fallback API; before tvOS 26 these layers stay standard range.
   components outside [0,1] also require the extended layer and half-float
   backing, even when their Rec. 2020 headroom is 1 (wide SDR).
   The backing store returns to 8 bits when both light and gamut fit it.
+  Drawing headroom is cleared even if the layer rejected the HDR format;
+  layer-painted colors still request their own range.
 - **Extended-range contents.** Core Animation maps an HDR text raster's and
   an HDR gradient layer's contents to the layer's range only under
   `toneMapMode = .ifSupported`, so those layers set it. Other layers keep
@@ -688,10 +691,23 @@ An 8-bit sRGB screenshot can't check a color decision. `screenshot` stays
 LLP 1069.002's HEIC → JPEG conversion (`Picker.jpeg`) writes JPEG at
 quality 0.9 with orientation applied and no metadata copied.
 
-- The color profile is kept.
+- The color profile is kept unless the SDR fallback below renders Display P3.
 - From iOS 18 / macOS 15, an HDR photo (a gain map, PQ or HLG) is decoded
   with `kCGImageSourceDecodeToHDR` and written with
-  `kCGImageDestinationEncodeToISOGainmap`, so it stays HDR.
+  `kCGImageDestinationEncodeToISOGainmap`. The written JPEG must contain
+  the ISO gain map and classify as HDR. A failed or declined encode retries
+  with ImageIO's SDR decode and encode requests. The retry must classify as
+  SDR and report `CIImage.contentHeadroom` 1, or 0 (unknown) in a non-BT.2100
+  space. Only an HDR source whose finalized SDR retry still classifies as
+  HDR enters a third encode. It uses Core Image's `toneMapHDRtoSDR`, applies
+  the source orientation, and renders RGBA8 Display P3 in an extended linear
+  Display P3 working space.
+  It writes a plain JPEG and requires the same SDR validation. Core Image's
+  option is available from iOS/tvOS 14.1 and macOS 11; this fallback runs
+  inside the 18/15/18 guard needed for the paired ImageIO requests and
+  headroom validation. If the gain-map request instead produced a valid SDR
+  JPEG, it is kept as a fallback should either later attempt fail. Conversion
+  fails and removes its output only when no finalized attempt was acceptable.
 - Before 18, an HDR photo becomes its SDR picture.
 
 ## 5. What this changes elsewhere
@@ -883,7 +899,7 @@ On an iPhone with an XDR display and a MacBook Pro with XDR:
 ### V8 — Linux (blocking pinned tests, `host/linux/tests/pinned/`)
 
 - `F1` and `F2` match Chrome's rendering of the same file (recorded into
-  `scripts/fixtures/color/*.web.png` under `--force-color-profile=srgb`),
+  `host/apple/tests/ExactKitTests/ColorFixtures/*.web.png` under `--force-color-profile=srgb`),
   within mean ≤ 2/255 and ≤ 2% beyond 48.
 - A tagged picture (`F3`, `F12p`) draws its raw pixels.
 - An sRGB-gamut `display-p3` color draws its CSS-computed sRGB value.
@@ -892,13 +908,13 @@ On an iPhone with an XDR display and a MacBook Pro with XDR:
 
 ## 9. Fixtures
 
-**Where they live:** `scripts/fixtures/color/`, committed. Each picture is
+**Where they live:** `host/apple/tests/ExactKitTests/ColorFixtures/`, committed. Each picture is
 small (64×64 to 256×64; `F17` is 4096×4096). Each has a sibling
 `<name>.json` with its class, bits per component, and patch values in
 extended linear sRGB (and in cd/m² for PQ). V3, V5 and V8 read the same
 JSON.
 
-**How they are made:** `scripts/fixtures/color/make.swift`, run by hand on
+**How they are made:** `host/apple/tests/ExactKitTests/ColorFixtures/make.swift`, run by hand on
 macOS 15 or later. It writes the pictures through ImageIO's own encoders
 and the JSON from the same patch definitions. No check runs it.
 

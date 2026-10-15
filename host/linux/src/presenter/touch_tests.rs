@@ -2,20 +2,11 @@
 //! the pointer changes, and that a mouse, which is what the pointer is until
 //! one does, is as it was.
 use super::*;
-use exact_runner::{DataError, Value};
 
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (400., 400.),
         1.,
         PathBuf::new(),
@@ -27,19 +18,19 @@ fn boot(source: &str) -> Presenter<Nothing> {
     p
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
-fn log(p: &Presenter<Nothing>) -> String {
+fn log(p: &Presenter<()>) -> String {
     let k = p.host().kernel();
     let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
     node.props.str(PropId::Text).unwrap_or_default().to_string()
 }
 
 /// Down and up at a point: a tap.
-fn tap(p: &mut Presenter<Nothing>, x: f32, y: f32, at: f64) {
+fn tap(p: &mut Presenter<()>, x: f32, y: f32, at: f64) {
     p.pointer_down(x, y, at).unwrap();
     p.pointer_up(x, y, at + 1.).unwrap();
 }
@@ -113,14 +104,14 @@ const BUTTONS: &str = r##"component App
 "##;
 
 /// The pixel on the top edge of a button, where its focus ring is drawn.
-fn edge(p: &mut Presenter<Nothing>, name: &str) -> [u8; 4] {
+fn edge(p: &mut Presenter<()>, name: &str) -> [u8; 4] {
     let k = p.host().kernel();
     let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
     let c = p.frame().pixel(f.x as u32 + 60, f.y as u32).unwrap();
     [c.red(), c.green(), c.blue(), c.alpha()]
 }
 
-fn middle(p: &Presenter<Nothing>, name: &str) -> (f32, f32) {
+fn middle(p: &Presenter<()>, name: &str) -> (f32, f32) {
     let k = p.host().kernel();
     let f = k.node_by_key(k.find_by_test_id(name)[0]).unwrap().frame;
     (f.x + f.width / 2., f.y + f.height / 2.)
@@ -175,7 +166,7 @@ fn a_tap_that_drifts_inside_the_systems_slop_still_presses() {
         touch: true,
         touch_slop: 8.0,
     };
-    let drift = |p: &mut Presenter<Nothing>, by: f32, at: f64| {
+    let drift = |p: &mut Presenter<()>, by: f32, at: f64| {
         let (x, y) = middle(p, "bare");
         p.pointer_down(x, y, at).unwrap();
         p.pointer_move(x + by, y, at + 1.).unwrap();

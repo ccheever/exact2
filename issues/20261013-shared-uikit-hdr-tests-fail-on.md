@@ -31,3 +31,26 @@ Reproduction: `bun host/apple/build.mjs --test --ios --sim
 `9db708c47` with the shared-selection fix. The first verification used a temporary
 serial override and a deliberately failing selection canary in SurfaceControlTests;
 neither is part of the fix. Raw output: `target/iostooling-verification/ios-canary.log`.
+
+## Platform isolation, 2026-10-13
+
+A standalone Swift executable using only QuartzCore and ImageIO reproduces
+these failures on the booted iPhone 18 Pro Max simulator
+`793D239B-0A6E-48CB-9C12-E87C729207EB`:
+
+- Setting a fresh `CALayer.contentsFormat` to `.RGBA16Float` or `.gray8Uint`
+  leaves `.RGBA8Uint` and prints `unrecognised property key`.
+- Both `CGImageSourceCreateImageAtIndex` and
+  `CGImageSourceCreateThumbnailAtIndex`, with
+  `kCGImageSourceDecodeRequest: kCGImageSourceDecodeToHDR`, decode
+  `gainmap-iso.jpg` and `gainmap-iso.heic` as Display P3 with headroom 1.
+- Both APIs with `kCGImageSourceDecodeToSDR` keep PQ for `pq.heic` and
+  `pq.avif`, and HLG for `hlg.heic`, with their HDR headroom. The same
+  request converts `pq-cicp.png` to Display P3 with headroom 1.
+
+The same probe on macOS honors both layer formats and recovers gain-map
+headroom 4. This isolates simulator API behavior from Exact's callers; it
+is not physical-device qualification. The assertions remain in the iOS
+suite. The baseline XCTest failures are in
+`target/uikittests-verification/baseline.log`; the native comparison is in
+`hdr-probe-mac.log` beside it.

@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { backLayer, launchFacts, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
+import { backLayer, chromium, launchFacts, netOptions, refuseStale, staleError, warnStale, webChanges, withEpoch, withFaults } from './agent-launch.mjs';
 import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { pageAim } from './agent-aim.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -35,6 +35,14 @@ function unavailable(name, error) {
   return new Error(`web carrier unavailable: ${name}: ${message.replace(/\s+/g, ' ').trim()}`);
 }
 
+/** Why the engine `name` (chromium, firefox, webkit) cannot be driven here, or null: Chrome as agent.mjs
+ * finds it, Firefox and WebKit as Playwright installs them. For tests to choose themselves (scripts/coverage.mjs). */
+export async function browserMissing(name) {
+  if (name === 'chromium') return chromium().unavailable;
+  const playwright = await import('playwright-core');
+  return existsSync(playwright[name].executablePath()) ? null : `${name} not installed: ${INSTALL}`;
+}
+
 /** Launch once without an app so a conformance run reports an engine-level
  * installation or library failure once, before iterating its apps. */
 export async function probePlaywrightBrowser(name) {
@@ -42,7 +50,7 @@ export async function probePlaywrightBrowser(name) {
   let server;
   try {
     const playwright = await import('playwright-core');
-    server = await playwright[name].launchServer({ headless: true, ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
+    server = await playwright[name].launchServer({ headless: true, ...netOptions().launch, ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
   } catch (error) { throw unavailable(name, error); }
   await server.close();
 }
@@ -188,6 +196,22 @@ export function playwrightPointer({ name, move, down, up, wait }) {
   return phase;
 }
 
+/** Idle browsers that `poolBrowsers` keeps between drives, by engine and launch options; null when not pooling. */
+let pool = null;
+const shut = async ({ browser, server }) => { await browser?.close().catch(() => {}); await server?.close().catch(() => {}); };
+
+/** Keep each engine's browser between this process's drives. Every drive still gets its own context (cookies,
+ * storage, cache, permissions) and page, and a browser that disconnected is replaced. Conformance's targets share
+ * browsers this way; every other drive launches its own. The returned function closes the kept browsers. */
+export function poolBrowsers() {
+  pool ??= new Map();
+  return async () => {
+    const idle = [...(pool?.values() ?? [])].flat();
+    pool = null;
+    await Promise.all(idle.map(shut));
+  };
+}
+
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
 export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
@@ -195,7 +219,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
   const hosted = await files({ plan, pageURL, app, webDist });
-  let browserServer, browser, context, page;
+  let browserServer, browser, context, page, poolKey;
   // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
   const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
   const closeFiles = () => {
@@ -204,19 +228,32 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   };
   try {
     const playwright = await import('playwright-core');
-    browserServer = await playwright[name].launchServer({ headless: true,
-      ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
-    onProcess?.(browserServer.process());
-    browser = await playwright[name].connect(browserServer.wsEndpoint());
-    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
+    const net = netOptions();
+    poolKey = JSON.stringify([name, net.launch]);
+    let held = pool?.get(poolKey)?.pop();
+    while (held && !held.browser.isConnected()) { await shut(held); held = pool?.get(poolKey)?.pop(); }
+    if (held) ({ server: browserServer, browser } = held);
+    else {
+      browserServer = await playwright[name].launchServer({ headless: true, ...net.launch,
+        ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
+      onProcess?.(browserServer.process());
+      browser = await playwright[name].connect(browserServer.wsEndpoint());
+    }
+    context = await browser.newContext({ ...net.context, viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
     page = await context.newPage();
   } catch (error) {
-    await browser?.close().catch(() => {});
-    await browserServer?.close().catch(() => {});
+    await context?.close().catch(() => {});
+    await shut({ browser, server: browserServer });
     closeFiles();
     throw unavailable(name, error);
   }
-  const close = async () => { await browser.close().catch(() => {}); await browserServer.close().catch(() => {}); closeFiles(); };
+  // Return a pooled browser for the next drive once this drive's context is gone
+  const close = async () => {
+    await context.close().catch(() => {});
+    if (pool && browser.isConnected()) pool.set(poolKey, [...(pool.get(poolKey) ?? []), { server: browserServer, browser }]);
+    else await shut({ browser, server: browserServer });
+    closeFiles();
+  };
   try {
     page.on('console', msg => hostLines.push(`console.${msg.type()}: ${msg.text()}`));
     page.on('pageerror', error => hostLines.push(`exception: ${error.stack ?? error.message}`));
@@ -316,14 +353,15 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       },
       ask,
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
-      async prefer(media, pageFacts) {
-        const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
+      async prefer(media, pageFacts, fold = {}, mode = {}) {
+        const unsupported = Object.entries(media).find(([key, value]) => key === 'display-mode' || (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
         if (pageFacts['display-scale'] != null && pageFacts['display-scale'] !== 1) throw new Error(`${name} prefer cannot set display-scale ${pageFacts['display-scale']}: a browser's scale is fixed when it launches, and Playwright's is 1 here`);
         Object.assign(emulated, media);
         const options = { colorScheme: emulated['prefers-color-scheme'], reducedMotion: emulated['prefers-reduced-motion'], contrast: emulated['prefers-contrast'] };
         if (Object.keys(options).length) { await page.emulateMedia(options); await frame(); }
-        const pageReply = Object.keys(pageFacts).length ? await ask({ op: 'prefer', page: pageFacts }) : null;
+        const hasMode = Object.keys(mode).length > 0; // @ref LLP 1121 D13 — the page's own `setMode`s, as the Chrome carrier sends them
+        const pageReply = Object.keys(pageFacts).length || hasMode ? await ask({ op: 'prefer', ...(Object.keys(pageFacts).length ? { page: pageFacts } : {}), ...(hasMode ? { mode } : {}) }) : null;
         if (pageReply?.error) throw new Error(pageReply.error);
         if (pageReply) await frame();
         const current = await page.evaluate(() => {
@@ -333,7 +371,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
           };
           return Object.fromEntries(Object.entries(choices).map(([key, values]) => [key, values.find(value => matchMedia(`(${key}: ${value})`).matches) ?? values.at(-1)]));
         });
-        return { media: current, ...(pageReply ? { page: pageReply.page } : {}) };
+        return { media: current, ...(pageReply ? { page: pageReply.page, ...(hasMode ? { mode: pageReply.mode } : {}) } : {}) };
       },
       async input(id, kind, opts) {
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }

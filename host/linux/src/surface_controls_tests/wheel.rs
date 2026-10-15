@@ -1,6 +1,6 @@
 use super::*;
 
-fn count(p: &Presenter<NoData>) -> u32 {
+fn count(p: &Presenter<()>) -> u32 {
     unsafe { p.surfaces.abis[""].symbol::<unsafe extern "C" fn() -> u32>(b"test_input_count")() }
 }
 
@@ -101,12 +101,12 @@ const SOURCE: &str = r#"component Wheels
       box width=100 height=300
 "#;
 
-fn scroll_fixture(source: &str) -> (Presenter<NoData>, PathBuf) {
+fn scroll_fixture(source: &str) -> (Presenter<()>, PathBuf) {
     let (path, compat) = super::super::tests::fixture();
     let plan = contract::compile(source).unwrap();
     let (mut p, _) = Presenter::boot(
         &plan.encode(),
-        NoData,
+        (),
         (200., 200.),
         1.,
         path.parent().unwrap().into(),

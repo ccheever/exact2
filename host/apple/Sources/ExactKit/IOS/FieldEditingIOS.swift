@@ -25,6 +25,12 @@ extension NodeView {
             }
         }
         return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
+            && (presenter?.fieldSelections.shouldEdit(self, range: range, replacement: string, marked: textField.markedTextRange != nil) ?? true)
+    }
+
+    package func textFieldShouldClear(_ textField: UITextField) -> Bool {
+        guard !disabled, !inert, props["editable"] != "false" else { return false }
+        return presenter?.fieldSelections.shouldEdit(self, range: NSRange(location: 0, length: (textField.text ?? "").utf16.count), replacement: "", marked: textField.markedTextRange != nil) ?? true
     }
 
     /// As `writeValue(_:into:)` for a text view: the value the field already

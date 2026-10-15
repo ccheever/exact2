@@ -66,6 +66,7 @@ final class NodeExtras {
     #endif
     var textArea: UITextView?
     var field: UITextField?
+    weak var headerField: UITextField?
     #if os(iOS)
     /// A number input's stepper (`NumberStepperIOS.swift`).
     var stepper: FieldStepper?
@@ -90,6 +91,7 @@ final class NodeExtras {
     var scrollEventQueued: Bool = false
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) = (.zero, 0)
     var dispatchingScrollEvent: Bool = false
+    var scrollEnd: ScrollEnd?
     var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)?
     /// Logical coordinates survive hiding and physical backend replacement.
     var hiddenScroll: CGPoint?
@@ -179,6 +181,8 @@ extension NodeView {
     #endif
     package var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     package var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
+    var headerField: UITextField? { get { extras?.headerField } set { if newValue != nil || extras != nil { more.headerField = newValue } } }
+    var selectionField: UITextField? { headerField ?? field }
     /// The editor's text as the app was last told it; nil once the app has set the value since (`FieldComposition.swift`).
     var toldText: String? { get { extras?.toldText } set { if newValue != nil || extras != nil { more.toldText = newValue } } }
     /// A `value` that arrived while text was marked, applied when the composition ends.
@@ -199,6 +203,7 @@ extension NodeView {
     var scrollEventQueued: Bool { get { extras?.scrollEventQueued ?? false } set { if newValue || extras != nil { more.scrollEventQueued = newValue } } }
     var lastScrollEvent: (offset: CGPoint, topInset: CGFloat) { get { extras?.lastScrollEvent ?? (.zero, 0) } set { if newValue.offset != .zero || newValue.topInset != 0 || extras != nil { more.lastScrollEvent = newValue } } }
     var dispatchingScrollEvent: Bool { get { extras?.dispatchingScrollEvent ?? false } set { if newValue || extras != nil { more.dispatchingScrollEvent = newValue } } }
+    var scrollEnd: ScrollEnd? { get { extras?.scrollEnd } set { if newValue != nil || extras != nil { more.scrollEnd = newValue } } }
     var beforeLayoutScroll: (offset: CGPoint, topInset: CGFloat)? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
     var hiddenScroll: CGPoint? { get { extras?.hiddenScroll } set { if newValue != nil || extras != nil { more.hiddenScroll = newValue } } }
     var followedScroll: (top: CGFloat, end: Bool, start: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
@@ -255,12 +260,13 @@ extension NodeView {
 }
 extension UIColor {
     /// LLP 1115 D2: what an unset background is, the platform's —
-    /// `systemBackground` (tvOS has none; white stands in).
+    /// `systemBackground` (tvOS has none; white stands in) — or the theme's
+    /// where it replaces the page's ground (LLP 1095 D4).
     package static var platformBackground: UIColor {
         #if os(tvOS)
-        return .white
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .white)
         #else
-        return .systemBackground
+        return ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
         #endif
     }
 }

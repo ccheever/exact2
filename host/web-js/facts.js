@@ -13,7 +13,7 @@
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
 //   surface's published record, decoded against each reader's shape.
 import { data, Resources, commit, R, Refusal } from "./rt.js";
-import { preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
+import { displayMode, preferences, onPreferences, pageReporter, fold, foldEnv, onFold, preferFold } from "./navigation.js";
 
 const again = (source, why) => () => commit(() => { for (const r of Resources) if (r.source === source) R(r); }, why);
 // `readers`: resource name → [its fields, in its shape's order, …].
@@ -25,9 +25,10 @@ export function viewport(readers) {
   (data.reserved ??= {}).exactViewport = (_, a, name) => {
     const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
+      displayMode: displayMode(),
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
       devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
-      colorGamut: GAMUT[(p >> 8) & 3], dynamicRange: p & 1024 ? "high" : "standard", // @ref LLP 1100 D9
+      colorGamut: GAMUT[(p >>> 26) & 3], dynamicRange: p & (1 << 28) ? "high" : "standard", // @ref LLP 1100 D9
       pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover" });
   };
   if (typeof addEventListener !== "function") return;

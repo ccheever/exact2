@@ -33,12 +33,12 @@ fn autofocus_bubbles_on_mount_and_after_focused_removal() {
       replaced = true
   view
     column focusin=entered focusout=left width=200
-      when !editing
+      if !editing
         button "Edit" press=edit testId="edit" height=32
-      when editing
-        when !replaced
+      if editing
+        if !replaced
           input autofocus id="a" testId="a" key=replace height=32
-        when replaced
+        if replaced
           input autofocus id="b" testId="b" height=32
       text log testId="log" height=20
 "#
@@ -47,7 +47,7 @@ fn autofocus_bubbles_on_mount_and_after_focused_removal() {
             &format!("state editing = {initial}"),
         );
         let source = if keep_button {
-            source.replace("when !editing", "when true")
+            source.replace("if !editing", "if true")
         } else {
             source
         };
@@ -116,9 +116,9 @@ fn autofocus_keeps_each_bubbling_events_stop_flag() {
   view
     column focusin=outerIn focusout=outerOut width=200
       column focusin=entered focusout=left
-        when !replaced
+        if !replaced
           input autofocus id="a" testId="a" key=replace height=32
-        when replaced
+        if replaced
           input autofocus id="b" testId="b" height=32
       text log testId="log" height=20
 "#;
@@ -188,4 +188,149 @@ fn press_blur_leaves_no_focus_for_pointer_and_keyboard() {
             "pointer={pointer}: explicit blur survives the press"
         );
     }
+}
+
+#[test]
+fn blur_removes_wrapper_before_focusout() {
+    let source = r#"component App
+  state shown = true
+  state log = ""
+  action remove
+    log = `${log}blur;`
+    shown = false
+  action left(label: string, e: FocusEvent)
+    log = `${log}${label}:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  action entered(e: FocusEvent)
+    log = `${log}in:${e.target}:${match e.relatedTarget { case some(id) => id, case none => "-" }};`
+  view
+    column focusout=left("outer") width=200
+      if shown
+        column focusout=left("wrapper") testId="wrapper"
+          input id="a" testId="a" blur=remove height=32
+      input id="b" testId="b" focusin=entered height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "a")).unwrap();
+    p.tap(id(&p, "b")).unwrap();
+    assert_eq!(log(&p), "blur;wrapper:a:b;in:b:a;");
+    assert!(p.host().kernel().find_by_test_id("wrapper").is_empty());
+}
+
+#[test]
+fn change_removal_does_not_dispatch_a_detached_blur_binding() {
+    let source = r#"component App
+  state shown = true
+  action remove(value: string)
+    shown = false
+  action left
+  view
+    column width=200
+      if shown
+        column focusout=left
+          input id="a" testId="a" change=remove height=32
+      input id="b" testId="b" height=32
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.type_text(id(&p, "a"), "edited").unwrap();
+    p.tap(id(&p, "b")).unwrap();
+    assert_eq!(p.focus(), Some(id(&p, "b")));
+    let journal = p.host().runner().journal().collect::<Vec<_>>().join("\n");
+    assert!(!journal.contains("focusout"), "{journal}");
+}
+
+#[test]
+fn detached_focusout_does_not_visit_an_ancestor_removed_later() {
+    let source = r#"component App
+  state page = true
+  state shown = true
+  state log = ""
+  action remove
+    shown = false
+  action closePage(label: string)
+    log = `${log}${label};`
+    page = false
+  view
+    column width=200
+      if page
+        column focusout=closePage("outer")
+          if shown
+            column focusout=closePage("wrapper")
+              input id="a" testId="a" blur=remove height=32
+      input id="b" testId="b" height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "a")).unwrap();
+    p.tap(id(&p, "b")).unwrap();
+    assert_eq!(log(&p), "wrapper;");
+    let journal = p.host().runner().journal().collect::<Vec<_>>().join("\n");
+    assert!(!journal.contains("UnknownView"), "{journal}");
+}
+
+#[test]
+fn detached_focusout_survives_autofocus_during_blur_commit() {
+    let source = r#"component App
+  state shown = true
+  state log = ""
+  action remove
+    shown = false
+  action leave
+    blur()
+  action left
+    log = `${log}wrapper;`
+  action entered
+    log = `${log}focus;`
+  view
+    column width=200
+      if shown
+        column focusout=left
+          input id="a" testId="a" blur=remove submit=leave height=32
+      if !shown
+        input autofocus id="c" testId="c" focus=entered height=32
+      text log testId="log" height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        (),
+        (400., 400.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.tap(id(&p, "a")).unwrap();
+    p.type_key(id(&p, "a"), "Enter", "Enter", true, false)
+        .unwrap();
+    p.run_commands(|| ());
+    assert_eq!(log(&p), "focus;wrapper;");
+    assert_eq!(p.focus(), Some(id(&p, "c")));
 }

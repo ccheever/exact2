@@ -1,0 +1,21 @@
+tamber axes
+
+axes
+  dark-style = black | dim  under scheme = dark
+  density = default | compact | comfortable
+
+dials
+  accent: color = oklch(0.62 0.19 255)
+  p3: color = color(display-p3 1 0 0)
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: #161e27
+    when density = compact: light-dark(#fafafa, #050505)
+    when density=compact dark-style=dim: light-dark(#fafafa, #10161d)
+  accent.fill = accent
+    when dark-style=dim: light-dark(accent, color-mix(in oklab, accent 80%, white))
+  p3.fill = p3
+  text.primary = light-dark(#0b0f14, #f1f3f5)
+  same.white = #ffffff
+    when dark-style=dim: light-dark(color(srgb 1 1 1), #161e27)

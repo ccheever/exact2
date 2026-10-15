@@ -294,10 +294,14 @@ extension NodeView {
             && presenter?.views[id] === self && !disabled && !inert
         guard !contact.cancelled || movedByFocus else { return }
         guard ownsPress else { contact.destination?.touchesEnded(touches, with: event); return }
+        let lands = inside && pressContact === contact && incarnation == contact.incarnation && (!contact.cancelled || movedByFocus) && presenter?.views[id] === self
+        // A tap on a list's row selects its cell before the press runs, and
+        // the cell stays selected under a screen the press pushed (LLP 1115.000 D16).
+        let cells = presenter?.rowCells, screen = cells?.screen(of: self)
+        let row = lands ? cells?.select(self) : nil
         pressed = false
-        if inside, pressContact === contact, incarnation == contact.incarnation, (!contact.cancelled || movedByFocus), presenter?.views[id] === self {
-            presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? []))
-        }
+        if lands { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])) }
+        if let row { cells?.ran(row, on: screen) }
     }
     package override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self, event: event) == true { return }
@@ -328,7 +332,7 @@ extension NodeView {
     /// from the one it hit up; `activationTarget` resolves it.
     var takesPress: Bool {
         handlers.contains("press") || defaultLink != nil || presenter?.menus.closesPresentedContent(self) == true || isSurfaceControl
-            || isNativeButton && (props["commandfor"]?.isEmpty == false || props["popovertarget"]?.isEmpty == false)
+            || isNativeButton && presenter?.invocation(of: self) != nil
     }
     /// Resolve before focus changes: a keyboard resize can move the control.
     func activationTarget(at windowPoint: CGPoint) -> NodeView? {

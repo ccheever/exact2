@@ -94,7 +94,7 @@ const CONTROLS: &str = r#"component App
 
 /// A virtualized list of 400 rows, each a button, under a heading.
 const ROWS: &str = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state picked = -1
   action pick(n: number)
     picked = n
@@ -102,7 +102,7 @@ const ROWS: &str = r#"component App
     column width=320 height=480
       text `Picked ${picked}` testId="picked" height=20
       list virtualized=true width=320 height=400 testId="port"
-        each x in rows key=x
+        for x in rows key=x
           button press=pick(x) height=40 width=300
             text `Row ${x}`
 "#;
@@ -150,7 +150,7 @@ const WINDOW: Window = Window {
 
 fn boot(source: &str, size: (f32, f32), books: usize) -> Presenter<Data> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Data(books),
         size,
         1.,
@@ -296,18 +296,22 @@ fn shelfs_library_is_read_bar_then_page_then_navigation_bar() {
         ]
     );
     assert_eq!(nodes[2].value, "Search", "a hosted field's placeholder");
-    // The page: the list is a scroller that can go on, and holds the
-    // filter's tabs and each row that shows, a row one node named by its
-    // words, which opens and has a menu.
-    let list = &nodes[3];
-    assert_eq!((list.role, list.parent), (role::SCROLLER, 0));
-    assert_eq!(list.flags, flag::FORWARD);
-    assert_eq!(list.view, id(&p, "library-list"));
-    let filter = named(&nodes, "Filter");
+    // The page: the filter's tabs, which stand over the list and are no
+    // row of it (LLP 1115.000 D16), then the list, a scroller that can go
+    // on and holds each row that shows, a row one node named by its words,
+    // which opens and has a menu.
+    let filter = &nodes[3];
+    assert_eq!(filter.name, "Filter");
     assert_eq!(
         (filter.role, filter.parent, filter.set),
-        (role::TABLIST, list.id, (0, 4))
+        (role::TABLIST, 0, (0, 4))
     );
+    let list = nodes
+        .iter()
+        .find(|n| n.view == id(&p, "library-list"))
+        .expect("the list");
+    assert_eq!((list.role, list.parent), (role::SCROLLER, 0));
+    assert_eq!(list.flags, flag::FORWARD);
     let all = named(&nodes, "All");
     assert_eq!(
         (all.role, all.parent, all.set),

@@ -41,6 +41,34 @@ fn filter_refers(list: &FilterList, text: ColorValue) -> bool {
 }
 
 impl<D: DataSource> Host<D> {
+    /// App modes (LLP 1121 D5, the agent's `prefer mode`): the window's
+    /// slice set again in one commit, which paints; the batch says the
+    /// window's modes after it.
+    pub fn set_modes(&mut self, pins: &[(&str, &str)]) -> String {
+        let batch = match self.runner.set_modes(pins) {
+            Ok(Some(receipt)) => self.commit(
+                &[exact_runner::Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) => self.commit(&[], None),
+            Err(e) => return exact_runner::agent::error(&format!("mode: {e:?}")),
+        };
+        // An object, as every batch is: the modes go first.
+        format!("{{\"modes\":{},{}", self.runner.modes_json(), &batch[1..])
+    }
+
+    /// Whether [`Host::set_modes`] would take `pins`, changing nothing: the
+    /// window's modes, or the refusal.
+    pub fn check_modes(&mut self, pins: &[(&str, &str)]) -> String {
+        match self.runner.check_modes(pins) {
+            Ok(()) => format!("{{\"modes\":{}}}", self.runner.modes_json()),
+            Err(e) => exact_runner::agent::error(&format!("mode: {e:?}")),
+        }
+    }
+
     /// Take the presenter's resolutions; when anything resolves differently,
     /// re-present what the kernel resolved from the old ones.
     pub fn set_colors(&mut self, report: Vec<(ColorValue, bool, Color)>) -> String {
@@ -93,6 +121,21 @@ impl<D: DataSource> Host<D> {
         }
         self.present(batch, false);
     }
+}
+
+/// The roles the plan's theme replaces (LLP 1095 D4), for the presenter's
+/// own surfaces: one message at boot.
+pub(crate) fn emit_roles(batch: &mut Batch) {
+    use exact_kernel::style::roles;
+    let entries: Vec<(&str, String)> = (0..=u8::MAX)
+        .map_while(|id| roles::role_of(id).map(|r| (id, r)))
+        .filter_map(|(id, r)| {
+            let mut colour = String::new();
+            crate::style::push_color_value(&mut colour, roles::overridden(id)?);
+            Some((r.name, colour))
+        })
+        .collect();
+    batch.roles(&entries);
 }
 
 #[cfg(test)]

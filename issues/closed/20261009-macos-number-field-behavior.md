@@ -74,16 +74,6 @@ component X60
 | Empty field, ArrowUp | `bun exact.mjs agent <macos\|web> --size 420x200 "tap port" "type port key Backspace" "type port key Backspace" "type port key Backspace" tree "type port key ArrowUp" tree` | as above | same | macOS "" then ""; web "" then "1" | "1" (`min`) | text above |
 | Accessibility tree | `bun exact.mjs agent macos --size 420x200 "tree --ax"` | as above | same | `textbox "Port" value="443"` (web: `spinbutton "Port" value="443"`) | an adjustable number | transcript |
 
-Image 1: ArrowUp on "443".
-
-![X60: ArrowUp, web 444 vs macOS 443](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-arrowup.png)
-
-Image 2: `type port 4a4`.
-
-![X60: typed 4a4, web 44 vs macOS 4a4](https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-letters.png)
-
-Transcript (the contract, the commands and the agent's replies on both hosts): https://raw.githubusercontent.com/ccheever/exact2/649f5649dc51c4f75562485f5cabc5ef74baabd1/file-x59-x61/x60-ops.txt
-
 Seen first in an app's "HTTPS port" field (`type="number" inputmode="numeric" min=1 max=65535 step=1`, spin buttons hidden), which steps with the arrows and refuses letters in its reference (a browser).
 
 ### Acceptance criteria

@@ -11,6 +11,8 @@ import AppKit
 import ExactKit
 import ExactComposition
 
+ProcessRelaunch.waitIfRequested()
+
 // The process's own start (exec), from the kernel: what happened before
 // `main` — dyld, the Swift runtime, the static library's initializers.
 func processStart() -> Double? {
@@ -67,6 +69,10 @@ final class Adapter: ExactSessionDelegate {
         // `window.close()` (studio diary R17): the window this session
         // shows, without asking its `beforeunload` again.
         case "close": windows.first { $0.session === session }?.close()
+        case "relaunch":
+            guard !delegate.relaunching, delegate.quitting?.holding != true else { return }
+            delegate.relaunching = true
+            ProcessRelaunch.requestQuit(holding: { delegate.quitting?.holding == true }) { app.terminate(nil) }
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -269,29 +275,39 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// goes. A script's window is the size asked for, so it has a minimum
     /// only where the script names one.
     private func compose() {
-        let wanted = view.wantsWindowSidebar
+        // A sidebar for the root tab bar, a pane for a list's detail (LLP
+        // 1115.002 D4), or both: one split view holds them.
+        let rail = view.wantsWindowSidebar, wanted = rail || view.wantsWindowSplit
         if !wanted, sidebar == nil {
-            // No sidebar, before or now: the view is the window's content.
+            // Neither, before or now: the view is the window's content.
             guard window.contentView !== view else { return }
             window.contentView = view
             view.attachWindowToolbar(to: window)
             return
         }
-        guard wanted != (sidebar != nil) else { return }
+        // The same columns as before: nothing to compose.
+        if let sidebar, wanted, sidebar.hasSidebar == rail { return }
         let was = window.frame, under = window.contentLayoutRect.height
+        if let old = sidebar {
+            old.release()
+            sidebar = nil
+            window.contentViewController = nil
+        }
         if wanted {
             // Out of the window's content before the split view takes it.
-            if window.contentView === view { window.contentView = NSView() }
+            if window.contentView === view || window.contentView == nil { window.contentView = NSView() }
             let minimum = scripted && ExactEnv.environment["EXACT_WINDOW_MINWIDTH"] == nil ? 0 : minimumSize.width
-            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum)
+            // A window that shows a list beside its detail is as wide as its
+            // columns need, a script's too: Q6's "always, with a minimum
+            // window width" has no narrower form to fall back to, and a
+            // detail squeezed to what a 420-point window leaves shows nothing.
+            let split = ExactSidebarController(view: view, autosaveName: sidebarName, minimumPageWidth: minimum, sidebar: rail,
+                                               minimumDetailWidth: windowDimension("minWidth", fallback: 320))
             sidebar = split
             // Full-size content, then the split view: the order AppKit
             // places a source list's first row by.
             split.install(in: window)
         } else {
-            sidebar?.release()
-            sidebar = nil
-            window.contentViewController = nil
             window.contentView = view
         }
         coverChrome()
@@ -509,6 +525,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         // again nor starts a fresh five-second deadline.
         if quitting?.holding == true { return .terminateLater }
         for w in windows where !w.closing && !w.session.beforeUnload() {
+            relaunching = false
             w.front()
             return .terminateCancel
         }
@@ -519,6 +536,7 @@ final class Delegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    var relaunching = false
     /// The quit is decided, however it came (⌘Q, the app menu, an Apple
     /// Event, SIGTERM, the last window closing): every session still live goes now,
     /// synchronously, so each native module's `destroy()` runs before the
@@ -528,6 +546,10 @@ final class Delegate: NSObject, NSApplicationDelegate {
     /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
     func applicationWillTerminate(_ notification: Notification) {
         for session in exact.sessions { session.destroy() }
+        if relaunching {
+            do { try ProcessRelaunch.start() }
+            catch { fputs("exact: relaunch failed: \(error)\n", stderr) }
+        }
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")

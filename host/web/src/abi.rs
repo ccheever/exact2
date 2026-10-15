@@ -37,6 +37,9 @@ pub struct Bridge<D: DataSource> {
     preferences: exact_runner::Preferences,
     /// The fold the page last reported (LLP 1078 D6), beside the preferences.
     fold: exact_runner::Fold,
+    /// The date and place the page told before a boot (`set_launch_time`,
+    /// `set_launch_place`): a runner booted after reads them from its first settle.
+    launch_facts: exact_runner::time::Launch,
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
@@ -45,6 +48,8 @@ pub struct Bridge<D: DataSource> {
     input: Vec<u8>,
     output: Vec<u8>,
 }
+
+mod mode;
 
 impl<D: DataSource> Bridge<D> {
     /// Empty; `boot` fills it.
@@ -56,6 +61,7 @@ impl<D: DataSource> Bridge<D> {
             checkpoint: None,
             preferences: exact_runner::Preferences::NONE,
             fold: exact_runner::Fold::FLAT,
+            launch_facts: exact_runner::time::Launch::NONE,
             links: crate::HostLinks::CORE,
             pan: crate::pan_velocity::PanVelocity::new(),
             input: Vec::new(),
@@ -95,20 +101,17 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// The page's facts as bits, for the next boot: the display preferences
-    /// in bits 0–4 ([`exact_runner::Preferences::from_bits`]) and the fold
+    /// in bits 0–7 and 26–31, and the fold
     /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
     /// bits 17–24 the rows (0 reads as 1). The browser resolves the
     /// `env(viewport-segment-*)` lengths itself; the runner answers the
-    /// three `exactViewport` fields. Bit 25 is the page's look (LLP 1115.000
-    /// D4 part B): set where its stylesheet is the neutral one, and every
-    /// role then falls back to the table's neutral column and every metric
-    /// reads its neutral cell.
+    /// three `exactViewport` fields. Bit 25 is reserved. Bits 26–27 carry
+    /// gamut, 28 HDR, and 29–31 display mode; unpack these above the low
+    /// byte for the runner.
     pub fn set_preferences(&mut self, bits: u32) {
-        self.preferences = exact_runner::Preferences::from_bits(bits);
+        self.preferences =
+            exact_runner::Preferences::from_bits((bits & 0xff) | ((bits >> 26) << 8));
         self.fold = fold_bits(bits);
-        if bits & (1 << 25) != 0 {
-            exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-        }
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -280,7 +283,8 @@ impl<D: DataSource> Bridge<D> {
             preferences: self.preferences,
             fold: self.fold,
         };
-        let booted = match self.checkpoint.take() {
+        let (checkpoint, launch_facts) = (self.checkpoint.take(), self.launch_facts.clone());
+        let booted = exact_runner::time::launching_with(launch_facts, || match checkpoint {
             Some((digest, page)) => Host::boot_checkpoint_linked(
                 self.links,
                 plan,
@@ -302,7 +306,7 @@ impl<D: DataSource> Bridge<D> {
                 viewport,
                 launch,
             ),
-        };
+        });
         match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
@@ -322,21 +326,25 @@ impl<D: DataSource> Bridge<D> {
     pub fn boot_plan(&mut self, len: usize, data: D, width: f64, height: f64, launch: &str) -> u32 {
         let plan = self.input[..len.min(self.input.len())].to_vec();
         let carried = self.host.as_ref().map(Host::carry);
-        match Host::boot_linked(
-            self.links,
-            &plan,
-            data,
-            carried.as_ref(),
-            Vec::new(),
-            self.compat,
-            exact_runner::Viewport {
-                width,
-                height,
-                preferences: self.preferences,
-                fold: self.fold,
-            },
-            launch,
-        ) {
+        let viewport = exact_runner::Viewport {
+            width,
+            height,
+            preferences: self.preferences,
+            fold: self.fold,
+        };
+        let booted = exact_runner::time::launching_with(self.launch_facts.clone(), || {
+            Host::boot_linked(
+                self.links,
+                &plan,
+                data,
+                carried.as_ref(),
+                Vec::new(),
+                self.compat,
+                viewport,
+                launch,
+            )
+        });
+        match booted {
             Ok((host, batch)) => {
                 self.host = Some(host);
                 self.emit(batch)
@@ -530,8 +538,8 @@ impl<D: DataSource> Bridge<D> {
             // wheel, drop and resize, and a text field's input, change and
             // select with its selection, replacement input (48), a key's down (6), up (43) and capture (44)
             // with its code and repeat, and focusin (46) and focusout (47) with
-            // their targets, and toggle (50) (`Event::of_host_kind`).
-            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50 => {
+            // their targets, toggle (50) and scrollend (51) (`Event::of_host_kind`).
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=48 | 50..=54 => {
                 match Event::of_host_kind(kind, &payload) {
                     Ok(event) => event,
                     Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
@@ -734,6 +742,27 @@ impl<D: DataSource> Bridge<D> {
             |h| h.changed(&topic),
         );
         self.emit(out)
+    }
+
+    /// The date the next boot's first settle reads; the running host is
+    /// not told. A date that does not validate leaves the last one.
+    pub fn set_launch_time(&mut self, epoch_at_zero: f64, utc_offset: f64) {
+        let time = exact_runner::time::WallTime {
+            epoch_at_zero,
+            utc_offset,
+        };
+        if time.validate().is_ok() {
+            self.launch_facts.time = Some(time);
+        }
+    }
+
+    /// Where the viewer is, for the next boot's first settle
+    /// (`locale NUL timeZone NUL seed`); the running host is not told.
+    pub fn set_launch_place(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        if let Some(place) = exact_runner::time::Place::launched(text) {
+            self.launch_facts.place = Some(place);
+        }
     }
 
     /// The locale and time zone, as `locale NUL timeZone` in the input buffer.
@@ -1255,10 +1284,30 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow_mut().changed(len as usize))
         }
 
+        /// App modes, `axis=value` pins in the input buffer (LLP 1121 D5);
+        /// returns the batch length.
+        #[no_mangle]
+        pub extern "C" fn exact_set_mode(len: u32) -> u32 {
+            EXACT_BRIDGE.with(|b| b.borrow_mut().set_mode(len as usize))
+        }
+
         /// The locale and time zone: `locale NUL timeZone` in the input buffer.
         #[no_mangle]
         pub extern "C" fn exact_set_place(len: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().set_place(len as usize))
+        }
+
+        /// The date and the place (`locale NUL timeZone NUL seed` in the
+        /// input buffer, `place_len` 0 for none) the next boot reads first.
+        #[no_mangle]
+        pub extern "C" fn exact_set_launch(epoch_at_zero: f64, utc_offset: f64, place_len: u32) {
+            EXACT_BRIDGE.with(|b| {
+                let mut b = b.borrow_mut();
+                b.set_launch_time(epoch_at_zero, utc_offset);
+                if place_len > 0 {
+                    b.set_launch_place(place_len as usize);
+                }
+            })
         }
 
         /// Advance the runner clock; `mode` as [`Bridge::advance`] (the

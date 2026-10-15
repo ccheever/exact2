@@ -179,3 +179,57 @@ test('invalid margins cannot block later intersection targets', async () => {
     await page.waitForFunction(() => entries.some(e => e[0] === 'bad'));
   } finally { await browser.close(); }
 }, 120000);
+
+test('intersection geometry follows Chrome for rotated roots and sticky targets', async () => {
+  const source = readFileSync(new URL('../intersect-glue.js', import.meta.url), 'utf8');
+  const browser = await chromium.launch({ executablePath: installedChrome().executable, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 400, height: 800 } });
+    for (const [rootStyle, targetStyle, ratio] of [
+      ['rotate:45deg', 'width:100px;height:50px;translate:0 80px', 0.64],
+      ['rotate:45deg', 'width:100px;height:100px;rotate:-45deg', 1],
+      ['rotate:30deg;scale:2', 'width:100px;height:50px;translate:0 80px', 0.6245602369308472],
+    ]) {
+      await page.setContent(`<style>body{margin:0}</style><div style="width:100px;height:100px;overflow:hidden;${rootStyle}"><div id="target" style="${targetStyle}"></div></div>`);
+      await page.evaluate(async source => {
+        const { observeIntersect } = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+        globalThis.entries = [];
+        observeIntersect(document.getElementById('target'), e => entries.push([e.isIntersecting, e.intersectionRatio]));
+      }, source);
+      await page.waitForFunction(() => entries.length === 1);
+      const [[inside, actual]] = await page.evaluate(() => globalThis.entries);
+      expect(inside).toBe(true);
+      expect(actual).toBeCloseTo(ratio, 6);
+    }
+    for (const descendant of [false, true]) {
+      await page.setContent(`<style>body{margin:0}</style><div id="root" style="width:100px;height:100px;overflow:auto"><div style="height:200px"><div id="sticky" style="position:sticky;top:0;width:100px;height:50px"><div id="child" style="width:100px;height:50px"></div></div></div><div style="height:300px"></div></div>`);
+      await page.evaluate(async ({ source, descendant }) => {
+        const { observeIntersect } = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+        globalThis.entries = [];
+        document.getElementById('root').scrollTop = 60;
+        observeIntersect(document.getElementById(descendant ? 'child' : 'sticky'), e => entries.push([e.isIntersecting, e.intersectionRatio]));
+      }, { source, descendant });
+      await page.waitForFunction(() => entries.length === 1);
+      expect(await page.evaluate(() => globalThis.entries)).toEqual([[true, 1]]);
+      await page.evaluate(() => document.getElementById('root').scrollTop = 150);
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      expect(await page.evaluate(() => globalThis.entries)).toEqual([[true, 1]]);
+      await page.evaluate(() => document.getElementById('root').scrollTop = 201);
+      await page.waitForFunction(() => entries.length === 2);
+      expect(await page.evaluate(() => globalThis.entries)).toEqual([[true, 1], [false, 0]]);
+    }
+    await page.setViewportSize({ width: 400, height: 400 });
+    await page.setContent(`<style>body{margin:0}</style><div style="margin-top:500px;height:1000px"><div id="target" style="position:sticky;top:0;width:100px;height:50px"></div></div>`);
+    await page.evaluate(async source => {
+      const { observeIntersect } = await import(URL.createObjectURL(new Blob([source], { type: 'text/javascript' })));
+      globalThis.entries = [];
+      observeIntersect(document.getElementById('target'), e => entries.push([e.isIntersecting, e.intersectionRatio]));
+    }, source);
+    await page.waitForFunction(() => entries.length === 1);
+    expect(await page.evaluate(() => globalThis.entries)).toEqual([[false, 0]]);
+    await page.evaluate(() => scrollTo(0, 450));
+    await page.waitForFunction(() => entries.length === 2);
+    expect(await page.evaluate(() => document.getElementById('target').getBoundingClientRect().y)).toBe(50);
+    expect(await page.evaluate(() => globalThis.entries)).toEqual([[false, 0], [true, 1]]);
+  } finally { await browser.close(); }
+}, 120000);

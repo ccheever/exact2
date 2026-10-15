@@ -59,7 +59,7 @@ batches or producer cadence.
    250 ms and stops after 120 revisions. Start resets that finite run; Step
    does one revision, Pause stops future production, Reset restores 100 rows.
 4. Opt into **Construct ALL rows (eager)** to supply the full selected history
-   to `each`. Begin with 1,000. At large counts the main thread may stall;
+   to `for`. Begin with 1,000. At large counts the main thread may stall;
    Pause cannot preempt a synchronous query or mounting already underway.
    Reload returns to the small default if the UI stops responding.
 5. **Virtualized transcript** supplies the same full history to the shared

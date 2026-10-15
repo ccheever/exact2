@@ -38,10 +38,27 @@ fn the_launch_time_is_the_last_valid_one_told_and_set_time_leaves_it() {
     bridge.set_launch_time(1_790_000_000_000.0, -420.0);
     bridge.set_launch_time(f64::NAN, 0.0);
     bridge.set_time(1_800_000_000_000.0, 60.0);
-    let time = bridge.launch_time.unwrap();
+    let time = bridge.launch_facts.time.unwrap();
     assert_eq!(
         (time.epoch_at_zero, time.utc_offset),
         (1_790_000_000_000.0, -420.0)
+    );
+}
+
+#[test]
+fn the_launch_place_is_the_last_valid_one_told() {
+    let mut bridge = Bridge::<StorageModule>::new();
+    let told = |bridge: &mut Bridge<StorageModule>, text: &str| {
+        bridge.input_write(text.as_bytes());
+        bridge.set_launch_place(text.len());
+    };
+    told(&mut bridge, "fr-FR\0Europe/Paris\x007");
+    told(&mut bridge, "\0Europe/Paris\x007");
+    told(&mut bridge, "de-DE\0Europe/Berlin");
+    let place = bridge.launch_facts.place.clone().unwrap();
+    assert_eq!(
+        (place.locale.as_str(), place.time_zone.as_str(), place.seed),
+        ("fr-FR", "Europe/Paris", 7.0)
     );
 }
 
@@ -97,18 +114,28 @@ fn plan_and_module_reloads_keep_the_document_owner() {
     let reply = bridge.host.as_mut().unwrap().answer_hold(&request).unwrap();
     let doc = exact_runner::agent::field_str(&reply, "doc").unwrap();
     let resolves = |bridge: &mut Bridge<DocumentOwnerSource>| {
-        use ibex2::stdlib::fs::{Document, FsOp, FsResult};
+        use ibex2::stdlib::fs::{DocumentError, DocumentLease, FsOp, FsResult};
         let owner = bridge.host.as_mut().unwrap().runner_mut().data().owner;
         let grants = ibex2::grant::GrantSet::parse("fs.read doc:/").unwrap();
         let result = ibex2::stdlib::fs::run_document(
             &grants,
-            Some(&move |path| {
-                Ok(match exact_data::documents::resolve(path, owner)? {
-                    exact_data::documents::Resolved::Root(name) => Document::Root(name),
-                    exact_data::documents::Resolved::Real { directory, path } => {
-                        Document::Real { directory, path }
-                    }
-                })
+            Some(&move |path, _access| {
+                let resolved =
+                    exact_data::documents::resolve(path, owner).map_err(DocumentError::from)?;
+                let guard = std::sync::Arc::new(());
+                match resolved {
+                    exact_data::documents::Resolved::Root(name) => DocumentLease::root(name, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: true,
+                    } => DocumentLease::selected_file(directory, path, guard),
+                    exact_data::documents::Resolved::Real {
+                        directory,
+                        path,
+                        selected_file: false,
+                    } => DocumentLease::directory(directory, path, guard),
+                }
             }),
             FsOp::ReadFile,
             &doc,
@@ -1297,4 +1324,75 @@ fn candidate_profiles_are_isolated_until_commit_and_after_discard() {
     assert!(bridge.prepared.is_some());
     bridge.commit_plan();
     check(&mut bridge, "icc:assets/candidate.icc");
+}
+
+#[test]
+fn block_axis_records_distinguish_size_maximum_and_route_fitting() {
+    use exact_kernel::{BlockAxis, HostBlock};
+    let plan = contract::compile(
+        "component Page\n  view\n    column\n      box testId=\"route\" width=480 height=300\n",
+    )
+    .unwrap()
+    .encode();
+    let mut bridge = Bridge::new();
+    bridge.boot(&plan, StorageModule::default(), Hooks::none(), 800.0, 600.0);
+    let k = bridge.host.as_ref().unwrap().runner().kernel();
+    let id = k.node_by_key(k.find_by_test_id("route")[0]).unwrap().id;
+    for (width, height, expected, size) in [
+        (
+            2.0_f32,
+            2.0_f32,
+            HostBlock {
+                width: BlockAxis::Fit(400.0),
+                height: BlockAxis::Fit(200.0),
+            },
+            (480.0, 300.0),
+        ),
+        (
+            1.0,
+            1.0,
+            HostBlock {
+                width: BlockAxis::AtMost(400.0),
+                height: BlockAxis::AtMost(200.0),
+            },
+            (400.0, 200.0),
+        ),
+        (
+            2.0,
+            1.0,
+            HostBlock {
+                width: BlockAxis::Fit(400.0),
+                height: BlockAxis::AtMost(200.0),
+            },
+            (480.0, 200.0),
+        ),
+        (
+            0.0,
+            0.0,
+            HostBlock {
+                width: BlockAxis::Is(400.0),
+                height: BlockAxis::Is(200.0),
+            },
+            (400.0, 200.0),
+        ),
+    ] {
+        let bytes: Vec<_> = [
+            id,
+            4,
+            400.0_f32.to_bits(),
+            200.0_f32.to_bits(),
+            width.to_bits(),
+            height.to_bits(),
+        ]
+        .into_iter()
+        .flat_map(u32::to_le_bytes)
+        .collect();
+        bridge.input_write(&bytes);
+        let len = bridge.covers(bytes.len());
+        let batch = std::str::from_utf8(bridge.output_bytes(len as usize)).unwrap();
+        assert!(batch.contains("\"error\":null"), "{batch}");
+        let k = bridge.host.as_ref().unwrap().runner().kernel();
+        assert_eq!(k.host_block(id), Some(expected));
+        assert_eq!(k.host_block_size(id), Some(size));
+    }
 }

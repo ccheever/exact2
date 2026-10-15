@@ -16,8 +16,7 @@
 // EXACT_WEB_NAMES=1 keeps the wasm's function names, for metrics' byte
 // attribution (LLP 1047 D9); EXACT_WEB_LINK=all links every capability, as
 // the dev loop does (LLP 1047 D7). Either target draws the neutral look
-// (LLP 1115.000 D4 part B; look.mjs holds the default); EXACT_WEB_LOOK=apple
-// builds LLP 1116 D1's, which it replaced.
+// (LLP 1115.000 D4 part B; look.mjs composes the sheet).
 // Developer builds bake development trust; EXACT_UPDATE_TRUST=production
 // requires signing keys, and the deploy verb always selects production.
 import { grantOrigins } from './navigation.js';
@@ -177,7 +176,7 @@ copyStaticTreeIfPresent(deck, resolve(stage, 'deck'));
 // page, fetched and registered by the GPU glue before a surface is created
 // — never a string in the wasm.
 copyShaders(app, resolve(stage, 'shaders'));
-// The shell, in the build's look (LLP 1115.000 D4 part B; look.mjs): with the neutral sheet, or its own bytes for `apple`.
+// The neutral sheet follows the browser resets (LLP 1115.000 D4 part B; look.mjs).
 writeFileSync(resolve(stage, 'index.html'), withLook(readFileSync(resolve(root, 'host/web/index.html'), 'utf8')));
 // A production bake never enters agent mode (LLP 1069.007 D2, ruled): every
 // host file that reads `?agent` declares `AGENT_ADMITTED`, and this build

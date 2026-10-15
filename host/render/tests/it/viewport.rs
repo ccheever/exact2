@@ -23,9 +23,9 @@ component Page
   derive narrow = viewport.width <= 700
   view
     column flex-direction=(narrow ? "column" : "row")
-      when narrow
+      if narrow
         text "narrow" testId="narrow"
-      when not narrow
+      if not narrow
         text "wide" testId="wide"
 "#;
 

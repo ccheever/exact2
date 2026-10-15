@@ -1,11 +1,11 @@
 // toString on numbers, bools and strings.
 component App
   state n = -12.5
-  derive a = toString(n)
-  derive b = toString(n > 0)
-  derive c = toString("already")
-  derive d = toString(n * 0)
-  derive e = toString(0.1 + 0.2) + toString(1 / 3)
+  derive a = n.toString()
+  derive b = (n > 0).toString()
+  derive c = "already".toString()
+  derive d = (n * 0).toString()
+  derive e = (0.1 + 0.2).toString() + (1 / 3).toString()
   view
     text a testId="a"
 

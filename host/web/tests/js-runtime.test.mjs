@@ -6,7 +6,9 @@
 // stopPropagation act on its event even when a view transition defers the tree
 // update (review C3). rt.js runs beside stand-ins for the modules it imports,
 // with the real shape.js.
-import { test, expect } from 'bun:test';
+import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
+import { chromium } from 'playwright-core';
+import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
 import { copyFileSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -173,7 +175,7 @@ for (const f of ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press', 'hold', 'within'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
-  'svg-transform.js': ['svgTransform'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
+  'svg-transform.js': ['svgTransform', 'svgGeometry'], 'backdrop.js': ['backdropValue'], 'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
 // A view transition that holds every tree update (shared.js's commit returns before its callback).
 writeFileSync(resolve(dir, 'shared.js'), 'export const commit = (tail) => { globalThis.heldTail = tail; return true; };');
@@ -508,6 +510,112 @@ test('an overlay outside the shape keeps nothing', async () => {
   for (let i = 0; i < 3; i++) await new Promise(r => setTimeout(r, 0));
   expect([n(), writeRecords().filter(w => w.mutation === 'shapeless-write')]).toEqual([1, []]);
   data.overlay = undefined;
+});
+
+for (const queued of [false, true]) test(`a refused ${queued ? 'queued' : 'synchronous'} send keeps state and ends unsent`, async () => {
+  const { mut, M, W, act, sig, data, queues, clock, journal, advance } = await import(resolve(dir, 'rt.js'));
+  const replies = [], asked = [];
+  data.answer = (source, [value]) => {
+    asked.push(value);
+    if (value === 'refuse') throw new Error('setTimeout() is unavailable in data sources');
+    if (value === 'later') return { promise: new Promise(resolve => replies.push(resolve)) };
+    return { v: value };
+  };
+  const wasAgent = clock.agent;
+  clock.agent = true;
+  try {
+    const slot = sig(null), edits = sig(0), m = mut('refused-send', slot, [], 's', queued);
+    if (queued) queues([[slot], [], []]);
+    const send = act(value => { W(edits, edits() + 1); M(m, 'save', [value]); });
+    send('later'); send('refuse');
+    expect(edits()).toBe(2);
+    if (queued) {
+      send('ok'); replies[0]('first');
+      for (let i = 0; i < 50 && m.ticket; i++) await new Promise(r => setTimeout(r, 10));
+      advance(clock.now + 1);
+      expect([asked, slot(), m.wait.length]).toEqual([['later', 'refuse', 'ok'], 'ok', 0]);
+    } else {
+      expect(slot()).toBe(null);
+      replies[0]('stale');
+      await new Promise(r => setTimeout(r, 0));
+      expect(slot()).toBe(null);
+    }
+    expect(m.p()).toBe(false);
+    expect(journal.some(line => line.includes('send refused-send failed:') && line.endsWith('it ends unsent'))).toBe(true);
+  } finally { clock.agent = wasAgent; }
+});
+
+describe('browser TypeScript send failures', () => {
+  let browser, server;
+  beforeAll(async () => {
+    server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+      const path = new URL(request.url).pathname;
+      if (path === '/favicon.ico') return new Response(null, { status: 204 });
+      if (path === '/') return new Response('<!doctype html><body></body>', { headers: { 'Content-Type': 'text/html' } });
+      if (path === '/send-data.js') return new Response(tsData.replace(JSON.stringify(resolve(dir, 'app.mjs')), "'./send-app.mjs'"), { headers: { 'Content-Type': 'text/javascript' } });
+      if (path === '/names.js') return new Response('export const sourceTypes = { save: [["s"], "s"] };', { headers: { 'Content-Type': 'text/javascript' } });
+      if (path === '/send-app.mjs') return new Response(`export function answer(source, [value]) {
+        globalThis.asked.push(value);
+        if (value === 'fail') {
+          if (globalThis.failure === 'null') throw null;
+          if (globalThis.failure === 'undefined') throw undefined;
+          throw { kind: 'UnknownSource', message: source };
+        }
+        if (value === 'later') return new Promise(resolve => { globalThis.finish = resolve; });
+        return value;
+      }`, { headers: { 'Content-Type': 'text/javascript' } });
+      return new Response(Bun.file(resolve(dir, path.slice(1))));
+    } });
+    browser = await chromium.launch({ executablePath: browserPath().executable, headless: true });
+  });
+  afterAll(async () => { await browser?.close(); server?.stop(true); });
+  for (const failure of ['null', 'undefined', 'UnknownSource']) for (const queued of [false, true]) {
+    test(`${failure} in a ${queued ? 'queued' : 'synchronous'} TypeScript send`, async () => {
+      const context = await browser.newContext(), page = await context.newPage();
+      try {
+        await page.goto(server.url.href);
+        const initial = await page.evaluate(async ({ failure, queued }) => {
+          const rt = await import('/rt.js'), { install } = await import('/send-data.js');
+          install(rt.data); rt.clock.agent = true;
+          globalThis.asked = []; globalThis.failure = failure;
+          const slot = rt.sig('kept'), edits = rt.sig(0), m = rt.mut('failed-send', slot, [], 's', queued);
+          if (queued) rt.queues([[slot, edits], [], []]);
+          let thens = 0;
+          m.then = () => { thens++; };
+          const send = value => rt.commit(() => { rt.W(edits, edits() + 1); rt.M(m, 'save', [value]); });
+          globalThis.probe = { rt, m, slot, edits, thens: () => thens };
+          send('later');
+          const stood = send('fail');
+          if (queued) send('ok');
+          return { stood, edits: edits(), slot: slot(), pending: m.p() };
+        }, { failure, queued });
+        const unknown = failure === 'UnknownSource';
+        expect(initial).toEqual({ stood: queued || !unknown, edits: queued ? 3 : unknown ? 1 : 2, slot: 'kept', pending: queued || unknown });
+        await page.evaluate(() => globalThis.finish('first'));
+        await page.waitForFunction(() => globalThis.probe.rt.inflight.n === 0);
+        const final = await page.evaluate(() => {
+          const { rt, m, slot, edits, thens } = globalThis.probe;
+          rt.advance(rt.clock.now + 1); rt.advance(rt.clock.now + 1);
+          return { asked: globalThis.asked, slot: slot(), edits: edits(), pending: m.p(), waiting: m.wait?.length ?? 0, thens: thens(), journal: rt.journal };
+        });
+        expect(final).toMatchObject({ asked: queued ? ['later', 'fail', 'ok'] : ['later', 'fail'], slot: queued ? 'ok' : unknown ? 'first' : 'kept', edits: queued ? 3 : unknown ? 1 : 2, pending: false, waiting: 0, thens: queued ? 2 : unknown ? 1 : 0 });
+        if (unknown) {
+          expect(final.journal.some(line => line.includes(queued ? 'queued send refused: save' : 'refused commit: save'))).toBe(true);
+          expect(final.journal.some(line => line.includes('it ends unsent'))).toBe(false);
+        } else expect(final.journal.some(line => line.endsWith(`send failed-send failed: ${failure}; it ends unsent`))).toBe(true);
+      } finally { await context.close(); }
+    });
+  }
+});
+
+test('a send whose source is unavailable or whose Rust answer misses its shape still refuses its action', async () => {
+  const { mut, M, W, commit, sig, data } = await import(resolve(dir, 'rt.js'));
+  const slot = sig(null), edits = sig(0), m = mut('refusing-send', slot, [], 's');
+  for (const answer of [null, { v: 42 }]) {
+    data.answer = () => answer;
+    expect(commit(() => { W(edits, 1); M(m, 'save', []); })).toBe(false);
+    expect([edits(), slot(), m.p()]).toEqual([0, null, false]);
+  }
 });
 
 // A send answered at once replaces one in flight: the older reply is let go, so it never overwrites the newer (runner commit.rs).

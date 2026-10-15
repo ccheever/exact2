@@ -338,6 +338,10 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
+To try it in an app created with `exact new`, replace `app.contract` and
+`app.test.contract` with the examples below. In `app.ts`, keep the generated
+`export const appId = …` line and replace the rest with the TypeScript below.
+
 ```contract
 // app.contract: the view, its state, and what each action changes. It names no colour,
 // font or control size: each host draws its own heading, field, button, checkbox and list.
@@ -352,14 +356,14 @@ shape Change
 component Todos
   state draft = ""
   mutation changed as shape Change refreshes todos
-  resource todos = todos() as shape list<Todo>
-  derive left = length(filter(todos, t => not t.done))
+  resource todos = todos() as shape Todo[]
+  derive left = todos.filter(t => not t.done).length
 
   action edit(value: string)
     draft = value
   action add
-    if trim(draft) != ""
-      send changed = addTodo(trim(draft))
+    if draft.trim() != ""
+      send changed = addTodo(draft.trim())
       draft = ""
   action toggle(id: string, done: bool)
     send changed = setDone(id, done)
@@ -376,7 +380,7 @@ component Todos
           button press=add buttonStyle="filled" testId="add"
             text "Add"
       section
-        each t in todos key=t.id
+        for t in todos key=t.id
           row testId=`todo-${t.id}`
             input type="checkbox" checked=t.done change=toggle(t.id) aria-label=t.title testId=`toggle-${t.id}`
             text t.title flex=1
@@ -388,7 +392,6 @@ component Todos
 // app.ts: keeps the list, and answers what app.contract asks for
 import type { Answer, Sources } from './app.contract.d.ts';
 
-export const appId = 'com.example.todo';
 export const grants = '';  // e.g. 'net.fetch https://api.example.com'
 
 type Todo = { id: string; title: string; done: boolean };
@@ -451,18 +454,18 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
 
 | Concept | What it is |
 |---|---|
-| `shape` | A closed record type. Fields are `number`, `string`, `bool`, another shape, `option<T>`, or `list<T>`. |
+| `shape` | A closed record type. Fields are `number`, `string`, `bool`, another shape, `option<T>`, or `T[]`. |
 | `component` | A unit of UI. The first one in a file is the root. Components take `props`, can `inject` what an ancestor `provide`s, and can fill a `slot` with `children`. |
-| `state` | A value the component owns. Under an `each`, child state belongs to that keyed row. |
+| `state` | A value the component owns, its type inferred or declared (`state picked: option<Item> = none`). Under a `for`, child state belongs to that keyed row. |
 | `derive` | A value computed from others, recomputed when they change. |
 | `resource` | Data from a source: `resource x = source(args) as shape T`. When the arguments change, the source is asked again. |
 | `mutation` / `send` | A change made through a source: `send x = source(args)`. `refreshes r` asks resource `r` again afterward, `pending(x)` and `failed(x)` show progress, and `failure(x)` says why a resource failed. |
 | `action` | The only place state changes. What it writes is inferred from its body, and `let` binds a local inside it. |
 | `task` | Work on a schedule: `every(1000, tick)`, `after(ms, a)`, `every(frame, a)`. |
-| `view` | Indented elements, `when … else`, `each … key=…` (a key is required), `match` over options, and calls to other components. |
+| `view` | Indented elements, `if … else`, `for … key=…` (a key is required), `match` over options, and calls to other components. |
 | `style` / `class=` | A named set of CSS properties. The node's own attributes win, and there is no cascade. |
-| `fn`, `map` / `filter` / `join` | Pure, single-expression helpers. Recursion is refused. |
-| Built-in functions | `length`, `trim`, `includes`, `at`, `first`, `formatDate`, `formatNumber`, and the rest are listed with their types under `stdlib` in [`plan/tables/format.json`](plan/tables/format.json). |
+| `fn`, `xs.map` / `xs.filter` / `xs.join` | Pure, single-expression helpers. Recursion is refused. |
+| Built-in functions | The web's string and array methods by their names, called on the value (`xs.length`, `s.trim()`, `s.includes(t)`, `xs.at(-1)`), and functions (`first(xs)`, `formatDate`, `formatNumber`); all are listed with their types under `stdlib` in [`plan/tables/format.json`](plan/tables/format.json). |
 | `routes` | A router: a location and a retained stack per tab, moved with `open`, `push`, `replace`, and `back`, and read with `top`. |
 | `font` | Declares a font family and binds it to files at build time. |
 | `use … from "./x.contract"` | Imports components, shapes, styles, and `fn`s from another Contract file. |
@@ -474,7 +477,7 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   happen only in actions, as assignments, `send`, `refresh`, or commands like
   `focus(…)` and `share(…)`. Data crosses one seam: a source answers, and the runner
   checks the answer.
-- **No loops, no `await`.** A list is an `each`, a computation is a `derive` or a
+- **No loops in actions, no `await`.** A list is a view's keyed `for`, a computation is a `derive` or a
   `fn` (an action may name a value with `let`), and anything slower lives in a
   source. A list that changes changes where its data lives, through a mutation, as
   in the example above. That's what lets the plan be baked, diffed, inspected, and
@@ -630,7 +633,10 @@ else here was admitted because a real app needed it.
   scroll- or drag-linked timelines ([LLP 1002](llp/1002-motion-v1.rfc.md),
   [LLP 1063](llp/1063-presence-and-layout-motion.rfc.md)).
 - **Lists.** Virtualized lists, vertical or horizontal, one level deep
-  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)).
+  ([LLP 1070](llp/1070-nested-and-horizontal-lists.rfc.md)). The rows of a vertical
+  `list` are its platform's: UIKit's separators and highlight, a table on the Mac, one
+  line between rows on the web, with nothing drawn by the app
+  ([LLP 1115.000](llp/1115.000-no-tells-on-every-host.rfc.md), D16).
 - **Controls and media.** Inputs, `select`, a WYSIWYG Markdown editor on the web, macOS,
   and iOS ([LLP 1045](llp/1045-markdown-editor.rfc.md)), images including animated
   ones, video ([LLP 1042](llp/1042-video.spec.md)), pickers for an app's declared file
@@ -711,7 +717,7 @@ also read [`AGENTS.md`](AGENTS.md). In short:
 
   ```sh
   cargo build --all-targets --keep-going
-  cargo test --lib --bins --tests --no-fail-fast
+  cargo test --tests --no-fail-fast
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel

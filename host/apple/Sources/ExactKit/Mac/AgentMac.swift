@@ -70,7 +70,7 @@ extension Agent {
     /// AppKit animates nothing here that a seek does not move, but for a
     /// list's smooth correction under platform timing, the clip view's
     /// animator (LLP 1070.000 §11): the fixed point is where it lands.
-    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty || session.natives.activationQueued || presenter.launchAutofocusPending }
+    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty || presenter.views.values.contains(where: { $0.scrollEnd?.elementAnimation != nil }) || session.natives.activationQueued || presenter.launchAutofocusPending }
 
     /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
     /// Close Window and the red button press it (`performClose`), so its
@@ -167,11 +167,11 @@ extension Agent {
         navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary,
-                                     "sidebar": presenter.sidebar.summary]
+                                     "sidebar": presenter.sidebar.summary, "split": presenter.navigation.split.summary]
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
-        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "tables": presenter.tables.summary,
                 "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
@@ -341,6 +341,7 @@ extension Agent {
         if let t = host.textArea { native["editor"] = String(describing: Swift.type(of: t)); native["firstResponder"] = host.window?.firstResponder === t }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
         if let sidebar = presenter.sidebar.observation(host) { native["sidebar"] = sidebar }
+        if let table = presenter.tables.observation(host) { native["table"] = table }
         if let control = presenter.controls.observation(host) ?? host.rowBezelObservation { native["control"] = control }
         if let toolbar = presenter.toolbar.observation(host) {
             native["windowToolbar"] = toolbar
@@ -616,9 +617,12 @@ extension Agent {
         let page = clip.window, apart = page != nil && win !== page
         let inWindow = { (q: NSPoint) -> NSPoint in apart ? win.convertPoint(fromScreen: page!.convertPoint(toScreen: q)) : q }
         if apart, inlineAt != nil || localAt == nil { p = inWindow(p) }
+        // A node in the detail's pane of a split (LLP 1115.002 D4) stands
+        // beside the viewport, in its window: what shows of it is in its pane.
+        let port: NSView = presenter.navigation.split.pane(holding: v) ?? clip
         if req["wheel"] == nil, !apart,
-           !clip.bounds.contains(clip.convert(p, from: nil)) {
-            return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
+           !port.bounds.contains(port.convert(p, from: nil)) {
+            return ["error": "tap #\(v.id): its middle is outside the \(port === clip ? "viewport" : "detail's pane"); scroll it into view first"]
         }
         if req["hover"] as? Bool == true {
             // The pointer rests here until the next hover: a layout that moves

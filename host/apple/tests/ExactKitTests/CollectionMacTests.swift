@@ -30,15 +30,108 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "frame", "id": 2, "x": 10.0, "y": 20.0, "w": 280.0, "h": 72.0],
+            contentOp(1, 300, 200, padding: [20, 10, 0, 10]),
             ["op": "content", "id": 1, "w": 300.0, "h": 3020.0]
         ]))
         return (p, p.views[1]!)
     }
+    func testAppOwnedAnchorRestoresABorderedListWithoutDrift() throws {
+        _ = NSApplication.shared
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = """
+        component App
+          state shown = true
+          state first = none
+          state within = 0
+          state saved = none
+          state offset = 0
+          action moved(x: number, y: number, e: ScrollEvent)
+            first = e.firstVisibleKey
+            within = e.firstVisibleOffset
+          action save
+            saved = first
+            offset = within
+          action toggle
+            shown = not shown
+          action restore
+            match saved
+              case some(key)
+                scrollIntoView("feed", key, offset=offset)
+              case none
+                offset = 0
+          view
+            column
+              button press=save testId="save"
+                text "Save"
+              button press=toggle testId="toggle"
+                text "Toggle"
+              button press=restore testId="restore"
+                text "Restore"
+              text `${within}` testId="within"
+              if shown
+                list id="feed" testId="feed" virtualized=true estimated-item-height=100 height=300 width=400 border-top="10px solid black" scroll=moved
+                  for n in [\((0..<80).map(String.init).joined(separator: ", "))] key=n
+                    text `${n}` height=100
+
+        """
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "scroll-anchor-border")
+        defer { session.destroy() }
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 500, height: 600)).error)
+        let p = session.presenter
+        func node(_ name: String) throws -> NodeView {
+            try XCTUnwrap(p.views.values.first { $0.props["testId"] == name })
+        }
+        func settle() {
+            p.settlePump()
+            let delivered = expectation(description: "queued scroll event")
+            DispatchQueue.main.async { DispatchQueue.main.async { delivered.fulfill() } }
+            wait(for: [delivered], timeout: 5)
+            p.settlePump()
+        }
+        func press(_ name: String) throws { p.press(try node(name).id); settle() }
+        settle()
+        try XCTUnwrap(node("feed").scroll).contentView.scroll(to: NSPoint(x: 0, y: 1861))
+        settle()
+        for _ in 0..<3 {
+            XCTAssertEqual(try node("within").props["text"], "51")
+            try press("save")
+            try press("toggle")
+            try press("toggle")
+            try press("restore")
+            XCTAssertEqual(try XCTUnwrap(node("feed").scroll).contentView.bounds.minY, 1861, accuracy: 0.5)
+        }
+    }
+
     func testCSSCursorKeywordsReachAppKit() {
         XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
         XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
         XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
         XCTAssertNil(CSSCursor.value("auto"))
+        // The resize keywords are macOS 15's frame-resize cursors, as Chrome
+        // and Safari draw them there: an edge or a corner moves outward, a
+        // two-way keyword both ways, and a divider is a column or a row.
+        guard #available(macOS 15, *) else { return }
+        let outward: [(String, NSCursor.FrameResizePosition)] = [
+            ("n-resize", .top), ("e-resize", .right), ("s-resize", .bottom), ("w-resize", .left),
+            ("ne-resize", .topRight), ("nw-resize", .topLeft), ("se-resize", .bottomRight), ("sw-resize", .bottomLeft),
+        ]
+        for (name, position) in outward {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .outward), name)
+        }
+        let both: [(String, NSCursor.FrameResizePosition)] = [("ns-resize", .top), ("ew-resize", .left), ("nesw-resize", .topRight), ("nwse-resize", .topLeft)]
+        for (name, position) in both {
+            XCTAssertTrue(CSSCursor.value(name) === NSCursor.frameResize(position: position, directions: .all), name)
+        }
+        XCTAssertTrue(CSSCursor.value("col-resize") === NSCursor.columnResize)
+        XCTAssertTrue(CSSCursor.value("row-resize") === NSCursor.rowResize)
     }
     func testOverflowAutoCreatesAnAutohidingScrollContainer() {
         _ = NSApplication.shared
@@ -268,6 +361,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 132.0],
             ["op": "frame", "id": 2, "x": 0.0, "y": 8.0, "w": 150.0, "h": 116.0],
+            contentOp(1, 400, 132, padding: [8, 0, 8, 0]),
             ["op": "content", "id": 1, "w": 3000.0, "h": 132.0]
         ]))
         let list = try XCTUnwrap(p.views[1])
@@ -591,9 +685,63 @@ final class CollectionMacTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
-        XCTAssertTrue(try XCTUnwrap(list.container.subviews.first as? NodeView).paintGhost, "the leaving row is a paint ghost")
+        // The first of the nodes: a vertical list's table is under its rows in the same document (LLP 1115.002 D5).
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.compactMap { $0 as? NodeView }.first).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
+    }
+
+    func testReorderingOrdinaryChildrenKeepsMountsAndFieldFocus() throws {
+        for decorated in [false, true] {
+            _ = NSApplication.shared
+            let p = Presenter()
+            defer { p.reset() }
+            p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            p.apply(batch([
+                ["op": "create", "id": 1, "kind": "view", "style": ["overflow_y": "scroll"]],
+                ["op": "create", "id": 2, "kind": "view"],
+                ["op": "create", "id": 3, "kind": "input", "props": ["value": "retained text"]],
+                ["op": "create", "id": 4, "kind": "view"],
+            ]))
+            let parent = try XCTUnwrap(p.views[1])
+            let container = MountObservedView()
+            try XCTUnwrap(parent.scroll).documentView = container
+            XCTAssertFalse(p.collections.owns(parent.id))
+            p.apply(batch([
+                ["op": "children", "id": 1, "ids": [2, 3, 4]],
+                ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
+                ["op": "frame", "id": 3, "x": 0, "y": 40, "w": 200, "h": 30],
+                ["op": "content", "id": 1, "w": 400, "h": 300],
+            ]))
+            let decoration = NSView()
+            if decorated { container.addSubview(decoration, positioned: .below, relativeTo: p.views[3]) }
+            let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.makeFirstResponder(nil); window.close() }
+            let field = try XCTUnwrap(p.views[3]?.field)
+            XCTAssertTrue(window.makeFirstResponder(field))
+            let editor = try XCTUnwrap(field.currentEditor() as? NSTextView)
+            let selection = NSRange(location: 2, length: 4)
+            editor.setSelectedRange(selection)
+            container.added.removeAll(); container.removed.removeAll()
+
+            for ids in [[4, 2, 3], [4, 3, 2], [2, 3, 4]] {
+                p.apply(batch([["op": "children", "id": 1, "ids": ids]]))
+                XCTAssertEqual(container.subviews.compactMap { ($0 as? NodeView)?.id }, ids.map(UInt32.init))
+                XCTAssertEqual(container.removed, [], "retained siblings must never detach")
+                XCTAssertEqual(container.added, [], "retained siblings must never remount")
+                XCTAssertTrue(window.firstResponder === editor)
+                XCTAssertTrue(field.currentEditor() === editor)
+                XCTAssertEqual(editor.selectedRange(), selection)
+                XCTAssertEqual(editor.string, "retained text")
+                if decorated { XCTAssertTrue(container.subviews.first === decoration) }
+            }
+            p.apply(batch([["op": "children", "id": 1, "ids": [2, 3]]]))
+            XCTAssertEqual(container.removed, [4], "only a child removed from the tree detaches")
+            XCTAssertTrue(window.firstResponder === editor)
+        }
     }
 
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {

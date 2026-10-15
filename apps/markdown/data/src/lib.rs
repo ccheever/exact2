@@ -363,7 +363,6 @@ impl DataSource for Markdown {
         // needs the first frame's value. @ref LLP 1027 D4
         match source {
             "open" => Ok(self.welcome()),
-            "theme" => Ok(markdown_parse::theme::value()),
             other => Err(DataError::UnknownSource(other.to_string())),
         }
     }
@@ -374,12 +373,6 @@ impl DataSource for Markdown {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        // The palette is one constant: every token is a `light-dark()` pair
-        // and the host resolves it, so this takes no appearance and is never
-        // re-asked when the scheme changes (LLP 1034 D1/D3).
-        if source == "theme" {
-            return Ok(Answer::Now(markdown_parse::theme::value()));
-        }
         if source != "open" {
             return Err(DataError::UnknownSource(source.to_string()));
         }

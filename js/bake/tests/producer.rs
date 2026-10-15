@@ -512,12 +512,10 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
         "bake deferral creates no fabricated request"
     );
     live.data().load().unwrap();
-    let error = live.data_ready().unwrap_err();
-    // A storage refusal fails with the `storage` failure code (LLP 1109 D3).
-    assert!(
-        format!("{error:?}").contains("Failed(Storage"),
-        "runtime storage refusal remains a failure: {error:?}"
-    );
+    live.data_ready().unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert_eq!(live.failed_resources().len(), 1);
+    assert!(!live.has_pending());
     f.write(
         "app.contract",
         &CONTRACT.replace("as shape string", "as shape string else fallback()"),

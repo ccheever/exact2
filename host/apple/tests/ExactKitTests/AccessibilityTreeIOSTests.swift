@@ -324,7 +324,8 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual([text["id"] as? UInt32, text["via"] as? String] as [AnyHashable?], [4, "owner"])
         // The named button is an element, so UIKit never descends into it: the field is not walked there.
         p.views[2]?.isAccessibilityElement = false
-        guard Presenter.axRuntimeLoaded else { return } // a field is an element only with UIKit's accessibility runtime
+        // A field is an element only with UIKit's accessibility runtime.
+        guard Presenter.axRuntimeLoaded else { throw missing("accessibility", "UIKit's accessibility runtime is not loaded") }
         let secure = try XCTUnwrap(elements(p.axElements(roots: [p.viewport])).first { $0["role"] as? String == "textbox" })
         XCTAssertNil(secure["value"])
         XCTAssertEqual((secure["states"] as? [String: Any])?["protected"] as? Bool, true)

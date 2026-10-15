@@ -113,7 +113,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #else
         // A sheet's surface where the author painted none: the platform's
         // (LLP 1115 D2), which UIKit elevates in dark mode.
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .systemBackground)
         let probe = UIView()
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
@@ -382,6 +382,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                let op = saved.ops[BatchOp.Kind(rawValue: kind) ?? .unknown] { presenter.applyGeometry(op) }
         }
         for saved in geometry.values where presenter.views[saved.node.id] === saved.node {
+            // A view kept for its held geometry may be a flat leaf again at the next batch
+            presenter.flats.styleChanged(saved.node.id)
             saved.node.restoreScrollPosition()
             saved.node.applyPendingScroll()
         }

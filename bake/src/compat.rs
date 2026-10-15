@@ -219,7 +219,7 @@ fn commands_digest() -> String {
             "showNotification" => "5",
             "closeNotification" | "stopSounds" | "playSounds" => "1",
             "playSound" => "4",
-            "scrollIntoView" => "4|6",
+            "scrollIntoView" => "4|7",
             "saveFile" => "3|4",
             _ => "positional",
         };
@@ -502,17 +502,30 @@ fn data_crate(app_dir: &Path) -> Result<serde_json::Value, String> {
         Some(r) => serde_json::Value::String(r?),
         None => serde_json::Value::Null,
     };
+    let toolchain = toolchain().map_or(serde_json::Value::Null, serde_json::Value::String);
+    Ok(
+        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
+    )
+}
+
+/// The toolchain's version line (`$RUSTC --version`), asked once per process and per
+/// `RUSTC`: a process computes many ids, and a compiler does not change under it.
+fn toolchain() -> Option<String> {
+    static ASKED: std::sync::Mutex<Vec<(String, Option<String>)>> =
+        std::sync::Mutex::new(Vec::new());
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
-    let toolchain = std::process::Command::new(rustc)
+    let mut asked = ASKED.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, version)) = asked.iter().find(|(name, _)| *name == rustc) {
+        return version.clone();
+    }
+    let version = std::process::Command::new(&rustc)
         .arg("--version")
         .output()
         .ok()
         .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .map_or(serde_json::Value::Null, serde_json::Value::String);
-    Ok(
-        serde_json::json!({ "tree": tree, "files": files.len(), "lockfile": lockfile, "toolchain": toolchain }),
-    )
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string());
+    asked.push((rustc, version.clone()));
+    version
 }
 
 /// Every file under `root`, as paths relative to it, skipping a `target`
@@ -680,6 +693,46 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("app.json"), "{}").unwrap();
         assert_eq!(Manifest::read(&dir).unwrap().id, "com.exact.resolved");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn list_scroll_offset_requires_a_new_binary_cohort() {
+        use sha2::{Digest, Sha256};
+        let digest = |list_shape: &str| {
+            let mut h = Sha256::new();
+            for name in contract_syntax::HOST_COMMANDS {
+                let shape = match *name {
+                    "share" => "3",
+                    "showNotification" => "5",
+                    "closeNotification" | "stopSounds" | "playSounds" => "1",
+                    "playSound" => "4",
+                    "scrollIntoView" => list_shape,
+                    "saveFile" => "3|4",
+                    _ => "positional",
+                };
+                h.update(format!("{name}:{shape}\n"));
+            }
+            h.finalize()[..16]
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        let dir = app("scroll-offset-cohort");
+        let manifest = Manifest::read(&dir).unwrap();
+        let current = compatibility_with_trust(
+            &dir,
+            "macos",
+            "aarch64-apple-darwin",
+            &manifest,
+            Some(""),
+            "development",
+        )
+        .unwrap();
+        let mut previous = current.inputs.clone();
+        previous["commands"] = serde_json::json!(digest("4|6"));
+        assert_eq!(current.inputs["commands"], digest("4|7"));
+        assert_ne!(current.id, super::compatibility_digest(&previous));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

@@ -200,9 +200,9 @@ fn a_miscounted_handler_is_refused_at_its_binding_typed_or_not() {
             .expect_err(src)
     };
     let app = |actions: &str, view: &str| {
-        format!("component App\n  state n = 0\n  resource items = rows() as shape list<string>\n{actions}  view\n    {view}\n")
+        format!("component App\n  state n = 0\n  resource items = rows() as shape string[]\n{actions}  view\n    {view}\n")
     };
-    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop\n      each x in items key=x\n        column reorderFor=\"arrange\"\n          text x";
+    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop\n      for x in items key=x\n        column reorderFor=\"arrange\"\n          text x";
     let cases = [
         // (untyped, typed, view, the binding's column)
         (
@@ -272,13 +272,13 @@ fn the_drags_and_the_drop_type_their_actions_as_pan_does() {
     let before = Ty::Option(Box::new(Ty::String));
     let height = "column heightDragFor=\"sheet\" heightrelease=release testId=\"go\"\n";
     let transform = "column transformDragFor=\"photo\" transformgeometry=geometry transformrelease=release testId=\"go\"\n";
-    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop testId=\"go\"\n      each x in items key=x\n        column reorderFor=\"arrange\"\n          text x\n";
+    let reorder = "list id=\"arrange\" virtualized=true height=200 reorderdrop=drop testId=\"go\"\n      for x in items key=x\n        column reorderFor=\"arrange\"\n          text x\n";
     // The root's untyped parameters take the payload's types.
     let root = |actions: &[&str], view: &str| {
         let actions: std::string::String = (actions.iter())
             .map(|a| format!("  action {a}\n    n = n + 1\n"))
             .collect();
-        format!("component App\n  state n = 0\n  resource items = rows() as shape list<string>\n{actions}  view\n    {view}")
+        format!("component App\n  state n = 0\n  resource items = rows() as shape string[]\n{actions}  view\n    {view}")
     };
     let src = root(&["release(height, velocity)"], height);
     assert_eq!(params(&src, "release"), [Number, Number]);
@@ -299,7 +299,7 @@ fn the_drags_and_the_drop_type_their_actions_as_pan_does() {
         let actions: std::string::String = (actions.iter())
             .map(|a| format!("  action {a}\n    tell(label)\n"))
             .collect();
-        format!("component App\n  resource rows = rows() as shape list<string>\n  view\n    column\n      Owner(title=\"t\", items=rows)\ncomponent Owner\n  props\n    title: string\n    items: list<string>\n  state last = \"\"\n  action note(label: string)\n    last = `${{title}} ${{label}}`\n  view\n    column\n      Grip(label=\"g\", items=items, tell=note)\ncomponent Grip\n  props\n    label: string\n    items: list<string>\n    tell: action\n{actions}  view\n    {view}")
+        format!("component App\n  resource rows = rows() as shape string[]\n  view\n    column\n      Owner(title=\"t\", items=rows)\ncomponent Owner\n  props\n    title: string\n    items: string[]\n  state last = \"\"\n  action note(label: string)\n    last = `${{title}} ${{label}}`\n  view\n    column\n      Grip(label=\"g\", items=items, tell=note)\ncomponent Grip\n  props\n    label: string\n    items: string[]\n    tell: action\n{actions}  view\n    {view}")
     };
     let src = owned(&["release(height: number, velocity: number)"], height);
     let event = Event::HeightRelease {

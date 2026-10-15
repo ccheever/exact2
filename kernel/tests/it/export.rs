@@ -19,6 +19,7 @@ fn kernel() -> Kernel {
     leaf.mask.set(StyleId::FontSize);
     leaf.opacity = 0.5;
     leaf.mask.set(StyleId::Opacity);
+    leaf.written.set(StyleId::TextColor);
     let mut k = Kernel::with_monospace();
     k.apply(
         0,
@@ -177,6 +178,8 @@ fn envelope_round_trips_rows_styles_and_props() {
     );
     assert!(snap.styles[0].mask.has(StyleId::BackgroundColor));
     assert_eq!(snap.styles[1].opacity, 0.5);
+    assert!(snap.styles[1].written.has(StyleId::TextColor));
+    assert!(!snap.styles[1].mask.has(StyleId::TextColor));
     assert_eq!(snap.styles[2].mask, exact_kernel::StyleMask::EMPTY);
 
     assert_eq!(snap.props[1].str(PropId::Text), Some("hi"));

@@ -30,7 +30,7 @@ final class TableFixture {
     static func source(count: Int) -> String {
         var doublings = 0
         while 10 << doublings < count { doublings += 1 }
-        let derived = (0..<doublings).map { "  derive d\($0 + 1) = concat(\($0 == 0 ? "seed" : "d\($0)"), \($0 == 0 ? "seed" : "d\($0)"))" }.joined(separator: "\n")
+        let derived = (0..<doublings).map { "  derive d\($0 + 1) = \($0 == 0 ? "seed" : "d\($0)").concat(\($0 == 0 ? "seed" : "d\($0)"))" }.joined(separator: "\n")
         return """
         component Rows
           state seed = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
@@ -42,8 +42,8 @@ final class TableFixture {
           state on = false
           state draft = ""
         \(derived)
-          derive base = slice(map(\(doublings == 0 ? "seed" : "d\(doublings)"), (x, i) => i), 0, \(count))
-          derive rows = concat(slice(extra, 1), base)
+          derive base = (\(doublings == 0 ? "seed" : "d\(doublings)")).map((x, i) => i).slice(0, \(count))
+          derive rows = extra.slice(1).concat(base)
           action open(r: number)
             opened = r
             presses = presses + 1
@@ -56,7 +56,7 @@ final class TableFixture {
           action typed(v: string)
             draft = v
           action prepend
-            extra = concat(extra, [0 - length(extra) - 1])
+            extra = extra.concat([0 - extra.length - 1])
           view
             column width="100%" height="100%"
               row testId="bar" gap=8 padding=4
@@ -68,15 +68,15 @@ final class TableFixture {
                 button press=prepend testId="prepend"
                   text "Prepend"
               list virtualized=true estimated-item-height=32 flex=1 min-height=0 width="100%" padding="10px 16px" box-sizing="border-box" overflow-x="hidden" testId="rows"
-                each r in rows key=`k${r}`
+                for r in rows key=`k${r}`
                   row press=open(r) testId=`row-${r}` align-items="center" gap=8 padding="6px 0" width="100%"
                     column flex=1 min-width=0
                       text `Row ${r}` testId=`title-${r}`
-                      when r % 5 == 0
+                      if r % 5 == 0
                         text `A second paragraph for row ${r}, long enough that it wraps when the list is narrow and makes this row taller than its neighbours` font-size=11
-                      when r == grown
+                      if r == grown
                         box height=60 testId="extra"
-                    when r % 10 == 3
+                    if r % 10 == 3
                       button press=bump testId=`bump-${r}`
                         text "Bump"
                       input type="checkbox" checked=on change=check aria-label="On" testId=`check-${r}`
@@ -102,9 +102,11 @@ final class TableFixture {
         return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
     }
 
-    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), style: NSTableView.Style = .inset, table: Bool = true, source: String? = nil) throws {
+    init(count: Int, size: CGSize = CGSize(width: 480, height: 600), table: Bool = true, source: String? = nil) throws {
         _ = NSApplication.shared
         session = ExactApp.shared.makeSession(label: "table-feed")
+        // A vertical list is a table unless its rows are to be painted, as the driver's own chrome paints them.
+        session.presenter.tables.painted = !table
         view = ExactView(session: session)
         window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -114,7 +116,7 @@ final class TableFixture {
         let presenter = session.presenter
         list = try XCTUnwrap(presenter.views.values.first { $0.props["testId"] == "rows" })
         presenter.settlePump()
-        feed = table ? try XCTUnwrap(presenter.tables.show(list, style: style), "the list is one the runner windows") : nil
+        feed = table ? try XCTUnwrap(presenter.tables.feeds[list.id], "a vertical list is a table") : nil
         settle()
     }
     func close() { session.destroy(); window.close() }

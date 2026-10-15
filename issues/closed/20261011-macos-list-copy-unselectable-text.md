@@ -94,13 +94,6 @@ copy, and `navigator.clipboard.readText()` reads the result back. In the table, 
 
 Each macOS scenario reproduced on its first drive.
 
-![X81: a copy across a virtualized list's rows, Exact web in Chrome and macOS](https://raw.githubusercontent.com/ccheever/exact2/ef0069c611f4bc0837fbb439e8dc57d3bf4d17d2/fw-issues-20261011k/x81-list-copy-user-select-web-macos.png)
-
-Record (the contract, the commands, every drive's clipboard, and the code read):
-https://raw.githubusercontent.com/ccheever/exact2/ef0069c611f4bc0837fbb439e8dc57d3bf4d17d2/fw-issues-20261011k/x81-record.txt
-(sources at the same commit: `x81-app.contract.txt`, `x81-chrome-copy-probe.mjs.txt`; screenshots of each
-selection: `x81-macos-*-selected.png`, `x81-web-js-*-selected.png`, `x81-web-wasm-v-selected.png`).
-
 Not run: iOS (it has no list-text copy), Linux, Windows, Firefox, WebKit, and a hardware mouse. Also not run: a
 copy across rows that are not mounted (a long list, scrolled), ⌘A on the web, and a row with a button's label before
 its text. AppKit's rule makes such a label unselectable on the Mac, while the runner counts it; that case is read from

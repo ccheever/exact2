@@ -50,6 +50,7 @@ mod shadow;
 pub mod space;
 pub(crate) mod stroke;
 pub mod symbols;
+pub mod theme;
 pub mod wide;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
@@ -724,6 +725,13 @@ impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
     pub fn resolve(self, dark: bool) -> Color {
+        if let Some(c) = roles::painted_accent(self, dark) {
+            return c;
+        }
+        // @ref LLP 1095 D4 — a role the theme replaces is what replaces it.
+        if let Some(o) = roles::painted_override(self) {
+            return o.resolve(dark);
+        }
         // @ref LLP 1095 D1 — a reference is what the host reported, else
         // its fallback pair.
         if let Some(c) = roles::reported(self, dark) {
@@ -782,6 +790,14 @@ impl ColorValue {
         // vocabularies (animated terminal runs use hex on every frame).
         if start.starts_with('#') {
             return None;
+        }
+        // @ref LLP 1095 D4 — a theme name, or a role the theme overrides,
+        // reads the colour its entry stands for.
+        if let Some(value) = theme::resolved(text, |value| {
+            ColorValue::parse_light_dark(value)
+                .or_else(|| Color::parse(value).map(ColorValue::Fixed))
+        }) {
+            return value;
         }
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
@@ -842,6 +858,8 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
+    /// Ordered invoker-popover flip attempts (LLP 1021 D2).
+    PositionTryFallbacks(&'a crate::position_try::PositionTryFallbacks),
     /// `-exact-drag-timeline` (LLP 1057.003).
     DragTimeline(&'a crate::timeline::DragTimeline),
     /// CSS `animation-timeline` (LLP 1057.003).
@@ -929,6 +947,7 @@ impl RowValue<'_> {
             | RowValue::ClipPath(_)
             | RowValue::ShapeOutside(_)
             | RowValue::AspectRatio(_)
+            | RowValue::PositionTryFallbacks(_)
             | RowValue::DragTimeline(_)
             | RowValue::AnimationTimeline(_)
             | RowValue::TimelineScope(_)
@@ -1340,7 +1359,7 @@ impl StyleProps {
 /// the arena's environment.
 pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
-        .style(slot)
+        .effective_style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
     // HTML's button layout, which Exact's reset of a `<button>` keeps: its
     // automatic inline size is shrink-to-fit, and a block button's content
@@ -1352,6 +1371,9 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
         if s.display == taffy::Display::Block {
             s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
         }
+    }
+    if let Some(height) = arena.neutral_tab_min_height(slot) {
+        s.min_size.height = length(height);
     }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its

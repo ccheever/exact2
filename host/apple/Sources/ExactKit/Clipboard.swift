@@ -66,7 +66,9 @@ extension NodeView {
             let outer = cutting
             cutting = cutting || action == #selector(cut(_:))
             defer { cutting = outer }
-            perform()
+            if let fields = owner?.presenter?.fieldSelections, action != #selector(copy(_:)) {
+                fields.withIntent(owner, action == #selector(paste(_:)) ? "insertFromPaste" : "deleteByCut", perform)
+            } else { perform() }
         }
     }
 
@@ -134,7 +136,9 @@ extension NodeView {
         editor.insertText(text, replacementRange: editor.selectedRange())
         #else
         guard let editor: UITextInput = textArea ?? field, let range = editor.selectedTextRange else { return }
-        editor.replace(range, withText: text)
+        if let fields = presenter?.fieldSelections {
+            fields.nativeEdit(self, replacement: text, marked: editor.markedTextRange != nil) { editor.replace(range, withText: text) }
+        } else { editor.replace(range, withText: text) }
         #endif
     }
 }
@@ -147,7 +151,7 @@ extension Agent {
         let actions = ["copy": #selector(NodeView.copy(_:)), "cut": #selector(NodeView.cut(_:)), "paste": #selector(NodeView.paste(_:))]
         guard let action = actions[edit] else { return ["error": "type: \(edit) is not copy, cut or paste"] }
         let editing = v.field != nil || v.textArea != nil
-        guard (editing ? v.clipboardHearer(action) : v.clipboardTarget(action)) != nil else { return ["error": "no \(edit) handler at view \(v.id) or above it"] }
+        guard editing || v.clipboardTarget(action) != nil else { return ["error": "no \(edit) handler at view \(v.id) or above it"] }
         #if os(macOS)
         if editing {
             if let f = v.textArea, v.window?.firstResponder !== f { v.window?.makeFirstResponder(f) }
@@ -180,7 +184,9 @@ extension Agent {
             // An unprevented paste inserts the driver's text, without the
             // pasteboard; a copy or cut is the event alone, as the web
             // driver's (agent-keys.mjs `deliverClipboard`).
-            if !v.fieldClipboard(action, text: text ?? ""), edit == "paste" { v.insertAtFieldSelection(text ?? "") }
+            if !v.fieldClipboard(action, text: text ?? ""), edit == "paste" {
+                v.presenter?.fieldSelections.withIntent(v, "insertFromPaste") { v.insertAtFieldSelection(text ?? "") }
+            }
             return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized", "value": v.fieldText]
         }
         v.clipboard(action, text: text ?? "")

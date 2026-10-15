@@ -1,7 +1,6 @@
 # Recipe: list rows: search, swipe, filter and long-press
 
-A list under a large title with the bar's search field (an `input type="search"` in the
-`header`) and rows that swipe to delete.
+A list under a large title with the bar's search field and rows that swipe to delete.
 
 ```contract
 routes nav
@@ -14,14 +13,14 @@ shape Note
 component Notes
   state query = ""
   state notes = [Note(id="1", title="Groceries"), Note(id="2", title="Ideas")]
-  derive shown = filter(notes, n => includes(toLowerCase(n.title), toLowerCase(trim(query))))
+  derive shown = notes.filter(n => n.title.toLowerCase().includes(query.trim().toLowerCase()))
   action search(v: string)
     query = v
   action remove(id: string)
-    notes = filter(notes, n => n.id != id)
+    notes = notes.filter(n => n.id != id)
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="notes-list" position="absolute" inset=0
           header display="flex" flex-wrap="wrap" align-items="center" gap=8 padding="8px 16px"
             text "Notes" role="heading" aria-level=1 flex=1
@@ -29,7 +28,7 @@ component Notes
               testId="search" width="100%"
           list id="notes-list" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
-              each n in shown key=n.id
+              for n in shown key=n.id
                 scroll swipeContent=`row-${n.id}` swipeTrailing=`delete-${n.id}` padding-right=0
                   overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory"
                   row id=`row-${n.id}` width="100%" flex-shrink=0 scroll-snap-align="start"
@@ -50,14 +49,16 @@ test "search, then swipe to delete"
   expect tree has "note-1"
 ```
 
-- The swipe is a horizontal snap scroll naming its content and its trailing action; on iOS the
-  action is UIKit's own swipe action, and a full swipe performs the first one. In a grouped
-  list it is a section's row: leave the scroll's `width` unsaid, give it `padding-right=0` (its
-  padding is inside its port, where the action would show at rest) and the content
-  `padding-right=16`, as above.
-- A filter is a `row role="radiogroup"` of `button role="radio"` between the header and the list
-  ([persisted-setting](persisted-setting.md)), the segmented control.
-- A long-press menu shared by every row: `contextmenu=aim(n.id) contextPopover="note-menu"` on
-  the row's content (`aim` records `aimed`), and one `column id="note-menu" popover="auto"
-  role="menu"` of buttons that act on `aimed`, each with `popovertarget="note-menu"
-  popovertargetaction="hide"`; on iOS a `UIMenu`. Test it with `tap "note-1" contextmenu`.
+- A `list` with no `appearance` is the plain list: its children are rows, with the platform's
+  separators and press. Draw neither. A child that is no row says `border-bottom="none"`;
+  rows of your own say `appearance="none"`.
+- The swipe is a horizontal snap scroll naming its content and its trailing action (on iOS
+  UIKit's own; a full swipe performs the first). In a grouped list: no `width` on the
+  scroll, `padding-right=0` on it (its padding is in its port, where the action would show),
+  `padding-right=16` on the content.
+- A filter: a `row role="radiogroup"` of `button role="radio"` above the list
+  ([persisted-setting](persisted-setting.md)).
+- One long-press menu for all rows: `contextmenu=aim(n.id) contextPopover="note-menu"` on the
+  row's content, and a `column id="note-menu" popover="auto" role="menu"` of buttons acting
+  on `aimed`, each `popovertarget="note-menu" popovertargetaction="hide"` (iOS: a `UIMenu`).
+  Test: `tap "note-1" contextmenu`.

@@ -1,6 +1,6 @@
 //! Differential tests: every answer is std's, bit for bit, error for error.
 
-use super::{parse_f32, parse_f64};
+use super::{css_percent, parse_f32, parse_f64};
 
 /// Both widths agree with std on `s`: the same bits (NaN sign included), or
 /// the same error with the same text.
@@ -358,5 +358,25 @@ fn the_u128_path_matches_std_at_its_edges() {
         ] {
             check(&format!("{d}e{e}"));
         }
+    }
+}
+
+#[test]
+fn css_percent_takes_css_number_syntax_above_zero() {
+    for (text, ratio) in [
+        ("125%", 1.25),
+        ("87.5%", 0.875),
+        (".5e2%", 0.5),
+        ("+100%", 1.0),
+        ("1e2%", 1.0),
+        ("1E+2%", 1.0),
+    ] {
+        assert_eq!(css_percent(text), Some(ratio), "{text}");
+    }
+    for text in [
+        "0%", "-5%", "125", "125.%", "%", " 125%", "125 %", "1e%", "inf%", "NaN%", "1e400%",
+        "0x10%", "125px", "5e-324%",
+    ] {
+        assert_eq!(css_percent(text), None, "{text}");
     }
 }

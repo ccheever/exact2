@@ -12,7 +12,7 @@ final class InlineFrameMacTests: XCTestCase {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "inline-edge")
         defer { session.destroy() }
-        XCTAssertNil(session.boot(plan: InlineFrameFixture.plan, size: CGSize(width: 600, height: 400)).error)
+        XCTAssertNil(session.boot(plan: try InlineFrameFixture.plan(), size: CGSize(width: 600, height: 400)).error)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.close() }
@@ -106,22 +106,9 @@ final class InlineFrameMacTests: XCTestCase {
 }
 #endif
 
-// Compiled from the fixture below with `contract build`; shared by AppKit and UIKit.
-// component App
-//   view
-//     column padding=24 gap=12
-//       text width=260 font-size=16 font-family="Arial" line-height="20px" testId="empty-paragraph"
-//         text "Hi" testId="before"
-//         text "" id="empty" testId="empty"
-//         text " there"
-//       text width=260 font-size=16 font-family="Arial" line-height="60px" testId="mixed-paragraph"
-//         text "link" font-size=12 id="small" testId="small"
-//         text "BIG" font-size=48
-//       text width=40 font-size=16 font-family="Arial" line-height="20px" testId="wrap-paragraph"
-//         text "Hi"
-//         text " there" id="wrap" testId="wrap"
+// scripts/fixtures/inline-frame.contract, shared by AppKit and UIKit.
 enum InlineFrameFixture {
-    static let plan = Data(base64Encoded: "RVhQTAUAAABQj6VlcW+hgV5C6bcypSPWGA1E2ggCJPIAAAAA//////////8RAAAABAAAAGZsZXgGAAAAY29sdW1uBQAAAEFyaWFsBAAAADIwcHgPAAAAZW1wdHktcGFyYWdyYXBoAgAAAEhpBgAAAGJlZm9yZQAAAAAFAAAAZW1wdHkGAAAAIHRoZXJlBAAAADYwcHgPAAAAbWl4ZWQtcGFyYWdyYXBoBAAAAGxpbmsFAAAAc21hbGwDAAAAQklHDgAAAHdyYXAtcGFyYWdyYXBoBAAAAHdyYXCoAAAABCgCAAAAACgCAQAAACgAAAAAAAAAOEAoAAAAAAAAAChAKAAAAAAAAEBwQCgAAAAAAAAAMEAoAAAAAAAAACBAKAIDAAAAKAIEAAAAKAIFAAAAKAIGAAAAKAIHAAAAKAIIAAAAKAIJAAAAKAIKAAAAKAILAAAAKAIMAAAAKAINAAAAKAIOAAAAKAAAAAAAAABIQCgAAAAAAAAAREAoAg8AAAAoAhAAAAAoAAAAAAAAAAAAAAAAAAAAAAEAAAACAAAAAAAAAAAAAAAJAAAAAAAAAAEAAAABAAAAAQAAAAIAAAABAAAAAwAAAAEAAAAEAAAAAQAAAAUAAAABAAAABgAAAAEAAAAHAAAAAQAAAAgAAAABAAAACQAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAALAAAAAP//////////AAAAAAAAAAAIAAAAAAAAAAAAAAD/////AQAAAAD/////AAAAAAgAAAAFAAAAAAAAAAAAAAD/////AQEAAAD/////AAAAAA0AAAACAAAAAAAAAAAAAAD/////AQEAAAD/////AQAAAA8AAAADAAAAAAAAAAAAAAD/////AQEAAAD/////AgAAABIAAAABAAAAAAAAAAAAAAD/////AQAAAAD/////AQAAABMAAAAFAAAAAAAAAAAAAAD/////AQUAAAD/////AAAAABgAAAAEAAAAAAAAAAAAAAD/////AQUAAAD/////AQAAABwAAAACAAAAAAAAAAAAAAD/////AQAAAAD/////AgAAAB4AAAAFAAAAAAAAAAAAAAD/////AQgAAAD/////AAAAACMAAAABAAAAAAAAAAAAAAD/////AQgAAAD/////AQAAACQAAAADAAAAAAAAAAAAAAD/////JwAAAAEfAAIAAAAGAAAAAAEOAAgAAAAGAAAAAAEGAA4AAAAKAAAAAQEHAA4AAAAKAAAAAQEIAA4AAAAKAAAAAQEJAA4AAAAKAAAAAQEcABgAAAAKAAAAAQEdABgAAAAKAAAAAQEAACIAAAAKAAAAAQFAACwAAAAKAAAAAQFDADYAAAAKAAAAAQFFAEAAAAAGAAAAAQALAEYAAAAGAAAAAQAAAEwAAAAGAAAAAQALAFIAAAAGAAAAAQAAAFgAAAAGAAAAAQAsAF4AAAAGAAAAAQALAF4AAAAGAAAAAQAAAGQAAAAGAAAAAQEAACIAAAAKAAAAAQFAACwAAAAKAAAAAQFDADYAAAAKAAAAAQFFAGoAAAAGAAAAAQALAHAAAAAGAAAAAQAAAHYAAAAGAAAAAQFAABgAAAAKAAAAAQAsAHwAAAAGAAAAAQALAHwAAAAGAAAAAQAAAIIAAAAGAAAAAQFAAIgAAAAKAAAAAQEAAJIAAAAKAAAAAQFAACwAAAAKAAAAAQFDADYAAAAKAAAAAQFFAEAAAAAGAAAAAQALAJwAAAAGAAAAAQAAAEwAAAAGAAAAAQAAAGQAAAAGAAAAAQAsAKIAAAAGAAAAAQALAKIAAAAGAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")!
+    static func plan() throws -> Data { try fixturePlan("INLINE_FRAME") }
 
     static func check(_ name: String, session: ExactSession) throws {
         let p = session.presenter, agent = Agent(session: session)

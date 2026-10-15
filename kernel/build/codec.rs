@@ -38,14 +38,10 @@ fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
 
 fn emit_style_encoding(w: &mut String, schema: &Schema) {
     w.push_str(
-        "    /// Encode the rows in `mask` as a masked patch.\n\
-         pub fn encode_masked(&self, mask: StyleMask, w: &mut Writer) {\n\
-             self.encode_overlaid(mask, self, w);\n\
-         }\n\
-         /// Encode these rows, taking explicitly patched rows from `patch`.\n\
-         pub(crate) fn encode_overlaid(&self, mask: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
+        "    /// Encode value rows and the resulting declaration mask, taking patched values from `patch`.\n\
+         pub(crate) fn encode_overlaid(&self, mask: StyleMask, written: StyleMask, patch: &StyleProps, w: &mut Writer) {\n\
              w.style_mask(mask);\n\
-             w.style_mask(self.written.minus(patch.mask).union(patch.written.intersect(patch.mask)).intersect(mask));\n\
+             w.style_mask(written);\n\
              for id in mask.iter() {\n\
                  let source = if patch.mask.has(id) { patch } else { self };\n\
                  match id {\n",
@@ -220,6 +216,11 @@ fn parse_codec(s: &str) -> Codec {
             path: "crate::timeline::AnimationRange",
             variant: "AnimationRange",
             error: "BadAnimationRange",
+        },
+        "position-try-fallbacks" => Codec::CssValue {
+            path: "crate::position_try::PositionTryFallbacks",
+            variant: "PositionTryFallbacks",
+            error: "BadPositionTryFallbacks",
         },
         "timeline-scope" => Codec::CssValue {
             path: "crate::timeline::TimelineScope",

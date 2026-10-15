@@ -46,6 +46,8 @@ extension NodeView {
 extension Presenter {
     /// The same editing descendant takes explicit, sequential and modal focus.
     func keyView(of v: NodeView) -> NSView {
+        // A list that is a table: the table is what takes the keys (LLP 1115.002 D5).
+        if let table = tables.feeds[v.id]?.table { return table }
         if v.kind == "native", let target = session?.natives.focusTarget(v) { return target }
         if v.isNativeButton, let button = controls.controls[v.id] as? NativeButtonMac { return button }
         return v.textArea ?? v.field ?? v.nativeValueControl ?? v
@@ -94,7 +96,10 @@ extension Presenter {
                 if run.canBecomeKeyView { listed.append((run, run.tabOrder)) }
                 else if run.acceptsFirstResponder { starts.append((run, listed.count)) }
             }
-            for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
+            // A table's rows are in its cells, not among the list's own subviews; a route in the detail's
+            // pane of a split is in that pane's view, and stands where it was written (LLP 1115.002 D4).
+            let own = v.container.subviews.compactMap { $0 as? NodeView }
+            for child in tables.feeds[v.id]?.mounted ?? navigation.split.authored(own, in: v.container) { walk(child) }
             for popover in menus.following(v) { walk(popover) }
         }
         for top in tops { walk(top) }
@@ -170,6 +175,13 @@ extension Presenter {
     /// though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
         if v.formDisabled || v.cssVisibilityHidden { return false }
+        // A list that is a table is one stop, as AppKit's table is whatever
+        // the Keyboard Navigation setting says; the node a row's click
+        // presses is none, since the table selects its rows (LLP 1115.002 D5).
+        if let tables = v.presenter?.tables, !tables.feeds.isEmpty {
+            if tables.feeds[v.id] != nil { return true }
+            if v.explicitTabIndex == nil, tables.pressesRow(v) { return false }
+        }
         if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil || v.isDateOrSelect { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }

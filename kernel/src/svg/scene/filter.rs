@@ -401,13 +401,7 @@ impl Resolver<'_, '_> {
         let obb = f.props.str(PropId::FilterUnits) != Some("userSpaceOnUse");
         let pobb = f.props.str(PropId::PrimitiveUnits) == Some("objectBoundingBox");
         let bx = bbox.filter(|b| b.2 > 0.0 && b.3 > 0.0);
-        let coord = |d: Option<Dimension>, default: f32, obb: bool, basis: f32| match d {
-            Some(Dimension::Points(v)) => v,
-            Some(Dimension::Percent(p)) if obb => p / 100.0,
-            Some(Dimension::Percent(p)) => p / 100.0 * basis,
-            _ if obb => default,
-            _ => default * basis,
-        };
+        let coord = |d, default, obb, basis| vp.coord(d, default, if obb { 1.0 } else { basis });
         let row = |n: &NodeRef<'_>, s: StyleId, d: Dimension| n.style.mask.has(s).then_some(d);
         let raw = (
             coord(row(f, StyleId::X, f.style.x), -0.1, obb, vp.width),
@@ -707,10 +701,15 @@ impl Resolver<'_, '_> {
             let sub = {
                 let b = bx.unwrap_or((0.0, 0.0, 1.0, 1.0));
                 let len = |s: StyleId, d: Dimension, basis: f32, bo: f32, bs: f32| {
-                    p.style.mask.has(s).then(|| match (pobb, d) {
-                        (true, Dimension::Percent(v)) => bo + v / 100.0 * bs,
-                        (true, d) => bo + crate::svg::length::resolve(d, 1.0) * bs,
-                        (false, d) => crate::svg::length::resolve(d, basis),
+                    if !p.style.mask.has(s) {
+                        return None;
+                    }
+                    vp.resolve(d, if pobb { 1.0 } else { basis }).map(|v| {
+                        if pobb {
+                            bo + v * bs
+                        } else {
+                            v
+                        }
                     })
                 };
                 let x = len(StyleId::X, p.style.x, vp.width, b.0, b.2).unwrap_or(region.0);

@@ -3,8 +3,8 @@
 // or U+180E. The test steps hold those characters literally.
 component App
   state s = "  x  "
-  derive t = trim(s)
-  derive n = length(trim(s))
+  derive t = s.trim()
+  derive n = s.trim().length
   action set(v: string)
     s = v
   view

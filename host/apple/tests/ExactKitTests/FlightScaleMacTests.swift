@@ -7,6 +7,75 @@ import XCTest
 /// a flying view that is not an image keeps its own layout and is scaled
 /// whole, its layer included, in a clip that is the shown box.
 final class FlightScaleMacTests: XCTestCase {
+    func testSiblingChangesDuringAFlightPreserveLandingAndKeyViewOrder() throws {
+        _ = NSApplication.shared
+        let preferences = DisplayPreferences.agent
+        DisplayPreferences.agent = (false, false)
+        defer { DisplayPreferences.agent = preferences }
+        let cases: [(ids: [Int], exiting: Bool, flying: [Int])] = [
+            ([4, 2, 3], false, [3]), ([5, 2, 3, 4], false, [3]), ([2, 3], false, [3]),
+            ([4, 2, 3], true, [3]), ([4, 2, 3], true, [3, 4]),
+        ]
+        for (ids, exiting, flying) in cases {
+            let p = Presenter()
+            defer { p.reset() }
+            p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+            let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.autorecalculatesKeyViewLoop = false
+            window.contentView = p.viewport
+            defer { window.close() }
+            p.apply(wireBatch([
+                ["op": "create", "id": 1, "kind": "view"],
+                ["op": "create", "id": 9, "kind": "view"],
+                ["op": "create", "id": 2, "kind": "input"],
+                ["op": "create", "id": 3, "kind": "input"],
+                ["op": "create", "id": 4, "kind": "input"],
+                ["op": "create", "id": 5, "kind": "input"],
+                ["op": "create", "id": 6, "kind": "view"],
+                ["op": "children", "id": 1, "ids": exiting ? [2, 3, 6, 4] : [2, 3, 4]],
+                ["op": "roots", "ids": [1, 9]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 300],
+                ["op": "frame", "id": 9, "x": 300, "y": 200, "w": 50, "h": 30],
+            ] + (2...5).map { ["op": "frame", "id": $0, "x": 10, "y": 10, "w": 200, "h": 30] }))
+            let parent = try XCTUnwrap(p.views[1])
+            let arriver = try XCTUnwrap(p.views[3])
+            let decoration = NSView()
+            parent.container.addSubview(decoration, positioned: .below, relativeTo: nil)
+            p.apply(wireBatch(flying.map { ["op": "flight", "id": $0, "from": 9] } +
+                (exiting ? [["op": "exit", "id": 6]] : [])))
+            let slot = try XCTUnwrap(p.flights[3]?.slot)
+            let overlay = try XCTUnwrap(p.flights[3]?.container)
+            XCTAssertTrue(slot.superview === parent.container)
+            XCTAssertTrue(p.isFlying(arriver))
+
+            p.apply(wireBatch([["op": "children", "id": 1, "ids": ids]]))
+            var expected = ids
+            if exiting { expected.insert(6, at: 2) }
+            let peers = parent.container.subviews.filter { $0 is NodeView || $0 is FlightSlot }
+            XCTAssertEqual(peers.firstIndex { $0 === slot }, expected.firstIndex(of: 3))
+            XCTAssertTrue(parent.container.subviews.first === decoration)
+            XCTAssertTrue(window.contentView?.subviews.last === overlay, "the flight overlay stays above the viewport's content")
+            p.apply(wireBatch(flying.reversed().map { ["op": "land", "id": $0] }))
+            XCTAssertEqual(parent.container.subviews.compactMap { ($0 as? NodeView)?.id }, expected.map(UInt32.init))
+            XCTAssertTrue(parent.container.subviews.first === decoration)
+            if exiting {
+                let ghost = try XCTUnwrap(parent.container.subviews.compactMap { $0 as? NodeView }.first { $0.id == 6 })
+                XCTAssertTrue(ghost.paintGhost)
+                XCTAssertGreaterThan(ghost.paintZPosition, arriver.paintZPosition)
+            }
+            p.syncKeyViewLoop()
+            let stops = try ids.map { p.keyView(of: try XCTUnwrap(p.views[UInt32($0)])) }
+            XCTAssertTrue(p.viewport.nextValidKeyView === stops.first)
+            for (index, stop) in stops.enumerated() {
+                XCTAssertTrue(stop.nextValidKeyView === stops[(index + 1) % stops.count], "Tab order for \(ids)")
+            }
+            let front = try XCTUnwrap(p.views[UInt32(ids.last!)])
+            let hit = try XCTUnwrap(parent.hitTest(NSPoint(x: 20, y: 20)))
+            XCTAssertTrue(hit === front || hit.isDescendant(of: front), "the last equal-rank sibling receives the hit")
+        }
+    }
+
     func testACardFliesScaledWholeInItsClipAndLandsAtItsLayout() throws {
         let p = Presenter()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 402, height: 874), styleMask: [.borderless], backing: .buffered, defer: false)

@@ -345,7 +345,7 @@ pub fn error_message(text: &str) -> String {
 }
 
 /// POST `body` as JSON and read the reply as server-sent events, calling
-/// `each` per event until it, the stream or `cancel` stops. A status that
+/// `for` per event until it, the stream or `cancel` stops. A status that
 /// is not 2xx is an error carrying the server's message. No error carries
 /// a header's value.
 pub fn post_sse(

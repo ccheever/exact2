@@ -655,6 +655,7 @@ One rule per event:
 | A native dev restart, a `reload()` command, `DevMenu.reload` (`DevMenuMac.swift:232–242`, `Session.swift:1018–1022`), Linux `reload` (`presenter.rs:531–545`) | Teardown finishes it, as a let-go answer's steps are finished (`turns.rs:50–91`). | 1 s, then dropped and journaled |
 | `poison()` | Dropped and journaled; what Ibex2 already has completes on disk (D5). | — |
 | macOS quit | `applicationShouldTerminate` returns `NSApplication.TerminateReply.terminateLater` while a ticket is out. The app calls `NSApp.reply(toApplicationShouldTerminate: true)` at the ticket's end, or when its own 5 s timer fires. | 5 s |
+| macOS `relaunch()` (Charlie, 2026-10-08, issue #271) | The same cancellable quit and storage hold, followed by session destruction. A replacement waits for the old process to exit before starting the same executable with its arguments and environment. Independent of the dev menu and update activation; refused under the native agent. | 5 s for storage |
 | iOS and tvOS suspension | `UIApplication.beginBackgroundTask` is held while a ticket is out and ended when it ends. The expiration handler calls `endBackgroundTask`. A suspension can still cut a write once the assertion expires. | the system's |
 | Linux orderly exit | The presenter finishes it before exit. | 5 s |
 | Web `pagehide` | The browser commits or loses what is in flight; the docs say so. | — |

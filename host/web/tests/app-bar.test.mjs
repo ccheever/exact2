@@ -17,18 +17,18 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const { executable: chrome, unavailable } = chromium();
-if (unavailable) console.warn(`SKIP: ${unavailable}`);
-const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
+const check = need('chrome', unavailable);
 
 // A root with two tabs. The first tab's stack: a root, a pushed route, one
 // whose Back control is in its content, and a sheet. The second's: a root
 // with a long title, a pushed route, and one whose header holds its control.
 // Under the stylesheet a default build's page has (look.mjs).
-const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), DEFAULT_LOOK).match(/<style>[\s\S]*?<\/style>/)[0] + `
+const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root">
   <main id="nav" navigationKey="2" navigationBack="back" style="display:block">
     <div role="tabpanel" id="p1">
@@ -271,7 +271,7 @@ check('the bar says its own word, "Back", only on a page in English; elsewhere t
 // LLP 1116.009 D4 (the neutral look's): a sheet's bar centres its title whatever flanks it, as UIKit's does; a page's stays leading. The
 // author's flow wins: a header with its own `justify-content` (the host names it, `data-exact-said`) and a title with a
 // margin of its own are left where they were written. Buttons 60 px wide, so what is centred is exact.
-const bars = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8'), 'neutral').match(/<style>[\s\S]*?<\/style>/)[0] + `<div id="exact-root">
+const bars = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<style>[\s\S]*?<\/style>/)[0] + `<div id="exact-root">
   ${[
     ['s1', 'modal', '', '', '<button>Cancel</button>', '', '<button>Save</button>'],
     ['s2', 'modal', '', '', '<button>Back</button>', '', ''],

@@ -6,16 +6,7 @@
 //! player's own play and pause.
 
 use exact_linux::{agent, presenter::PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
 use serde_json::json;
-
-#[derive(Default)]
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
 
 const SOURCE: &str = r#"component Player
   state trailer = false
@@ -43,19 +34,19 @@ const SOURCE: &str = r#"component Player
       button "both" press=both testId="both"
       button "trailer" press=toggleTrailer testId="toggle"
       button "episode" press=showEpisode testId="episode"
-      when trailer
+      if trailer
         video "assets/t.mp4" testId="trailer" width=160 height=90 metadata=MediaMetadata(title="Trailer", artist="", album="", artwork="") nexttrack=next press=press
-      when episode
+      if episode
         audio "assets/ep.mp3" testId="audio" controls=true metadata=MediaMetadata(title="Episode 1", artist="Show", album="", artwork="assets/art.png") seekforwardOffset=30 seekforward=skipBy(1) seekbackward=skipBy(-1) seekto=seekAt previoustrack=next press=press
 "#;
 
-fn boot() -> Presenter<NoData> {
+fn boot() -> Presenter<()> {
     let plan = contract::compile(SOURCE).unwrap();
     let dir = std::env::temp_dir().join(format!("exact-media-session-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let (p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 300.),
         1.,
         dir,
@@ -66,27 +57,27 @@ fn boot() -> Presenter<NoData> {
     p
 }
 
-fn ask(p: &mut Presenter<NoData>, request: serde_json::Value) -> serde_json::Value {
+fn ask(p: &mut Presenter<()>, request: serde_json::Value) -> serde_json::Value {
     serde_json::from_str(&agent::handle(p, &request.to_string())).unwrap()
 }
 
-fn id(p: &Presenter<NoData>, test_id: &str) -> u32 {
+fn id(p: &Presenter<()>, test_id: &str) -> u32 {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
 /// Press one of the fixture's buttons: one commit.
-fn press(p: &mut Presenter<NoData>, test_id: &str) {
+fn press(p: &mut Presenter<()>, test_id: &str) {
     let target = id(p, test_id);
     let reply = ask(p, json!({"op": "tap", "id": target}));
     assert!(reply.get("error").is_none(), "{test_id}: {reply}");
 }
 
-fn session(p: &mut Presenter<NoData>) -> serde_json::Value {
+fn session(p: &mut Presenter<()>) -> serde_json::Value {
     ask(p, json!({"op": "state"}))["mediaSession"].clone()
 }
 
-fn slot(p: &mut Presenter<NoData>, name: &str) -> serde_json::Value {
+fn slot(p: &mut Presenter<()>, name: &str) -> serde_json::Value {
     ask(p, json!({"op": "state"}))["slots"][name].clone()
 }
 

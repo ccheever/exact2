@@ -912,7 +912,7 @@ fn to_fixed_is_javascript_s_and_format_decimal_is_exact() {
         assert_eq!(
             fixed(Stdlib::ToFixed, x, d),
             Some(Value::str(want)),
-            "toFixed({x}, {d})"
+            "({x}).toFixed({d})"
         );
     }
     #[rustfmt::skip]

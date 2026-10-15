@@ -23,21 +23,21 @@ impl DataSource for Rows {
     }
 }
 
-/// Rows with fields, a `when` on one, a nested `each`, a row slot seeded from
+/// Rows with fields, an `if` on one, a nested `for`, a row slot seeded from
 /// the item, a transition, an animation, a picture and a scroller.
 const SOURCE: &str = r##"shape Item
   id: number
   title: string
   even: bool
-  tags: list<string>
+  tags: string[]
 keyframes fade
   from opacity=0
   to opacity=1
 component App
-  resource rows = rows() as shape list<Item>
+  resource rows = rows() as shape Item[]
   view
     list virtualized=true height=320 estimated-item-height=64 testId="list"
-      each x in rows key=x.id
+      for x in rows key=x.id
         Row(x=x)
 component Row
   props
@@ -48,11 +48,11 @@ component Row
   view
     column testId=`row-${x.id}` height=64 press=toggle transition="opacity 200ms" opacity=(x.even ? 1 : 0.5)
       text x.title animation="fade 400ms"
-      when x.even
+      if x.even
         text "even" color="#ff0000"
       else
         image `assets/${x.id}.png` width=10 height=10
-      each t in x.tags key=t
+      for t in x.tags key=t
         text t
       text (open ? "open" : "closed")
       scroll overflow-x="scroll" overflow-y="hidden" width=100 height=20
@@ -327,8 +327,8 @@ fn what_a_rebind_cannot_make_fresh_refuses_it() {
         (
             "slots below the row's",
             SOURCE.replace(
-                "      each t in x.tags key=t\n        text t",
-                "      each t in x.tags key=t\n        Tag(t=t)",
+                "      for t in x.tags key=t\n        text t",
+                "      for t in x.tags key=t\n        Tag(t=t)",
             ) + "component Tag\n  props\n    t: string\n  state on = false\n  view\n    text t\n",
         ),
     ] {

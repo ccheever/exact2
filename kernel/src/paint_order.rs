@@ -289,8 +289,9 @@ fn beside_exclusion(arena: &NodeArena, parent: u32) -> bool {
 }
 
 fn own_beside(arena: &NodeArena, slot: u32, beside_exclusion: bool) -> Own {
+    let style = arena.effective_style(slot);
     own_from(Facts {
-        style: arena.style(slot),
+        style: &style,
         props: arena.props(slot),
         kind: arena.node_type(slot),
         root: arena.is_root(slot),

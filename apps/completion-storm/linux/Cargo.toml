@@ -9,6 +9,8 @@ build = "build.rs"
 [[bin]]
 name = "completion-storm-linux"
 path = "src/main.rs"
+test = false
+bench = false
 
 [dependencies]
 completion-storm-data = { path = "../data" }

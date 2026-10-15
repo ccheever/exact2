@@ -126,6 +126,35 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.contentOffset.y, end, accuracy: 0.5, "writes clamp to the actual native end")
     }
 
+    /// DOM's `scrollend` (`ScrollEndIOS.swift`): a move no gesture holds
+    /// ends once still, after its last `scroll`; the end of a deceleration
+    /// ends at once; each scroll ends once.
+    func testAScrollEndsOnceAfterItsLastScroll() throws {
+        let p = presenter(height: 180, handlers: ["scroll", "scrollend"]) { self.model() }
+        let owner = try XCTUnwrap(p.views[1]), l = try list(p)
+        l.collection.layoutIfNeeded()
+        var seen: [String] = []
+        p.onScroll = { _, _ in seen.append("scroll") }
+        p.onScrollend = { _ in seen.append("end") }
+        p.apply(wireBatch([
+            ["op": "content", "id": 1, "w": 402.0, "h": 9000.0],
+            ["op": "props", "id": 1, "set": ["scrollTop": "100"]],
+        ]))
+        XCTAssertFalse(seen.contains("end"), "not before it has been still")
+        RunLoop.main.run(until: Date().addingTimeInterval(ScrollEnd.quiet + 0.15))
+        XCTAssertEqual(seen.last, "end")
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1)
+        XCTAssertLessThan(try XCTUnwrap(seen.firstIndex(of: "scroll")), try XCTUnwrap(seen.firstIndex(of: "end")), "its scroll first")
+        seen.removeAll()
+        l.collection.setContentOffset(CGPoint(x: 0, y: l.collection.contentOffset.y + 40), animated: false)
+        owner.scrollViewDidEndDecelerating(l.collection)
+        XCTAssertEqual(seen.last, "end", "a deceleration's end ends it at once")
+        RunLoop.main.run(until: Date().addingTimeInterval(ScrollEnd.quiet + 0.15))
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1, "once")
+        owner.scrollViewDidEndDecelerating(l.collection)
+        XCTAssertEqual(seen.filter { $0 == "end" }.count, 1, "nothing moved since: nothing owed")
+    }
+
     func testMeasuringALeadingCustomRowKeepsTheNativeListAtItsStart() throws {
         for initial in [0.0, 52.0] {
             let p = presenter(height: 180) {
@@ -274,7 +303,8 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         let before = try XCTUnwrap(events.last)
         XCTAssertEqual(before[1], 0, accuracy: 0.5)
         XCTAssertEqual(before[5], Double(l.collection.bounds.height), accuracy: 0.5)
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0, "padding_bottom": 83.0]],
+                           contentOp(1, 402, 180, padding: [12, 0, 83, 0])]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let padded = try XCTUnwrap(events.last)
         XCTAssertEqual(l.collection.contentOffset.y + owner.scrollTopInset(l.collection), 0, accuracy: 0.5)
@@ -299,6 +329,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         XCTAssertEqual(try XCTUnwrap(events.last)[1], 112, accuracy: 0.5)
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 6.0, "padding_bottom": 9.0]],
+                           contentOp(1, 402, 180, padding: [6, 0, 9, 0]),
                            ["op": "props", "id": 1, "set": ["scrollTop": "0"]]]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let replaced = try XCTUnwrap(events.last)
@@ -317,6 +348,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         p.onScrolled = { id, _, top in if id == 1 { facts.append(top) } }
         p.onScroll = { _, values in events.append(values) }
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 12.0]],
+                           contentOp(1, 402, 180, padding: [12, 0, 0, 0]),
                            ["op": "props", "id": 1, "set": ["scrollTop": "140"]]]))
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         let row = try XCTUnwrap(p.views[20])
@@ -325,7 +357,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
         XCTAssertEqual(l.collection.contentOffset.y + owner.scrollTopInset(l.collection), 140, accuracy: 0.5)
         XCTAssertEqual(try XCTUnwrap(facts.last), 140, accuracy: 0.5)
         XCTAssertEqual(try XCTUnwrap(events.last)[1], 140, accuracy: 0.5)
-        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 24.0]]]))
+        p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_top": 24.0]], contentOp(1, 402, 180, padding: [24, 0, 0, 0])]))
         XCTAssertTrue(owner.scrollView === l.collection, "padding changes keep the same physical backend")
         XCTAssertEqual(try cell(p, 20).convert(shown.bounds, to: window).minY, before, accuracy: 0.5)
         XCTAssertEqual(l.collection.contentOffset.y + owner.scrollTopInset(l.collection), 152, accuracy: 0.5,
@@ -459,6 +491,7 @@ final class NativeListScrollIOSTests: GroupedListFixture {
     func testRevealingACarriedRowDoesNotReserveContentPaddingForAKeyboard() throws {
         let p = presenter(height: 180) { self.model(custom: true) }
         p.apply(wireBatch([["op": "style", "id": 1, "style": ["overflow_y": "scroll", "padding_bottom": 83.0]],
+                           contentOp(1, 402, 180, padding: [0, 0, 83, 0]),
                            ["op": "props", "id": 1, "set": ["scrollTop": "99999"]]]))
         let l = try list(p), row = try XCTUnwrap(p.views[21])
         _ = try cell(p, 21)

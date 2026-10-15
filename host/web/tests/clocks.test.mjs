@@ -9,10 +9,12 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp } from '../../../scripts/agent.mjs';
+import { chromium } from '../../../scripts/agent-launch.mjs';
+import { need } from '../../../scripts/coverage.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
-const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const check = existsSync(chrome) ? test : test.skip;
+const { executable: chrome, unavailable } = chromium();
+const check = need('chrome', unavailable);
 
 const page = `<style>@keyframes pulse { from { opacity: 0.4 } to { opacity: 1 } }</style>
 <div id="exact-root"></div>

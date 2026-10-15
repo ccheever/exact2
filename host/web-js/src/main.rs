@@ -18,6 +18,9 @@ mod emit_tests;
 mod events;
 mod faces;
 mod facts;
+mod modes;
+#[cfg(test)]
+mod modes_tests;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
@@ -65,13 +68,8 @@ fn main() -> ExitCode {
     // (animations, clip paths and filters, gradients, drag timelines) is
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
-    // The build's look (LLP 1115.000 D4 part B; host/web/look.mjs): under the
-    // neutral one a role falls back to the table's neutral column and a
-    // metric reads its neutral cell in everything compiled here, and the
-    // elements say what its sheet reads.
-    if std::env::var("EXACT_WEB_LOOK").as_deref() == Ok("neutral") {
-        exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
-    }
+    // Direct compiler invocations use the same roles and metrics as web builds.
+    exact_kernel::style::roles::set_column(exact_kernel::style::roles::Column::Neutral);
     let path = std::path::Path::new(input);
     // The dev loop watches every package the Contract reads (LLP 1091 D10),
     // even when this compile fails: the fix may be in the library.

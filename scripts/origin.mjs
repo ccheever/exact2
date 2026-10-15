@@ -57,14 +57,45 @@ export function webRequestURL(target) {
   } catch { return null; }
 }
 
-export function appDocumentPath(pathname) {
+/** Extensions a web build's files have (serve.mjs `webContentType` and the
+ * game's `.hbc`, `.model`, `.tex`): a missing one stays a 404, a page or an
+ * iframe's document (`/deck/missing.html`) included. A location whose last
+ * label is one of them (`/profile/photos.zip`, `.zip` being a TLD) is taken
+ * for a file too: telling the two apart needs the app's routes (QUEUE). */
+const FILE_EXTENSIONS = new Set(['.html', '.htm', '.css', '.js', '.mjs', '.json', '.wasm', '.plan', '.map', '.txt', '.xml', '.pdf', '.zip',
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif', '.svg', '.ico', '.mp4', '.webm', '.vtt', '.wav', '.mp3', '.m4a', '.aac', '.ogg', '.oga',
+  '.ttf', '.otf', '.woff', '.woff2', '.wgsl', '.hbc', '.model', '.tex']);
+/** Whether a request's `Accept` takes HTML (RFC 9110: the media type, any
+ * case, at a quality above zero), as a browser's navigation does. */
+export function acceptsHTML(accept = '') {
+  // Split on commas and semicolons outside a quoted parameter value.
+  const ranges = [[[]]];
+  let quoted = false;
+  for (let i = 0, s = String(accept ?? ''); i < s.length; i++) {
+    const c = s[i], range = ranges.at(-1), param = range.at(-1);
+    if (quoted && c === '\\') { param.push(c, s[++i] ?? ''); continue; }
+    if (c === '"') quoted = !quoted;
+    if (!quoted && c === ',') { ranges.push([[]]); continue; }
+    if (!quoted && c === ';') { range.push([]); continue; }
+    param.push(c);
+  }
+  return ranges.some(([type, ...params]) => {
+    const q = params.map((p) => p.join('').trim().toLowerCase()).find((p) => p.startsWith('q='));
+    return type.join('').trim().toLowerCase() === 'text/html' && (q === undefined || Number(q.slice(2)) > 0);
+  });
+}
+/** Whether a path that names no file is the app's document. A navigation
+ * (`acceptsHTML`) to one whose last segment has a dot is too, unless that
+ * is a file's extension: a deep link like `/profile/jay.bsky.team` is a
+ * location, not a missing file. */
+export function appDocumentPath(pathname, navigation = false) {
   if (!webRequestURL(pathname)) return false;
   let path;
   try { path = decodeURIComponent(pathname); } catch { return false; }
   return path.startsWith('/') && !path.includes('\\') && !path.includes('\0')
     && !path.split('/').some(part => part.startsWith('.'))
     && path !== '/__dev' && !path.startsWith('/__dev/')
-    && extname(path.replace(/\/+$/, '')) === '';
+    && (extname(path.replace(/\/+$/, '')) === '' || (navigation && !FILE_EXTENSIONS.has(extname(path.replace(/\/+$/, '')).toLowerCase())));
 }
 export function parseWebRoot(bytes) {
   const root = JSON.parse(bytes.toString('utf8'));

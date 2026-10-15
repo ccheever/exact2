@@ -12,7 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-/// Exact documents use the selected directory's owned Windows handle.
+/// Chosen documents use the selected directory's owned Windows handle.
 pub(crate) fn document(
     root: &File,
     path: &str,
@@ -42,7 +42,7 @@ pub(crate) fn document(
     }
     let parent = parents.last().unwrap();
     let leaf_required =
-        || leaf.ok_or_else(|| io::Error::other("cannot read a directory (filesystem code EISDIR)"));
+        || leaf.ok_or_else(|| io::Error::new(io::ErrorKind::IsADirectory, "EISDIR"));
     match op {
         FsOp::ReadFile => parent.document_read(leaf_required()?).map(FsResult::Bytes),
         FsOp::ReadDir => {
@@ -159,6 +159,41 @@ impl AppDirectories {
         }
         let (parent, leaf) = self.parent(path)?;
         parent.entry(&leaf).map_err(error)
+    }
+    pub(crate) fn prepare_atomic(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+    ) -> Result<AtomicTarget, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsWrite { path: path.into() })?;
+        let (parent, leaf) = self.parent(path)?;
+        Ok(AtomicTarget { parent, leaf })
+    }
+    /// Trusted Rust callers own subsequent scheduling and byte bounds.
+    pub fn open_file(&self, grants: &GrantSet, path: &str) -> Result<File, HostError> {
+        self.parse(path)?;
+        crate::boundary::admit(grants, &Operation::FsRead { path: path.into() })?;
+        let (parent, leaf) = self.parent(path)?;
+        parent.file(&leaf, libc::O_RDONLY).map_err(error)
+    }
+    pub fn read_capped(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+    ) -> Result<Vec<u8>, HostError> {
+        self.read_bounded(grants, path, cap, &|| false)
+    }
+    pub fn read_bounded(
+        &self,
+        grants: &GrantSet,
+        path: &str,
+        cap: u64,
+        canceled: &dyn Fn() -> bool,
+    ) -> Result<Vec<u8>, HostError> {
+        crate::stdlib::fs::read_bounded_file(self.open_file(grants, path)?, cap, canceled)
+            .map_err(error)
     }
     fn sqlite_path(&self, path: &str) -> Result<PathBuf, HostError> {
         let (index, parts) = self.parse(path)?;
@@ -290,3 +325,15 @@ pub(crate) fn atomic_native(path: &Path, data: &[u8]) -> Result<FsResult, HostEr
 #[cfg(test)]
 #[path = "app_fs_windows_tests.rs"]
 mod tests;
+
+pub(crate) struct AtomicTarget {
+    parent: Directory,
+    leaf: String,
+}
+impl AtomicTarget {
+    pub(crate) fn write(self, data: &[u8]) -> Result<(), HostError> {
+        self.parent
+            .write(&self.leaf, data, &token().map_err(error)?)
+            .map_err(error)
+    }
+}

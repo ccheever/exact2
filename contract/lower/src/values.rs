@@ -2,7 +2,7 @@
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
 
-use crate::{err, media, symbols, tags, vocab, FontUse, LowerError};
+use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
@@ -155,6 +155,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
+        StyleValueError::BadPositionTryFallbacks { .. } => "expected none, or comma-separated flip-block/flip-inline combinations; flip-start and named rules are not implemented".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
@@ -180,7 +181,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
 /// order — `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way
 /// (ledger2 Rough 5).
-const FOUR_SIDED: [[StyleId; 4]; 8] = [
+const FOUR_SIDED: [[StyleId; 4]; 9] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -217,6 +218,12 @@ const FOUR_SIDED: [[StyleId; 4]; 8] = [
         StyleId::ScrollPaddingRight,
         StyleId::ScrollPaddingBottom,
         StyleId::ScrollPaddingLeft,
+    ],
+    [
+        StyleId::ScrollMarginTop,
+        StyleId::ScrollMarginRight,
+        StyleId::ScrollMarginBottom,
+        StyleId::ScrollMarginLeft,
     ],
     [
         StyleId::BorderRadiusTopLeft,
@@ -444,25 +451,14 @@ fn builds_platform_color(e: &Expr) -> bool {
     }
 }
 
-/// The `position-area` values every host places (LLP 1021 §5), as CSS
-/// spells them; the row's enum, by name.
-const POSITION_AREAS: [&str; 9] = [
-    "none",
-    "bottom span-right",
-    "bottom",
-    "bottom span-all",
-    "top span-right",
-    "top",
-    "top span-all",
-    "center",
-    "right span-bottom",
-];
-
 /// `position-area` places a popover against the invoker that opens it (its
 /// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
 /// node it would name nothing to place against.
 pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
-    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+    let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "position-area" | "position-try-fallbacks"))
+    else {
         return Ok(());
     };
     if attrs.iter().any(|a| a.name == "popover") {
@@ -470,7 +466,7 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
     }
     err(
         "lower-css-position-area",
-        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        "`position-area` and `position-try-fallbacks` are admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
         a.span,
     )
 }
@@ -490,6 +486,23 @@ impl crate::Lowerer<'_> {
 }
 
 pub(crate) fn check_style_value(
+    a: &Attr,
+    rows: &[StyleId],
+    ty: &Ty,
+    fonts: &[FontUse],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<(), LowerError> {
+    // A pin names the design's axes, which the runner resolves (LLP 1121 D5).
+    if rows == [StyleId::Mode] {
+        return crate::theme::mode_pins(a);
+    }
+    // A name the design lacks, or a colour token in another row (LLP 1121 D3).
+    style_value(a, rows, ty, fonts, scope, shapes)
+        .map_err(|e| crate::theme::token_error(a, rows, e))
+}
+
+fn style_value(
     a: &Attr,
     rows: &[StyleId],
     ty: &Ty,
@@ -600,8 +613,10 @@ pub(crate) fn check_style_value(
             if rows.contains(&StyleId::UserSelect) && matches!(v.as_str(), "all" | "contain") {
                 return err("lower-css-user-select", format!("CSS `user-select=\"{v}\"` is not implemented by the native presenters: `all` selects an element whole on one press and `contain` keeps a selection from leaving its element, and their text selection ownership has neither. Supported values are auto, none and text"), span);
             }
-            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
-                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
+            if rows.contains(&StyleId::PositionArea)
+                && !StyleId::PositionArea.enum_names().contains(&v.trim())
+            {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Logical areas and other spellings are not implemented by the native top layers", StyleId::PositionArea.enum_names().join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
@@ -666,7 +681,9 @@ pub(crate) fn check_style_value(
                     format!(
                         "`{}=\"{v}\"`: {why}{}",
                         a.name,
-                        role_hint(v).unwrap_or_default()
+                        edits::role_hint(v, false)
+                            .map(|e| format!("; {}", e.clause()))
+                            .unwrap_or_default()
                     ),
                     span,
                 );
@@ -789,6 +806,10 @@ pub(crate) fn check_style_value(
                         );
                     }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
+                        // @ref LLP 1116.014 D1 — the edit leads when the fix is one.
+                        if let Some(edit) = edits::value_edit(&a.name, value, rows, &e) {
+                            return err("lower-attr-value", edit, span);
+                        }
                         // A viewport-pinned box (authoring bench, t6-todo-more). A pixel row
                         // takes `14px` as CSS does (LLP 1102 §3.10), and a maximum takes
                         // `none` (§3.11), so neither needs a hint here.
@@ -801,7 +822,9 @@ pub(crate) fn check_style_value(
                                 .to_string()
                         })
                         .or_else(|| match value {
-                            Expr::Str(t, _) => role_hint(t),
+                            Expr::Str(t, _) => {
+                                edits::role_hint(t, false).map(|e| format!("; {}", e.clause()))
+                            }
                             _ => None,
                         });
                         return err(
@@ -1219,7 +1242,7 @@ pub(crate) fn check_prop_value(
                 ty,
                 // A number or bool shown as text is interpolated.
                 if want == tags::PropTy::Str && matches!(ty, Ty::Number | Ty::Bool) {
-                    ": interpolate it in a template, `${…}`, or write `toString(…)`"
+                    ": interpolate it in a template, `${…}`, or write `x.toString()`"
                 } else {
                     ""
                 }
@@ -1470,24 +1493,6 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
         return Some("CSS `column-width` is a length or `auto`, never a percentage; use `column-count` to divide the width");
     }
     None
-}
-
-/// LLP 1081 D2: a bare colour role (`secondary-label`) is spelled
-/// `-exact-secondary-label`. Splitting at spaces, commas and parentheses
-/// finds roles in gradients, shadows, filters and `light-dark()`.
-pub(crate) fn role_hint(text: &str) -> Option<String> {
-    text.split(|c: char| c.is_whitespace() || matches!(c, ',' | '(' | ')'))
-        .find_map(|w| {
-            exact_kernel::COLOR_ROLES.iter().find(|r| {
-                !exact_kernel::style::roles::is_css_system(r) && r.name.eq_ignore_ascii_case(w)
-            })
-        })
-        .map(|r| {
-            format!(
-                "; the role `{0}` is spelled `-exact-{0}` (LLP 1081)",
-                r.name
-            )
-        })
 }
 
 #[cfg(test)]

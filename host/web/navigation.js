@@ -9,12 +9,14 @@ const queue = [], waiters = new Set();
 let root, navigate, log, hostBack, hostGo;
 const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
 // @ref LLP 1075.003 §3.7 — tabs name their kept panels with aria-controls; each panel holds a route stack.
+// Attribute and parent walks also work in the server renderer's DOM, which has no selector engine.
 const tabsOf = nav => {
-  for (const list of nav?.querySelectorAll('[role="tablist"]') ?? []) {
-    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+  const all = [...(nav?.getElementsByTagName("*") ?? [])];
+  const owns = el => { for (let p = el.parentElement; p; p = p.parentElement) if (p.hasAttribute("navigationKey")) return p === nav; return false; };
+  for (const list of all.filter(el => el.getAttribute("role") === "tablist" && owns(el))) {
     const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
-      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
-      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
+      .map(tab => all.find(panel => panel.getAttribute("id") === tab.getAttribute("aria-controls")))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && owns(panel));
     if (panels.length) return [list, panels];
   }
   return [null, []];
@@ -38,17 +40,16 @@ function splitOf([r]) {
   splitRoots.add(r); return parseFloat(said) > 0 ? parseFloat(said) : 320;
 }
 /** Whether a root's tablist is a bar whose placement the app left unsaid, read while the root is not yet a sidebar. */
-const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical" && (nav.hasAttribute("data-exact-sidebar")
-  || (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]));
-/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one holding
- * the selected route, and that stack's other routes but a list column beside it no sheet covers (the runner's
- * `unselected`; the agent's `inactive`). */
-export function unselected(nav) {
+const unsaidBar = (nav, list) => list?.parentElement === nav && getComputedStyle(list).appearance !== "none" && list.getAttribute("aria-orientation") !== "vertical"
+  && (([n, l]) => /flex/.test(n.display) && n.flexDirection.startsWith("column") && /^(static|relative)$/.test(l.position) && l.flexDirection.startsWith("row"))([getComputedStyle(nav), getComputedStyle(list)]);
+/** Routes and panels excluded from input or document fields. Only input keeps a visible split list live. */
+function unselectedWithin(nav, keepList) {
   const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
   const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key)), routes = stacks[at] ?? [], top = routes.find(r => r.getAttribute("navigationKey") === key);
-  const beside = routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
+  const beside = keepList && routes[0]?.getAttribute("data-exact-split") === "list" && !sheet(top) ? routes[0] : top;
   return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...routes.filter(r => r !== top && r !== beside)];
 }
+export function unselected(nav) { return unselectedWithin(nav, true); } export function unselectedForHead(nav) { return unselectedWithin(nav, false); }
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
@@ -277,6 +278,7 @@ export const navigation = {
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
       let key = nav.getAttribute("navigationKey"), [list, panels] = tabsOf(nav);
+      nav.removeAttribute("data-exact-sidebar"); // Read authored placement, including changes on retained nodes.
       nav.toggleAttribute("data-exact-sidebar", wide() && unsaidBar(nav, list));
       for (const panel of managed.get(nav) ?? []) {
         if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
@@ -662,8 +664,8 @@ export function deferredFulfill(fulfill, inflight) {
 }
 // An admission refusal answers its ticket Refused (kind 2) with the reason, in its incarnation.
 export const refusal = (op, incarnation) => [incarnation, op.ticket, 2, 0, "", new TextEncoder().encode(op.message)];
-export function focusController({ready, elements, inert}) {
-  const processed = new WeakSet();
+export function focusController({ready, elements, inert, removed = el => !el.isConnected}) {
+  const processed = new WeakSet(), outgoing = new WeakMap();
   let pointerTarget = null, restarting = false;
   const autofocus = () => {
     if (restarting || !ready()) return;
@@ -687,7 +689,15 @@ export function focusController({ready, elements, inert}) {
     const el = id != null && nodes.get(id)?.type === kept.type ? view(id) : null;
     if (el?.isConnected && el.getClientRects().length && !inert(el) && !el.matches(':disabled')) el.focus({preventScroll: true});
   };
-  return {autofocus, keep, restart, press(event, el, dispatch) {
+  return {autofocus, keep, restart,
+    detached(el, event) { const pending = outgoing.get(event.target); if (!pending || pending.event && pending.event !== event) return false; pending.event = event; const held = pending.path.delete(el); if (!pending.path.size) outgoing.delete(event.target); return held; },
+    blur(el, dispatch) {
+      const path = []; for (let at = el; at; at = at.parentElement) path.push(at);
+      dispatch();
+      // Only the subtree detached by this blur hears the following DOM focusout.
+      const pending = new Set(); for (const at of path) { if (!removed(at)) break; if (at.exactHandlers?.includes("focusout")) pending.add(at); }
+      if (pending.size) outgoing.set(el, { path: pending, event: null });
+    }, press(event, el, dispatch) {
     event.stopPropagation();
     const canvas = el.closest('[data-gpu-input]');
     const previous = pointerTarget;
@@ -715,6 +725,7 @@ export function runFocusCommands(commands, { root, ready, inertAncestor, log }) 
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
       continue;
     }
+    if (name === "removeAllRanges") { getSelection()?.removeAllRanges(); continue; }
     if (name === "setSelectionRange") { setFieldSelection([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     if (name === "setRangeText") { setFieldRangeText([...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]), args, log); continue; }
     const selectText = name === "selectText";
@@ -757,7 +768,6 @@ export function environment() {
     ...foldEnv(),
   };
 }
-
 // @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device Posture API's `navigator.devicePosture.type`
 // and the viewport segments `window.viewport.segments` (two or more means a divider splits the viewport; the columns
 // are the distinct lefts, the rows the distinct tops). Where the browser lacks the APIs: `continuous`, 1 × 1, which is
@@ -781,8 +791,8 @@ export function foldEnv() {
   const f = fold();
   return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
 }
-/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is the page's look (LLP 1115.000 D4 part B): set where its stylesheet is the neutral one, which says so on the root (`--exact-look`, neutral.css), so the wasm page's kernel shows the role table's neutral column. */
-let neutralLook; export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17) | ((neutralLook ??= getComputedStyle(document.documentElement).getPropertyValue("--exact-look").trim() === "neutral") ? 1 << 25 : 0); }
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. Bit 25 is reserved. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
 export function onFold(changed) {
   globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
   addEventListener("resize", changed);
@@ -815,18 +825,15 @@ export function preferFold(request) {
   (globalThis.exact ??= {}).foldSubstitute = next;
   return foldEnv();
 }
-
-// @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the page's media queries report them: bit 0
-// `prefers-reduced-motion: reduce`, bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`, bit 3
-// `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the system's, whatever the page's `color-scheme` (a
-// browser that does not know a feature answers no preference, as CSS does) — and the primary input's `pointer: coarse`
-// (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7), zero being a mouse. Told with each boot and resize.
+// @ref LLP 1061 D4, LLP 1069.000 D1: media facts ride each boot and resize.
+// Bits 0–4: motion, transparency, contrast (more|less), dark; 5–7: coarse|none pointer, no hover.
+const DISPLAY_MODES = ["standalone", "browser", "fullscreen", "minimal-ui", "window-controls-overlay", "picture-in-picture", "tabbed"];
 let preferenceQueries;
-// Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
+// Bits 8–25 belong to foldBits(); 26–27 gamut, 28 HDR (LLP 1100 D9), 29–31 display-mode (LLP 1039 D7).
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 1 << 26], ["(color-gamut: rec2020)", 1 << 27], ["(dynamic-range: high)", 1 << 28], ...DISPLAY_MODES.map((v, i) => [`(display-mode: ${v})`, i << 29])].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
+export const displayMode = () => DISPLAY_MODES[(preferences() >>> 29) & 7];
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
-
 // @ref LLP 1069.000 D2 — the page's facts as `exact_set_page` takes them: bit 0 `document.visibilityState == "hidden"`,
 // bit 1 `!navigator.onLine`, bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3 `typeof
 // showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary R31), bit 4 `!document.hasFocus()` (#114), told
@@ -850,23 +857,22 @@ export function pageReporter(agent, platform = globalThis) {
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
-    if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
+    if (page?.["root-font-size"] !== undefined) { const { style } = platform.document.documentElement; style.fontSize = `${facts["root-font-size"]}px`; style.setProperty("--exact-host-font-size", style.fontSize); } // the size an app's percentage is of
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize(), "display-scale": displayScale() }), prefer, onChange, rootFontSize, displayScale };
 }
-
-// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over
-// the root element's own size (the browser's setting, or the agent's `prefer root-font-size`), which can change beneath
-// it; `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here.
-const APP_ROOT = "exact-root-font-size";
+// @ref LLP 1069.000 D3, LLP 1121 D6 — the app's `setRootFontSize(px)`: `:root { font-size: <px> !important }`, an author rule over the root element's own size (the browser's setting, or the agent's
+// `prefer root-font-size`), which can change beneath it; a percentage is a share of that size which follows it (CSS's `125%` of `medium`, or of the agent's substitute); `"medium"` removes the rule. The wasm runner checked the value; the JS target checks it here, by the runner's grammar (exact_num's `css_percent`) and its share, `host * ratio` as an f32 above 0.
+const APP_ROOT = "exact-root-font-size", PERCENT = /^[+-]?(\d+|\d*\.\d+)(e[+-]?\d+)?%$/i;
 export function appRootFontSize(value, say, platform = globalThis) {
-  const doc = platform.document;
+  const doc = platform.document, host = platform.getComputedStyle ? beneathApp(platform, () => parseFloat(platform.getComputedStyle(doc.documentElement).fontSize) || 16) : 16;
   let rule = doc.getElementById(APP_ROOT);
   if (value === "medium") return void rule?.remove();
-  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  const ratio = typeof value === "string" && PERCENT.test(value) ? parseFloat(value) / 100 : NaN, share = Math.fround(host * ratio), px = typeof value === "number" && Math.fround(value) > 0 && Number.isFinite(Math.fround(value));
+  if (!px && !(share > 0 && Number.isFinite(share))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, a percentage of the host's above 0 ("125%"), or "medium"`);
   if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
-  rule.textContent = `:root{font-size:${value}px!important}`;
+  rule.textContent = px ? `:root{font-size:${value}px!important}` : `:root{font-size:calc(var(--exact-host-font-size, 100%) * ${ratio})!important}`;
 }
 // @ref LLP 1116.001 D1.4 — `-exact-fit: shrink`. The browser lays the page out, so it picks the scale the kernel would,
 // by the kernel's rule (kernel/src/ layout/fit.rs): the text's min-content width against its room, down to half its
@@ -913,7 +919,6 @@ function beneathApp(platform, read) {
   rule.disabled = true;
   try { return read(); } finally { rule.disabled = false; }
 }
-
 // The page launch owns its seed, a whole number below 2^32 on every host (LLP 1116.005 D5); a new runner during
 // development reuses it. Agent facts are supplied by the drive, never by the browser's environment.
 export function placeReporter(params, platform = globalThis) {
@@ -928,7 +933,6 @@ export function placeReporter(params, platform = globalThis) {
     return [platform.navigator.language, platform.Intl.DateTimeFormat().resolvedOptions().timeZone, seed].join('\0');
   };
 }
-
 // @ref LLP 1027.000.000 D3 — under the agent the date at the clock's zero is the drive's epoch (default
 // 2026-01-01T00:00:00Z), and the offset its zone's at the virtual instant `elapsed` names; `clock +N` moves the date
 // because `now()` moves, and the glue tells the offset again after each clock move, so crossing a DST change re-answers
@@ -958,7 +962,6 @@ export function launchLocation(platform = globalThis) {
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
 export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
-
 let pagePlace;
 export function reportPlace() {
   pagePlace ??= placeReporter(launched());
@@ -1085,8 +1088,7 @@ export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInpu
 // A text field (x2apps codeedit #2): an input that is no control, or a textarea that is not the Markdown editor; its `input` and `change` carry its selection, and its `select` is HTML's.
 export const textField = (el) => el instanceof HTMLTextAreaElement ? el.getAttribute("markup") !== "markdown" : el instanceof HTMLInputElement && !typedControl(el) && el.type !== "file";
 export const editMenu = (target) => { const f = target.closest("input,textarea,[contenteditable]"); return !!f && (!(f instanceof HTMLInputElement) || textField(f)); }; // a `contextmenu` from a text field, a textarea or an editable region opens the browser's edit menu and runs no handler (review b5-b 3); a control's input (a checkbox, switch, radio, range, date, time or file) has no such menu, so its node's handler runs and its popover opens, as Chrome sends the event and macOS runs it (#487)
-// Its selection as host kinds 40 to 42 carry it, before its text: `start,end,direction,` in UTF-16 units, the DOM's; a
-// type with none (email, number) has its caret after its text, as the runner assumes.
+// Host kinds 40–42 carry UTF-16 start,end,direction before the field’s text.
 export const fieldSelection = (el) => { const end = el.value.length; return `${el.selectionStart ?? end},${el.selectionEnd ?? end},${el.selectionDirection ?? "none"},`; };
 // A radio's group as committed again (x2apps survey #2): the browser checked the radio and unchecked its group at once;
 // the action decides, and one that refuses snaps the group back. `bound` reads a radio's committed `checked` (undefined
@@ -1096,11 +1098,15 @@ export function settleRadios(el, bound) {
   for (const r of group) if (bound(r) === false && r.checked) r.checked = false;
   for (const r of group) if (bound(r) === true && !r.checked) r.checked = true;
 }
-// `setSelectionRange` (x2apps codeedit #2): the field's own method after the batch, without focus.
 export function setFieldSelection(el, args, log) {
   const [id, start, end, direction] = args ?? [];
   if (!el) return log(`setSelectionRange "${id}" refused: no live node with that id`);
-  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field`);
+  if (el.matches("[data-exact-text], [data-exact-text] *")) {
+    const size = textSource(el).length, clamp = n => Math.min(size, Number(n) >>> 0), b = clamp(end), a = Math.min(clamp(start), b);
+    const [an, ao] = textPosition(el, a), [bn, bo] = textPosition(el, b);
+    getSelection().setBaseAndExtent(...(direction === "backward" ? [bn, bo, an, ao] : [an, ao, bn, bo])); return;
+  }
+  if (typeof el.setSelectionRange !== "function") return log(`setSelectionRange "${id}" refused: not a text field or text`);
   try { el.setSelectionRange(start, end, direction); } catch { log(`setSelectionRange "${id}" refused: an input type=${el.type} has no text selection`); }
 }
 // @ref LLP 1069.001, 2026-10-12 — HTML's range edit, plus one input to synchronize the app's value; no undo step.
@@ -1112,14 +1118,13 @@ export function setFieldRangeText(el, args, log) {
   catch (error) { return log(`setRangeText "${id}" refused: ${error.name}`); }
   el.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", data: text, bubbles: true }));
 }
-// LLP 1069.001 D4: `dispatch(kind, payload)` carries a checkbox (25, 24), radio (23, 1), field's selection
-// then its text (40, 41, 42), another control's value (23, 1). The platform moves a control at once; the action
-// decides, and one that refuses snaps a checkbox or a radio group back.
+// Edit data is length-prefixed in UTF-8; commas and newlines are valid text.
+function inputPayload(el, e) { return `${e.inputType ?? ""},${+e.cancelable},${+!!e.isComposing},${e.data == null ? -1 : new TextEncoder().encode(e.data).length},${e.data ?? ""}${fieldSelection(el)}${el.value}`; }
 export function controlEvent(el, kind, on, dispatch) {
-  if (kind === "select") return void (textField(el) && on("select", () => dispatch(42, fieldSelection(el) + el.value)));
+  if (kind === "select" || kind === "selectionchange") return void (textField(el) && on(kind, () => dispatch(kind === "select" ? 42 : 52, fieldSelection(el) + el.value)));
+  if (kind === "beforeinput") return on(kind, e => dispatch(53, inputPayload(el, e), e));
   if (el.type === "checkbox") return on(kind, () => { dispatch(kind === "change" ? 24 : 25, String(el.checked)); if (el.exactChecked !== undefined && el.checked !== el.exactChecked) el.checked = el.exactChecked; });
   if (el.type === "radio") return on(kind, () => { dispatch(kind === "change" ? 1 : 23, el.value); settleRadios(el, (r) => r.exactChecked); });
-  // HTML's `change`: a text field's value committed, on blur or Enter.
   if (kind === "change") return on("change", () => { dispatch(textField(el) ? 41 : 1, (textField(el) ? fieldSelection(el) : "") + el.value); settleValue(el, true); });
   on("input", (e) => {
     const value = el.value;
@@ -1130,7 +1135,7 @@ export function controlEvent(el, kind, on, dispatch) {
       if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value) || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
       return void dispatch(23, value);
     }
-    dispatch(textField(el) ? (e.inputType === "insertReplacementText" ? 48 : 40) : 23, (textField(el) ? fieldSelection(el) : "") + value); settleValue(el, true);
+    dispatch(textField(el) ? 54 : 23, textField(el) ? inputPayload(el, e) : value); settleValue(el, true);
   });
 }
 // D9: `type <id> <value>` sets a control's value as the platform would on a choice or a release: HTML's `input`, then
@@ -1234,7 +1239,6 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-
 const grantFNV = text => {
   let hash = 0xcbf29ce484222325n;
   for (const byte of new TextEncoder().encode(text)) {
@@ -1283,7 +1287,6 @@ const grantTupleValid = grant => {
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
-
 const pathTuple = (kind, target) => {
   const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
   if (/^[a-z]:[/\\]/i.test(native)) {
@@ -1343,7 +1346,6 @@ const entryMatchesSource = ([, source, grant, error]) => {
   if (grant === null) return error !== null || exactOnly(source);
   return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
 };
-
 function validateGrantSet(set) {
   if (!set || set.version !== 1 || !Array.isArray(set.entries)
       || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
@@ -1358,7 +1360,6 @@ function validateGrantSet(set) {
   }
   return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
 }
-
 const freezeGrantSet = set => {
   for (const entry of set.entries) {
     if (entry[2]) Object.freeze(entry[2]);
@@ -1367,30 +1368,24 @@ const freezeGrantSet = set => {
   Object.freeze(set.entries);
   return Object.freeze(set);
 };
-
 // The Rust parser is the only producer. Admission validates an incoming JSON value in full before making its authority
 // immutable; a prior validation is never a reason to trust a mutable or branded object.
 export function createGrantSet(value) {
   if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
   return freezeGrantSet(value);
 }
-
 function makeGrantSet(entries, error) {
   const set = { version: 1, entries, error, seal: '' };
   set.seal = grantFNV(grantBody(set));
   return freezeGrantSet(set);
 }
-
 export function grantError(set) {
   return validateGrantSet(set) ? set.error : INVALID_GRANTS;
 }
-
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
-
 const normalizedDeclaration = set => validateGrantSet(set)
   ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
-
 // Module metadata carries the author's spelling while the bake carries the Rust parser's normalized set. Blank lines
 // and indentation have no bearing on activation; the normalized declarations do.
 export function sameGrantDeclaration(set, source) {
@@ -1399,7 +1394,6 @@ export function sameGrantDeclaration(set, source) {
   const parentLines = normalizedDeclaration(set), childLines = normalizedDeclaration(child);
   return parentLines.length === childLines.length && parentLines.every((line, index) => line === childLines[index]);
 }
-
 export function scopedGrantSet(parent, source) {
   if (source == null) return parent;
   if (!validateGrantSet(parent) || typeof source !== 'string') return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
@@ -1415,7 +1409,6 @@ export function scopedGrantSet(parent, source) {
   }
   return makeGrantSet(entries, errors.length ? `the app's grants did not parse: ${errors.join('; ')}` : null);
 }
-
 export function unionGrantSets(...sets) {
   if (sets.some(set => !validateGrantSet(set))) return makeGrantSet([], INVALID_GRANTS);
   const entries = [], seen = new Set();
@@ -1426,7 +1419,6 @@ export function unionGrantSets(...sets) {
   const error = sets.map(set => set.error).find(Boolean) ?? null;
   return makeGrantSet(entries, error);
 }
-
 const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
 export function admitsNetwork(set, value, operation = 'fetch') {
   if (grantError(set)) return false;
@@ -1439,12 +1431,10 @@ export function admitsNetwork(set, value, operation = 'fetch') {
     || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
   ));
 }
-
 export function admitsSecret(set, name) {
   return !String(name).startsWith('exact.kept.') && !grantError(set)
     && set.entries.some(([, , grant]) => grant?.[0] === 'secret-keep' && grant[1] === String(name));
 }
-
 function grantPathParts(path) {
   if (typeof path !== 'string') return null;
   const at = path.indexOf(':/');
@@ -1454,28 +1444,38 @@ function grantPathParts(path) {
   const parts = rest.split('/').filter(Boolean);
   return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
 }
-
 export function coversPath(set, capability, path) {
   if (grantError(set)) return false;
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
 // grant admission: end
-
-// `selectionchange` on a `text` (the reader diary), on both web targets: its part of the page's selection, reported as
-// the text and its UTF-16 start and end in the element's own text when that part changes; nothing selected there is ""
-// at 0, 0. One document listener serves every such element.
+// Text selections use source UTF-16 offsets; a Markdown <br> represents one newline.
 const selectedTexts = new Map();
+function textSource(e) { return e.nodeType === Node.TEXT_NODE ? e.data : e.nodeName === 'BR' ? "\n" : [...e.childNodes].map(textSource).join(''); }
+function textPosition(e, offset) {
+  const walker = document.createTreeWalker(e, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (n.nodeType === Node.TEXT_NODE) { if (offset <= n.length) return [n, offset]; offset -= n.length; }
+    else if (n.nodeName === 'BR') { const i = [...n.parentNode.childNodes].indexOf(n); if (offset <= 1) return [n.parentNode, i + offset]; offset--; }
+  }
+  return [e, e.childNodes.length];
+}
+function selectionRects(e, a, b) {
+  if (a === b) return [];
+  const range = document.createRange(); range.setStart(...textPosition(e, a)); range.setEnd(...textPosition(e, b));
+  return [...range.getClientRects()].map(r => [r.x, r.y, r.width, r.height, false, false]);
+}
 export function onSelection(e, report) {
   if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
     const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
     for (const [e, h] of selectedTexts) {
       if (!e.isConnected) { selectedTexts.delete(e); continue; }
-      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : textSource(p.cloneContents()).length; };
       let a = 0, b = 0;
       if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
       if (a === b) a = b = 0;
-      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(textSource(e).slice(a, b), a, b, selectionRects(e, a, b)); }
     }
   });
   selectedTexts.set(e, { report, a: 0, b: 0 });

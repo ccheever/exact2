@@ -420,7 +420,7 @@ const APP: &str = r#"component App
         text "open"
       dialog id="d" closedby="any"
         scroll max-height="3lh" testId="list"
-          each v in ["alpha", "beta", "gamma", "delta", "epsilon"] key=v
+          for v in ["alpha", "beta", "gamma", "delta", "epsilon"] key=v
             button press=pick(v) commandfor="d" command="close" text-align="start" testId=v
               text v
 "#;
@@ -453,7 +453,7 @@ component App
       column role="log"
         column id="entry"
           text "history" color="#ff0000" background-color="#0000ff"
-      when terminal.colors == 0
+      if terminal.colors == 0
         text "MONO" font-weight=700 text-decoration-line="underline"
       else
         text `COLOR ${terminal.colors}` color="#00ff00"

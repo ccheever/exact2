@@ -5,14 +5,15 @@
 # Tools, outside the repo: CHARON (default ~/tools/charon/bin/charon), its
 # pinned nightly (CHARON_TOOLCHAIN, default the one ~/tools/charon pins),
 # AENEAS_DIR (default ~/tools/aeneas, with bin/aeneas built and its Lean
-# library built), and elan's lake. A missing tool skips the check, naming it.
+# library built), and elan's lake. A missing tool skips the check, naming it,
+# with exit status 77 (the async lane's UNAVAILABLE: neither a pass nor a failure).
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 aeneas_dir=${AENEAS_DIR:-$HOME/tools/aeneas}
 charon=${CHARON:-$HOME/tools/charon/bin/charon}
 toolchain=${CHARON_TOOLCHAIN:-$(sed -n 's/^channel = "\(.*\)"/\1/p' "$(dirname "$(dirname "$charon")")/rust-toolchain" 2>/dev/null)}
 PATH="$HOME/.elan/bin:$PATH"
-skip() { echo "vm-extract: skipped: $1"; exit 0; }
+skip() { echo "vm-extract: skipped: $1"; exit 77; }
 [ -x "$charon" ] || skip "Charon not found at $charon (CHARON)"
 [ -x "$aeneas_dir/bin/aeneas" ] || skip "Aeneas not found at $aeneas_dir/bin/aeneas (AENEAS_DIR)"
 [ -d "$aeneas_dir/backends/lean/.lake/build" ] || skip "Aeneas's Lean library is not built ($aeneas_dir/backends/lean: lake build)"

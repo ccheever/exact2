@@ -37,13 +37,13 @@ component KeyboardForm
   view
     main navigationKey=`${top(nav).id}` testId="app" width="100%" height="100%" display="flex" flex-direction="column"
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key=t.name
+        for t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key=e.id
+            for e in t.stack key=e.id
               column navigationKey=`${e.id}` navigationScroll=`content-${e.id}` testId=`route-${e.name}` position="absolute" inset=0 display="flex" flex-direction="column"
                 header display="flex" align-items="center" padding="8px 16px"
                   text (e.name == "log" ? "Workout" : e.name == "pinned" ? "Pinned" : "Other") role="heading" aria-level=1
-                when e.name == "log"
+                if e.name == "log"
                   list id=`content-${e.id}` appearance="auto" listStyle="inset-grouped" flex=1 min-height=0 testId="form-list"
                     section
                       row
@@ -84,7 +84,7 @@ component KeyboardForm
                       row
                         button press=add testId="bench-add" flex=1
                           text "Add Set"
-                else when e.name == "pinned"
+                else if e.name == "pinned"
                   scroll id=`content-${e.id}` flex=1 min-height=0 padding=16 gap=12 testId="pinned-scroll"
                     column height=480
                       text "Cover"
@@ -93,7 +93,7 @@ component KeyboardForm
                   row padding=16 position="absolute" bottom=0 left=0 right=0 background-color="-exact-secondary-background" testId="pinned-bar"
                     button press=add flex=1 testId="pinned-add"
                       text "Add to shelf"
-                else when added == 0
+                else if added == 0
                   scroll id=`content-${e.id}` flex=1 min-height=0
                     button press=add testId="fill"
                       text "Fill"

@@ -485,6 +485,7 @@ extension NodeView {
     func recycle() {
         cancelPressContact()
         pressContact = nil
+        scrollEnd?.reset()
         presenter?.forgetParagraph(self)
         cancelSurfaceControls()
         invalidateText()
@@ -503,7 +504,7 @@ extension NodeView {
         hatchReusable = false
         content = .zero
         // The next node's layout sends its own content box, if any
-        kernelContentBox = nil
+        kernelContentBox = nil; kernelPadding = nil
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.
         if layer.contents != nil { layer.contents = nil }
@@ -539,6 +540,7 @@ extension NodeView {
         pressContact = nil
         id = newID
         incarnation = NodePool.issue()
+        scrollEnd?.reset()
         focusedByTouch = false
         // UIKit's setters are not free, even to the same value.
         if isHidden { isHidden = false }

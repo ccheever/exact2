@@ -105,7 +105,7 @@ pub fn block(index: usize, b: &Block) -> Value {
     Values::new().block(index, b)
 }
 
-/// The `list<Block>` a document's `blocks` field takes. The top-level
+/// The `Block[]` a document's `blocks` field takes. The top-level
 /// document record is each app's own — `apps/markdown` carries the folder
 /// beside the file, `apps/llp` the document's place in the index — and this
 /// is the part they must not write twice.

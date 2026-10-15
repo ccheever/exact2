@@ -59,10 +59,8 @@ component X63app
 
 | Scenario | Setup / reset / exact commands | Platform / OS / device | Framework revision | Actual result | Expected result | Evidence |
 |---|---|---|---|---|---|---|
-| Plain textarea, ⌘Z | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 420x300 "type ta hello" "clock settle" "tap ta" "type ta key Meta+z" "clock settle" tree` | macOS 26.6.2, Apple Silicon | main `b896050d7` | the chord's reply is `{"typed":2,"key":"Meta+z",…}` (the menu took it); then `TextInput#2 [ta] value="hello"`, `plain: [hello]` | `value=""`, `plain: []` | [record](https://raw.githubusercontent.com/ccheever/exact2/690838bdab6e3cfdf7b646666a8c2530fd26bca4/file-x48-x68/x63-record.txt), [screenshot](https://raw.githubusercontent.com/ccheever/exact2/e482386f1dcc93903e9cbc248435c3fac8b35dbb/file-x48-x68/x63-macos.png) |
+| Plain textarea, ⌘Z | `bun exact.mjs mac`; `bun exact.mjs agent macos --size 420x300 "type ta hello" "clock settle" "tap ta" "type ta key Meta+z" "clock settle" tree` | macOS 26.6.2, Apple Silicon | main `b896050d7` | the chord's reply is `{"typed":2,"key":"Meta+z",…}` (the menu took it); then `TextInput#2 [ta] value="hello"`, `plain: [hello]` | `value=""`, `plain: []` | record, screenshot |
 | Markdown textarea, ⌘Z (control) | same session: `"type md hello" "clock settle" "tap md" "type md key Meta+z" "clock settle" tree` | same | same | `TextInput#4 [md] value=""`, `markdown: []` | (undoes) | same |
-
-![macOS window after the drive: the plain field still reads hello; the Markdown field is empty](https://raw.githubusercontent.com/ccheever/exact2/e482386f1dcc93903e9cbc248435c3fac8b35dbb/file-x48-x68/x63-macos.png)
 
 `TextAreaMac.swift` and `DevMenuMac.swift` were last changed in `5b2b77339`; the lines cited above are main `b896050d7`'s.
 

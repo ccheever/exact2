@@ -138,15 +138,18 @@ pub enum ControlValue {
     Field(String, super::FieldSelection),
     /// A scripted range replacement: one noncancelable insertReplacementText input.
     Replacement(String, super::FieldSelection),
+    /// A native or browser edit with its InputEvent metadata.
+    Edit(String, super::FieldSelection, super::InputDetails),
 }
 
 impl ControlValue {
     /// The value as the action receives it.
     pub(super) fn value(&self) -> Value {
         match self {
-            Self::Text(text) | Self::Field(text, _) | Self::Replacement(text, _) => {
-                Value::str(text)
-            }
+            Self::Text(text)
+            | Self::Field(text, _)
+            | Self::Replacement(text, _)
+            | Self::Edit(text, ..) => Value::str(text),
             Self::Checked(on) => Value::Bool(*on),
             Self::Files(files) => Value::list(files.iter().map(|f| f.value()).collect()),
         }
@@ -206,9 +209,16 @@ pub enum Event {
         /// Whether it is open after the last change in this turn.
         new_open: bool,
     },
+    /// A scroll finished (DOM's `scrollend`): the person's, its momentum
+    /// included, or an animated one.
+    Scrollend,
     /// A text field's selection changed (HTML's `select`, x2apps codeedit
     /// #2): its text, and the selection its `InputEvent` reports.
     FieldSelect(String, super::FieldSelection),
+    /// The field's selection, including a collapsed caret.
+    FieldSelectionChange(String, super::FieldSelection),
+    /// The proposed edit, before the host changes its buffer.
+    BeforeInput(String, super::FieldSelection, super::InputDetails),
     /// Markdown toolbar facts. Selection offsets remain local to the editor.
     Select {
         /// Space-separated active format names.
@@ -328,6 +338,8 @@ pub enum Event {
         start: f64,
         /// Where it ends.
         end: f64,
+        /// Selected fragments in viewport coordinates, sampled with the event.
+        rects: Vec<crate::geometry::GeometryAnswer>,
     },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
@@ -389,6 +401,24 @@ pub struct ScrollEvent {
     pub client_width: f64,
     /// The scrollport's height (`clientHeight`).
     pub client_height: f64,
+}
+
+impl ScrollEvent {
+    fn value(&self, anchor: Option<(Value, f64)>) -> Value {
+        let (key, offset) = anchor.map_or((Value::NONE, 0.0), |(key, offset)| {
+            (Value::some(key), offset)
+        });
+        Value::record(vec![
+            Value::Number(self.left),
+            Value::Number(self.top),
+            Value::Number(self.width),
+            Value::Number(self.height),
+            Value::Number(self.client_width),
+            Value::Number(self.client_height),
+            key,
+            Value::Number(offset),
+        ])
+    }
 }
 
 /// The modifier keys held as a key went down: `KeyboardEvent`'s
@@ -541,23 +571,18 @@ impl Event {
                 Value::Bool(*is_intersecting),
                 Value::Number(*intersection_ratio),
             ])),
-            Event::Scroll(s) => Some(Value::record(
-                [
-                    s.left,
-                    s.top,
-                    s.width,
-                    s.height,
-                    s.client_width,
-                    s.client_height,
-                ]
-                .map(Value::Number)
-                .to_vec(),
-            )),
+            Event::Scroll(s) => Some(s.value(None)),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
-            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+            Event::SelectionChange {
+                text,
+                start,
+                end,
+                rects,
+            } => Some(Value::record(vec![
                 Value::str(text),
                 Value::Number(*start),
                 Value::Number(*end),
+                Value::list(rects.iter().map(|r| r.value()).collect()),
             ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
@@ -1036,6 +1061,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Cancel => "cancel",
                 Event::Close => "close",
                 Event::Toggle { .. } => "toggle",
+                Event::Scrollend => "scrollend",
                 Event::Select { .. } | Event::FieldSelect(..) => "select",
                 Event::Hover(true) => "hover in",
                 Event::Hover(false) => "hover out",
@@ -1065,7 +1091,10 @@ impl<D: DataSource> Runner<D> {
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
-                Event::SelectionChange { .. } => "selectionchange",
+                Event::SelectionChange { .. } | Event::FieldSelectionChange(..) => {
+                    "selectionchange"
+                }
+                Event::BeforeInput(..) => "beforeinput",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -1075,7 +1104,25 @@ impl<D: DataSource> Runner<D> {
         );
         let was_poisoned = self.poisoned;
         let outer = self.input_source.replace(view);
+        let blur = matches!(event, Event::Blur);
+        let path = blur.then(|| self.capture_blur_focus(view));
+        let outgoing = matches!(event, Event::Focusout { .. })
+            .then(|| self.detached_focus_target(view))
+            .flatten();
+        let commands = self.commands.len();
         let result = self.dispatch_inner(view, event, &mut what);
+        if let Some(path) = path {
+            self.finish_blur_focus(view, path);
+        }
+        if let Some(target) = outgoing {
+            if result.is_err()
+                || self.commands[commands..]
+                    .iter()
+                    .any(|c| c.name == "stopPropagation")
+            {
+                self.detached_focus.retain(|(id, _)| *id != target);
+            }
+        }
         self.input_source = outer;
         self.log_outcome(&what, &result, was_poisoned);
         result
@@ -1090,14 +1137,21 @@ impl<D: DataSource> Runner<D> {
         if let Some(event) = event.invalid_payload() {
             return Err(RunnerError::InvalidEvent { event });
         }
-        let (node, frames) = self.find(view).ok_or(RunnerError::UnknownView(view))?;
-        // Dismissal events without a listener do nothing: a picker's
-        // `cancel` (LLP 1069.010 D3), or a dialog's `close` (LLP 1021).
-        if matches!(event, Event::Cancel | Event::Close) {
-            let kind = if matches!(event, Event::Close) {
-                EventKind::Close
-            } else {
-                EventKind::Cancel
+        let (node, frames) = self
+            .find(view)
+            .or_else(|| {
+                matches!(event, Event::Focusout { .. })
+                    .then(|| self.take_detached_focus(view))
+                    .flatten()
+            })
+            .ok_or(RunnerError::UnknownView(view))?;
+        // Events without a listener do nothing: a picker's `cancel` (LLP
+        // 1069.010 D3), a dialog's `close` (LLP 1021), a scroll's end.
+        if matches!(event, Event::Cancel | Event::Close | Event::Scrollend) {
+            let kind = match event {
+                Event::Close => EventKind::Close,
+                Event::Scrollend => EventKind::Scrollend,
+                _ => EventKind::Cancel,
             };
             let has_handler = self
                 .plan
@@ -1122,32 +1176,47 @@ impl<D: DataSource> Runner<D> {
         let (control, record) = match (&event, control) {
             (Event::Input(v) | Event::Change(v), Some(p)) => {
                 let reported = match v {
-                    ControlValue::Field(_, s) | ControlValue::Replacement(_, s) => Some(*s),
+                    ControlValue::Field(_, s)
+                    | ControlValue::Replacement(_, s)
+                    | ControlValue::Edit(_, s, _) => Some(*s),
                     _ => None,
                 };
                 let record = self.input_record(
                     view,
                     &p,
                     reported,
+                    match v {
+                        ControlValue::Edit(_, _, edit) => Some(edit),
+                        _ => None,
+                    },
                     matches!(v, ControlValue::Replacement(..)),
                 );
                 (Some(p), Some(record))
             }
-            (Event::FieldSelect(text, s), _) => (
+            (Event::FieldSelect(text, s) | Event::FieldSelectionChange(text, s), _) => (
                 None,
-                Some(self.input_record(view, &Value::str(text), Some(*s), false)),
+                Some(self.input_record(view, &Value::str(text), Some(*s), None, false)),
+            ),
+            (Event::BeforeInput(text, s, edit), _) => (
+                None,
+                Some(self.input_record(view, &Value::str(text), Some(*s), Some(edit), false)),
             ),
             _ => (None, None),
         };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
             Event::FieldSelect(..) => (EventKind::Select, record.clone(), "select"),
+            Event::FieldSelectionChange(..) => {
+                (EventKind::Selectionchange, None, "selectionchange")
+            }
+            Event::BeforeInput(..) => (EventKind::Beforeinput, None, "beforeinput"),
             Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
             Event::Close => (EventKind::Close, None, "close"),
             Event::Toggle { .. } => (EventKind::Toggle, None, "toggle"),
+            Event::Scrollend => (EventKind::Scrollend, None, "scrollend"),
             Event::Select {
                 formats,
                 mixed,
@@ -1244,7 +1313,28 @@ impl<D: DataSource> Runner<D> {
         // A drop's `ReorderEvent` names its lists (LLP 1094 D2).
         let record = match &event {
             Event::ReorderDrop { .. } => Some(self.reorder_record(view)),
-            Event::Input(_) | Event::Change(_) => record,
+            Event::Input(_)
+            | Event::Change(_)
+            | Event::FieldSelectionChange(..)
+            | Event::BeforeInput(..) => record,
+            Event::Scroll(s)
+                if self.plan.action(handler.action).params.len as usize > args.len() + 2 =>
+            {
+                let anchor = self.links.lists.and_then(|lists| {
+                    self.tree.as_ref().and_then(|tree| {
+                        (lists.scroll_anchor)(
+                            tree,
+                            &self.kernel,
+                            view,
+                            s.left,
+                            s.top,
+                            s.client_width,
+                            s.client_height,
+                        )
+                    })
+                });
+                Some(s.value(anchor))
+            }
             _ => event.record(),
         };
         match event {

@@ -19,9 +19,9 @@ final class MenuStabilityIOSTests: XCTestCase {
         // A screen (1): the invoker (2), its menu (3) with one row (4).
         p.apply(wireBatch([
             ["op": "create", "id": 1, "kind": "view"],
-            ["op": "create", "id": 2, "kind": "view", "props": ["popovertarget": "more", "testId": "more-button"]],
+            ["op": "create", "id": 2, "kind": "button", "props": ["popovertarget": "more", "testId": "more-button"]],
             ["op": "create", "id": 3, "kind": "view", "props": ["id": "more", "popover": "auto", "role": "menu"]],
-            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"], "props": ["role": "menuitem", "popovertarget": "more", "popovertargetaction": "hide"]],
+            ["op": "create", "id": 4, "kind": "button", "handlers": ["press"], "props": ["role": "menuitem", "popovertarget": "more", "popovertargetaction": "hide"]],
             ["op": "children", "id": 3, "ids": [4]],
             ["op": "children", "id": 1, "ids": [2, 3]], ["op": "roots", "ids": [1]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
@@ -53,6 +53,17 @@ final class MenuStabilityIOSTests: XCTestCase {
             XCTAssertTrue(pop.isHidden, "toggle must not open a painted duplicate")
             button.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
         }
+    }
+
+    /// Only a button invokes a popover (HTML): a view naming one gets no menu.
+    func testAViewThatNamesAPopoverIsNoInvoker() throws {
+        let p = presenter()
+        defer { p.menus.reset() }
+        p.apply(wireBatch([["op": "create", "id": 5, "kind": "view", "props": ["popovertarget": "more"]],
+                           ["op": "children", "id": 1, "ids": [2, 3, 5]],
+                           ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 44.0, "h": 44.0]]))
+        XCTAssertNotNil(p.views[2]?.subviews.compactMap { $0 as? MenuButton }.first, "the button has its menu")
+        XCTAssertNil(p.views[5]?.subviews.compactMap { $0 as? UIButton }.first, "the view has none")
     }
 
     func testABatchThatChangesNothingKeepsTheMenu() throws {

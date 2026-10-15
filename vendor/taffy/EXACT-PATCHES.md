@@ -1077,3 +1077,9 @@ textarea's height.
 
 The row-layout memo exposes `forget_memo` so an environment change invalidates
 recordings whose calc handles keep the same identity but resolve differently.
+
+## Cargo workspace boundary
+
+`Cargo.toml` declares an empty workspace so `cargo fmt --all` in a nested
+Exact worktree does not attach this excluded path dependency to the enclosing
+checkout. This is an Exact integration patch to retain when updating.

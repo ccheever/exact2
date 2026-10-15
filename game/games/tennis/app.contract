@@ -52,9 +52,9 @@ component Tennis
 
   view
     main width="100%" height="100%" background-color="#0b1726" color="#f8fafc"
-      when playing
+      if playing
         canvas surface=world(seed=7, offline=offline, paused=paused, restart=again, plan=plan) testId="world" width="100%" height="100%" position="relative"
-          when paused and not hud.over
+          if paused and not hud.over
             column testId="paused" position="absolute" inset=0 align-items="center" justify-content="center" gap=12 background-color="#0b172699"
               text "Paused" font-size=40 font-weight=800
               text "Jev's clock stops too." color="#cbd5e1"
@@ -74,19 +74,19 @@ component Tennis
               row testId="jev" gap=8 align-items="center" padding-top=8 padding-bottom=8 padding-left=14 padding-right=14 border-radius=20 background-color="#0b1726d9" border-width=1 border-color=(hud.jev_state == "late" ? "#fbbf24" : hud.jev_state == "unavailable" ? "#f87171" : hud.jev_state == "thinking" ? "#5eead4" : "#1e3a5f")
                 text (pending(plan) ? "◌" : hud.jev_state == "late" ? "!" : "●") testId="jev-dot" color=(hud.jev_state == "late" ? "#fbbf24" : hud.jev_state == "unavailable" ? "#f87171" : "#5eead4") font-weight=700
                 text (hud.jev == "" ? (offline ? "Offline opponent" : "Jev is watching") : hud.jev) testId="jev-line" aria-live="polite" font-size=15
-                when hud.jev_status != ""
+                if hud.jev_status != ""
                   text hud.jev_status testId="jev-status" font-size=13 color=(hud.jev_state == "late" ? "#fbbf24" : hud.jev_state == "unavailable" ? "#f87171" : "#94a3b8")
-              when hud.call != ""
+              if hud.call != ""
                 text hud.call testId="call" aria-live="assertive" padding-top=6 padding-bottom=6 padding-left=16 padding-right=16 border-radius=8 background-color="#c6f432" color="#0b1726" font-size=20 font-weight=800 letter-spacing=0.5
             row gap=8
-              when paused
+              if paused
                 button press=menu testId="menu" aria-label="Menu" padding=12 border-radius=10 background-color="#1e3a5f"
                   text "Menu"
                 button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=10 background-color="#1e3a5f"
                   text "Restart"
               button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=10 background-color="#0b1726d9"
                 text (paused ? "Resume" : "Pause")
-          when hud.prompt != "" and not paused
+          if hud.prompt != "" and not paused
             row position="absolute" left=0 right=0 bottom=148 justify-content="center"
               text hud.prompt testId="prompt" padding=10 border-radius=10 background-color="#0b1726d9" font-size=16
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=112 height=112 border-radius=56 background-color="#f8fafc26" border-width=2 border-color="#f8fafc55"
@@ -100,7 +100,7 @@ component Tennis
               column align-items="center"
                 text "Forehand" font-size=15 font-weight=800
                 text "J" font-size=12 color="#334155"
-          when hud.over
+          if hud.over
             column testId="match-over" position="absolute" inset=0 align-items="center" justify-content="center" gap=16 background-color="#0b1726cc"
               text (hud.winner == "You" ? "You win!" : "Jev wins") testId="winner" font-size=48 font-weight=800 color=(hud.winner == "You" ? "#fdba74" : "#5eead4")
               text `${hud.you_games} – ${hud.jev_games} in games · longest rally ${hud.longest}` font-size=18

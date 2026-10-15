@@ -815,6 +815,13 @@ boot path executes nothing), for what CSS does on its own.
    by replacing a platform control with a look-alike; where the platform offers none (an
    alert, a system menu) the surface stays the platform's and D4 says so. It still lands
    only on his word, after that reach is measured.
+   **Landed (2026-10-14, `7a95dcce4`..`13f49af39`; Charlie: "Land it"), as LLP 1121's
+   stage 1.** It was built differently from D1: there is no interned `Ref`. A theme name
+   resolves to its entry's value where the colour is parsed, so rows hold the forms the
+   kernel already has. A role override is a table the kernel applies to its own defaults
+   and to what crosses to a host, and each host's own surfaces read it. The as-built
+   record, with the rules settled in review, what reached and what stayed the platform's,
+   and what dropping `Ref` costs a later live table, is LLP 1121 §10, "Stage 1".
 7. **§10's fidelity fixes,** in their own order (§10.6).
 
 ## 6. Open questions for the maintainer

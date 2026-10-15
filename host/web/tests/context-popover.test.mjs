@@ -10,10 +10,10 @@
 import { test, expect } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { chromium as browserPath } from '../../../scripts/agent-launch.mjs';
-import { DEFAULT_LOOK, withLook } from '../look.mjs';
+import { withLook } from '../look.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
-const page = `<style>${withLook(read('../index.html'), DEFAULT_LOOK).match(/<style>([\s\S]*?)<\/style>/)[1]}</style>
+const page = `<style>${withLook(read('../index.html')).match(/<style>([\s\S]*?)<\/style>/)[1]}</style>
 <div id="exact-root"><div id="row" style="height:60px">A row</div><div id="gone" style="height:60px">A row whose menu is gone</div>
   <div popover="auto" role="menu" id="menu"><button type="button" id="item">Rename</button></div></div>
 <script type="module">${read('../navigation.js')}

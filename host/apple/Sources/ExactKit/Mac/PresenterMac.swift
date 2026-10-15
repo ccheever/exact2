@@ -365,25 +365,6 @@ package final class Presenter {
         min(0.004, max(0.001, interval * 0.24))
     }
     var sliceBudget: TimeInterval { Self.listSliceBudget(refreshInterval) }
-    /// Charge the report (decode, layout and apply) to the
-    /// rows it created. Cheap rows share those fixed costs in the next report.
-    /// Grow at most twofold and retain recent expensive samples conservatively.
-    struct ListFillCost {
-        private(set) var secondsPerRow: TimeInterval?
-        private var lastRows = 1
-        mutating func record(seconds: TimeInterval, rows: Int) {
-            guard rows > 0 else { return }
-            let sample = max(0.000001, seconds / Double(rows))
-            secondsPerRow = max(sample, (secondsPerRow ?? sample) * 0.75 + sample * 0.25)
-            lastRows = rows
-        }
-        func rows(within remaining: TimeInterval) -> UInt32 {
-            guard remaining > 0 else { return 0 }
-            guard let secondsPerRow else { return 1 }
-            let fitting = floor(remaining * 0.9 / secondsPerRow)
-            return UInt32(max(0, min(Double(lastRows) * 2, fitting, Double(UInt32.max - 1))))
-        }
-    }
     private var listFillCosts: [UInt32: ListFillCost] = [:]
     private struct ListTravel {
         var top: CGFloat, time: TimeInterval, velocity: Double = 0, step: Double = 0
@@ -757,7 +738,7 @@ package final class Presenter {
     var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
     /// A `text`'s part of the selection changed: its text and source offsets.
-    var onSelectionChange: ((UInt32, String, Int, Int) -> Void)?
+    var onSelectionChange: ((UInt32, String, Int, Int, [CGRect]) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
     /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
@@ -798,13 +779,14 @@ package final class Presenter {
     /// A scroller with a `scroll` handler moved: left, top, then its
     /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
     var onScroll: ((UInt32, [Double]) -> Void)?
+    var onScrollend: ((UInt32) -> Void)?
     /// A scroller (nil: the page) moved, handler or not: `frame()` reads
     /// boxes where the viewer sees them (LLP 1051.000 D1).
     var onScrolled: ((UInt32?, Double, Double) -> Void)?
     var onListIndex: ((UInt32, String) -> Int?)?
     var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
     var interacting: UInt32 = 0
-    private var listViews: [UInt32: NodeView] = [:]
+    private(set) var listViews: [UInt32: NodeView] = [:]
 
     /// Everything kept for `id`, out of the maps (not out of the window);
     /// `forget` releases its resources too, as a destroy does and a leaving
@@ -985,7 +967,7 @@ package final class Presenter {
     }
     func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
-    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int, rects: [CGRect] = []) { send(id) { [self] in onSelectionChange?(id, text, start, end, rects) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
     /// A `contextmenu` with its point (10), a `wheel` (37) or a `drop` (38)
     /// with its line (studio diary R22, R3, R19; MouseEventsMac.swift).
@@ -1000,6 +982,7 @@ package final class Presenter {
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
     func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
+    func scrollend(_ id: UInt32) { send(id) { [self] in onScrollend?(id) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     package func message(_ id: UInt32, _ value: String) {
@@ -1129,32 +1112,20 @@ package final class Presenter {
                 let container = parent.container
                 dialogs.children(container, want)
                 menus.children(container, want)
+                tables.children(id, want)
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0) && !isFlying($0) }, in: container)
-                for (i, child) in mounted.enumerated() {
-                    if child.superview !== container {
-                        reparented.insert(child.id)
-                        child.rejoinUnderHold()
-                        child.prepareToMount()
-                        // Appending then moving the first child above nil puts
-                        // it last and needlessly remounts every retained sibling.
-                        if i == 0, let first = container.subviews.first,
-                           container.subviews.allSatisfy({ $0 is NodeView }) {
-                            container.addSubview(child, positioned: .below, relativeTo: first)
-                        } else { container.addSubview(child) }
-                    }
-                    let siblings = container.subviews
-                    if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
-                        child.removeFromSuperview()
-                        child.rejoinUnderHold()
-                        container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
-                    }
+                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !blocks.owns($0) && !tables.owns($0, in: id) && !isFlying($0) }
+                for child in mounted where child.superview !== container {
+                    reparented.insert(child.id)
+                    child.rejoinUnderHold()
+                    child.prepareToMount()
+                    container.addSubview(child)
                 }
-                if collections.owns(id) { collections.orderChildren(want, in: container) }
+                orderChildren(want, in: container)
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
@@ -1205,6 +1176,7 @@ package final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+                v.layoutContent()
             case .fieldContent:
                 views[id]?.applyFieldContent(op.payload)
             case .content:
@@ -1228,7 +1200,7 @@ package final class Presenter {
             }
         }
         if !flights.isEmpty { flightsBatchApplied() }
-        tables.sync()
+        tables.sync(batch)
         navigation.sync(batch, reparented: reparented)
         sidebar.sync(batch)
         if !pendingTips.isEmpty { settleTips() }
@@ -1237,7 +1209,8 @@ package final class Presenter {
         // shows beyond a document shorter than the viewport, as a browser
         // paints the root element's background over the whole canvas.
         // Unset, the platform's window background (LLP 1115 D2).
-        let color = (root.subviews.first as? NodeView)?.color("background_color", .windowBackgroundColor) ?? .windowBackgroundColor
+        let ground = ThemeRoles.color("background") ?? ThemeRoles.color("Canvas", or: .windowBackgroundColor)
+        let color = (root.subviews.first as? NodeView)?.color("background_color", ground) ?? ground
         if viewport.backgroundColor != color { viewport.backgroundColor = color; navigation.groundChanged() }
         let first = root.subviews.first as? NodeView
         let fit = first?.props["viewportFit"]
@@ -1279,6 +1252,38 @@ package final class Presenter {
         })
         syncAccessibility(changed: changed, disabledRoots: disabledRoots)
         _ = chrome.takeChangedNames()
+    }
+
+    func orderChildren(_ children: [NodeView], in container: NSView) {
+        // Detaching a retained child clears AppKit's first responder. Sort
+        // in place; a flight's slot stands for its lifted child (LLP 1013.000).
+        // Exit ghosts keep their slots among both live and flying children.
+        let wanted = Set(children.map(ObjectIdentifier.init))
+        let current = container.subviews
+        var ordered: [NSView] = children.compactMap { child in
+            if child.superview === container { return child }
+            guard let flight = flights[child.id], flight.view === child,
+                  let slot = flight.slot, slot.superview === container else { return nil }
+            return slot
+        }
+        let placed = Set(ordered.map(ObjectIdentifier.init))
+        let peers = current.filter { $0 is NodeView || $0 is FlightSlot }
+        for (index, child) in peers.enumerated() where !placed.contains(ObjectIdentifier(child)) &&
+            ((child as? NodeView)?.paintGhost == true || child is FlightSlot) {
+            ordered.insert(child, at: min(index, ordered.count))
+        }
+        let leaving = current.filter { ($0 as? NodeView).map { !$0.paintGhost } ?? false && !wanted.contains(ObjectIdentifier($0)) }
+        let native = current.filter { !($0 is NodeView) && !($0 is FlightSlot) }
+        ordered = native + ordered + leaving
+        guard !ordered.elementsEqual(current, by: { $0 === $1 }) else { return }
+        var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            container.sortSubviews({ left, right, raw in
+                let order = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = order[ObjectIdentifier(left)]!, b = order[ObjectIdentifier(right)]!
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
     }
 
     private static let accessibilityOps: Set<BatchOp.Kind> = [.create, .props, .style, .children, .paragraph, .flow, .frame, .fieldContent]

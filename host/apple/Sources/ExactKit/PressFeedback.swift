@@ -98,6 +98,8 @@ extension NodeView {
     func pressChanged() {
         if pressed { pressHaptic() }
         #if os(iOS)
+        // A list's row is its cell: the cell's ground, not the dim (LLP 1115.000 D16).
+        if platformPressDims, presenter?.rowCells.press(self, pressed) == true { return }
         if platformPressDims { dimPress(pressed); return }
         if !pressed { dimPress(false) }
         #elseif os(macOS)
@@ -111,6 +113,7 @@ extension NodeView {
     func pressFollows(inside: Bool) {
         guard pressed else { return }
         #if os(iOS)
+        if platformPressDims, presenter?.rowCells.press(self, inside) == true { return }
         if platformPressDims { dimPress(inside); return }
         #elseif os(macOS)
         if platformPressTints { tintPress(inside); return }
@@ -264,8 +267,7 @@ extension NodeView {
         // alone (`Surface.swift`, LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressModelFactor
         followPressEase(about: d)
-        // A sticky box's scroll offset moves it there too (LLP 1083).
-        let outer = CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
+        let outer = hostPlacement
         if let space = spaceTransform(origin: d, scale: s) {
             // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.
@@ -275,6 +277,22 @@ extension NodeView {
         }
         let own = CGAffineTransform(translationX: translate.x + d.x, y: translate.y + d.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -d.x, y: -d.y)
         transform = own.concatenating(outer)
+    }
+    /// Where the host moves the box beyond its layout and its own CSS
+    /// transform: a layout transition's offset, a sticky box's scroll offset
+    /// (LLP 1083), a keyboard toolbar's lift and a context preview's projection.
+    var hostPlacement: CGAffineTransform {
+        CGAffineTransform(translationX: layoutOffset.x + stickyOffset.x, y: layoutOffset.y - keyboardLift + stickyOffset.y).concatenating(contextTransform)
+    }
+    /// The border box in `viewport`'s visible space as an open top-layer box
+    /// is told to the runner: before its own transform, which the runner
+    /// applies, and after the host's placement, which the runner cannot know.
+    /// UIKit transforms a view about its center.
+    func topLayerFrame(in viewport: UIScrollView) -> CGRect {
+        guard let parent = superview else { return .zero }
+        let box = CGRect(x: -bounds.width / 2, y: -bounds.height / 2, width: bounds.width, height: bounds.height)
+            .applying(hostPlacement).offsetBy(dx: center.x, dy: center.y)
+        return parent.convert(box, to: viewport).offsetBy(dx: -viewport.bounds.minX, dy: -viewport.bounds.minY)
     }
     /// Whether a touch is inside the box as it stands unpressed. The pressed
     /// box is smaller, so testing against it would release a finger resting

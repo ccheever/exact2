@@ -227,6 +227,7 @@ fn border_defaults_clear_and_wire_preserve_authored_width_separately_from_used_w
         &[Op::ClearStyle {
             id: 1,
             mask: StyleMask::of(StyleId::BorderStyleRight),
+            written: false,
         }],
     )
     .unwrap();
@@ -624,12 +625,30 @@ fn clearing_a_caret_override_restores_inheritance_not_auto() {
         None,
         "explicit auto stops inheritance"
     );
-    k.apply(0, 3, &[Op::ClearStyle { id: 2, mask }]).unwrap();
+    k.apply(
+        0,
+        3,
+        &[Op::ClearStyle {
+            id: 2,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(
         k.node(2).unwrap().computed_style(mask).caret_color,
         Some(Color::WHITE.into())
     );
-    k.apply(0, 4, &[Op::ClearStyle { id: 1, mask }]).unwrap();
+    k.apply(
+        0,
+        4,
+        &[Op::ClearStyle {
+            id: 1,
+            mask,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert_eq!(k.node(2).unwrap().computed_style(mask).caret_color, None);
 }
 
@@ -744,6 +763,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("1px 2px #000".into()),
         StyleValue::Text("y 30deg".into()),
         StyleValue::Text("blur(12px) saturate(1.14)".into()),
+        StyleValue::Text("flip-block, flip-inline".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

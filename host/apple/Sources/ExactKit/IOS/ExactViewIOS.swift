@@ -412,7 +412,7 @@ public final class ExactView: UIView {
         // under the keys, and the sheet's own surface returns with them.
         #if os(iOS)
         if let sheet = session.presenter.modals.coordinateView {
-            let surface = edge ?? .systemBackground
+            let surface = edge ?? .platformBackground
             if sheet.backgroundColor != surface { sheet.backgroundColor = surface }
         }
         #endif

@@ -19,7 +19,7 @@ shape Run
 
 // One pre-coloured line: code, a diff, tool output, ANSI art.
 shape Line
-  runs: list<Run>
+  runs: Run[]
 
 // One block of rendered Markdown, or of pre-coloured lines.
 //   kind: "p" | "h1" | "h2" | "h3" | "li" | "quote" | "code" | "rule" | "lines"
@@ -31,8 +31,8 @@ shape Block
   depth: number
   marker: string
   lang: string
-  runs: list<Run>
-  lines: list<Line>
+  runs: Run[]
+  lines: Line[]
 
 // One transcript entry.
 //   id: a decimal number, strictly increasing, never reused
@@ -54,7 +54,7 @@ shape Entry
   busy: bool
   title: string
   status: string
-  blocks: list<Block>
+  blocks: Block[]
   more: number
   image: string
   cols: number
@@ -67,7 +67,7 @@ shape Approval
   id: string
   tool: string
   summary: string
-  lines: list<Line>
+  lines: Line[]
 
 shape ModelChoice
   id: string
@@ -90,12 +90,12 @@ shape Session
   tokensIn: number
   tokensOut: number
   contextPct: number
-  entries: list<Entry>
+  entries: Entry[]
   approval: Approval
   toast: string
-  models: list<ModelChoice>
+  models: ModelChoice[]
   retired: number
-  queued: list<string>
+  queued: string[]
   // Which transcript: `/clear` starts a new one.
   epoch: number
 
@@ -107,12 +107,12 @@ shape FrameRun
   weight: number
 
 shape FrameLine
-  runs: list<FrameRun>
+  runs: FrameRun[]
 
 // A running animation's frame (topic none: asked again on each tick).
 shape Frame
   title: string
-  lines: list<FrameLine>
+  lines: FrameLine[]
 
 shape Ack
   ok: bool

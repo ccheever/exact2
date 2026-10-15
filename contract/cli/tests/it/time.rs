@@ -98,6 +98,41 @@ fn a_date_known_at_launch_is_read_from_the_first_frame() {
     assert_eq!(text(&outside()), "0/0");
 }
 
+/// Where the viewer is, known at launch: the first frame reads the locale,
+/// zone and seed, and the same place told after commits nothing; a place
+/// that does not validate boots on the defaults.
+#[test]
+fn a_place_known_at_launch_is_read_from_the_first_frame() {
+    const PLACE_APP: &str = "shape Time\n  locale: string\n  timeZone: string\n  seed: number\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}/${time.timeZone}/${time.seed}` testId=\"date\"\n";
+    let plan = contract::bake(contract::compile(PLACE_APP).unwrap(), NoData).unwrap();
+    let boot = |place: Option<exact_runner::time::Place>| {
+        let launch = exact_runner::time::Launch { time: None, place };
+        exact_runner::time::launching_with(launch, || {
+            Runner::boot(
+                plan.clone(),
+                NoData,
+                Kernel::with_monospace(),
+                Default::default(),
+                "/",
+            )
+        })
+        .unwrap()
+    };
+    let place = |locale: &str| exact_runner::time::Place {
+        locale: locale.into(),
+        time_zone: "America/Los_Angeles".into(),
+        seed: 7.0,
+    };
+    let mut r = boot(Some(place("fr-FR")));
+    assert_eq!(text(&r), "fr-FR/America/Los_Angeles/7");
+    assert!(r
+        .set_place("fr-FR", "America/Los_Angeles", Some(7.0))
+        .unwrap()
+        .is_none());
+    assert_eq!(text(&boot(Some(place("")))), "en-US/UTC/0");
+    assert_eq!(text(&boot(None)), "en-US/UTC/0");
+}
+
 const PLACED: &str = "shape Time\n  epochAtZero: number\n  locale: string\n  timeZone: string\ncomponent App\n  resource time = exactTime() as shape Time\n  view\n    text `${time.locale}|${time.timeZone}|${time.epochAtZero}` testId=\"date\"\n";
 
 #[test]
@@ -331,7 +366,7 @@ fn a_key_change_re_arms_a_nan_key_refuses_and_negative_zero_is_zero() {
     assert_eq!(
         r.timer_due_ms(),
         Some(1600.0),
-        "`-0` is `0`, as an `each` key"
+        "`-0` is `0`, as a `for` key"
     );
 }
 
@@ -597,7 +632,7 @@ fn a_gate_refusal_rolls_back_row_slots_and_requests() {
   n: number
 component App
   state bad = false
-  resource items = items() as shape list<string>
+  resource items = items() as shape string[]
   mutation m as shape Ack
   action go
     send m = later()
@@ -608,7 +643,7 @@ component App
     after(1000, tick)
   view
     column
-      each it in items key=it
+      for it in items key=it
         Row(id=it, go=go)
 component Row
   props
@@ -682,7 +717,7 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
     says(
         "key=p",
         "type-task-key",
-        "a task's `key=` is a string, number or bool, as an `each` key is; this one is P",
+        "a task's `key=` is a string, number or bool, as a `for` key is; this one is P",
     );
     let clock = "A gate is read at commits, not as the clock moves, so an `after` gated on `performanceNow()` cannot be dropped before it fires, and an `every` stops up to an interval late. Gate on state (`toast != \"\"`) and let `after(5000, …)` measure the time";
     says(
@@ -709,9 +744,9 @@ fn a_gate_takes_a_bool_a_key_a_scalar_and_neither_reads_the_clock() {
 #[test]
 fn now_is_refused_with_both_repairs_at_its_span() {
     let cases = [
-        ("  derive d = 1 + now()\n  view\n    text toString(d)\n", 4, 18),
+        ("  derive d = 1 + now()\n  view\n    text d.toString()\n", 4, 18),
         ("  view\n    text `${now()}`\n", 5, 13),
-        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text toString(at)\n", 6, 10),
+        ("  state at = 0\n  action stamp\n    at = now() + 7 * 86400000\n  view\n    text at.toString()\n", 6, 10),
         ("  state at = 0\n  action set(t: number)\n    at = t\n  view\n    button \"s\" press=set(now())\n", 8, 26),
     ];
     for (body, line, col) in cases {
@@ -738,17 +773,17 @@ fn now_is_refused_with_both_repairs_at_its_span() {
         );
     }
     let e = contract::compile(
-        "fn f(): number = now()\ncomponent App\n  view\n    text toString(f())\n",
+        "fn f(): number = now()\ncomponent App\n  view\n    text f().toString()\n",
     )
     .unwrap_err();
     assert_eq!(e.id, "type-now-renamed", "{e}");
     // An app's own `fn now` shadows the refusal as it would a roster name.
-    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text toString(now())\n")
+    contract::compile("fn now(): number = 7\ncomponent App\n  view\n    text now().toString()\n")
         .unwrap();
     // The web's spellings meet the same repairs.
     for web in ["Date.now()", "performance.now()"] {
         let e = contract::compile(&format!(
-            "component App\n  view\n    text toString({web})\n"
+            "component App\n  view\n    text ({web}).toString()\n"
         ))
         .unwrap_err();
         assert!(

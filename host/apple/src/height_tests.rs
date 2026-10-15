@@ -101,11 +101,86 @@ fn good(batch: &str) {
 }
 
 #[test]
+fn numeric_height_transitions_need_neither_keyword_opt_in_nor_border_box() {
+    for (sizing, opt_in, padding) in [
+        ("", "", 0.),
+        ("box-sizing=\"border-box\"", "", 0.),
+        ("", "interpolate-size=\"allow-keywords\"", 0.),
+        (
+            "box-sizing=\"border-box\"",
+            "interpolate-size=\"allow-keywords\"",
+            0.,
+        ),
+        ("", "", 10.),
+    ] {
+        let source = format!(
+            r#"component App
+  state open = false
+  action toggle
+    open = not open
+  view
+    column width=400 height=500
+      button testId="toggle" press=toggle
+        text "Toggle"
+      column testId="panel" width=60 height=(open ? 280 : 0) {sizing} {opt_in} padding={padding} overflow="hidden" transition="height 400ms linear"
+      box testId="following" height=20
+"#
+        );
+        let mut h = Host::boot(
+            &contract::compile(&source).unwrap().encode(),
+            NoData,
+            Box::new(MonospaceMeasurer::default()),
+            400.,
+            500.,
+        )
+        .unwrap()
+        .0;
+        let inset = 2. * padding as f32;
+        let following = h
+            .runner()
+            .kernel()
+            .node(view(&h, "following"))
+            .unwrap()
+            .frame
+            .y;
+        good(&press(&mut h, "toggle"));
+        assert_eq!(height(&h, "panel"), inset, "{sizing} {opt_in}: start");
+        good(&h.tick(100.));
+        assert_eq!(height(&h, "panel"), 70. + inset, "{sizing} {opt_in}: open");
+        assert_eq!(
+            h.runner()
+                .kernel()
+                .node(view(&h, "following"))
+                .unwrap()
+                .frame
+                .y,
+            following + 70.
+        );
+        good(&h.tick(400.));
+        assert_eq!(height(&h, "panel"), 280. + inset);
+        good(&press(&mut h, "toggle"));
+        good(&h.tick(500.));
+        assert_eq!(
+            height(&h, "panel"),
+            210. + inset,
+            "{sizing} {opt_in}: close"
+        );
+        good(&h.tick(800.));
+        assert_eq!(height(&h, "panel"), inset);
+        assert_eq!(h.height_target_passes, 0);
+        assert!(h.height_projection.is_empty());
+    }
+}
+
+#[test]
 fn explicit_owner_adopts_only_one_height_and_registration_is_idempotent() {
     let mut h = fixture("", "\"auto\"");
     let panel = view(&h, "panel");
     let node = key(&h, "panel");
-    assert_eq!(h.engine().target(motion_node(node), Property::Height), None);
+    assert_eq!(
+        h.engine().target(motion_node(node), Property::Height),
+        Some(Value::scalar(120.))
+    );
     let result = h.set_height_owner(Some(panel)).unwrap();
     good(&result.batch);
     assert_eq!(
@@ -404,7 +479,7 @@ fn failed_projected_layout_keeps_published_frames_and_recovery_remeasures() {
 fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
     use exact_runner::instance::collection::{CollectionFeedback, RowMeasurement};
     let source = r#"component App
-  resource rows = rows() as shape list<number>
+  resource rows = rows() as shape number[]
   state h = 120
   action grow
     h = 300
@@ -414,7 +489,7 @@ fn nested_collection_feedback_relayouts_current_height_at_new_epoch() {
         text "grow"
       column testId="panel" height=h box-sizing="border-box" transition="height 1000ms linear"
         list virtualized=true testId="port" flex=1 min-height=0 width="100%"
-          each n in rows key=n
+          for n in rows key=n
             text `${n}` height=24
 "#;
     let plan = contract::compile(source).unwrap().encode();
@@ -540,19 +615,21 @@ fn negative_spring_lobe_clips_only_height_presentation_and_settles() {
             )
             .unwrap();
         h.layout(&mut Batch::new()).unwrap();
+        let start = h.engine().settle_time().unwrap() * 1000.;
+        good(&h.tick(start));
         good(&h.set_height_owner(Some(panel)).unwrap().batch);
-        let hold = token(&h.hold_begin(panel, Property::Height, 0.));
-        let translate = token(&h.hold_begin(panel, Property::Translate, 0.));
-        good(&h.hold_update(translate, Value::new(-30., -10.), 0.));
+        let hold = token(&h.hold_begin(panel, Property::Height, start));
+        let translate = token(&h.hold_begin(panel, Property::Translate, start));
+        good(&h.hold_update(translate, Value::new(-30., -10.), start));
         good(&h.hold_end(
             hold,
             HoldEnd::Release {
                 velocity: Value::scalar(-2000.),
             },
-            0.,
+            start,
         ));
         assert!(!h.has_hold(hold));
-        good(&h.tick(50.));
+        good(&h.tick(start + 50.));
         let raw = h.engine().value(node, Property::Height).unwrap().x;
         assert!(raw < 0., "raw={raw}");
         assert!((raw - (target - 69.7162387436)).abs() < 0.000001);
@@ -567,8 +644,8 @@ fn negative_spring_lobe_clips_only_height_presentation_and_settles() {
             Some(Value::new(-30., -10.))
         );
         good(&h.hold_end(hold, HoldEnd::Cancel, f64::NAN));
-        assert_eq!(h.engine().now(), 0.05);
-        good(&h.tick(10000.));
+        assert_eq!(h.engine().now(), (start + 50.) / 1000.);
+        good(&h.tick(start + 10000.));
         assert_eq!(height(&h, "panel"), target as f32);
         assert_eq!(
             h.engine().value(node, Property::Height),
@@ -619,7 +696,7 @@ fn accordions(measurer: Box<dyn exact_kernel::TextMeasurer>) -> Host<NoData> {
       button appearance="none" testId="grow-content" press=growContent
         text `${counter}`
       column testId="sections" display=(hidden ? "none" : "flex")
-        when mounted
+        if mounted
           column testId="first-body" height=(first ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not first) transition="height 1000ms linear"
             box height=contentHeight
           column testId="second-body" height=(second ? "auto" : "0px") box-sizing="border-box" overflow="hidden" inert=(not second) transition="height 1000ms linear"
@@ -732,6 +809,84 @@ fn accordion_opt_out_does_not_cancel_inflight_motion_but_prevents_new_keyword_tr
     good(&press(&mut h, "first-toggle"));
     assert_eq!(height(&h, "first-body"), 0.);
     assert!(h.engine().quiescent());
+}
+
+#[test]
+fn running_auto_height_retargets_to_a_length_when_keyword_opt_in_is_removed() {
+    let source = r#"component App
+  state size = "0px"
+  state allowed = true
+  action open
+    size = "auto"
+  action retarget
+    size = "280px"
+    allowed = false
+  view
+    column width=400 height=500 interpolate-size=(allowed ? "allow-keywords" : "numeric-only")
+      button testId="open" press=open
+        text "Open"
+      button testId="retarget" press=retarget
+        text "Retarget"
+      column testId="panel" height=size box-sizing="border-box" overflow="hidden" transition="height 400ms linear"
+        box height=120
+"#;
+    let mut h = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap()
+    .0;
+    good(&press(&mut h, "open"));
+    good(&h.tick(200.));
+    assert_eq!(height(&h, "panel"), 60.);
+    good(&press(&mut h, "retarget"));
+    assert_eq!(height(&h, "panel"), 60.);
+    assert!(!h.engine().quiescent());
+    good(&h.tick(300.));
+    assert_eq!(height(&h, "panel"), 115.);
+    good(&h.tick(601.));
+    assert_eq!(height(&h, "panel"), 280.);
+    assert!(h.engine().quiescent());
+}
+
+#[test]
+fn numeric_height_after_a_keyword_snap_starts_from_the_snapped_height() {
+    let source = r#"component App
+  state size = "auto"
+  state allowed = true
+  action snap
+    size = "0px"
+    allowed = false
+  action grow
+    size = "280px"
+  view
+    column width=400 height=500 interpolate-size=(allowed ? "allow-keywords" : "numeric-only")
+      button testId="snap" press=snap
+        text "Snap"
+      button testId="grow" press=grow
+        text "Grow"
+      column testId="panel" height=size box-sizing="border-box" overflow="hidden" transition="height 400ms linear"
+        box height=120
+"#;
+    let mut h = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap()
+    .0;
+    assert_eq!(height(&h, "panel"), 120.);
+    good(&press(&mut h, "snap"));
+    assert_eq!(height(&h, "panel"), 0.);
+    assert!(h.engine().quiescent());
+    good(&press(&mut h, "grow"));
+    good(&h.tick(100.));
+    assert_eq!(height(&h, "panel"), 70.);
 }
 
 #[test]

@@ -730,6 +730,10 @@
         "items": { "type": "string", "minLength": 1 }
       }
     },
+    "tamber": {
+      "type": "string",
+      "description": "The app's design (LLP 1121 D2): a `.tamber` file, relative to app.json. Without it, `app.tamber` beside app.contract is the design when there is one."
+    },
     "strings": {
       "type": "object",
       "description": "The UI's string tables (LLP 1060): strings/<locale>.json beside app.contract, read by `t(\"key\", name=value)`.",

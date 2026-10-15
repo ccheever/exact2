@@ -33,8 +33,9 @@ Simulator, plus tvOS devices and the arm64 tvOS Simulator. Exact selects
 Ibex's English `intl` tier on Linux and Windows, not `intl-all-locales`; Apple
 keeps Hermes's OS-backed Intl. A Rust-only app needs no engine at run time.
 `exact setup` installs the host bundle and, on macOS, the iOS and tvOS Simulator
-bundles. `exact setup --check` runs Ibex's own offline resolver validation over that
-same set. A signed iOS device build names its separate one-time target command.
+bundles, and the iOS device bundle where Xcode's iphoneos SDK is installed.
+`exact setup --check` runs Ibex's own offline resolver validation over that
+same set.
 
 ### Windows TypeScript
 
@@ -491,7 +492,12 @@ build refuses a direct use in a module `app.ts` reaches, by file and line
 runs the module under Bun, which has no such guard, cannot hide it.
 Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
 gets the same diagnostic as dot access, including in the web build's summary.
-Aliases and dynamic property keys still reach the runtime guard.
+Aliases and dynamic property keys still reach the runtime guard. In a running
+session, a refused TypeScript answer fails its resource and keeps its last value
+or placeholder; the typed input or action still commits. `failure(x).code` is
+`error` for the module's own error. A failed send ends unsent, retains its previous
+result and runs no `then`, including when queued. The journal names the failure.
+Module initialization, bake and replacement validation still refuse failures.
 Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
@@ -505,7 +511,7 @@ interface. Native `storage.fs` provides byte-oriented files under `app:/data`,
 statements, and batch transactions. Declare grants such as `fs.read app:/data`,
 `fs.write app:/data`, and `sqlite.open app:/data/notes.db` in `app.ts`’s exported
 `grants` string. The TypeScript module always receives `storage`, including
-when no storage grants are declared. Once storage is available, ungranted
+if no storage grants are declared. Once storage is available, ungranted
 operations reject with `Unavailable` and code `denied`, without loading the
 browser storage adapters. A drive without a scratch store still gets `agent`
 for app-storage operations; `doc:/` handles do not need that store.
@@ -625,19 +631,71 @@ returned as the answer: `return fetch(url, { exactStream: (event) => value })`.
 The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
-receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
-feed that waits for a subscribe frame cannot be read). An event is
+WebSocket under `net.websocket` alone. Except for the JS-target TypeScript
+adapter described below, sockets remain receive-only. An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side
 closed: `the socket closed (1000)`), `Refused` (outside the grants), `Aborted`,
 or `Response` with the status and body of a reply that was not an event stream.
-New arguments, `refresh` or the resource leaving the view close the stream;
+A caller's abort signal maps an `error` with kind `Aborted` while the resource
+is still held. New arguments, `refresh` or the resource leaving the view close
+the stream without further mapper calls;
 `state.pending` lists it until its first message, `state.streams` while it is
 open. The same holds on Hermes, the web's wasm host and the web build (the JS
 target), with one difference: on the web build the stream's `fetch` must be
 made while the answer is asked, before its first `await` (a later one is
 refused, saying so); on Hermes it may follow an `await`.
+
+On the **web JS target, TypeScript sources** receive `(event, socket)` for a
+WebSocket (LLP 1016.000 D7). Keep the handle by your resource's identity in
+module state. Its events are `open`, ordered `message` (string or ArrayBuffer
+`data`), and `close` (`code`, `reason`, `wasClean`); a refusal is still `error`.
+Every protocol frame reaches the mapper; `coalesced` is zero. The mapper must
+return a shaped snapshot synchronously. Sending belongs to a mutation:
+
+```ts
+import type { StreamSocket } from './app.contract.d.ts';
+const feeds = new Map<string, StreamSocket>();
+export function answer(source: string, [id, url, text]: [string, string, string]) {
+  if (source === "feed") return fetch(url, {
+    exactStream(event, socket) {
+      if (socket) feeds.set(id, socket);
+      return { status: event.type, text: typeof event.data === "string" ? event.data : "" };
+    },
+  });
+  if (source === "sendFrame") {
+    const socket = feeds.get(id);
+    if (!socket) throw new Error("feed is not open");
+    socket.send(text);
+    return { accepted: true };
+  }
+}
+```
+
+Call `sendFrame` through a Contract `mutation`, after the feed reports `open`.
+`send` accepts a string, ArrayBuffer or ArrayBufferView; bytes are copied at
+the call. `close(code = 1000, reason = "")` accepts 1000 or 3000–4999 and a
+reason of at most 123 UTF-8 bytes. Both methods are allowed only during the
+mutation source's synchronous call. A source that stages socket operations
+must answer synchronously. A thrown source, wrong-shaped answer or refused
+commit sends none of them. The handle exposes read-only `readyState` (0–3)
+and `bufferedAmount`. It cannot extend the resource's lifetime.
+
+A mutation stages at most 256 operations and 1 MiB, including bytes already
+buffered by the browser. Overflow throws `QuotaExceededError`; a stale or
+not-yet-open handle throws `InvalidStateError` (also after close, a deliberate
+difference from the browser's silent discard). A change before publication
+can still refuse transport admission, reported in `logs`: acceptance is not
+server acknowledgement. The receive queue is bounded by 256 frames and
+1 MiB plus the per-message response ceiling; overflow maps accepted queued
+frames in order before ending with a `Refused` error.
+`state.streams` adds `readyState`, `bufferedAmount` and `sent` for these sockets.
+
+**Remaining host gap:** the web wasm target, Rust sources, macOS, iOS,
+Linux and worker-placed TypeScript do not yet provide this handle or send
+path; do not use it in a cross-platform app yet. No ambient `WebSocket`
+constructor is admitted. SSE remains unchanged.
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
@@ -777,7 +835,7 @@ the platform would call (`delivery: "substituted"`).
 
 An `input type="file"` with no `accept` (or `accept="*/*"`) offers any file;
 `multiple` allows more than one. `showPicker(id)` opens it, and `change`
-receives `list<Picked>` with each file's name, type, size and
+receives `Picked[]` with each file's name, type, size and
 `app:/tmp/picked/` path. A specific `accept` list is limited to media types
 and types in the app's `file_handlers`. The live Linux picker is unavailable;
 its agent substitute accepts any file. Image pixel and Canvas readback remain
@@ -1175,7 +1233,7 @@ a secret: keep it in app storage.
 
 ```sh
 cargo build --all-targets --keep-going                                  # build
-cargo test --lib --bins --tests --no-fail-fast                          # test
+cargo test --tests --no-fail-fast                                       # test
 cargo clippy --all-targets --keep-going -- -D warnings                  # lint, and
 cargo fmt --all -- --check                                              # lint (run both)
 bun scripts/caps.mjs                                                   # caps
@@ -1202,13 +1260,17 @@ iOS simulator tests, touch smoke and the tvOS compile
 bundle built and signed, installed on nothing, so it needs the tvOS SDK and
 Rust's `aarch64-apple-tvos-sim` target and no simulator). Docs-only changes do not. The hourly
 `--tier 2` lane installs that tvOS build on an Apple TV simulator and runs target-specific `cargo check` for the Linux
-host and Caltrain and for the Windows host and Windows Desk. Install
+host and every Linux app (`-p '*-linux'`: each `apps/<app>/linux` crate is a
+workspace member named `<app>-linux`) and for the Windows host and Windows Desk. Install
 `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-gnu` with `rustup target add`
-and provide `zig` for C dependencies on the Mac. Other Linux apps remain
-outside this check until their shared JavaScript host's target C++ build
-inputs are qualified. These cross checks cover compilation; native window
-presentation, KMS, and input devices
-remain unqualified until run on their platforms.
+and provide `zig` on the Mac: it compiles C, and C++ for the Linux target
+(Hermes's JSI bindings). The check runs offline, so install the pinned Linux
+Hermes bundle once per Hermes pin (again whenever the pin changes): `cargo run
+--manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml --
+--target x86_64-unknown-linux-gnu`. Until then the step fails, and the
+`hermes-lean-sys` build error in its log names that command. These cross checks
+cover compilation; native window presentation, KMS, and input devices remain
+unqualified until run on their platforms.
 
 Development and test builds optimize the third-party CPU rasterizer `tiny-skia`.
 Debug assertions and overflow checks remain enabled; the normal development
@@ -1371,6 +1433,26 @@ It records raw command acknowledgments and executable identity; AppKit window
 resizing and Linux headless presenter resizing do not measure physical refresh.
 
 ### Intersection visibility
+
+`reachstart` and `reachend` belong only to `list virtualized=true` with one
+direct `each` (LLP 1010). Only a non-empty collection has edges: its geometric
+window reaches the first or last supplied row. An empty collection fires neither
+event. A plain list lays out all its children and has no collection window;
+the Contract compiler refuses either handler there, on every target.
+
+For a plain feed or masonry, use `intersect=` on a marker at the end of the
+content, after the columns, inside the same scroller:
+
+```text
+view intersect=loadMore intersect-margin="0px 0px 800px 0px"
+  height=1
+```
+
+`loadMore(entry: IntersectionObserverEntry)` should load only when
+`entry.isIntersecting` is true, a next page exists, and no request is pending.
+The bottom margin starts loading up to 800px before the marker enters the
+scrollport. This observes the marker, not the last row of each column.
+See [paging columns](recipes/responsive-columns.md#paging-columns) for a complete example.
 
 `intersect=action` on a node offers a final `IntersectionObserverEntry` record
 (`isIntersecting: bool`, `intersectionRatio: number`) after authored arguments.

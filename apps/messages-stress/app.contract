@@ -6,7 +6,7 @@ shape Message
   outgoing: bool
   meta: string
 shape History
-  rows: list<Message>
+  rows: Message[]
   materialized: number
   revision: number
   changed: number
@@ -106,7 +106,7 @@ component MessagesStress
     running = false
     revision = min(120, revision + 1)
   action editDraft(value)
-    if length(value) <= 512
+    if value.length <= 512
       draft = value
       draftTooLong = false
     else
@@ -116,7 +116,7 @@ component MessagesStress
   action cancelReply
     replying = ""
   action sendDraft
-    if not isEmpty(draft)
+    if not draft.isEmpty()
       cursor = ""
       tailRequest = tailRequest + 1
       echo = draft
@@ -169,7 +169,7 @@ component MessagesStress
           BatchButton(n=1, chosen=batch, choose=chooseBatch)
           BatchButton(n=8, chosen=batch, choose=chooseBatch)
           BatchButton(n=32, chosen=batch, choose=chooseBatch)
-          when running
+          if running
             button press=pause testId="pause" padding=7 background-color="#fce3da" border-radius=6
               text "Pause" font-size=12
           else
@@ -179,15 +179,15 @@ component MessagesStress
             text "Step" font-size=12
         text `${count} logical · ${history.materialized} supplied records · revision ${history.revision}/120 · ${history.changed} revised records in this slice` testId="stats" font-size=12
         text `${history.bodyBytes} UTF-8 body bytes (not memory) · requested 4 ticks/s · ${running ? "running" : "paused"}` testId="load-stats" font-size=12 color="#53637b"
-        when failed(history)
+        if failed(history)
           text "The last history request failed; this is the previous answer." testId="history-failed" font-size=12 color="#9c3d24"
         text "No FPS / latency measured here. Synchronous generation and eager mounting can block. Pause cannot interrupt in-flight work." font-size=11 color="#80521c"
-      when paged
+      if paged
         row flex-shrink=0 padding=8 gap=8 align-items="center" background-color="#e8edf5"
           button appearance="none" press=latest testId="latest" padding=6
             text "Latest" font-size=12
           text `${history.earlier}–${history.later} · resident window, not whole history` testId="window-range" font-size=12
-      when not eager and not windowed and not bounded
+      if not eager and not windowed and not bounded
         row flex-shrink=0 padding=8 gap=8 align-items="center" flex-wrap="wrap" background-color="#e8edf5"
           button appearance="none" press=earlier testId="earlier" padding=6
             text "Earlier 100" font-size=12
@@ -196,9 +196,9 @@ component MessagesStress
           button appearance="none" press=latest testId="latest" padding=6
             text "Latest page" font-size=12
           text `${offset + 1}–${offset + 100} of ${count}` testId="page-range" font-size=12
-      when windowed or bounded
-        list virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
-          each m in history.rows key=m.id
+      if windowed or bounded
+        list appearance="none" virtualized=true reachstart=reachEarlier reachend=reachLater scrollFollowEnd=(not paged or cursor == "") scrollTop=(paged ? 1000000 + tailRequest * 1000 : 0) testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
+          for m in history.rows key=m.id
             column padding-left=12 padding-right=12 padding-top=5 padding-bottom=5 width="100%" box-sizing="border-box"
               box testId=`reply-hit-${m.id}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
                 MessageBubble(message=m)
@@ -207,10 +207,10 @@ component MessagesStress
       else
         scroll testId="transcript" flex=1 min-height=80 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color="#f1f5fa"
           column padding=12 gap=10 width="100%" box-sizing="border-box"
-            each m in history.rows key=m.id
+            for m in history.rows key=m.id
               MessageBubble(message=m)
       column flex-shrink=0 padding=12 gap=6 width="100%" box-sizing="border-box" background-color="#ffffff"
-        when replying != ""
+        if replying != ""
           row align-items="center" gap=8
             text `Replying to ${replying}` testId="reply-target" font-size=12 color="#53637b"
             button press=cancelReply testId="cancel-reply" padding=4 border-width=0 background-color="#00000000"
@@ -221,7 +221,7 @@ component MessagesStress
           button press=sendDraft testId="send" padding=10 border-radius=8 background-color="#2668d8"
             text "Local echo" color="#ffffff" font-size=12
         text draft testId="stress-echo" font-size=12 color="#53637b"
-        when draftTooLong
+        if draftTooLong
           text "Input over 512 characters refused; the previous draft is retained." testId="draft-error" color="#9c3d24" font-size=12
 
 component CountButton

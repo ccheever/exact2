@@ -1,12 +1,40 @@
 //! The display preferences (LLP 1061 D4; LLP 1069.000 D1), told to the
 //! running host and kept for the next boot's first frame; the date (LLP
-//! 1027.000.000), told to the running host, and before each boot for its
-//! first settle (`set_launch_time`).
+//! 1027.000.000) and where the viewer is, told to the running host, and
+//! before each boot for its first settle (`set_launch_time`, `set_launch_place`).
 
 use super::{not_booted, Bridge};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// App modes, `axis=value` pins comma-separated in the input buffer
+    /// (LLP 1121 D5), set in one commit; after a `?`, only checked.
+    pub fn set_mode(&mut self, len: usize) -> u32 {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        // `?` first: only ask whether they would be taken.
+        let (check, text) = match text.strip_prefix('?') {
+            Some(rest) => (true, rest),
+            None => (false, text),
+        };
+        let pins: Option<Vec<(String, String)>> = text
+            .split(',')
+            .filter(|pin| !pin.is_empty())
+            .map(|pin| {
+                pin.split_once('=')
+                    .map(|(a, v)| (a.to_owned(), v.to_owned()))
+            })
+            .collect();
+        let Some(pins) = pins else {
+            return self.emit(exact_runner::agent::error("mode: expected axis=value pins"));
+        };
+        let pins: Vec<(&str, &str)> = pins.iter().map(|(a, v)| (a.as_str(), v.as_str())).collect();
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match check {
+            true => h.check_modes(&pins),
+            false => h.set_modes(&pins),
+        });
+        self.emit(out)
+    }
+
     /// The user's display preferences changed or became known (LLP 1061
     /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
     /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
@@ -40,7 +68,18 @@ impl<D: DataSource> Bridge<D> {
             utc_offset,
         };
         if time.validate().is_ok() {
-            self.launch_time = Some(time);
+            self.launch_facts.time = Some(time);
+        }
+    }
+
+    /// Where the viewer is, for the next boot's first settle, as
+    /// `set_place` reads it from the input buffer (`locale NUL timeZone NUL
+    /// seed`); the running host is not told. A fact that does not validate
+    /// (or a missing seed) leaves the last one.
+    pub fn set_launch_place(&mut self, len: usize) {
+        let text = std::str::from_utf8(&self.input[..len.min(self.input.len())]).unwrap_or("");
+        if let Some(place) = exact_runner::time::Place::launched(text) {
+            self.launch_facts.place = Some(place);
         }
     }
 

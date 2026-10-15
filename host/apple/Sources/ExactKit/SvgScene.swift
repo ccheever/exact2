@@ -337,12 +337,12 @@ final class SvgScene {
         return clipped.applying(CGAffineTransform(a: m[0], b: m[1], c: m[2], d: m[3], tx: m[4], ty: m[5]).inverted())
     }
 
-    /// Build or update the layers from a scene; unchanged animations keep running.
+    /// Build or update the layers from a scene; unchanged animations keep
+    /// running. The root stays where `SvgHost.place` put it.
     func apply(_ scene: [String: Any], dark: Bool, clock: Double?) {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         let box = nums(scene["box"])
-        if box.count == 4 { root.bounds = CGRect(x: 0, y: 0, width: box[2], height: box[3]); root.position = CGPoint(x: box[0], y: box[1]) }
         clipped = scene["clip"] != nil && box.count == 4 ? CGRect(x: 0, y: 0, width: box[2], height: box[3]) : nil
         let t = nums(scene["t"])
         root.isHidden = t.count != 6
@@ -626,7 +626,18 @@ final class SvgHost {
         let spec = payload["scene"] as? [String: Any] ?? [:]
         payloads[id] = spec
         scene.apply(spec, dark: dark, clock: clock)
+        if let view = layer.delegate as? NodeView { place(id, in: view.contentBox()) }
         scene.root.applyColorRange(limit: limit, deep: true)
+    }
+
+    /// Places `id`'s scene at its view's content box, which a sheet may hold:
+    /// the one place a scene's root moves.
+    func place(_ id: UInt32, in box: CGRect) {
+        guard let root = scenes[id]?.root, root.frame != box else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        root.bounds = CGRect(origin: .zero, size: box.size)
+        root.position = box.origin
+        CATransaction.commit()
     }
 
     /// `id`'s view changed appearance: its scene is applied again in the

@@ -3,7 +3,7 @@
 //
 // Say what a thing is; leave how it looks unsaid. This file writes no colour and
 // no font size or weight: where it must, it names a role (`-exact-secondary-label`,
-// `-exact-separator`, `-exact-fill`, `AccentColor`) or a text style (`role="heading"`
+// `-exact-fill`, `AccentColor`) or a text style (`role="heading"`
 // with an `aria-level`, `font="-exact-footnote"`), and `bun scripts/no-tells.mjs
 // shelf` fails on anything else. The platform supplies the rest, and on iOS:
 //
@@ -12,6 +12,10 @@
 //   `input type="search"` the bar's search field;
 // - the root `tablist` is the tab bar, a `tablist` in the content a segmented
 //   control, `list appearance="auto"` a grouped list (Settings' look);
+// - a `list` is a plain list, each child of it a row: the separators, the
+//   press and a tapped row staying selected under the screen it pushed are
+//   the platform's, and this file draws none of them (a filter or a heading
+//   that is no row stands outside the list);
 // - a `modal` route is a sheet; a pushed route gets the system Back button and
 //   edge swipe, and the sheet swipes down, with nothing written for either;
 // - `dialog role="alertdialog"` is the system alert, `contextPopover` the
@@ -47,7 +51,7 @@ shape Book
 
 shape Library
   ready: bool
-  books: list<Book>
+  books: Book[]
   goal: number
   pagesRead: number
   avgText: string
@@ -65,14 +69,14 @@ shape Work
 shape Subject
   ok: bool
   error: string
-  works: list<Work>
+  works: Work[]
 
 shape Time
   epochAtZero: number
 
 fn statusLabel(s: string): string = s == "want" ? "Want to Read" : (s == "reading" ? "Reading" : "Finished")
 fn percent(cur: number, total: number): number = total > 0 ? round(cur / total * 100) : 0
-fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or includes(toLowerCase(b.title), q) or includes(toLowerCase(b.author), q))
+fn matches(b: Book, f: string, q: string): bool = (f == "all" or b.status == f) and (q == "" or b.title.toLowerCase().includes(q) or b.author.toLowerCase().includes(q))
 fn wholePages(text: string): bool = match parseNumber(text) { case some(n) => floor(n) == n and n > 0 and n <= 10000, case none => false }
 fn pagesValue(text: string): number = match parseNumber(text) { case some(n) => n, case none => 0 }
 fn countText(n: number, one: string, many: string): string = n == 1 ? `1 ${one}` : `${n} ${many}`
@@ -95,11 +99,11 @@ component Shelf
   mutation changed as shape Ack queue refreshes lib
 
   derive current = top(nav)
-  derive visible = filter(lib.books, b => matches(b, filter, toLowerCase(trim(query))))
-  derive aimedTitle = match first(filter(lib.books, b => b.id == aimed)) { case some(b) => b.title, case none => "This book" }
-  derive finished = length(filter(lib.books, b => b.status == "done"))
-  derive owned = map(lib.books, b => b.sourceKey)
-  derive titleError = trim(draftTitle) == "" ? "Enter a title." : ""
+  derive visible = lib.books.filter(b => matches(b, filter, query.trim().toLowerCase()))
+  derive aimedTitle = match first(lib.books.filter(b => b.id == aimed)) { case some(b) => b.title, case none => "This book" }
+  derive finished = lib.books.filter(b => b.status == "done").length
+  derive owned = lib.books.map(b => b.sourceKey)
+  derive titleError = draftTitle.trim() == "" ? "Enter a title." : ""
   derive pagesError = draftPages == "" or wholePages(draftPages) ? "" : "Pages must be a whole number from 1 to 10,000."
 
   // Navigation: a tab, a location (a book's row is a link to its route; the
@@ -153,8 +157,8 @@ component Shelf
   action save
     submitted = true
     if titleError == "" and pagesError == ""
-      let author = trim(draftAuthor) == "" ? "Unknown author" : trim(draftAuthor)
-      send changed = addBook(trim(draftTitle), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
+      let author = draftAuthor.trim() == "" ? "Unknown author" : draftAuthor.trim()
+      send changed = addBook(draftTitle.trim(), author, pagesValue(draftPages), draftStatus, "", "", time.epochAtZero + performanceNow())
       nav = back(nav)
 
   // A book
@@ -189,10 +193,10 @@ component Shelf
       display="flex"
       flex-direction="column"
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key = t.name
+        for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key = e.id
-              when e.name == "library"
+            for e in t.stack key = e.id
+              if e.name == "library"
                 column navigationKey=`${e.id}`
                   navigationScroll="library-list"
                   testId="route-library"
@@ -215,46 +219,51 @@ component Shelf
                       aria-label="Search title or author"
                       testId="search"
                       width="100%"
-                  scroll id="library-list" testId="library-list" flex=1 min-height=0
-                    row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px"
-                      button role="tab"
-                        aria-selected=(filter == "all")
-                        press=show("all")
-                        testId="filter-all"
-                        flex=1
-                        text "All"
-                      button role="tab"
-                        aria-selected=(filter == "reading")
-                        press=show("reading")
-                        testId="filter-reading"
-                        flex=1
-                        text "Reading"
-                      button role="tab"
-                        aria-selected=(filter == "want")
-                        press=show("want")
-                        testId="filter-want"
-                        flex=1
-                        text "Want"
-                      button role="tab"
-                        aria-selected=(filter == "done")
-                        press=show("done")
-                        testId="filter-done"
-                        flex=1
-                        text "Finished"
-                    each b in visible key = b.id
+                  row role="tablist" aria-label="Filter" testId="filter" margin="8px 16px"
+                    button role="tab"
+                      aria-selected=(filter == "all")
+                      press=show("all")
+                      testId="filter-all"
+                      flex=1
+                      text "All"
+                    button role="tab"
+                      aria-selected=(filter == "reading")
+                      press=show("reading")
+                      testId="filter-reading"
+                      flex=1
+                      text "Reading"
+                    button role="tab"
+                      aria-selected=(filter == "want")
+                      press=show("want")
+                      testId="filter-want"
+                      flex=1
+                      text "Want"
+                    button role="tab"
+                      aria-selected=(filter == "done")
+                      press=show("done")
+                      testId="filter-done"
+                      flex=1
+                      text "Finished"
+                  // Each child of the list is a row, with the platform's separator.
+                  // What is in the list and is no row says so: an edge written
+                  // `none` is the author's, and no separator is drawn there.
+                  list id="library-list" testId="library-list" flex=1 min-height=0
+                    for b in visible key = b.id
                       BookRow(book=b, aim=aim, swipeRemove=swipeRemove)
-                    when lib.ready and length(visible) == 0
-                      Empty(
-                        title=(length(lib.books) == 0 ? "No Books" : "No Results"),
-                        message=(length(lib.books) == 0 ? "Tap + to add the first book on your shelf." : "Try another search or filter."),
-                        tid="library-empty"
-                      )
-                    when length(visible) > 0
-                      text `${length(visible)} of ${countText(length(lib.books), "book", "books")}` testId="library-count"
+                    if lib.ready and visible.length == 0
+                      column border-top="none" border-bottom="none"
+                        Empty(
+                          title=(lib.books.length == 0 ? "No Books" : "No Results"),
+                          message=(lib.books.length == 0 ? "Tap + to add the first book on your shelf." : "Try another search or filter."),
+                          tid="library-empty"
+                        )
+                    if visible.length > 0
+                      text `${visible.length} of ${countText(lib.books.length, "book", "books")}` testId="library-count"
                         font="-exact-footnote"
                         color="-exact-secondary-label"
                         text-align="center"
                         padding=16
+                        border-bottom="none"
                   // The long-press menu every row names (`contextPopover`).
                   column id="book-menu" popover="auto" role="menu" aria-label="Book"
                     button press=askRemoveAimed
@@ -264,7 +273,7 @@ component Shelf
                       testId="menu-remove"
                       image "symbol:delete"
                       text "Remove…"
-              when e.name == "book"
+              if e.name == "book"
                 column navigationKey=`${e.id}`
                   navigationScroll="book-list"
                   testId="route-book"
@@ -273,7 +282,7 @@ component Shelf
                   display="flex"
                   flex-direction="column"
                   header display="flex" align-items="center" padding="8px 16px"
-                    text (match first(filter(lib.books, b => b.id == e.params.id)) { case some(b) => b.title, case none => "" }) role="heading"
+                    text (match first(lib.books.filter(b => b.id == e.params.id)) { case some(b) => b.title, case none => "" }) role="heading"
                       aria-level=2
                   list id="book-list"
                     appearance="auto"
@@ -281,7 +290,7 @@ component Shelf
                     testId="book-detail"
                     flex=1
                     min-height=0
-                    each b in filter(lib.books, x => x.id == e.params.id) key = b.id
+                    for b in lib.books.filter(x => x.id == e.params.id) key = b.id
                       BookSections(
                         book=b,
                         setStatus=setStatus,
@@ -290,7 +299,7 @@ component Shelf
                         keepNotes=keepNotes,
                         askRemove=askRemove
                       )
-              when e.name == "add"
+              if e.name == "add"
                 column navigationKey=`${e.id}`
                   navigationPresentation="modal"
                   navigationScroll="add-form"
@@ -359,7 +368,7 @@ component Shelf
                         choose=chooseDraftStatus,
                         prefix="add-status"
                       )
-              when e.name == "discover"
+              if e.name == "discover"
                 column navigationKey=`${e.id}`
                   navigationScroll="discover-list"
                   testId="route-discover"
@@ -369,45 +378,48 @@ component Shelf
                   flex-direction="column"
                   header display="flex" align-items="center" padding="8px 16px"
                     text "Discover" role="heading" aria-level=1
-                  // Pull to refresh: `refresh` on the scroller; `refreshing` holds
-                  // the spinner until the reload settles.
-                  scroll id="discover-list"
+                  row role="tablist" aria-label="Subject" testId="subjects" margin="8px 16px"
+                    button role="tab"
+                      aria-selected=(subject == "science_fiction")
+                      press=chooseSubject("science_fiction")
+                      testId="subject-science_fiction"
+                      flex=1
+                      text "Sci-Fi"
+                    button role="tab"
+                      aria-selected=(subject == "fantasy")
+                      press=chooseSubject("fantasy")
+                      testId="subject-fantasy"
+                      flex=1
+                      text "Fantasy"
+                    button role="tab"
+                      aria-selected=(subject == "mystery_and_detective_stories")
+                      press=chooseSubject("mystery_and_detective_stories")
+                      testId="subject-mystery_and_detective_stories"
+                      flex=1
+                      text "Mystery"
+                  // Pull to refresh: `refresh` on the list; `refreshing` holds the
+                  // spinner until the reload settles. What stands in for the rows
+                  // (the spinner, the error and its button) is one child, with no
+                  // separator at either edge.
+                  list id="discover-list"
                     testId="discover-list"
                     refresh=reload
-                    refreshing=(pending(works) and length(works.works) > 0)
+                    refreshing=(pending(works) and works.works.length > 0)
                     flex=1
                     min-height=0
-                    row role="tablist" aria-label="Subject" testId="subjects" margin="8px 16px"
-                      button role="tab"
-                        aria-selected=(subject == "science_fiction")
-                        press=chooseSubject("science_fiction")
-                        testId="subject-science_fiction"
-                        flex=1
-                        text "Sci-Fi"
-                      button role="tab"
-                        aria-selected=(subject == "fantasy")
-                        press=chooseSubject("fantasy")
-                        testId="subject-fantasy"
-                        flex=1
-                        text "Fantasy"
-                      button role="tab"
-                        aria-selected=(subject == "mystery_and_detective_stories")
-                        press=chooseSubject("mystery_and_detective_stories")
-                        testId="subject-mystery_and_detective_stories"
-                        flex=1
-                        text "Mystery"
-                    when pending(works) and length(works.works) == 0
-                      row justify-content="center" padding=40
+                    if pending(works) and works.works.length == 0
+                      row justify-content="center" padding=40 border-top="none" border-bottom="none"
                         progress aria-label="Loading" testId="discover-loading"
-                    else when not works.ok
-                      Empty(title="Couldn’t Load Books", message=works.error, tid="discover-error")
-                      row justify-content="center"
-                        button press=reload testId="retry"
-                          text "Try Again"
+                    else if not works.ok
+                      column border-top="none" border-bottom="none"
+                        Empty(title="Couldn’t Load Books", message=works.error, tid="discover-error")
+                        row justify-content="center"
+                          button press=reload testId="retry"
+                            text "Try Again"
                     else
-                      each w in works.works key = w.key
-                        WorkRow(work=w, added=includes(owned, w.key), add=addWork)
-              when e.name == "stats"
+                      for w in works.works key = w.key
+                        WorkRow(work=w, added=owned.includes(w.key), add=addWork)
+              if e.name == "stats"
                 column navigationKey=`${e.id}`
                   navigationScroll="stats-list"
                   testId="route-stats"
@@ -501,7 +513,6 @@ component BookRow
             gap=8
             margin-left=16
             padding="10px 16px 10px 0"
-            border-bottom="0.5px solid -exact-separator"
             column flex=1 min-width=0 gap=2
               text book.title font="-exact-headline" line-clamp=2 testId=`book-title-${book.id}`
               text book.author font="-exact-subheadline" color="-exact-secondary-label"
@@ -509,9 +520,9 @@ component BookRow
                 text (book.status == "reading" ? `${percent(book.currentPage, book.pages)}% · page ${book.currentPage} of ${book.pages}` : statusLabel(book.status)) font="-exact-footnote"
                   color="-exact-secondary-label"
                   testId=`book-status-${book.id}`
-                when book.status == "done" and book.rating > 0
+                if book.status == "done" and book.rating > 0
                   Stars(value=book.rating, tid=`book-stars-${book.id}`)
-              when book.status == "reading"
+              if book.status == "reading"
                 Meter(value=percent(book.currentPage, book.pages), tid=`book-progress-${book.id}`)
             image "symbol:forward-chevron" aria-hidden=true
               font="-exact-footnote"
@@ -535,7 +546,7 @@ component BookSections
     keepNotes: action
     askRemove: action
   view
-    when book.coverUrl != ""
+    if book.coverUrl != ""
       section background-color="transparent"
         row justify-content="center"
           image book.coverUrl alt=book.title width=100 height=150 object-fit="cover" border-radius=6
@@ -543,13 +554,13 @@ component BookSections
       row
         text "Author"
         text book.author testId="detail-author"
-      when book.pages > 0
+      if book.pages > 0
         row
           text "Pages"
           text `${book.pages}` testId="detail-pages"
     section background-color="transparent"
       StatusControl(status=book.status, choose=setStatus(book.id), prefix="detail-status")
-    when book.status != "want" and book.pages > 0
+    if book.status != "want" and book.pages > 0
       section testId="progress"
         header
           text "Progress"
@@ -575,7 +586,7 @@ component BookSections
                 text "+10"
         footer
           text `${percent(book.currentPage, book.pages)}% read` testId="page-percent"
-    when book.status == "done"
+    if book.status == "done"
       section testId="rating-section"
         header
           text "Rating"
@@ -587,7 +598,7 @@ component BookSections
           role="group"
           aria-label=`Rated ${book.rating} of 5`
           testId="rating"
-          each n in [1, 2, 3, 4, 5] key = n
+          for n in [1, 2, 3, 4, 5] key = n
             button appearance="auto"
               buttonStyle="plain"
               press=rate(book.id, n == book.rating ? 0 : n)
@@ -598,7 +609,7 @@ component BookSections
       header
         text "Notes"
       // Keyed by the book, so the draft starts from the saved notes once.
-      each k in [book.id] key = k
+      for k in [book.id] key = k
         Notes(bookId=book.id, initial=book.notes, keep=keepNotes)
     section
       button press=askRemove(book.id) destructive=true testId="remove-book"
@@ -658,7 +669,7 @@ component WorkRow
     add: action
   view
     row align-items="center" gap=12 padding-left=16 testId=`work-${work.key}`
-      when work.coverUrl != ""
+      if work.coverUrl != ""
         image work.coverUrl alt=""
           width=44
           height=66
@@ -673,11 +684,10 @@ component WorkRow
         align-items="center"
         gap=12
         padding="10px 16px 10px 0"
-        border-bottom="0.5px solid -exact-separator"
         column flex=1 min-width=0 gap=2
           text work.title font="-exact-headline" line-clamp=2
           text work.author font="-exact-subheadline" color="-exact-secondary-label" line-clamp=1
-        when added
+        if added
           button disabled=true buttonStyle="bordered" testId=`added-${work.key}` flex-shrink=0
             text "Added"
         else
@@ -699,10 +709,10 @@ component StatsSections
         text "Library"
       row testId="stat-reading"
         text "Reading"
-        text `${length(filter(lib.books, b => b.status == "reading"))}`
+        text `${lib.books.filter(b => b.status == "reading").length}`
       row testId="stat-want"
         text "Want to Read"
-        text `${length(filter(lib.books, b => b.status == "want"))}`
+        text `${lib.books.filter(b => b.status == "want").length}`
       row testId="stat-finished"
         text "Finished"
         text `${finished}`
@@ -771,5 +781,5 @@ component Stars
     tid: string
   view
     row gap=2 role="img" aria-label=`Rated ${value} of 5` testId=tid
-      each n in [1, 2, 3, 4, 5] key = n
+      for n in [1, 2, 3, 4, 5] key = n
         image (n <= value ? "symbol:star-fill" : "symbol:star") font="-exact-caption2"

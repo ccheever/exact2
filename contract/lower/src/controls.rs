@@ -380,7 +380,7 @@ pub(crate) fn range_attrs(
 }
 
 /// `option` belongs in a `select`, and a `select` holds only `option`s
-/// (directly, or through `each`, `when` and `match`, which are not
+/// (directly, or through `for`, `if` and `match`, which are not
 /// elements): HTML's content model, which every host's menu reads.
 pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Result<(), LowerError> {
     if tag == "option" && parent != Some("select") {
@@ -1039,7 +1039,7 @@ fn face_counts(
             Node::Each { span, .. } => {
                 return err(
                     "lower-button-style-attr",
-                    "a native button's title and image are fixed in number: no `each` inside it; write a custom `button` for repeated children",
+                    "a native button's title and image are fixed in number: no `for` inside it; write a custom `button` for repeated children",
                     *span,
                 )
             }

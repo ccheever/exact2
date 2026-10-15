@@ -7,8 +7,9 @@ impl<D: DataSource> Bridge<D> {
     /// 0 clears, 1 edges, 2 whole, 3 a scroller's platform inset (top and
     /// bottom) — and f32 top, right, bottom, left), one layout. And the
     /// containing blocks they give subtrees (LLP 1115.002 D8.2): kind 4
-    /// with f32 width, height and, for each, 1 where it is a maximum and 0
-    /// where it is the size; kind 5 takes a block back.
+    /// with f32 width, height and, for each, 0 for a size, 1 for a maximum,
+    /// or 2 for a content-fit limit that an authored size may exceed;
+    /// kind 5 takes a block back.
     pub fn covers(&mut self, len: usize) -> u32 {
         let bytes = self.input.get(..len).unwrap_or(&[]);
         let out = if bytes.len() % 24 != 0 {
@@ -20,9 +21,10 @@ impl<D: DataSource> Bridge<D> {
                 let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
                 let edge = |i: usize| f32::from_le_bytes(word(i));
                 let (view, kind) = (u32::from_le_bytes(word(0)), u32::from_le_bytes(word(4)));
-                let axis = |length: usize, most: usize| match edge(most) != 0.0 {
-                    true => exact_kernel::BlockAxis::AtMost(edge(length)),
-                    false => exact_kernel::BlockAxis::Is(edge(length)),
+                let axis = |length: usize, policy: usize| match edge(policy) {
+                    0.0 => exact_kernel::BlockAxis::Is(edge(length)),
+                    2.0 => exact_kernel::BlockAxis::Fit(edge(length)),
+                    _ => exact_kernel::BlockAxis::AtMost(edge(length)),
                 };
                 match kind {
                     4 | 5 => {

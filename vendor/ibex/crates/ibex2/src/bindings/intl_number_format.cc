@@ -9,6 +9,7 @@
 
 #include "../../include/ibex2_jsi.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -201,7 +202,12 @@ void install(jsi::Runtime &rt, std::shared_ptr<Lifetime> lifetime) {
                                        input.data(), input.size());
             if (!length.isNumber())
               throw jsi::JSError(r, "formatToParts returned no part count");
-            const size_t count_parts = static_cast<size_t>(length.asNumber());
+            const double part_count = length.asNumber();
+            if (!std::isfinite(part_count) || std::floor(part_count) != part_count ||
+                part_count < 0 ||
+                part_count > static_cast<double>(std::numeric_limits<uint32_t>::max()))
+              throw jsi::JSError(r, "formatToParts returned an invalid part count");
+            const size_t count_parts = static_cast<size_t>(part_count);
             jsi::Array result(r, count_parts);
             for (size_t i = 0; i < count_parts; ++i) {
               jsi::Value field_args[] = {
