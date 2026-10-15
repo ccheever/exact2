@@ -12,9 +12,13 @@ const USAGE: &str = "usage:
   contract tamber eval <app dir | app.contract | file.tamber> [--mode <axis>=<value>[,…]]
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
+  contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
+    if args.first().is_some_and(|a| a == "serve") {
+        return crate::tamber_serve::run(&args[1..]);
+    }
     if matches!(args, [] | [_]) || args.iter().any(|a| a == "--help" || a == "-h") {
         let help = args.iter().any(|a| a == "--help" || a == "-h");
         println!("{USAGE}");
