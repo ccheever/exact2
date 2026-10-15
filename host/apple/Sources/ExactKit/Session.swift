@@ -655,9 +655,8 @@ public final class ExactSession {
         }
     }
 
-    /// The reports a slice held, and the work that waited for it. A stale
-    /// slice can land inside the commit's own batch, before its views are:
-    /// that work waits for the next turn.
+    /// The reports a slice held, and the work that waited for it: in the next turn for a
+    /// stale slice, which can land inside the commit's own batch, before its views are.
     private func landedFill(_ view: UInt32, stale: Bool = false) {
         let waiting = afterFill
         afterFill.removeAll()
@@ -1488,7 +1487,7 @@ public final class ExactSession {
         #if os(macOS)
         colorObserver.map(NotificationCenter.default.removeObserver)
         #endif
-        presenter.reset()
+        presenter.reset(); viewsEpoch += 1
         ExactSession.live.removeValue(forKey: runtime.rt)
         forgetDocuments()
         rasters.shutdown()
