@@ -703,7 +703,8 @@ impl Server {
         let issued = self.issued.get(&id).cloned().ok_or_else(|| {
             json!({"message": format!("no inverse `{id}`: this server issued none by that id, or it has dropped it (it keeps the last {ISSUED_LIMIT})")})
         })?;
-        let snap = self.snapshot()?;
+        // A file it restores that is gone is stale, not an error.
+        let snap = self.read_files(true)?;
         let stale: Vec<&String> = issued
             .after
             .iter()

@@ -352,6 +352,7 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   expect(taken.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #1b1b1b');
   await stream.until(e => e.some(x => x.client === 'agent' && x.acceptedBy === 'person'));
+  await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === held.ok.proposal && x.reason === 'accepted'));
   expect((await post({ method: 'accept', client: 'person', proposal: held.ok.proposal })).status).toBe(404);
   // Stale: the file moves after review; the accept gives a new diff to accept.
   const second = await post({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'edge', value: '#1c1c1c' }] });
@@ -360,6 +361,8 @@ test('a held proposal is accepted, and one gone stale or taken in part is recomp
   const stale = await post({ method: 'accept', client: 'person', proposal: second.ok.proposal });
   expect(stale.ok.recomputed).toBe(true);
   expect(stale.ok.proposal).not.toBe(second.ok.proposal);
+  await stream.until(e => e.some(x => x.event === 'proposal-dropped' && x.proposal === second.ok.proposal && x.reason === 'replaced' && x.replacedBy === stale.ok.proposal));
+  expect(stream.events.find(x => x.event === 'proposal' && x.proposal === stale.ok.proposal).replaces).toBe(second.ok.proposal);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).not.toContain('#1c1c1c');
   expect((await post({ method: 'accept', client: 'person', proposal: stale.ok.proposal })).status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('edge = #1c1c1c');
