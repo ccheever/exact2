@@ -253,6 +253,20 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
             .any(|(prop, _)| prop.name() == "autofocus"),
         "it takes the keyboard as it mounts"
     );
+    // KeybindingsSettings.tsx's Input: a text field named for its command ("Keybinding for New thread"), the prompt
+    // its placeholder, so VoiceOver reads both as the focus lands in it.
+    let field = runner.kernel().node(recorder).unwrap();
+    assert_eq!(format!("{:?}", field.node_type), "TextInput");
+    let text = |name: &str| {
+        field
+            .props
+            .iter()
+            .find(|(prop, _)| prop.name() == name)
+            .and_then(|(_, value)| value.as_str().map(str::to_owned))
+    };
+    // (The fixture's page data names no draft command, so the name's command part is empty here.)
+    assert!(text("accessibilityLabel").is_some_and(|label| label.starts_with("Keybinding for ")));
+    assert_eq!(text("placeholder").as_deref(), Some("Press shortcut"));
     // A modifier alone records nothing; the key is taken either way (its default cancelled, no ancestor hears it).
     runner
         .dispatch(recorder, keydown("Meta", "MetaLeft", "Meta+"))
