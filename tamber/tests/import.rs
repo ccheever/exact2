@@ -206,7 +206,10 @@ html.dark .theme-blue { --primary: #000088; }
         ["not a colour, and no other kind is built yet (stage 6)"]
     );
     assert_eq!(why("--gap"), ["kind pending (stage 6): length"]);
-    assert_eq!(why("--space"), ["`--gap` becomes no colour token"]);
+    assert_eq!(
+        why("--space"),
+        ["`--gap` is no colour where this block reads it"]
+    );
     assert_eq!(why("--loop-a").len() + why("--loop-b").len(), 2);
     assert_eq!(
         why("--chart-s1"),
@@ -274,4 +277,79 @@ fn a_when_the_source_no_longer_gives_is_taken_back_and_a_role_spelled_bare_is_se
         }]
     );
     accepted(design, &import);
+}
+
+#[test]
+fn shadcn_winners_nesting_and_recovery() {
+    let css = r#"
+:root { --x: #ffffff; --z: #000000; --z: 1rem; --ml: oklch(0.5
+  0.1 200); --cc: currentColor; --config: {a: b}; --after: #121212; }
+.dark { --x: 1rem; --y: var(--x); }
+.theme-blue { &.dark { --background: #111111; } --radius: 1rem; }
+.dark { --d: #111111; @media (prefers-color-scheme: dark) { --d: #222222; } }
+:root, .theme-2 { --a: red; }
+:root { --open: #343434;
+"#;
+    let import = shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    assert_eq!(import.counted.source, 15);
+    assert_eq!(
+        why("--z"),
+        [
+            "declared again later for the same theme block, which wins",
+            "kind pending (stage 6): length"
+        ]
+    );
+    assert_eq!(why("--x"), ["kind pending (stage 6): length"]);
+    assert_eq!(why("--y"), ["`--x` is no colour where this block reads it"]);
+    assert_eq!(
+        why("--cc"),
+        ["not a colour, and no other kind is built yet (stage 6)"]
+    );
+    assert_eq!(
+        why("--config"),
+        ["not a colour, and no other kind is built yet (stage 6)"]
+    );
+    assert_eq!(
+        why("--d"),
+        ["declared again later for the same theme block, which wins"]
+    );
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "shadcn.x"), "#ffffff");
+    assert_eq!(token_value(&text, "shadcn.ml"), "oklch(0.5 0.1 200)");
+    assert_eq!(token_value(&text, "shadcn.after"), "#121212");
+    assert_eq!(token_value(&text, "shadcn.d"), "#222222");
+    assert_eq!(token_value(&text, "shadcn.a"), "red");
+    assert_eq!(token_value(&text, "shadcn.open"), "#343434");
+    // Blue named only by its nested dark rule and a length: still an axis value.
+    assert!(text.contains("  theme = default | blue\n"), "{text}");
+    assert_eq!(token_value(&text, "shadcn.background"), "#111111");
+}
+
+#[test]
+fn an_authored_when_on_another_axis_stays_and_a_role_offer_clears_its_own() {
+    let design = "tamber app\n\naxes\n  density = default | compact\n\ntheme\n  shadcn.background = #ffffff\n    when density=compact: #fafafa\n  -exact-background = #000000\n    when density=compact: #111111\n";
+    let css = ":root { --background: #ffffff; }";
+    let import = shadcn::import(css, "shadcn", &parse(design).unwrap(), &vocab()).unwrap();
+    assert_eq!(import.ops, []);
+    assert_eq!(import.offers[0].ops.len(), 2);
+    assert!(matches!(import.offers[0].ops[1], Op::UnsetTokenWhen { .. }));
+    let text = accepted(design, &import);
+    let again = shadcn::import(css, "shadcn", &parse(&text).unwrap(), &vocab()).unwrap();
+    assert!(
+        again.offers.iter().all(|o| o.ops.is_empty()),
+        "{:?}",
+        again.offers
+    );
 }

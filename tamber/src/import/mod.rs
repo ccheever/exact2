@@ -94,9 +94,14 @@ pub struct Mapped {
 
 /// The operations that bring `design` to carry each of `tokens` (and each
 /// axis in `axes`): none for a token already so, `set-token` lines for one
-/// that differs (and `unset-token-when` for a `when` it no longer has),
-/// `add-token` for one it lacks.
-pub fn reconcile(design: &Design, axes: &[(String, Vec<String>)], tokens: &[Mapped]) -> Vec<Op> {
+/// that differs (and `unset-token-when` for a `when` of the importer's own
+/// axes, `owned`, that it no longer has), `add-token` for one it lacks.
+pub fn reconcile(
+    design: &Design,
+    axes: &[(String, Vec<String>)],
+    owned: &[&str],
+    tokens: &[Mapped],
+) -> Vec<Op> {
     let mut ops = Vec::new();
     for (name, values) in axes {
         match design.axes.iter().find(|a| a.name.value == *name) {
@@ -144,9 +149,12 @@ pub fn reconcile(design: &Design, axes: &[(String, Vec<String>)], tokens: &[Mapp
                 comment: None,
             });
         }
-        // A `when` the source no longer gives is the source's to take back.
+        // A `when` on the importer's own axes alone that the source no
+        // longer gives is the source's to take back; one naming another axis
+        // is the author's.
         for w in &have.whens {
-            if !t.whens.iter().any(|(c, _)| same_conds(&w.conds, c)) {
+            let own = w.conds.iter().all(|(a, _)| owned.contains(&a.as_str()));
+            if own && !t.whens.iter().any(|(c, _)| same_conds(&w.conds, c)) {
                 ops.push(Op::UnsetTokenWhen {
                     name: t.name.clone(),
                     when: w.conds.clone(),
@@ -295,6 +303,33 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
             }
         }
     };
+    // Declarations so far, as one block, before a nested rule's: the order
+    // the source has them.
+    let flush = |decls: &mut Vec<(String, String)>, out: &mut Vec<Block>| {
+        if !decls.is_empty() && !context.is_empty() {
+            out.push(Block {
+                context: context.to_vec(),
+                decls: std::mem::take(decls),
+            });
+        }
+    };
+    // The mark index of the `}` matching the `{` at mark `k`, if any.
+    let matching = |k: usize| {
+        let mut depth = 0;
+        for (j, &(_, m)) in marks.iter().enumerate().skip(k) {
+            match m {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(j);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    };
     while k < marks.len() {
         let (i, c) = marks[k];
         match c {
@@ -304,42 +339,36 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
                 k += 1;
             }
             '{' => {
-                // Its matching close, counting the marks between.
-                let mut depth = 0;
-                let mut end = None;
-                for (j, &(at, m)) in marks.iter().enumerate().skip(k) {
-                    match m {
-                        '{' => depth += 1,
-                        '}' => {
-                            depth -= 1;
-                            if depth == 0 {
-                                end = Some((j, at));
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
+                let prelude = text[start..i].trim();
+                let end = matching(k);
+                // A custom property's value may hold braces: its declaration
+                // runs on to the `;` after them.
+                if prelude.starts_with("--") && prelude.contains(':') {
+                    k = end.map_or(marks.len(), |j| j + 1);
+                    continue;
                 }
-                let Some((j, close)) = end else { break };
-                let prelude = text[start..i].trim().to_string();
+                // Unclosed: the rest is its body.
+                let (j, close) = match end {
+                    Some(j) => (j, marks[j].0),
+                    None => (marks.len(), text.len()),
+                };
+                flush(&mut decls, out);
                 let mut inner = context.to_vec();
-                inner.push(prelude);
+                inner.push(prelude.to_string());
                 body(&text[i + 1..close], &inner, out);
-                start = close + 1;
+                start = (close + 1).min(text.len());
                 k = j + 1;
             }
-            // A stray close: what follows is past this body.
-            _ => break,
+            // A stray close: passed over.
+            _ => {
+                start = i + 1;
+                k += 1;
+            }
         }
     }
     // The last declaration may have no `;`.
     if start < text.len() {
         declaration(&text[start..], &mut decls);
     }
-    if !decls.is_empty() && !context.is_empty() {
-        out.push(Block {
-            context: context.to_vec(),
-            decls,
-        });
-    }
+    flush(&mut decls, out);
 }

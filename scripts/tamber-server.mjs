@@ -294,6 +294,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return true;
   }
 
+  // What the wire itself reads of a review: the offers' items, the tokens' count.
+  const reviewShaped = r => typeof r === 'object' && r !== null && !Array.isArray(r)
+    && (r.offers === undefined || Array.isArray(r.offers) && r.offers.every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
+    && (r.tokens === undefined || Number.isInteger(r.tokens));
   const needsClient = request => typeof request.client === 'string' && request.client ? null : { status: 400, error: { message: `${request.method} names its \`client\`` } };
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
@@ -312,7 +316,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'propose' && request.hold !== undefined) {
       if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
-      if (request.review !== undefined && (typeof request.review !== 'object' || request.review === null || Array.isArray(request.review))) return { status: 400, error: { message: '`review` is an object' } };
+      if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
@@ -415,11 +419,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // The review rides along, its offers' items renumbered to the
     // operations kept.
     const recompute = async (ops, kept = ops.map((_, i) => i)) => {
-      const review = p.shown.review && {
-        ...p.shown.review,
-        offers: (p.shown.review.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+      const old = p.shown.review;
+      const review = old && {
+        ...old,
+        offers: (old.offers ?? []).map(o => ({ ...o, items: (o.items ?? []).map(i => kept.indexOf(i)).filter(i => i >= 0) })),
+        ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
-      const fresh = await hold(p.client, ops, undefined, id, review);
+      let fresh;
+      try { fresh = await hold(p.client, ops, undefined, id, review); } catch (e) { restore(id, p); throw e; }
       if (!fresh.ok) { restore(id, p); return fresh; }
       send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: request.client, reason: 'replaced', replacedBy: fresh.ok.proposal });
       return { ok: { recomputed: true, replaces: id, ...fresh.ok } };

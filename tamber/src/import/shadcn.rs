@@ -24,26 +24,49 @@
 use super::{counted, css_blocks, reconcile, tamber_name, Import, Mapped, Offer, Unmapped};
 use crate::edit::Op;
 use crate::{Design, Diagnostic, Vocab};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// A theme block: its theme (`None` the default) and whether it is dark.
 type Target = (Option<String>, bool);
 
 /// Where a block's declarations go: each target its selector list names,
 /// or why none. `dark` is an enclosing `prefers-color-scheme: dark`.
-fn targets(selector: &str, dark: bool) -> Result<Vec<Target>, String> {
-    let mut out = Vec::new();
-    for alternative in selector.split(',') {
-        if let Some(t) = target(alternative.trim(), dark)? {
-            if !out.contains(&t) {
-                out.push(t);
-            }
+fn targets(selectors: &[String], dark: bool) -> Result<Vec<Target>, String> {
+    let (mut out, mut refused) = (Vec::new(), None);
+    for selector in selectors {
+        match target(selector.trim(), dark) {
+            Ok(Some(t)) if !out.contains(&t) => out.push(t),
+            Ok(_) => {}
+            Err(why) => refused = refused.or(Some(why)),
         }
     }
     if out.is_empty() {
-        return Err("not a theme block (`:root`, `.dark`, or a theme class)".into());
+        return Err(refused
+            .unwrap_or_else(|| "not a theme block (`:root`, `.dark`, or a theme class)".into()));
     }
     Ok(out)
+}
+
+/// The selectors a nested rule's chain names, each in full: `&` is its
+/// parent, and a rule without `&` is a descendant of it (CSS nesting).
+fn nested(chain: &[&String]) -> Vec<String> {
+    let mut out = vec![String::new()];
+    for prelude in chain {
+        out = out
+            .iter()
+            .flat_map(|parent| {
+                prelude.split(',').map(move |alt| {
+                    let alt = alt.trim();
+                    match (alt.contains('&'), parent.is_empty()) {
+                        (true, _) => alt.replace('&', parent),
+                        (false, true) => alt.to_string(),
+                        (false, false) => format!("{parent} {alt}"),
+                    }
+                })
+            })
+            .collect();
+    }
+    out
 }
 
 /// One selector: `:root`, `.light`, `html` …, with `.dark` anywhere for the
@@ -109,16 +132,20 @@ fn split_compound(w: &str) -> Vec<&str> {
 
 /// A literal colour: as written, or v3's bare channels (`222.2 84% 4.9%`,
 /// any form `hsl()` reads) as `hsl()`.
+/// One line, spaces collapsed; `currentColor`, which no token can be, is
+/// none.
 fn literal(value: &str) -> Option<String> {
-    let v = value.trim();
-    if exact_color::parse(v).is_some() {
-        return Some(v.to_string());
+    let v = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let ok =
+        |c: &str| exact_color::parse(c).is_some_and(|p| !matches!(p, exact_color::Parsed::Current));
+    if ok(&v) {
+        return Some(v);
     }
     if v.contains('(') || v.is_empty() {
         return None;
     }
     let hsl = format!("hsl({v})");
-    exact_color::parse(&hsl).is_some().then_some(hsl)
+    ok(&hsl).then_some(hsl)
 }
 
 /// `var(--x)`'s name.
@@ -181,15 +208,14 @@ pub fn import(
         if block.context.iter().any(|p| p.starts_with("@theme")) {
             continue;
         }
-        // The selector is the innermost one; every at-rule around it (or
-        // nested in it, as CSS nesting allows) is a condition.
-        let selector = block
+        // The selectors, every nested rule resolved against its parents;
+        // every at-rule around them is a condition.
+        let rules: Vec<&String> = block
             .context
             .iter()
-            .rev()
-            .find(|p| !p.starts_with('@'))
-            .cloned()
-            .unwrap_or_default();
+            .filter(|p| !p.starts_with('@'))
+            .collect();
+        let selectors = nested(&rules);
         let enclosing: Vec<&String> = block
             .context
             .iter()
@@ -210,11 +236,49 @@ pub fn import(
                 report(&mut unmapped, &label, &name, &value, why, None);
                 continue;
             }
-            match targets(&selector, dark_media) {
+            match targets(&selectors, dark_media) {
                 Ok(t) => decls.push((label.clone(), name, value, t)),
                 Err(why) => report(&mut unmapped, &label, &name, &value, why, None),
             }
         }
+    }
+    // The themes the source names, whether or not their values map; one
+    // whose axis would take the design past its tuples is reported.
+    let mut themes: Vec<String> = Vec::new();
+    for (_, _, _, targets) in &decls {
+        for t in targets {
+            if let Some(theme) = &t.0 {
+                if !themes.contains(theme) {
+                    themes.push(theme.clone());
+                }
+            }
+        }
+    }
+    let others: usize = design
+        .axes
+        .iter()
+        .filter(|a| a.name.value != "theme")
+        .map(|a| a.values.len())
+        .product();
+    let had = design
+        .axes
+        .iter()
+        .find(|a| a.name.value == "theme")
+        .map_or(vec!["default".to_string()], |a| a.values.clone());
+    let theme_values = had.len() + themes.iter().filter(|t| !had.contains(t)).count();
+    if !themes.is_empty() && others * theme_values > crate::MAX_TUPLES {
+        themes.clear();
+        decls.retain_mut(|(label, var, value, targets)| {
+            targets.retain(|t| t.0.is_none());
+            if targets.is_empty() {
+                let why = format!(
+                    "its theme would take the design past {} tuples",
+                    crate::MAX_TUPLES
+                );
+                report(&mut unmapped, label, var, value, why, None);
+            }
+            !targets.is_empty()
+        });
     }
     // Names, first seen first; of two variables that would be one token,
     // the later one's declarations are reported.
@@ -240,85 +304,112 @@ pub fn import(
             }
         }
     }
-    // The variables that become colour tokens: a literal colour somewhere,
-    // or a reference to one that does (a cycle never does).
-    let mut colours: BTreeSet<String> = decls
-        .iter()
-        .filter(|(_, v, value, _)| names.contains_key(v) && literal(value).is_some())
-        .map(|(_, v, _, _)| v.clone())
-        .collect();
-    loop {
-        let more: Vec<String> = decls
-            .iter()
-            .filter(|(_, v, value, _)| {
-                names.contains_key(v)
-                    && !colours.contains(v)
-                    && reference(value).is_some_and(|r| colours.contains(r))
-            })
-            .map(|(_, v, _, _)| v.clone())
-            .collect();
-        if more.is_empty() {
-            break;
+    // The declaration that wins each block for each variable: the last, as
+    // in CSS, whatever its value.
+    let mut winners: BTreeMap<(Target, String), usize> = BTreeMap::new();
+    for (k, (_, var, _, targets)) in decls.iter().enumerate() {
+        if collided.contains_key(var) {
+            continue;
         }
-        colours.extend(more);
+        for t in targets {
+            winners.insert((t.clone(), var.clone()), k);
+        }
     }
-    // Each declaration mapped (a colour, to each target) or reported.
+    // A colour as a block sees it: a literal, or a reference to a variable
+    // that is a colour where the block reads it (its own block, then the
+    // theme's light side, then the default's), never through a cycle.
+    fn seen(
+        at: &Target,
+        var: &str,
+        decls: &[Decl],
+        winners: &BTreeMap<(Target, String), usize>,
+        names: &BTreeMap<String, String>,
+        visiting: &mut Vec<String>,
+    ) -> Option<String> {
+        let chain: Vec<Target> = match at {
+            (Some(t), true) => vec![
+                (Some(t.clone()), true),
+                (Some(t.clone()), false),
+                (None, true),
+                (None, false),
+            ],
+            (Some(t), false) => vec![(Some(t.clone()), false), (None, false)],
+            (None, true) => vec![(None, true), (None, false)],
+            (None, false) => vec![(None, false)],
+        };
+        let k = chain
+            .iter()
+            .find_map(|c| winners.get(&(c.clone(), var.to_string())))?;
+        colour_of(&decls[*k].2, at, decls, winners, names, visiting)
+    }
+    fn colour_of(
+        value: &str,
+        at: &Target,
+        decls: &[Decl],
+        winners: &BTreeMap<(Target, String), usize>,
+        names: &BTreeMap<String, String>,
+        visiting: &mut Vec<String>,
+    ) -> Option<String> {
+        if let Some(c) = literal(value) {
+            return Some(c);
+        }
+        let r = reference(value)?;
+        if visiting.iter().any(|v| v == r) || !names.contains_key(r) {
+            return None;
+        }
+        visiting.push(r.to_string());
+        let found = seen(at, r, decls, winners, names, visiting);
+        visiting.pop();
+        found.map(|_| names[r].clone())
+    }
+    // Each block's own colour for each variable, where its winner is one.
+    let mut sides: BTreeMap<(Target, String), String> = BTreeMap::new();
+    for ((t, var), k) in &winners {
+        let mut visiting = vec![var.clone()];
+        if let Some(c) = colour_of(&decls[*k].2, t, &decls, &winners, &names, &mut visiting) {
+            sides.insert((t.clone(), var.clone()), c);
+        }
+    }
+    // Each declaration mapped (it wins a block, and is a colour there) or
+    // reported, once.
     let mut mapped = 0;
-    let mut sides: BTreeMap<(Target, String), (String, usize)> = BTreeMap::new();
-    let mut themes: Vec<String> = Vec::new();
-    let mut superseded = vec![false; decls.len()];
     for (k, (label, var, value, targets)) in decls.iter().enumerate() {
         if let Some(first) = collided.get(var) {
             let why = format!("its name is `{first}`'s ({})", names[first]);
             report(&mut unmapped, label, var, value, why, None);
             continue;
         }
-        let colour = literal(value).or_else(|| {
-            reference(value)
-                .filter(|r| colours.contains(*r))
-                .map(|r| names[r].clone())
-        });
-        let Some(colour) = colour else {
-            let token = Some(names[var].clone());
-            let (why, token) = if value.trim().is_empty() {
-                ("an empty value".to_string(), None)
-            } else if let Some(r) = reference(value) {
-                (format!("`{r}` becomes no colour token"), token)
-            } else if looks_like_length(value) {
-                ("kind pending (stage 6): length".to_string(), token)
-            } else {
-                let why = "not a colour, and no other kind is built yet (stage 6)";
-                (why.to_string(), token)
-            };
-            report(&mut unmapped, label, var, value, why, token);
-            continue;
-        };
-        mapped += 1;
-        for t in targets {
-            if let Some(theme) = &t.0 {
-                if !themes.contains(theme) {
-                    themes.push(theme.clone());
-                }
-            }
-            // A later declaration for the same block wins, as in CSS.
-            if let Some((_, was)) = sides.insert((t.clone(), var.clone()), (colour.clone(), k)) {
-                superseded[was] = true;
-            }
-        }
-    }
-    // A declaration every target of which a later one took is reported,
-    // and no longer mapped.
-    for (k, (label, var, value, targets)) in decls.iter().enumerate() {
-        let live = targets.iter().any(|t| {
-            sides
-                .get(&(t.clone(), var.clone()))
-                .is_some_and(|(_, at)| *at == k)
-        });
-        if superseded[k] && !live {
-            mapped -= 1;
+        let won: Vec<&Target> = targets
+            .iter()
+            .filter(|t| winners.get(&((*t).clone(), var.clone())) == Some(&k))
+            .collect();
+        if won.is_empty() {
             let why = "declared again later for the same theme block, which wins".to_string();
             report(&mut unmapped, label, var, value, why, None);
+            continue;
         }
+        if won
+            .iter()
+            .any(|t| sides.contains_key(&((*t).clone(), var.clone())))
+        {
+            mapped += 1;
+            continue;
+        }
+        let token = Some(names[var].clone());
+        let (why, token) = if value.trim().is_empty() {
+            ("an empty value".to_string(), None)
+        } else if let Some(r) = reference(value) {
+            (
+                format!("`{r}` is no colour where this block reads it"),
+                token,
+            )
+        } else if looks_like_length(value) {
+            ("kind pending (stage 6): length".to_string(), token)
+        } else {
+            let why = "not a colour, and no other kind is built yet (stage 6)";
+            (why.to_string(), token)
+        };
+        report(&mut unmapped, label, var, value, why, token);
     }
     let pair = |l: Option<&String>, d: Option<&String>| match (l, d) {
         (Some(l), Some(d)) if l == d => Some(l.clone()),
@@ -328,11 +419,8 @@ pub fn import(
     };
     let mut tokens = Vec::new();
     for var in &order {
-        let get = |theme: &Option<String>, dark: bool| {
-            sides
-                .get(&((theme.clone(), dark), var.clone()))
-                .map(|(c, _)| c)
-        };
+        let get =
+            |theme: &Option<String>, dark: bool| sides.get(&((theme.clone(), dark), var.clone()));
         let mut whens = Vec::new();
         for t in &themes {
             let theme = Some(t.clone());
@@ -389,7 +477,7 @@ pub fn import(
         values.extend(themes.iter().cloned());
         vec![("theme".to_string(), values)]
     };
-    let ops = reconcile(design, &axes, &tokens);
+    let ops = reconcile(design, &axes, &["theme"], &tokens);
     let offers = offers(prefix, design, vocab, &tokens);
     let derived = unmapped.iter().filter(|u| u.block == "(derived)").count();
     let counted = counted(source, mapped, unmapped.len() - derived)?;
@@ -433,16 +521,22 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
         let existing = crate::edit::token_index(design, &roles, role)
             .ok()
             .map(|i| &design.tokens[i]);
-        let op = match existing {
+        let ops = match existing {
             Some(t) if t.value.value.trim() == token && t.whens.is_empty() => continue,
-            Some(t) => Op::SetToken {
+            // The role is the token in every mode: its `when` lines go.
+            Some(t) => std::iter::once(Op::SetToken {
                 name: t.name.value.clone(),
                 when: Vec::new(),
                 value: token.clone(),
                 at: None,
                 comment: None,
-            },
-            None => Op::AddToken {
+            })
+            .chain(t.whens.iter().map(|w| Op::UnsetTokenWhen {
+                name: t.name.value.clone(),
+                when: w.conds.clone(),
+            }))
+            .collect(),
+            None => vec![Op::AddToken {
                 name: role.into(),
                 kind: None,
                 value: token.clone(),
@@ -450,12 +544,12 @@ fn offers(prefix: &str, design: &Design, vocab: &Vocab, tokens: &[Mapped]) -> Ve
                 whens: Vec::new(),
                 comment: None,
                 before: None,
-            },
+            }],
         };
         out.push(Offer {
             role: role.into(),
             token,
-            ops: vec![op],
+            ops,
             note: None,
         });
     }
