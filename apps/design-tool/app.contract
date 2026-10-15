@@ -60,8 +60,12 @@ component DesignTool
     asks = asks + 1
   action reconnect
     refresh hello
-    // A poll still held answers for itself; a second would race it.
+    // A poll still held answers for itself; a second would race it. One
+    // answered goes on from where it got to, as `advance` would.
     if not pending(changes)
+      if changes.ok
+        since = changes.seq
+        epoch = changes.epoch
       asks = asks + 1
   action editName(v: string)
     draftName = v

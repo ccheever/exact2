@@ -733,10 +733,11 @@ export async function toolCommand(argv) {
     if (!same) { console.error(`tamber tool: ${TOOL_ORIGIN} already serves ${there.app ? `the design of ${there.app}` : 'something else'}; stop it first`); return 1; }
     // And this checkout's tool, as just built: another checkout's server
     // serves its own.
-    let page = null;
-    try { page = await (await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(5000) })).text(); } catch { /* none */ }
-    const mine = readFileSync(resolve(TOOL_DIST, 'index.html'), 'utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">');
-    if (page !== mine) { console.error(`tamber tool: the design server at ${TOOL_ORIGIN} serves another build of the design tool (another checkout's?); stop it first`); return 1; }
+    // Its page, module and plan (whose names carry no digest) as built here.
+    const served = async path => { try { return Buffer.from(await (await fetch(`${url}${path}`, { redirect: 'error', signal: AbortSignal.timeout(5000) })).arrayBuffer()); } catch { return Buffer.alloc(0); } };
+    const page = Buffer.from(readFileSync(resolve(TOOL_DIST, 'index.html'), 'utf8').replace(/<base\s+href=["']\/["']\s*\/?\s*>/i, '<base href="/__tamber/tool/">'));
+    const matches = async (path, bytes) => (await served(path)).equals(bytes);
+    if (!(await matches('', page)) || !(await matches('app.js', readFileSync(resolve(TOOL_DIST, 'app.js')))) || !(await matches('app.plan', readFileSync(resolve(TOOL_DIST, 'app.plan'))))) { console.error(`tamber tool: the design server at ${TOOL_ORIGIN} serves another build of the design tool (another checkout's?); stop it first`); return 1; }
     console.log(`${url}\n  (the design tool, on the design server already running for ${dir})`);
     open();
     return 0;
@@ -762,7 +763,12 @@ export async function toolCommand(argv) {
     // The design server up (or refused) before the port is taken, so a
     // refusal leaves nothing listening.
     const tamber = tamberServer({ appDir: dir });
+    // Stopped while it starts (a cold compiler build), the server stops too.
+    const codes = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+    const early = async signal => { await tamber.close(); process.exit(codes[signal]); };
+    for (const signal of Object.keys(codes)) process.once(signal, early);
     await tamber.ready;
+    for (const signal of Object.keys(codes)) process.off(signal, early);
     if (tamber.down) {
       const held = /another tamber server/.test(tamber.down);
       console.error(`tamber tool: ${tamber.down}${held ? `\n  the app's dev loop holds its design: run bun exact.mjs tamber tool ${dir} --via <its URL>` : ''}`);
