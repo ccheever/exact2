@@ -919,3 +919,62 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
 
 #[path = "executor_timeout_tests.rs"]
 mod timeout;
+
+#[test]
+fn empty_forget_preserves_pending_wakes_and_subsequent_admission() {
+    let (core, fixture, woke) = setup();
+    core.notify();
+    woke.recv_timeout(Duration::from_secs(5)).unwrap();
+    core.forget(|_| panic!("an empty executor has no held tickets"));
+    assert!(core.shared.state.lock().unwrap().notified);
+    core.begin_pump();
+    for (ticket, request) in [
+        (1, Request::get("https://example.test/read")),
+        (
+            2,
+            Request::get("https://example.test/read").independent_http(4096),
+        ),
+    ] {
+        core.forget(|_| false);
+        core.run(job(ticket, request), None).unwrap();
+        let results = collect(&core, &woke, 1);
+        assert_eq!(results[0].0, ticket);
+        assert!(matches!(results[0].1, Outcome::Response(_)));
+        until_settled(&core);
+    }
+    assert_eq!(fixture.state.lock().unwrap().2.len(), 2);
+}
+
+#[test]
+fn empty_forget_preserves_an_ordered_admission_refusal() {
+    let (core, _, woke) = setup();
+    let mut oversized = Request::post_json("https://example.test/write", "{}");
+    oversized.body = vec![0; MAX_REQUEST + 1];
+    assert!(core.run(job(1, oversized), None).is_err());
+    assert!(settled(&core));
+    core.forget(|_| panic!("an admission refusal has no executor reservation"));
+    assert!(core
+        .run(job(2, Request::get("https://example.test/read")), None)
+        .is_err());
+    core.resume_ordered();
+    core.run(job(3, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 3);
+}
+
+#[test]
+fn forgetting_an_undrained_completion_still_releases_its_reservation() {
+    let (core, _, woke) = setup();
+    core.run(job(1, Request::get("https://example.test/read")), None)
+        .unwrap();
+    woke.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(core.shared.state.lock().unwrap().counts, [1, 0]);
+    core.forget(|_| false);
+    assert!(settled(&core));
+    assert!(core.drain().is_empty());
+    core.begin_pump();
+    core.forget(|_| false);
+    core.run(job(2, Request::get("https://example.test/read")), None)
+        .unwrap();
+    assert_eq!(collect(&core, &woke, 1)[0].0, 2);
+}

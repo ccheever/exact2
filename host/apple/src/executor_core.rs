@@ -349,6 +349,11 @@ impl Core {
         {
             let mut guard = self.shared.state.lock().unwrap();
             let state = &mut *guard;
+            // Reservations cover queued, running and undrained work. An idle
+            // publication cannot free resources or give a worker work to do.
+            if state.counts == [0, 0] {
+                return;
+            }
             for lane in 0..2 {
                 let (counts, bytes) = (&mut state.counts[lane], &mut state.bytes[lane]);
                 let streams = &mut state.streams;
