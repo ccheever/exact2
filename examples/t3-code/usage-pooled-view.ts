@@ -3,9 +3,7 @@
 // PoolWindowCard, PoolBar, PoolSegment, LegendRow, SegmentPopover, RedeemableSegmentPopup,
 // AccountAvatar, AccountName, AccountChip, LimitNotices) and UsagePage.tsx (CursorEnableLimits,
 // CursorEnableRow). Changes: Contract has no container query, so the bar's `@2xl/pool` width
-// (42rem) is worked out here from the page's layout (`poolBarWidth`); the hatching of the spent share
-// (a repeating-linear-gradient, which the kernel does not paint) is one SVG path of the same 1px
-// stripes 5px apart at 135°; the popover's side is the one the reference lands on after its
+// (42rem) is worked out here from the page's layout (`poolBarWidth`); the popover's side is the one the reference lands on after its
 // collision flip on an unscrolled page (`popoverSides`: below a bar too near the page's top for the
 // popover, above every other; exact2 #112); every figure and word is otherwise the reference's.
 import { arr, str } from './domain';
@@ -39,13 +37,6 @@ export function poolBarWidth(viewport: number, sidebar: number): number {
 }
 /** `@2xl/pool`: 42rem. */
 export const POOL_WIDE = 672;
-
-/** repeating-linear-gradient(135deg, c 0 1px, transparent 1px 5px) as stripes on a box `height` tall and up to 1,400 wide, anchored at its right edge. */
-export function hatchPath(height: number, width = 1400): string {
-  const step = 5 * Math.SQRT2, parts: string[] = [];
-  for (let x = width + height; x >= -height; x -= step) parts.push(`M${(x - height).toFixed(2)} ${height}L${x.toFixed(2)} 0`);
-  return parts.join('');
-}
 
 /** A segment's redeem is its account's in that window (the reference's useResetCredit lives in PoolSegment keyed by the account). */
 const redeemKeyOf = (account: LimitAccount, window: import('./domain').Obj) => `${account.key}\n${str(window.kind)}:${str(window.id)}`;
@@ -134,7 +125,7 @@ export function pooledView(state: UsageState, statuses: EnvironmentUsageStatus[]
   state.links = links.map(link => link.url);
   popoverSides(views, { wide, md: layout.md, cursorRows: cursorEnvironments.length });
   return {
-    wide, hatchWide: hatchPath(32), hatchNarrow: hatchPath(20),
+    wide,
     empty: pools.length === 0 && notices.length === 0 && cursorEnvironments.length === 0 && links.length === 0,
     pools: views, cursorAfter: cursorEnvironments.length > 0 && cursorPromptAt === pools.length,
     cursor: cursorEnvironments.map(environment => ({ key: environment.environmentId, label: environment.label,
@@ -178,7 +169,7 @@ export function popoverSides(pools: { cursorBefore: boolean; windows: SideWindow
   });
 }
 export function emptyPooled(): PooledView {
-  return { wide: false, hatchWide: '', hatchNarrow: '', empty: false, pools: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
+  return { wide: false, empty: false, pools: [], cursorAfter: false, cursor: [], links: [], notices: [], confirm: '' };
 }
 
 /** CursorEnableRow in the cost view's provider list: after Codex and Claude, one per environment that could enable it. */

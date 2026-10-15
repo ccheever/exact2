@@ -1,6 +1,7 @@
 // Every modal dialog keeps Tab and Shift+Tab inside, as Base UI's focus trap does
-// in each Dialog and AlertDialog of T3 Code 1e2ecbd975. Exact keeps no Tab inside an `aria-modal` box on macOS
-// (exact2 #282), so each dialog carries a trap: the FocusGuard pair of dialog-trap.contract, or the `key`
+// in each Dialog and AlertDialog of T3 Code 1e2ecbd975. Exact keeps no Tab inside an `aria-modal` box on macOS, and
+// the `dialog` that `showModal(id)` keeps it in is a sheet or an `NSAlert` there (dialog-trap.contract says why that
+// is not the reference's), so each dialog carries a trap: the FocusGuard pair of dialog-trap.contract, or the `key`
 // handlers the older dialogs wrap with. These checks read the Contract sources, as
 // dialog-focus.test.ts does: every `role="dialog"`/`"alertdialog"` is classified (a new one fails until it is), each
 // guarded popup opens and closes with its pair, and every literal a guard names is an element id. The behavior is proven

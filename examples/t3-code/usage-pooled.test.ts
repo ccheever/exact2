@@ -615,3 +615,13 @@ describe('Model prices on every metric', () => {
     for (const metric of ['limits', 'cost']) expect([metric, (await rig.page({ metric })).prices.open]).toEqual([metric, false]);
   });
 });
+
+describe('the spent share\'s hatch (PoolSegment)', () => {
+  test('is the reference\'s repeating gradient over the spent share, in the provider colour at 20%', async () => {
+    const pooled = await Bun.file(new URL('./usage-pooled.contract', import.meta.url)).text();
+    const hatch = pooled.split('\n').find(line => line.includes('testId=`usage-seg-hatch-${seg.id}`'));
+    expect(hatch).toContain('box position="absolute" right=0 top=0 bottom=0 width=`${100 - seg.remaining}%` opacity=0.2');
+    expect(hatch).toContain('background-image=`repeating-linear-gradient(135deg, light-dark(${light}, ${dark}) 0 1px, transparent 1px 5px)`');
+    expect(pooled).not.toContain('path d=hatch');
+  });
+});
