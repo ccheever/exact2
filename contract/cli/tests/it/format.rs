@@ -106,7 +106,7 @@ fn the_roster_names_are_the_roster_s() {
             "day 3",
         ),
         (
-            "fn indexOf(xs: string[], p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${s.indexOf(\"b\")}` testId=\"x\"\n",
+            "fn indexOf(xs: string[], p: string): number = 7\ncomponent A\n  state s = [\"a\", \"b\"]\n  view\n    text `${indexOf(s, \"b\")}` testId=\"x\"\n",
             "7",
         ),
         (
