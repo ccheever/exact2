@@ -59,7 +59,7 @@ final class ComposerChipActionTests: XCTestCase {
         let elements = fixture.press.accessibilityElements
         XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Review comment, app.ts L3. Show details", "Preview annotation, Fix the button. Show details"])
         XCTAssertTrue(elements.allSatisfy { $0 is T3ComposerChipPopupElement })
-        XCTAssertTrue(elements[1].accessibilityPerformPress())
+        XCTAssertTrue(axPress(elements[1]))
         XCTAssertEqual(fixture.press.state["kind"] as? String, "preview-annotation")
     }
 
@@ -106,7 +106,7 @@ final class ComposerChipActionTests: XCTestCase {
         let link = fixture.press.accessibilityElements[1]
         XCTAssertEqual(link.accessibilityLabel(), "Thread, Plan the release")
         XCTAssertEqual(link.accessibilityRole(), .link)
-        XCTAssertTrue(link.accessibilityPerformPress())
+        XCTAssertTrue(axPress(link))
         XCTAssertEqual(fixture.press.state["act"] as? String, "thread")
     }
 
@@ -124,8 +124,15 @@ final class ComposerChipActionTests: XCTestCase {
         XCTAssertEqual(element.accessibilityLabel(), "File attachment, notes.txt, 1 KB")
         XCTAssertEqual(element.accessibilityRole(), .button)
         XCTAssertTrue(element is T3ComposerChipPopupElement)
-        XCTAssertTrue(element.accessibilityPerformPress())
+        // One press does it, with the focus elsewhere too: the prompt takes the focus with the chip selected, as after a
+        // click, so the preview it opens gives the focus back there.
+        fixture.view.window?.makeFirstResponder(nil)
+        let before = fixture.press.seq
+        XCTAssertTrue(axPress(element))
         XCTAssertEqual(fixture.press.state["act"] as? String, "file")
+        XCTAssertEqual(fixture.press.seq, before + 1)
+        XCTAssertTrue(fixture.view.window?.firstResponder === fixture.view)
+        XCTAssertEqual(fixture.view.selectedRange(), chip.range)
     }
 
     func testAnExpiredExcerptHasNoPress() {

@@ -295,14 +295,14 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertEqual(all.map { $0.accessibilityRole() }, [.link, .popUpButton, .link, .popUpButton])
         // Both are pressable: the link opens the cited answer (an action the app performs), the button the comment.
         XCTAssertTrue(all.allSatisfy { $0 is T3ComposerChipPopupElement })
-        XCTAssertTrue(all[0].accessibilityPerformPress())
+        XCTAssertTrue(axPress(all[0]))
         XCTAssertFalse(fixture.press.isOpen)
         XCTAssertEqual(fixture.press.state["act"] as? String, "citation")
         let elements = all.filter { $0.accessibilityRole() == .popUpButton }
         let frame = elements[0].accessibilityFrame(), window = fixture.base.window
         let expected = window.convertToScreen(fixture.base.editor.convert(fixture.styler.citationActionRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(frame.midX, expected.midX, accuracy: 0.5)
-        XCTAssertTrue(elements[0].accessibilityPerformPress())
+        XCTAssertTrue(axPress(elements[0]))
         XCTAssertTrue(fixture.press.isOpen)
         XCTAssertEqual(fixture.press.state["anchor"] as? String, "chip")
     }
