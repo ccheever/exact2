@@ -79,9 +79,27 @@ expect(T3SnapshotShortcut.canonical("meta+") == nil, "unfinished trailing plus i
 expect(T3SnapshotShortcut.canonical("shift+shift") == "shift+shift", "modifier pair precedes chord parsing")
 expect(T3SnapshotShortcut.canonical("shift+a") == "shift+a", "single modifier letter is a chord")
 expect(T3SnapshotShortcut.canonical("meta+mod+a") == nil, "duplicate aliased modifiers rejected")
-expect(T3SnapshotShortcut.chord("ctrl+alt+a") != nil, "actual current layout translates printable letter")
-expect(T3SnapshotShortcut.chord("ctrl+alt+2") != nil, "actual current layout translates number")
-expect(T3SnapshotShortcut.chord("ctrl+alt++") != nil, "actual current layout translates plus")
+// The layouts the shortcut reads are pinned (installed layouts, none selected), so the checks do not depend on the
+// Mac's input source, as timeline-keyboard pins Keyboard Navigation.
+func installedLayout(_ id: String) -> TISInputSource? {
+    (TISCreateInputSourceList([kTISPropertyInputSourceID as String: id] as CFDictionary, true)?.takeRetainedValue() as? [TISInputSource])?.first
+}
+let abc = installedLayout("com.apple.keylayout.ABC")!
+T3SnapshotShortcut.layouts = { [abc] }
+expect(T3SnapshotShortcut.chord("ctrl+alt+a").map { $0.0 } == UInt32(kVK_ANSI_A), "layout translates printable letter")
+expect(T3SnapshotShortcut.chord("ctrl+alt+2") != nil, "layout translates number")
+expect(T3SnapshotShortcut.chord("ctrl+alt++") != nil, "layout translates plus")
+var layoutChecks = 3
+// A layout that types another script has no key for "a"; the ASCII-capable layout after it does.
+if let hangul = installedLayout("com.apple.keylayout.2SetHangul") {
+    T3SnapshotShortcut.layouts = { [hangul] }
+    expect(T3SnapshotShortcut.chord("ctrl+alt+a") == nil, "a Hangul layout alone has no key for a letter")
+    T3SnapshotShortcut.layouts = { [hangul, abc] }
+    expect(T3SnapshotShortcut.chord("ctrl+alt+a").map { $0.0 } == UInt32(kVK_ANSI_A), "the ASCII-capable layout finds the letter")
+    layoutChecks += 2
+}
+T3SnapshotShortcut.layouts = { [abc] }
+print("\(layoutChecks) keyboard layout checks passed")
 let shortcuts = T3SnapshotShortcut(changed: {})
 let contenders = ["meta+ctrl+alt+f11", "meta+ctrl+alt+f12", "ctrl+alt+shift+f10"]
 let old = contenders.first { shortcuts.check($0, saved: "") == nil }!
