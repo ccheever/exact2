@@ -907,14 +907,7 @@ impl<D: DataSource> Host<D> {
                 || visibility.1
                 || node.style.display == exact_kernel::Display::None
                 || node.props.bool(exact_kernel::PropId::Disabled) == Some(true)
-                || node
-                    .props
-                    .str(exact_kernel::PropId::Commandfor)
-                    .is_some_and(|target| !target.is_empty())
-                || node
-                    .props
-                    .str(exact_kernel::PropId::Popovertarget)
-                    .is_some_and(|target| !target.is_empty())
+                || exact_kernel::Invocation::of(self.kernel(), &node).is_some()
             {
                 return false;
             }

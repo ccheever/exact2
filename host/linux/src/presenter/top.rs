@@ -36,6 +36,7 @@
 //! as it does a Material dialog left to itself. System Back closes it
 //! before any route is asked ([`Presenter::system_back`]).
 use super::*;
+use exact_kernel::invocation::Action;
 use exact_kernel::NodeKey;
 
 pub(super) mod look;
@@ -135,6 +136,9 @@ struct Open {
     key: NodeKey,
     node: ViewId,
     kind: SurfaceKind,
+    /// Opened by `show-modal`, not as a popover: HTML's popover commands
+    /// leave it open, and its dialog `close` closes only this mode.
+    modal: bool,
     /// What opened it: where a menu hangs.
     invoker: Option<ViewId>,
     /// Where a context menu was asked for, viewport points.
@@ -199,14 +203,6 @@ pub struct Shown<'a> {
     pub texts: Vec<(ViewId, Rect4)>,
 }
 
-/// What a press on an invoker asks of the top layer.
-enum Ask {
-    Modal,
-    Show,
-    Toggle,
-    Hide,
-}
-
 impl<D: DataSource> Presenter<D> {
     /// A shell makes this presenter's top layer as windows from now on,
     /// drawn through `painter` (LLP 1115.001 D10). A host with no such
@@ -260,12 +256,13 @@ impl<D: DataSource> Presenter<D> {
         self.executor.notify();
     }
 
-    /// What `pop` is to the top layer: an alert, a menu, or nothing it shows.
-    fn surface_plan(&self, pop: ViewId) -> Option<Plan> {
+    /// What `pop` is to the top layer, shown modally or as a popover: an
+    /// alert, a menu, or nothing it shows.
+    fn surface_plan(&self, pop: ViewId, modal: bool) -> Option<Plan> {
         let runner = self.host.runner();
         let pressed = |id: ViewId| runner.handlers_of(id).contains(&EventKind::Press);
         let kernel = self.host.kernel();
-        shape::alert(kernel, pop, &pressed).or_else(|| shape::menu(kernel, pop, &pressed))
+        shape::alert(kernel, pop, &pressed, modal).or_else(|| shape::menu(kernel, pop, &pressed))
     }
 
     /// The window the shell told, and how far a menu keeps from its top and
@@ -313,18 +310,25 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    /// Whether the open surface is the node whose `id` is `name`.
-    fn surface_named(&self, name: &str) -> bool {
-        let kernel = self.host.kernel();
+    /// How `target` is open: `Some(true)` modally, `Some(false)` as a
+    /// popover, `None` when it is not the open surface.
+    fn open_mode(&self, target: NodeKey) -> Option<bool> {
         (self.top.open.as_ref())
-            .and_then(|open| kernel.node_by_key(open.key))
-            .is_some_and(|node| node.props.str(PropId::Id) == Some(name))
+            .filter(|open| open.key == target)
+            .map(|open| open.modal)
     }
 
-    /// Present the dialog or popover whose `id` is `name`: whether it was.
-    /// `modal`: asked by `showModal`, which presents no menu.
+    /// The element an action's command names by `id`, by a button's rule
+    /// (`exact_kernel::invocation::element`).
+    fn element(&self, name: &str) -> Option<NodeKey> {
+        exact_kernel::invocation::element(self.host.kernel(), name)
+    }
+
+    /// Present `target`, the dialog or popover `name` names, modally or as a
+    /// popover: whether it was. A menu is never presented modally.
     fn present(
         &mut self,
+        target: Option<NodeKey>,
         name: &str,
         invoker: Option<ViewId>,
         point: Option<(f32, f32)>,
@@ -332,10 +336,9 @@ impl<D: DataSource> Presenter<D> {
         now_ms: f64,
     ) -> bool {
         let kernel = self.host.kernel();
-        let pop = (kernel.find_by_id(name).into_iter())
-            .find_map(|key| kernel.node_by_key(key))
+        let pop = (target.and_then(|key| kernel.node_by_key(key)))
             .map(|node| (node.id, node.key, node.parent));
-        let plan = pop.and_then(|(id, ..)| self.surface_plan(id));
+        let plan = pop.and_then(|(id, ..)| self.surface_plan(id, modal));
         let shows =
             |parent: Option<ViewId>| !parent.is_some_and(|p| self.host.route_visibility(p).1);
         let refusal = match (pop, &plan) {
@@ -375,6 +378,7 @@ impl<D: DataSource> Presenter<D> {
             revision: 0,
             key,
             node: id,
+            modal,
             kind: match plan {
                 Plan::Alert { .. } => SurfaceKind::Alert,
                 Plan::Menu(_) => SurfaceKind::Menu,
@@ -446,7 +450,8 @@ impl<D: DataSource> Presenter<D> {
         let Some(row) = open.plan.rows().nth(index).filter(|r| r.enabled).cloned() else {
             return;
         };
-        let (invoker, point) = (open.invoker, open.point);
+        let (invoker, point, menu) = (open.invoker, open.point, open.key);
+        let key = self.host.kernel().node(row.node).map(|node| node.key);
         self.close_surface(now_ms);
         if self
             .host
@@ -460,8 +465,18 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
         }
-        if let Some(name) = row.opens {
-            self.present(&name, invoker, point, false, now_ms);
+        // What the surviving row opens once its `press` has run, as HTML
+        // resolves a button's invocation after its listeners: a submenu, or
+        // a dialog by `show-modal`, in the menu's place.
+        let kernel = self.host.kernel();
+        let opens = (key.and_then(|key| kernel.node_by_key(key)))
+            .filter(|row| row.props.bool(PropId::Disabled) != Some(true))
+            .and_then(|row| exact_kernel::Invocation::of(kernel, &row))
+            .filter(|i| i.opens() && i.target != menu);
+        if let Some(i) = opens {
+            let name = self.name_of(i.target);
+            let modal = i.action == Action::ShowModal;
+            self.present(Some(i.target), &name, invoker, point, modal, now_ms);
         }
     }
 
@@ -639,9 +654,9 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// The button a press at `hit` invokes the top layer through: the
-    /// nearest button at or above it, when it names a popover with
-    /// `popovertarget` or a dialog with `commandfor`. With no top layer,
-    /// `hit` itself where it is a popover's invoker, which is then refused
+    /// nearest button at or above it, when it names something (a non-empty
+    /// `commandfor` or `popovertarget`). With no top layer, `hit` itself where
+    /// it is a popover's invoker, which is then refused
     /// ([`Presenter::invoke`]), as it always was.
     pub(crate) fn top_invoker(&self, hit: ViewId) -> Option<ViewId> {
         let kernel = self.host.kernel();
@@ -654,12 +669,9 @@ impl<D: DataSource> Presenter<D> {
             if node.props.bool(PropId::Disabled) == Some(true) {
                 return None;
             }
-            if node.node_type == NodeType::Pressable
-                || exact_kernel::ControlKind::of(node.node_type, node.props)
-                    == Some(exact_kernel::ControlKind::Button)
-            {
+            if shape::is_button(&node) {
                 let names = |prop| node.props.str(prop).is_some_and(|name| !name.is_empty());
-                return (names(PropId::Popovertarget) || names(PropId::Commandfor)).then_some(id);
+                return (names(PropId::Commandfor) || names(PropId::Popovertarget)).then_some(id);
             }
             at = node.parent;
         }
@@ -668,65 +680,89 @@ impl<D: DataSource> Presenter<D> {
 
     /// A press on `invoker` ([`Presenter::top_invoker`]): its own `press`
     /// runs first, as a click's listeners run before its default action,
-    /// then what it asks of the top layer: `popovertarget` toggles, shows
-    /// or hides its popover by `popovertargetaction`; `commandfor` does
-    /// what its `command` says (`show-modal`, `close`, `show-popover`,
-    /// `toggle-popover`, `hide-popover`). The node pressed, or `None` on a
-    /// host with no top layer, which refuses it.
-    pub(crate) fn invoke(&mut self, invoker: ViewId, now_ms: f64) -> Option<ViewId> {
+    /// then what the surviving button invokes ([`Presenter::follow_invocation`]).
+    /// The node pressed, or `None` on a host with no top layer, which
+    /// refuses it.
+    pub(crate) fn invoke(&mut self, invoker: ViewId, now_ms: f64, pointer: bool) -> Option<ViewId> {
         if !self.has_windows() {
             self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
             return None;
         }
+        let key = self.host.kernel().node(invoker)?.key;
         if (self.host.runner().handlers_of(invoker)).contains(&EventKind::Press) {
-            self.dispatch_press(invoker, now_ms, true);
+            self.dispatch_press(invoker, now_ms, pointer);
         }
-        // Read after the press: its handler may have changed what it names.
-        let node = self.host.kernel().node(invoker)?;
-        let named = |prop| (node.props.str(prop).filter(|n| !n.is_empty())).map(str::to_string);
-        let (name, ask) = match (named(PropId::Commandfor), named(PropId::Popovertarget)) {
-            (Some(name), _) => {
-                let ask = match node.props.str(PropId::Command) {
-                    Some("show-modal") => Ask::Modal,
-                    Some("close" | "hide-popover") => Ask::Hide,
-                    Some("show-popover") => Ask::Show,
-                    Some("toggle-popover") => Ask::Toggle,
-                    _ => return Some(invoker),
-                };
-                (name, ask)
-            }
-            (None, Some(name)) => {
-                let ask = match node.props.str(PropId::Popovertargetaction) {
-                    Some("hide") => Ask::Hide,
-                    Some("show") => Ask::Show,
-                    _ => Ask::Toggle,
-                };
-                (name, ask)
-            }
-            (None, None) => return Some(invoker),
-        };
-        let open = self.surface_named(&name);
-        match ask {
-            Ask::Hide | Ask::Toggle if open => self.close_surface(now_ms),
-            Ask::Hide => {}
-            Ask::Modal => {
-                self.present(&name, Some(invoker), None, true, now_ms);
-            }
-            Ask::Show | Ask::Toggle => {
-                self.present(&name, Some(invoker), None, false, now_ms);
-            }
-        }
+        self.follow_invocation(key, invoker, now_ms);
         Some(invoker)
+    }
+
+    /// After a button's `press` has run: what the button `key` holds invokes
+    /// then, if it is still that node, enabled and shown (a bar's button is
+    /// out of the page and still its route's to press). A popover opens or
+    /// closes by its action, a dialog opens modally by `show-modal` and
+    /// closes by `close`; a popover command leaves a surface open modally
+    /// alone, and `close` one open as a popover.
+    pub(crate) fn follow_invocation(&mut self, key: NodeKey, invoker: ViewId, now_ms: f64) {
+        if !self.has_windows() {
+            return;
+        }
+        let kernel = self.host.kernel();
+        let Some(node) = kernel.node_by_key(key).filter(|node| {
+            node.props.bool(PropId::Disabled) != Some(true)
+                && node.style.display != exact_kernel::Display::None
+                && !self.host.authored_visibility(node.id).1
+        }) else {
+            return;
+        };
+        let Some(invocation) = exact_kernel::Invocation::of(kernel, &node) else {
+            return;
+        };
+        let (target, name) = (invocation.target, self.name_of(invocation.target));
+        match (invocation.action, self.open_mode(target)) {
+            (Action::Show | Action::Toggle, None) => {
+                self.present(Some(target), &name, Some(invoker), None, false, now_ms);
+            }
+            (Action::ShowModal, None) => {
+                self.present(Some(target), &name, Some(invoker), None, true, now_ms);
+            }
+            (Action::Hide | Action::Toggle, Some(false)) | (Action::Close, Some(true)) => {
+                self.close_surface(now_ms)
+            }
+            _ => {}
+        }
+    }
+
+    /// The `id` of the node `key` holds, for what the log says.
+    fn name_of(&self, key: NodeKey) -> String {
+        let node = self.host.kernel().node_by_key(key);
+        node.and_then(|node| node.props.str(PropId::Id))
+            .unwrap_or_default()
+            .to_string()
     }
 
     /// A node pressed by a contact that kept its own press feedback: the
     /// top layer's invoker where it is one, else its `press`.
     pub(super) fn activate(&mut self, id: ViewId, now_ms: f64) {
-        match self.has_windows() && self.top_invoker(id) == Some(id) {
-            true => {
-                self.invoke(id, now_ms);
-            }
-            false => self.dispatch_press(id, now_ms, true),
+        self.activate_with(id, now_ms, true);
+    }
+
+    /// `id` activated by a pointer or by a key (Enter, Space, a shortcut):
+    /// an invoker's `press` and then what it invokes, else its `press`.
+    pub(super) fn activate_with(&mut self, id: ViewId, now_ms: f64, pointer: bool) {
+        if self.has_windows() && self.top_invoker(id) == Some(id) {
+            self.invoke(id, now_ms, pointer);
+        } else {
+            self.press_then_follow(id, now_ms, pointer);
+        }
+    }
+
+    /// `id`'s `press`, then what it invokes if it is a button its handler
+    /// gave something to invoke.
+    pub(crate) fn press_then_follow(&mut self, id: ViewId, now_ms: f64, pointer: bool) {
+        let key = self.host.kernel().node(id).map(|node| node.key);
+        self.dispatch_press(id, now_ms, pointer);
+        if let Some(key) = key {
+            self.follow_invocation(key, id, now_ms);
         }
     }
 
@@ -773,34 +809,35 @@ impl<D: DataSource> Presenter<D> {
         let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
             return;
         };
-        let pop = self
-            .host
-            .kernel()
-            .find_by_id(name)
-            .into_iter()
-            .find_map(|key| self.host.kernel().node_by_key(key));
-        if !pop.is_some_and(|node| node.props.str(PropId::Popover).is_some()) {
+        let target = self.element(name).filter(|key| {
+            (self.host.kernel().node_by_key(*key))
+                .is_some_and(|n| n.props.str(PropId::Popover).is_some())
+        });
+        let Some(target) = target else {
             self.host
                 .log(format!("{command} refused: no popover has that id"));
             return;
-        }
+        };
         let source_name = args.get(1).and_then(exact_plan::Value::as_str);
-        let source = source_name.and_then(|name| {
-            self.host
-                .kernel()
-                .find_by_id(name)
-                .into_iter()
-                .find_map(|key| self.host.kernel().node_by_key(key).map(|n| n.id))
-        });
+        let source = source_name
+            .and_then(|name| self.element(name))
+            .and_then(|key| self.host.kernel().node_by_key(key).map(|n| n.id));
         if source_name.is_some() && source.is_none() {
             self.host
                 .log(format!("{command} refused: no source has that id"));
             return;
         }
-        if command == "hidePopover" || command == "togglePopover" && self.surface_named(name) {
-            self.close_modal(args);
-        } else if !self.surface_named(name) {
-            self.present(name, source, None, false, self.host.now());
+        match self.open_mode(target) {
+            Some(true) => self.host.log(format!(
+                "{command} ignored: \"{name}\" is open as a modal dialog, which popover commands leave alone"
+            )),
+            Some(false) if command == "hidePopover" || command == "togglePopover" => {
+                self.close_surface(self.host.now())
+            }
+            None if command != "hidePopover" => {
+                self.present(Some(target), name, source, None, false, self.host.now());
+            }
+            _ => {}
         }
     }
 
@@ -808,20 +845,26 @@ impl<D: DataSource> Presenter<D> {
     /// `id` that is, with no invoker (`source`: the node whose input ran
     /// the action, where the focus returns).
     pub(super) fn show_modal(&mut self, args: &[exact_plan::Value], source: Option<ViewId>) {
-        match args.first().and_then(exact_plan::Value::as_str) {
-            Some(name) => {
-                let now = self.host.now();
-                self.present(name, source, None, true, now);
-            }
-            None => self.host.log("showModal requires an element id"),
+        let Some(name) = args.first().and_then(exact_plan::Value::as_str) else {
+            return self.host.log("showModal requires an element id");
+        };
+        let target = self.element(name);
+        if target.is_some_and(|key| self.open_mode(key).is_some()) {
+            return self
+                .host
+                .log(format!("showModal \"{name}\" ignored: it is open"));
         }
+        let now = self.host.now();
+        self.present(target, name, source, None, true, now);
     }
 
-    /// `close(id)` from an action: the open surface, when it is that node,
-    /// closes as its cancel closes it.
+    /// `close(id)` from an action: the open surface, when it is that node
+    /// open modally, closes as its cancel closes it (HTML's `close` does
+    /// nothing to a dialog shown as a popover).
     pub(super) fn close_modal(&mut self, args: &[exact_plan::Value]) {
         let name = args.first().and_then(exact_plan::Value::as_str);
-        if name.is_some_and(|name| self.surface_named(name)) {
+        let target = name.and_then(|name| self.element(name));
+        if target.is_some_and(|key| self.open_mode(key) == Some(true)) {
             let now = self.host.now();
             self.close_surface(now);
         }
@@ -875,7 +918,8 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         if let Some(name) = names {
-            self.present(&name, Some(id), Some((x, y)), false, now_ms);
+            let menu = self.element(&name);
+            self.present(menu, &name, Some(id), Some((x, y)), false, now_ms);
         }
         true
     }
@@ -899,7 +943,7 @@ impl<D: DataSource> Presenter<D> {
             (false, _) => None,
             (true, true) => Some(open.plan.clone()),
             (true, false) => self
-                .surface_plan(pop)
+                .surface_plan(pop, open.modal)
                 .filter(|plan| matches!(plan, Plan::Alert { .. }) == (kind == SurfaceKind::Alert)),
         };
         let Some(plan) = plan else {
@@ -1028,3 +1072,7 @@ impl<D: DataSource> Presenter<D> {
 #[cfg(test)]
 #[path = "top_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "top_invocation_tests.rs"]
+mod invocation_tests;

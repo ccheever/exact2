@@ -26,7 +26,6 @@
 //! ([`Kernel::root_tabs`]). A tablist or a panel inside a route is that
 //! route's, never the root's.
 
-use crate::control::ControlKind;
 use crate::generated::{Appearance, Display, NodeType, PropId, StyleId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
@@ -58,8 +57,7 @@ pub mod fact {
     pub const TABLIST: u32 = 1 << 2;
     /// It hears `press`.
     pub const PRESS: u32 = 1 << 3;
-    /// A button that opens a popover: it names one with `popovertarget`,
-    /// and not to hide it.
+    /// A button whose invocation opens a popover (`Invocation::opens_popover`).
     pub const MENU: u32 = 1 << 4;
     /// Its `id` is the one the navigation root names as the stack's Back
     /// control (`navigationBack`).
@@ -369,11 +367,6 @@ struct Live<'a> {
     pressed: &'a dyn Fn(ViewId) -> bool,
 }
 
-fn is_button(node: &NodeRef<'_>) -> bool {
-    node.node_type == NodeType::Pressable
-        || ControlKind::of(node.node_type, node.props) == Some(ControlKind::Button)
-}
-
 impl Tree for Live<'_> {
     type Node = ViewId;
     fn facts(&self, id: ViewId) -> u32 {
@@ -397,9 +390,7 @@ impl Tree for Live<'_> {
         set(role == Some("tablist"), fact::TABLIST);
         set((self.pressed)(id), fact::PRESS);
         set(
-            is_button(&node)
-                && props.str(PropId::Popovertarget).is_some()
-                && props.str(PropId::Popovertargetaction) != Some("hide"),
+            crate::Invocation::of(self.kernel, &node).is_some_and(|i| i.opens_popover()),
             fact::MENU,
         );
         set(
