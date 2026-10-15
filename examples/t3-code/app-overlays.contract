@@ -29,6 +29,7 @@ use R4PublishDialog from "./r4-git-publish.contract"
 use CommandPalette from "./palette.contract"
 use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
+use ComposerImageDialog from "./composer-chip-image.contract"
 use ResetCreditDialog from "./usage-bars.contract"
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract"
@@ -213,6 +214,10 @@ component WindowOverlays
     DialogFinalFocus(open=(data.composerVideoPreview.length > 0), owner="video-preview")
     for video in data.composerVideoPreview key=video.id
       VideoPreviewDialog(preview=video, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
+    // A composer image chip's expanded preview (composer-chip-image.contract).
+    DialogFinalFocus(open=(data.composerImagePreview.length > 0), owner="chip-image-preview")
+    for image in data.composerImagePreview key=image.id
+      ComposerImageDialog(preview=image, windowWidth=viewport.width, windowHeight=viewport.height, command=command)
     DialogFinalFocus(open=data.planSaveOpen, owner="plan-save-dialog")
     if data.planSaveOpen
       PlanSaveDialog(path=data.planSavePath, root=data.planSaveRoot, saving=data.planSaving, local=chatLocal)

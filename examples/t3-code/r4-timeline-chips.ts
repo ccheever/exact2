@@ -111,8 +111,19 @@ function contextChip(href: string, kind: string, label: string, record: Obj | un
       detail: [str(record.selector) || `<${str(record.tagName)}>`, str(record.htmlPreview).trim()].filter(Boolean).join('\n') };
     case 'preview-annotation': return { ...base, kind: 'element', label: str(record.label, label), tip: str(record.pageTitle).trim() || str(record.pageUrl) || 'Preview annotation',
       detail: [str(record.comment), str(record.targetSummary)].filter(Boolean).join('\n') };
-    case 'review-comment': return { ...base, kind: 'review', label: str(record.label, label), tip: str(record.filePath),
-      detail: [`${str(record.sectionTitle)} · ${str(record.rangeLabel)}`, str(record.text).trim()].filter(Boolean).join('\n') };
+    case 'review-comment': {
+      // PullRequestChip: a pull request context with its metadata is a button that opens it ("#N", its state's glyph and
+      // colour), named "Open <state> pull request #N: <title>". A review comment, or a pull request summary without its
+      // metadata, opens its details.
+      const pr = obj(record.pullRequest), number = Number(pr.number);
+      if (record.pullRequest && str(pr.url) && Number.isSafeInteger(number)) {
+        const state = str(pr.state) === 'open' && pr.isDraft === true ? 'draft' : ['open', 'merged', 'closed'].includes(str(pr.state)) ? str(pr.state) : '';
+        const kindLabel = state ? `${state[0]!.toUpperCase()}${state.slice(1)} pull request` : 'Pull request';
+        return { ...base, kind: 'pr', label: `#${number}`, tip: `Open ${kindLabel} #${number}: ${str(pr.title)}`, detail: state, target: str(pr.url) };
+      }
+      return { ...base, kind: 'review', label: str(record.label, label), tip: str(record.filePath),
+        detail: [`${str(record.sectionTitle)} · ${str(record.rangeLabel)}`, str(record.text).trim()].filter(Boolean).join('\n') };
+    }
     default: return unresolved;
   }
 }

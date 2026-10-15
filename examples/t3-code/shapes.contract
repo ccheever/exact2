@@ -14,6 +14,7 @@ use LegacySidebarView from "./legacy-sidebar-shapes.contract"
 use Look from "./settings-appearance-look.contract"
 use ComposerVideo from "./r4-composer.contract"
 use ComposerVideoPreview from "./r4-composer.contract"
+use ComposerImagePreview from "./composer-chip-image.contract"
 use TableMenuView from "./r8-keys-table-menu.contract"
 shape Project
   id: string
@@ -384,6 +385,8 @@ shape Snapshot
   // r4-composer-attachments.ts: the draft's attached videos on the shelf, and the one being previewed (0 or 1).
   composerVideos: ComposerVideo[]
   composerVideoPreview: ComposerVideoPreview[]
+  // composer-chip-details.ts: an image chip's expanded preview over the draft's images (0 or 1).
+  composerImagePreview: ComposerImagePreview[]
   tableMenu: TableMenuView[]
   providerDriver: string
   providerBadge: string

@@ -11,8 +11,7 @@ import AppKit
 /// and the chips' buttons were not elements a navigation-order reader keeps.
 ///
 /// Two parts. The chips' elements (`T3ComposerChipElement`), the text view's accessibility children in text order, each
-/// with the reference's role and name, pressable where the clone builds the press (a skill's and a terminal excerpt's
-/// details, a citation's comment). And the text (`T3ComposerAccessibleText`): the text view's accessibility text, value
+/// with the reference's role and name, each pressable as its node view is. And the text (`T3ComposerAccessibleText`): the text view's accessibility text, value
 /// and ranges answered over a projection of the source where each chip reads as its label and the hidden Markdown
 /// markers are left out, every range mapped back to the source for the selection, frames and lines. The text view is
 /// Exact's (`TextArea`); the hatch cannot subclass it, so the answers are added to its class at run time, each one passing
@@ -60,12 +59,14 @@ class T3ComposerChipElement: NSAccessibilityElement {
     }
 }
 
-/// A chip whose press the clone builds: ContextChipPopover's trigger (a skill, a terminal excerpt) and a citation's
-/// comment button (VO-Space, the agent's AX press).
+/// A pressable chip (VO-Space, the agent's AX press): ContextChipPopover's trigger and a citation's comment button open
+/// their details as a pointer press does; a mention, a thread, a citation's source link, a pull request and an attachment
+/// do what their press does.
 final class T3ComposerChipPopupElement: T3ComposerChipElement {
     override func accessibilityPerformPress() -> Bool {
-        guard let press = styler?.press else { return false }
-        press.press(chip)
+        guard let styler else { return false }
+        let press = styler.press
+        if part == .citationLink || (part == .chip && !styler.isPopoverTrigger(chip)) { press.act(chip) } else { press.press(chip) }
         return true
     }
 }
@@ -79,9 +80,9 @@ enum T3ComposerChipNames {
         let label = styler.displayLabel(chip)
         switch chip.kind {
         case "skill": return [(.chip, .popUpButton, "Skill \(label). Show details", true)]
-        case "mention": return [(.chip, .button, "Preview \(chip.detail)", false)]
+        case "mention": return [(.chip, .button, "Preview \(chip.detail)", true)]
         case "citation":
-            return [(.citationLink, .link, "View cited assistant text: \(label)", false),
+            return [(.citationLink, .link, "View cited assistant text: \(label)", true),
                     (.citationComment, .popUpButton, chip.detail == "comment" ? "Edit citation comment" : "Add comment to citation", true)]
         default: break
         }
@@ -96,16 +97,16 @@ enum T3ComposerChipNames {
         let size = styler.chipSuffix(chip)
         let sized = size.isEmpty ? label : "\(label), \(size)"
         switch kind {
-        case "thread": return [(.chip, .link, "Thread, \(label)", false)]
+        case "thread": return [(.chip, .link, "Thread, \(label)", true)]
         case "file": return [(.chip, .button, "File attachment, \(sized)", false)]
-        case "video": return [(.chip, .button, "Preview video attachment, \(sized)", false)]
-        case "image": return [(.chip, .button, "Image attachment, \(sized)", false)]
-        case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", false)]
-        case "preview-annotation": return [(.chip, .popUpButton, "Preview annotation, \(label). Show details", false)]
+        case "video": return [(.chip, .button, "Preview video attachment, \(sized)", true)]
+        case "image": return [(.chip, .button, "Image attachment, \(sized)", true)]
+        case "review-comment": return [(.chip, .popUpButton, "Review comment, \(label). Show details", true)]
+        case "preview-annotation": return [(.chip, .popUpButton, "Preview annotation, \(label). Show details", true)]
         case "pull-request", "pr-open", "pr-draft", "pr-merged", "pr-closed":
             let state = ["pr-open": "Open", "pr-draft": "Draft", "pr-merged": "Merged", "pr-closed": "Closed"][kind]
             let kindLabel = state.map { "\($0) pull request" } ?? "Pull request"
-            return [(.chip, .button, "Open \(kindLabel) \(label): \(styler.pullRequestTitle(chip))", false)]
+            return [(.chip, .button, "Open \(kindLabel) \(label): \(styler.pullRequestTitle(chip))", true)]
         default: return [(.chip, .group, label, false)]
         }
     }

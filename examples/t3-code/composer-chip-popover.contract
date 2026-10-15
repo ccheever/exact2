@@ -1,4 +1,5 @@
-// A skill chip's details popover, adapted from
+// A composer chip's details popover (a skill's; a terminal excerpt's, a review comment's and a preview annotation's
+// below), adapted from
 // T3 Code 1e2ecbd975 (MIT, see LICENSE-T3): ComposerPromptEditorTiptap.tsx ComposerSkillNodeView's
 // ContextChipPopover (contextChipParts.tsx) and ui/popover.tsx PopoverPopup (side top, align center,
 // sideOffset 4, width "lg": w-96 capped at the viewport less 2rem, padding "compact": py-2 px-3,
@@ -39,10 +40,19 @@ shape ChipPopover
   // output is `description`, the terminal's name `label`).
   lines: string
   rows: number
+  // A review comment's diff, a preview annotation's crop (a draft image id) and its height over its width (0: unknown),
+  // and an action press the window has not sent yet (composer-chip-details.ts; `open` false).
+  diff: string
+  image: string
+  aspect: number
+  act: string
 
 // The popup's height for the flip: py-2 and p-2 around the label, space-y-3, the description's lines at
 // 20/14 (about 7 pt a character across the content width), and the 28 pt button with its 12 pt gap.
-fn chipPopoverEstimate(chip: ChipPopover, width: number): number = (chip.kind == "terminal" ? 2 + 16 + 2 + 37 + min(320, chip.rows * 19.5 + 24) : 2 + 32 + 20 + 12 + (floor(chip.description.length * 7 / max(width - 42, 100)) + 1) * 20 + (chip.path != "" ? 40 : 0))
+fn chipPopoverEstimate(chip: ChipPopover, width: number): number = (chip.kind == "terminal" ? 2 + 16 + 2 + 37 + min(320, chip.rows * 19.5 + 24) : chip.kind == "review-comment" ? 2 + 16 + 2 + 24 + 16 + 14 + (chip.description != "" ? 8 + (floor(chip.description.length * 7 / max(width - 50, 100)) + 1) * 20 : 0) + (chip.diff != "" ? 8 + 256 : 0) : chip.kind == "preview-annotation" ? 2 + 16 + 2 + (chip.image == "" ? 33 : chipShotHeight(chip, width)) + 20 + (chip.description.split("\n").length + floor(chip.description.length * 7 / max(width - 50, 100))) * 20 : 2 + 32 + 20 + 12 + (floor(chip.description.length * 7 / max(width - 42, 100)) + 1) * 20 + (chip.path != "" ? 40 : 0))
+
+// The annotation's crop at the popover's content width (w-full), capped at 16rem (max-h-64), object-contain.
+fn chipShotHeight(chip: ChipPopover, width: number): number = min(256, chip.aspect > 0 ? (width - 26) * chip.aspect : 160)
 
 // Within the window, 5 pt from its edges (Base UI's collision padding).
 fn chipPopoverLeft(chip: ChipPopover, width: number, viewportWidth: number): number = max(5, min(viewportWidth - width - 5, chip.x + chip.width / 2 - width / 2))
@@ -72,6 +82,29 @@ component ChipPopoverLayer
             text chip.lines font-size="0.75rem" line-height="1rem" white-space="nowrap" flex-shrink=0 color="light-dark(#71717b, #818181)" testId="chip-popover-lines"
           scroll width="100%" max-height="20rem" background-color="light-dark(#fafafa, #ffffff08)"
             text chip.description aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.21875rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-output"
+      // ComposerReviewCommentDetails (rounded-lg border-border/70 bg-background/70 p-3, space-y-2): the file path and
+      // "<section> · <range>", the comment, and the diff in an h-64 bordered box. The comment is ChatMarkdown and the
+      // diff ReadOnlySourcePreview (highlighted, numbered) in the reference; here both are plain text.
+      else if chip.kind == "review-comment"
+        column width="100%" padding="0.75rem" gap="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)" overflow="hidden" color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-review"
+          column gap="0.25rem" min-width=0
+            text chip.label font-size="0.75rem" line-height="1rem" font-weight=500 line-clamp=1 testId="chip-popover-label"
+            text chip.lines font-size="0.6875rem" line-height="0.875rem" color="light-dark(#71717b, #818181)" testId="chip-popover-lines"
+          if chip.description != ""
+            text chip.description font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" testId="chip-popover-description"
+          if chip.diff != ""
+            scroll width="100%" height="16rem" box-sizing="border-box" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#fafafa, #ffffff08)"
+              text chip.diff aria-label="review.diff" padding="0.5rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" testId="chip-popover-diff"
+      // ComposerPreviewAnnotationDetails (rounded-lg border-border/70 bg-background/70): the crop (max-h-64 w-full
+      // object-contain, border-b, bg-muted) or "Screenshot unavailable", then the summary (whitespace-pre-wrap px-3 py-2.5 text-sm).
+      else if chip.kind == "preview-annotation"
+        column width="100%" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)" overflow="hidden" color="light-dark(#27272a, #f5f5f5)" testId="chip-popover-annotation"
+          if chip.image != ""
+            box width="100%" height=chipShotHeight(chip, width) border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" background-color="light-dark(#f4f4f5, #ffffff0a)" position="relative"
+              box hatch="t3-snapshot-tile" data-snapshot-id=`contain:${chip.image}` position="absolute" left=0 top=0 right=0 bottom=0 role="img" aria-label="Annotated preview crop" testId="chip-popover-screenshot"
+          else
+            text "Screenshot unavailable" width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff14)" background-color="light-dark(#f4f4f566, #ffffff05)" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="chip-popover-no-screenshot"
+          text chip.description padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" font-size="0.875rem" line-height="1.25rem" white-space="pre-wrap" overflow-wrap="anywhere" testId="chip-popover-description"
       else
         column padding="0.5rem" gap="0.75rem" align-items="flex-start" color="light-dark(#27272a, #f5f5f5)"
           text chip.label font-size="0.875rem" line-height="1.25rem" font-weight=500 testId="chip-popover-label"

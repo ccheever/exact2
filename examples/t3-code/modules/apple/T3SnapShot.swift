@@ -61,10 +61,10 @@ final class T3SnapShot {
         weak var view: NSView?
         let image: NSView
         var loaded = false
-        init(view: NSView) {
+        init(view: NSView, contain: Bool) {
             self.view = view
             image = NSView(frame: view.bounds); image.autoresizingMask = [.width, .height]; image.wantsLayer = true
-            image.layer?.contentsGravity = .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = 9
+            image.layer?.contentsGravity = contain ? .resizeAspect : .resizeAspectFill; image.layer?.masksToBounds = true; image.layer?.cornerRadius = contain ? 0 : 9
             view.addSubview(image, positioned: .below, relativeTo: nil)
         }
     }
@@ -78,22 +78,30 @@ final class T3SnapShot {
     func removeTile(view: NSView) {
         for (id, tile) in tiles where tile.view === view { tile.image.removeFromSuperview(); tiles.removeValue(forKey: id) }
     }
+    /// `contain:<id>` shows the draft image whole (object-contain, up to 2048 px), not the shelf's square thumbnail: a
+    /// preview annotation's screenshot (`w-full object-contain`). `fit:<id>` is the same at most at its natural size (an
+    /// image's CSS pixels are its pixels): a composer image chip's expanded preview (ExpandedImageDialog's `max-w`/`max-h`).
     func installTile(id: String, view: NSView) {
-        guard UUID(uuidString: id) != nil else { return }
+        let fit = id.hasPrefix("fit:"), contain = fit || id.hasPrefix("contain:")
+        let file = contain ? String(id[id.index(after: id.firstIndex(of: ":")!)...]) : id
+        guard UUID(uuidString: file) != nil else { return }
         if tiles[id]?.view === view { return }
         removeTile(view: view)
         tiles[id]?.image.removeFromSuperview()
-        let tile = Tile(view: view); tiles[id] = tile
-        tile.image.isHidden = feedback.flights[id] != nil
-        let path = directory.appendingPathComponent("drafts/\(id).png")
+        let tile = Tile(view: view, contain: contain); tiles[id] = tile
+        tile.image.isHidden = !contain && feedback.flights[id] != nil
+        let path = directory.appendingPathComponent("drafts/\(file).png")
         DispatchQueue.global(qos: .userInitiated).async { [weak self, weak tile] in
             guard let bytes = try? Data(contentsOf: path), bytes.count <= 10 * 1024 * 1024,
                   let source = CGImageSourceCreateWithData(bytes as CFData, nil),
                   let decoded = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 2048] as CFDictionary),
-                  let image = Self.composerThumbnail(decoded) else { return }
+                  let image = contain ? decoded : Self.composerThumbnail(decoded) else { return }
             DispatchQueue.main.async {
                 guard let self, let tile, self.tiles[id] === tile, tile.view?.window != nil else { return }
                 tile.image.layer?.contents = image; tile.loaded = true
+                if fit, let bounds = tile.view?.bounds, CGFloat(image.width) <= bounds.width, CGFloat(image.height) <= bounds.height {
+                    tile.image.layer?.contentsGravity = .center; tile.image.layer?.contentsScale = 1
+                }
             }
         }
     }
