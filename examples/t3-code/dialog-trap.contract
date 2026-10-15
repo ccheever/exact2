@@ -3,13 +3,15 @@
 // their declared data-focus-stop marks track the same disabled expression as the control.
 //
 // Main's modal `dialog` (`showModal(id)`, `close(id)`; issues/closed/20261009-gui-dialog-action-commands.md)
-// traps Tab and gives the focus back, but cannot draw the reference's dialogs on macOS. There a `dialog` is an
-// AppKit sheet, a window of its own hung under the title bar (LLP 1115.002 D7.2, host/apple SheetsMac.swift), and an
-// `alertdialog` in the alert's shape is `NSAlert`, also a sheet (LLP 1115.000 D7.6, AlertsMac.swift); a dialog
-// painted in the page over its backdrop is only the driver's own chrome (`--chrome agent`). Base UI's popup is centred in the page over a blurred backdrop,
-// and so are these. A `dialog` also opens only from an action, not while state holds it open (`contract vocab
-// dialog`), and several of these open from the data module's state (settings-a-dialogs.contract's confirmations).
-// So the dialogs stay boxes with this trap.
+// does not draw or key these as the reference does on macOS. There a `dialog` is an AppKit sheet, a window of its
+// own that AppKit centres on the window and dims it under (LLP 1115.002 D7.2, host/apple SheetsMac.swift), and an
+// `alertdialog` in the alert's shape is `NSAlert`, with the system's look and button order (LLP 1115.000 D7.6,
+// AlertsMac.swift); a dialog painted in the page is only the driver's own chrome (`--chrome agent`). Base UI's popup
+// is in the page over a blurred backdrop. In the sheet Tab stops only at fields while Keyboard Navigation is off,
+// where Base UI's trap stops at every button, and a dialog opened by a click gives the focus back to nothing, as a
+// Mac button takes no focus from a click. A `dialog` also opens only from an action, not while state holds it open
+// (`contract vocab dialog`), and several of these open from the data module's state (settings-a-dialogs.contract's
+// confirmations). So the dialogs stay boxes with this trap.
 shape DialogFocusReturn
   owner: string
   target: string
