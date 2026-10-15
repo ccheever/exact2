@@ -27,6 +27,9 @@ pub enum Fate {
     NotColour,
     /// Its variable makes no token; it is read only through references.
     Aux,
+    /// It is a colour, but its variable is no colour in this other block
+    /// it is set in, so it makes no token (one side would wear the other's).
+    Unresolved(Target),
 }
 
 /// Each variable's token name, first seen first; a later variable whose
@@ -70,6 +73,17 @@ pub fn name(decls: &[Decl], token: impl Fn(&str) -> Option<String>) -> Names {
         }
     }
     out
+}
+
+/// A block as a report names it: `:root`, `.dark`, `.theme-x`,
+/// `.dark .theme-x`.
+pub fn block_name(t: &Target) -> String {
+    match t {
+        (None, false) => ":root".into(),
+        (None, true) => ".dark".into(),
+        (Some(theme), false) => format!(".theme-{theme}"),
+        (Some(theme), true) => format!(".dark .theme-{theme}"),
+    }
 }
 
 /// `var(--x)`'s name.
@@ -214,7 +228,17 @@ pub fn assemble(
             *entry = (entry.1.clone(), entry.1.clone(), None);
         }
     }
-    let fates = decls
+    // A block with a winner that is no colour there: its variable makes no
+    // token, rather than one side wearing another's colour.
+    let failed: BTreeMap<String, Target> = read
+        .winners
+        .keys()
+        .filter(|(t, var)| {
+            !sides.contains_key(&(t.clone(), var.clone())) && names.names.contains_key(var)
+        })
+        .map(|(t, var)| (var.clone(), t.clone()))
+        .collect();
+    let fates: Vec<Fate> = decls
         .iter()
         .enumerate()
         .map(|(k, (_, var, _, targets))| {
@@ -234,7 +258,10 @@ pub fn assemble(
                 .iter()
                 .any(|t| sides.contains_key(&((*t).clone(), var.clone())))
             {
-                Fate::Mapped
+                match failed.get(var) {
+                    Some(t) => Fate::Unresolved(t.clone()),
+                    None => Fate::Mapped,
+                }
             } else {
                 Fate::NotColour
             }
@@ -247,7 +274,7 @@ pub fn assemble(
         (None, None) => None,
     };
     let mut tokens = Vec::new();
-    for var in &names.order {
+    for var in names.order.iter().filter(|v| !failed.contains_key(*v)) {
         let get = |theme: &Option<String>, dark: bool| {
             sides
                 .get(&((theme.clone(), dark), var.clone()))

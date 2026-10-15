@@ -100,7 +100,35 @@ fn kind(var: &str) -> Kind {
             return Kind::Reported(why);
         }
     }
-    Kind::Reported("a namespace Tamber's Tailwind mapping does not name")
+    Kind::Reported(UNNAMED)
+}
+
+/// A variable in none of the namespaces Tamber's mapping names.
+const UNNAMED: &str = "a namespace Tamber's Tailwind mapping does not name";
+
+/// The project's `@custom-variant dark` when it is one Tamber does not read
+/// as a whole dark block (`.dark`, `[data-theme=dark]`, the dark colour
+/// scheme), as written; `None` when there is none or it is one of those.
+fn custom_variant(css: &str) -> Option<String> {
+    let at = css.find("@custom-variant dark")?;
+    let rest = &css[at + "@custom-variant dark".len()..];
+    let end = rest.find([';', '{']).unwrap_or(rest.len());
+    let def = rest[..end].trim().to_string();
+    let squashed: String = def
+        .split_whitespace()
+        .collect::<String>()
+        .replace(['"', '\''], "");
+    let known = [
+        "(&:where(.dark,.dark*))",
+        "(&:is(.dark*))",
+        "(&:where(.dark*))",
+        "(&:is(.dark,.dark*))",
+        "(&:where([data-theme=dark],[data-theme=dark]*))",
+        "(&:is([data-theme=dark]*))",
+        "(&:where([data-theme=dark]*))",
+        "(@media(prefers-color-scheme:dark))",
+    ];
+    (!known.contains(&squashed.as_str())).then_some(def)
 }
 
 /// Whether a selector is a whole theme block: the root's (`None`), or its
@@ -146,6 +174,8 @@ fn resets(reset: &str, var: &str) -> bool {
             "--text-shadow",
             "--text-underline-offset",
         ],
+        "--grid-column" => &["--grid-column-start", "--grid-column-end"],
+        "--grid-row" => &["--grid-row-start", "--grid-row-end"],
         _ => &[],
     };
     var.starts_with(ns) && !kept.iter().any(|k| var.starts_with(k))
@@ -153,6 +183,8 @@ fn resets(reset: &str, var: &str) -> bool {
 
 /// One theme declaration as read, before resets and defaults decide.
 struct Entry {
+    /// Its block's place in the stylesheet.
+    seq: usize,
     block: String,
     name: String,
     value: String,
@@ -191,10 +223,14 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
     // the stylesheet's own blocks (`:root`, `.dark` …), each as an entry.
     let mut theme: Vec<Entry> = Vec::new();
     let mut own: Vec<Entry> = Vec::new();
-    for block in css_blocks(css) {
+    // Where Tailwind writes the theme: at its first `@theme`.
+    let mut first_theme = None;
+    let custom_dark = custom_variant(css);
+    for (seq, block) in css_blocks(css).into_iter().enumerate() {
         let label = block.context.join(" ");
         let at_theme = block.context.iter().position(|p| p.starts_with("@theme"));
         if let Some(i) = at_theme {
+            first_theme.get_or_insert(seq);
             let options: Vec<&str> = block.context[i].split_whitespace().skip(1).collect();
             // `@theme` holds custom properties and keyframes; a rule inside
             // it is none of Tailwind's.
@@ -211,6 +247,7 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                 }
                 // An enclosing media query does not condition a theme value.
                 theme.push(Entry {
+                    seq,
                     block: label.clone(),
                     name,
                     value,
@@ -237,7 +274,9 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             .iter()
             .find(|p| !p.starts_with("@layer") && !dark_media(p) && !variant_dark(p));
         let selectors = engine::nested(&rules);
-        let side = if selectors.iter().all(|s| s.trim().is_empty()) {
+        let side = if !rules.is_empty() && selectors.is_empty() {
+            Err("a selector list too long to read".to_string())
+        } else if selectors.iter().all(|s| s.trim().is_empty()) {
             Ok(false)
         } else {
             selectors
@@ -249,8 +288,18 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                     false => Err("a selector list of both the root and its dark side".to_string()),
                 })
         };
+        // `@variant dark` as the project defines it: one Tamber cannot follow
+        // is no theme block.
+        let variant = ats.iter().any(|p| variant_dark(p));
         for (name, value) in block.decls {
             source += 1;
+            if let (true, Some(def)) = (variant, &custom_dark) {
+                let why = format!(
+                    "`@variant dark` is `{def}` here (`@custom-variant`), not a theme block"
+                );
+                report(&mut unmapped, &label, &name, &value, why, None);
+                continue;
+            }
             if let Some(cond) = other {
                 report(
                     &mut unmapped,
@@ -264,6 +313,7 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             }
             match &side {
                 Ok(dark) => own.push(Entry {
+                    seq,
                     block: label.clone(),
                     name,
                     value,
@@ -280,6 +330,16 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
     let mut keys: Vec<(String, usize)> = Vec::new();
     let mut gone: Vec<(usize, String)> = Vec::new();
     for (k, e) in theme.iter().enumerate() {
+        let held = |name: &str| keys.iter().find(|(n, _)| n == name).map(|(_, at)| *at);
+        // A default yields to a value the key has, its own reset too; a
+        // namespace reset clears whatever its declaration.
+        if e.default && !e.name.ends_with("-*") {
+            if let Some(at) = held(&e.name).filter(|at| !theme[*at].default) {
+                let _ = at;
+                gone.push((k, "a default, and the key has a value already".into()));
+                continue;
+            }
+        }
         if e.value.trim().eq_ignore_ascii_case("initial") {
             keys.retain(|(name, at)| {
                 let cleared = resets(&e.name, name);
@@ -292,9 +352,6 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             continue;
         }
         match keys.iter().position(|(name, _)| *name == e.name) {
-            Some(i) if e.default && !theme[keys[i].1].default => {
-                gone.push((k, "a default, and the key has a value already".into()));
-            }
             Some(i) => {
                 gone.push((
                     keys[i].1,
@@ -321,38 +378,61 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
         .filter(|(_, k)| theme[*k].inline)
         .map(|(n, _)| n.clone())
         .collect();
-    // The stylesheet's own blocks: a reset there clears what it names
-    // before it on the same side; a theme key's redefinition is that side,
-    // unless the key is `inline` (its utilities read its value, not it); any
-    // other variable is a backing one, read only through references.
-    let mut own_gone = vec![None; own.len()];
+    // The stylesheet's own blocks: a namespace "reset" is no custom property
+    // CSS keeps; a single `initial` makes the variable invalid on its side
+    // (kept, so its side is no colour); a theme key's redefinition is that
+    // side, unless the key is `inline` (its utilities read its value, not
+    // it); any other variable is a backing one, read through references.
+    let mut own_gone: Vec<Option<String>> = vec![None; own.len()];
     for (k, e) in own.iter().enumerate() {
-        if e.value.trim().eq_ignore_ascii_case("initial") {
-            for (j, earlier) in own[..k].iter().enumerate() {
-                if earlier.dark == e.dark && own_gone[j].is_none() && resets(&e.name, &earlier.name)
-                {
-                    own_gone[j] = Some(format!("reset by `{}: initial`", e.name));
-                }
-            }
-            own_gone[k] = Some("a reset: what it names before it is not imported".into());
+        if e.name.ends_with("-*") {
+            own_gone[k] = Some("a namespace reset outside `@theme`, which CSS drops".into());
         } else if inline.contains(&e.name) {
             own_gone[k] = Some(
                 "an `inline` theme key: its utilities read its value, not this redefinition".into(),
             );
         }
     }
-    let mut decls: Vec<Decl> = Vec::new();
+    // An inline key the stylesheet redefines: a key that reads it follows the
+    // redefinition, which the key's own token does not; such a key is
+    // reported, not mapped wrong.
+    let shadowed: Vec<&String> = inline
+        .iter()
+        .filter(|n| own.iter().any(|e| e.name == **n))
+        .collect();
+    let mut decls: Vec<(usize, Decl)> = Vec::new();
+    let at_theme = first_theme.unwrap_or(0);
     for (_, k) in &keys {
         let e = &theme[*k];
+        if let Some(r) =
+            engine::reference(&e.value).filter(|r| shadowed.iter().any(|n| n.as_str() == *r))
+        {
+            let why = format!("reads `{r}`, an `inline` key the stylesheet redefines, which its token cannot follow");
+            report(&mut unmapped, &e.block, &e.name, &e.value, why, None);
+            continue;
+        }
         match kind(&e.name) {
             // A theme key is the root's, read on both sides: its references
             // resolve where each side reads them, and a dark redefinition
             // later takes the dark side.
             Kind::Colour(_) => decls.push((
-                e.block.clone(),
-                e.name.clone(),
-                e.value.clone(),
-                vec![(None, false), (None, true)],
+                at_theme,
+                (
+                    e.block.clone(),
+                    e.name.clone(),
+                    e.value.clone(),
+                    vec![(None, false), (None, true)],
+                ),
+            )),
+            // A variable in no namespace backs keys that name it.
+            Kind::Reported(why) if why == UNNAMED => decls.push((
+                at_theme,
+                (
+                    e.block.clone(),
+                    e.name.clone(),
+                    e.value.clone(),
+                    vec![(None, false), (None, true)],
+                ),
             )),
             Kind::Pending(kind, segs) => {
                 let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
@@ -401,13 +481,20 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
             );
             continue;
         }
+        // The root's variable is what the dark side inherits: a root
+        // declaration sets both, a dark one the dark side.
+        let targets = match e.dark {
+            true => vec![(None, true)],
+            false => vec![(None, false), (None, true)],
+        };
         decls.push((
-            e.block.clone(),
-            e.name.clone(),
-            e.value.clone(),
-            vec![(None, e.dark)],
+            e.seq,
+            (e.block.clone(), e.name.clone(), e.value.clone(), targets),
         ));
     }
+    // In the stylesheet's order, the theme where Tailwind writes it.
+    decls.sort_by_key(|(seq, _)| *seq);
+    let decls: Vec<Decl> = decls.into_iter().map(|(_, d)| d).collect();
     let keyset: Vec<String> = keys.iter().map(|(n, _)| n.clone()).collect();
     let named = engine::name(&decls, |var| match kind(var) {
         // A colour the theme declares is a token; any other variable backs
@@ -431,6 +518,13 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                 "not a theme key: read only where a theme key names it".to_string(),
                 None,
             ),
+            Fate::Unresolved(t) => (
+                format!(
+                    "`{var}` is no colour in `{}`, where it is set too, so it makes no token",
+                    engine::block_name(t)
+                ),
+                None,
+            ),
             Fate::Collided(first) => (
                 format!("its name is `{first}`'s ({})", named.names[first]),
                 None,
@@ -440,6 +534,10 @@ pub fn import(css: &str, prefix: &str, design: &Design) -> Result<Import, Vec<Di
                 None,
             ),
             Fate::NotColour if value.trim().is_empty() => ("an empty value".to_string(), None),
+            Fate::NotColour if value.trim().eq_ignore_ascii_case("initial") => (
+                "`initial` makes the variable invalid on its side".to_string(),
+                None,
+            ),
             Fate::NotColour => match engine::reference(value) {
                 Some(r) => (
                     format!("`{r}` is no colour where this block reads it"),

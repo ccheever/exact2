@@ -223,14 +223,21 @@ pub fn colour_literal(value: &str) -> Option<String> {
     if unfolded(&v).is_none() {
         return Some(v);
     }
-    let zeroed = v
-        .split(' ')
-        .map(|w| match w.trim_end_matches(')') {
-            "none" => w.replacen("none", "0", 1),
-            _ => w.to_string(),
-        })
-        .collect::<Vec<_>>()
-        .join(" ");
+    // Each component that is `none`, any case, wherever it stands.
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let mut zeroed = String::new();
+    let mut rest = v.as_str();
+    while let Some(at) = rest.to_ascii_lowercase().find("none") {
+        let before = rest[..at].chars().next_back();
+        let after = rest[at + 4..].chars().next();
+        zeroed.push_str(&rest[..at]);
+        match before.is_none_or(|c| !ident(c)) && after.is_none_or(|c| !ident(c)) {
+            true => zeroed.push('0'),
+            false => zeroed.push_str(&rest[at..at + 4]),
+        }
+        rest = &rest[at + 4..];
+    }
+    zeroed.push_str(rest);
     (zeroed != v && unfolded(&zeroed).is_none()).then_some(zeroed)
 }
 

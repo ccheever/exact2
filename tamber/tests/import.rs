@@ -316,7 +316,14 @@ fn shadcn_winners_nesting_and_recovery() {
             "kind pending (stage 6): length"
         ]
     );
-    assert_eq!(why("--x"), ["kind pending (stage 6): length"]);
+    // `--x` is a length on the dark side: no token, rather than white there.
+    assert_eq!(
+        why("--x"),
+        [
+            "`--x` is no colour in `.dark`, where it is set too, so it makes no token",
+            "kind pending (stage 6): length"
+        ]
+    );
     assert_eq!(why("--y"), ["`--x` is no colour where this block reads it"]);
     assert_eq!(
         why("--cc"),
@@ -331,7 +338,7 @@ fn shadcn_winners_nesting_and_recovery() {
         ["declared again later for the same theme block, which wins"]
     );
     let text = accepted(EMPTY, &import);
-    assert_eq!(token_value(&text, "shadcn.x"), "#ffffff");
+    assert!(!text.contains("shadcn.x ="), "{text}");
     assert_eq!(token_value(&text, "shadcn.ml"), "oklch(0.5 0.1 200)");
     assert_eq!(token_value(&text, "shadcn.after"), "#121212");
     assert_eq!(token_value(&text, "shadcn.d"), "#222222");
@@ -601,8 +608,12 @@ fn tailwind_reads_defaults_inline_keys_resets_and_whole_blocks_as_tailwind_does(
     assert!(why("--color-ink")
         .iter()
         .any(|w| w.starts_with("an `inline` theme key")));
-    // A dark reset takes the dark redefinition back.
-    assert_eq!(token_value(&text, "tw.x"), "white");
+    // `initial` outside `@theme` makes the dark side invalid: no token
+    // wears white there.
+    assert!(!text.contains("tw.x ="), "{text}");
+    assert!(
+        why("--color-x").contains(&"`initial` makes the variable invalid on its side".to_string())
+    );
     for restricted in ["red", "navy", "teal", "olive"] {
         assert!(
             import
@@ -622,4 +633,56 @@ fn tailwind_reads_defaults_inline_keys_resets_and_whole_blocks_as_tailwind_does(
         why("--font-weight-bold"),
         ["kind pending (stage 6): number"]
     );
+}
+
+#[test]
+fn tailwind_cascades_roots_defaults_inline_dependents_and_custom_variants() {
+    use exact_tamber::import::tailwind;
+    let css = r#"
+@custom-variant dark (@media print);
+:root { --color-early: blue; }
+@theme { --color-early: red; --color-a: red; --ink: #343434; --color-b: var(--ink); }
+:root { --color-a: blue; }
+@theme { --color-c: red; }
+@theme default { --color-c: initial; --color-c: blue; }
+@theme inline { --color-d: red; --color-e: var(--color-d); }
+.dark { --color-d: blue; }
+:root { @variant dark { --color-f: black; } }
+@theme { --color-g: var(--h); }
+:root { --h: red; }
+.dark { --h: var(--k); --k: var(--h); }
+@theme { --color-n: oklch(NONE 0 0); --color-m: hsl(none 0% 50% / none); }
+"#;
+    let import = tailwind::import(css, "tw", &parse(EMPTY).unwrap()).unwrap();
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    let text = accepted(EMPTY, &import);
+    // The theme is written at its first @theme: a root before it loses.
+    assert_eq!(token_value(&text, "tw.early"), "red");
+    // A root redefinition after it sets both sides.
+    assert_eq!(token_value(&text, "tw.a"), "blue");
+    // A backing variable inside @theme.
+    assert_eq!(token_value(&text, "tw.b"), "#343434");
+    // A default's own `initial` yields, as its value does.
+    assert_eq!(token_value(&text, "tw.c"), "red");
+    // A key reading a redefined inline key is reported, not mapped wrong.
+    assert_eq!(token_value(&text, "tw.d"), "red");
+    assert_eq!(why("--color-e"), ["reads `--color-d`, an `inline` key the stylesheet redefines, which its token cannot follow"]);
+    // `dark` is print here.
+    assert!(why("--color-f")[0].contains("`@variant dark` is `(@media print)`"));
+    // A dark side that does not resolve: no token wearing the light colour.
+    assert!(!text.contains("tw.g ="), "{text}");
+    // `none` anywhere, in any case.
+    assert_eq!(token_value(&text, "tw.n"), "oklch(0 0 0)");
+    assert_eq!(token_value(&text, "tw.m"), "hsl(0 0% 50% / 0)");
 }

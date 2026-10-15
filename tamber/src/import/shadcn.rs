@@ -243,6 +243,13 @@ pub fn import(
             }
             // Every shadcn variable names a token.
             Fate::Aux => continue,
+            Fate::Unresolved(t) => (
+                format!(
+                    "`{var}` is no colour in `{}`, where it is set too, so it makes no token",
+                    engine::block_name(t)
+                ),
+                None,
+            ),
             Fate::Collided(first) => (format!("its name is `{first}`'s ({})", names[first]), None),
             Fate::Superseded => (
                 "declared again later for the same theme block, which wins".to_string(),
