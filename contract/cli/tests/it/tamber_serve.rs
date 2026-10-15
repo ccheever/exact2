@@ -409,6 +409,35 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
     assert!(!lost.status.success());
     assert!(String::from_utf8_lossy(&lost.stderr).contains("kept"));
     assert!(dir.join(".exact/tamber.journal").exists());
+    // A set that cannot complete moves nothing: the first rename waits on
+    // the second.
+    let before = std::fs::read_to_string(dir.join("app.tamber")).unwrap();
+    std::fs::write(
+        dir.join("brand.tamber"),
+        "tamber brand\n\ntheme\n  brand.ink = #101010\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join(".exact/tamber-2-0.tmp"), "tamber moved\n").unwrap();
+    let tmp_digest = {
+        use sha2::Digest;
+        sha2::Sha256::digest(b"tamber moved\n")
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect::<String>()
+    };
+    let half = start_over(
+        &dir,
+        json!({"renames": [
+            {"tmp": "tamber-2-0.tmp", "file": "app.tamber", "digest": tmp_digest},
+            {"tmp": "tamber-2-1.tmp", "file": "brand.tamber", "digest": "0"}
+        ]}),
+    );
+    assert!(!half.status.success());
+    assert_eq!(
+        std::fs::read_to_string(dir.join("app.tamber")).unwrap(),
+        before
+    );
+    assert!(dir.join(".exact/tamber-2-0.tmp").exists());
     let garbled = {
         std::fs::write(dir.join(".exact/tamber.journal"), "{\"renames\": [").unwrap();
         Command::new(env!("CARGO_BIN_EXE_contract"))
@@ -423,6 +452,7 @@ fn a_journal_that_leaves_the_app_or_lost_its_text_is_kept_and_refused() {
     let mut s = Serve::start(&dir, &[]);
     s.ask(json!({"method": "hello"}));
     assert!(!dir.join(".exact/tamber-1-0.tmp").exists());
+    assert!(!dir.join(".exact/tamber-2-0.tmp").exists());
     let _ = std::fs::remove_file(&outside);
     let _ = std::fs::remove_dir_all(&dir);
 }
