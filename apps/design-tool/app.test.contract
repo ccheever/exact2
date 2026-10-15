@@ -32,13 +32,34 @@ test "another client's write arrives on the long poll, attributed"
   type "name" "Ada"
   tap "save-name"
   clock data
-  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  expect text "digest-app.tamber" == "aaaaaaaaaaaa"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}], "files": {"app.tamber": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}} as ada
   clock +1
   clock data
   clock +1
   clock data
   expect text "change-1" == "app.tamber · agent:codex"
+  expect text "digest-app.tamber" == "cccccccccccc"
   request POST "/__stub/event" {"client": null, "edited": ["brand.tamber"]} as ada
   clock +1
   clock data
   expect text "change-2" == "brand.tamber · changed on disk"
+
+test "a restarted server starts the list again"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"]} as ada
+  clock +1
+  clock data
+  expect text "change-1" == "app.tamber · agent:codex"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  expect tree missing "change-1"
+  request POST "/__stub/event" {"client": "design-tool:Grace", "edited": ["brand.tamber"]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect text "change-1" == "brand.tamber · design-tool:Grace"

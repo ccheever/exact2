@@ -15,9 +15,9 @@
 //   the server's own writes are known by digest and announced once.
 //   - `POST /__tamber/subscribe`: a streamed response, one `data:` line an
 //     event.
-//   - `POST /__tamber/events` `{"after": n, "epoch": e}`: the events after
-//     `n` (the last 256 kept), answered once there is one or after 25 s with
-//     none: for a client whose `fetch` reads a body whole, as a JS-target
+//   - `POST /__tamber/events` `{"after": n, "epoch": e, "wait"?: false}`:
+//     the events after `n` (the last 256 kept), answered once there is one
+//     or after 25 s with none (at once with `wait: false`): for a client whose `fetch` reads a body whole, as a JS-target
 //     data module's does. A number this run did not give, or one older than
 //     the events kept, is `missed`: no events, and the files to start from.
 // - The wire's own requests (LLP 1122 D9, D10), beside the server's:
@@ -324,7 +324,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // Missed: no events to apply, the files to start again from.
         json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), proposals: held() });
       };
-      if (events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch) || down) { answer(); return true; }
+      // The design server gone: an error, which a following client retries
+      // slowly, never an empty answer it would ask again at once.
+      if (down) { json(res, 503, { error: { message: down } }); return true; }
+      // `wait: false` (a client's first ask, for where to start) is answered at once.
+      if (request?.wait === false || events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch)) { answer(); return true; }
       await new Promise(ok => {
         const poll = () => { polls.delete(poll); clearTimeout(wait); ok(); };
         const wait = setTimeout(poll, POLL_MS);
@@ -673,21 +677,27 @@ export const TOOL_ORIGIN = 'http://127.0.0.1:7740';
 async function buildTool() {
   const { resolveApp } = await import('./app.mjs');
   const { webChanges } = await import('./agent-launch.mjs');
-  const app = resolveApp('design-tool');
-  if (existsSync(resolve(TOOL_DIST, '.exact-build.json')) && !webChanges(TOOL_DIST, app).all.length) return 0;
+  // This checkout's tool, whatever app the caller's EXACT_APP_DIR names.
+  const caller = process.env.EXACT_APP_DIR;
+  process.env.EXACT_APP_DIR = resolve(ROOT, 'apps/design-tool');
+  let app;
+  try { app = resolveApp(); } finally { if (caller === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = caller; }
+  let built = null;
+  try { built = JSON.parse(readFileSync(resolve(TOOL_DIST, '.exact-build.json'), 'utf8')).app?.id; } catch { /* none */ }
+  if (built === app.id && !webChanges(TOOL_DIST, app).all.length) return 0;
   console.log(`tamber tool: building the design tool into ${relative(process.cwd(), TOOL_DIST)}`);
   const r = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'design-tool'], { cwd: ROOT, stdio: 'inherit', env: { ...process.env, EXACT_APP_DIR: app.dir, EXACT_WEB_DIST: TOOL_DIST } });
   return r.status ?? 1;
 }
 
-/** What answers at TOOL_ORIGIN now: null for nothing, else the app its
- * design server serves (null when it gave none). */
-async function toolAnswers() {
+/** What answers at `origin` (TOOL_ORIGIN unless named) now: null for
+ * nothing, else the app its design server serves (null when it gave none). */
+async function toolAnswers(origin = TOOL_ORIGIN) {
   try {
-    const got = await fetch(`${TOOL_ORIGIN}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
+    const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error', signal: AbortSignal.timeout(2000) });
     if (!got.ok) return { app: null };
     const { token } = await got.json();
-    const hello = await (await fetch(`${TOOL_ORIGIN}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
+    const hello = await (await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'x-exact-tamber-token': token }, body: '{"method":"hello"}', signal: AbortSignal.timeout(10_000) })).json();
     return { app: hello.ok?.app ?? null };
   } catch { return null; }
 }
@@ -718,7 +728,19 @@ export async function toolCommand(argv) {
   const port = Number(new URL(TOOL_ORIGIN).port);
   const via = at('--via');
   if (via) {
-    const target = new URL(via).origin;
+    let target;
+    try { target = new URL(via); } catch { console.error(`tamber tool: --via takes the dev loop's URL, not ${via}`); return 2; }
+    // The token goes only to this machine's loopback, by address (a name
+    // could resolve anywhere), and never back to the tool's own port.
+    if (target.protocol !== 'http:' || !/^(127\.\d+\.\d+\.\d+|\[::1\])$/.test(target.hostname) || target.origin === TOOL_ORIGIN) {
+      console.error(`tamber tool: --via takes the dev loop's loopback URL (http://127.0.0.1:<port>), not ${via}`);
+      return 2;
+    }
+    target = target.origin;
+    const upstream = await toolAnswers(target);
+    let same = false;
+    try { same = upstream?.app != null && realpathSync(upstream.app) === realpathSync(dir); } catch { /* gone */ }
+    if (!same) { console.error(`tamber tool: ${target} ${upstream ? `serves ${upstream.app ? `the design of ${upstream.app}` : 'no design server'}` : 'does not answer'}, not ${dir}'s`); return 1; }
     if (!(await listenOn(port, () => listen({ host: '127.0.0.1', port, handle: (req, res, url, access) => forward(req, res, url, access, target), stop: async () => {} })))) return 1;
     console.log(`${url}\n  (the design tool, through the dev loop at ${target}; ctrl-c to stop)`);
   } else {
@@ -753,16 +775,29 @@ async function forward(req, res, url, access, target) {
   if (url.pathname === '/__tamber/tool' || url.pathname.startsWith('/__tamber/tool/')) { serveTool(req, res, url, access); return true; }
   if (url.pathname !== '/__tamber' && !url.pathname.startsWith('/__tamber/')) return false;
   if (!access.local) { notFound(res); return true; }
+  // A body within the server's own limit, read here before it is sent on.
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > BODY_LIMIT) { json(res, 413, { error: { message: 'a request is at most 1 MiB' } }); req.destroy?.(); return true; }
+    chunks.push(chunk);
+  }
   const headers = Object.fromEntries(['content-type', 'x-exact-tamber-token'].filter(h => req.headers[h]).map(h => [h, req.headers[h]]));
+  // The client gone, the request upstream (a stream, a long poll) ends too.
+  const gone = new AbortController();
+  res.on('close', () => gone.abort());
   try {
-    const answer = await fetch(`${target}${url.pathname}${url.search}`, { method: req.method, headers, redirect: 'error', ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
+    const answer = await fetch(`${target}${url.pathname}`, { method: req.method, headers, redirect: 'error', signal: gone.signal, ...(req.method === 'GET' || req.method === 'HEAD' ? {} : { body: Buffer.concat(chunks) }) });
     res.writeHead(answer.status, { 'content-type': answer.headers.get('content-type') ?? 'application/json', 'cache-control': 'no-store' });
-    for await (const chunk of answer.body ?? []) res.write(chunk);
+    for await (const chunk of answer.body ?? []) {
+      if (!res.write(chunk)) await new Promise(ok => { res.once('drain', ok); res.once('close', ok); });
+    }
     res.end();
   } catch (e) {
-    json(res, 502, { error: { message: `the dev loop at ${target} did not answer: ${e.message}` } });
+    // Cut part way: the answer begun cannot become another.
+    if (res.headersSent) res.destroy();
+    else if (!gone.signal.aborted) json(res, 502, { error: { message: `the dev loop at ${target} did not answer: ${e.message}` } });
   }
   return true;
 }

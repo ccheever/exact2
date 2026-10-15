@@ -18,12 +18,19 @@ const NO_SERVER = `No design server answers at ${API}. Start one for your app wi
 
 type Reply = { ok?: any; error?: { message?: string } };
 let token: string | null = null;
+// One ask at a time: the first reads start together.
+let asking: Promise<{ token: string | null; error: string }> | null = null;
 
 /** The token, asked once; null with the words to show when there is none. */
-async function tokenOf(): Promise<{ token: string | null; error: string }> {
-  if (token) return { token, error: '' };
+function tokenOf(): Promise<{ token: string | null; error: string }> {
+  if (token) return Promise.resolve({ token, error: '' });
+  asking ??= askToken().finally(() => { asking = null; });
+  return asking;
+}
+
+async function askToken(): Promise<{ token: string | null; error: string }> {
   try {
-    const res = await fetch(`${API}/__tamber/token`, { exactTimeout: 5000 });
+    const res = await fetch(`${API}/__tamber/token`, { exactTimeout: 5000, redirect: 'error' });
     if (!res.ok) return { token: null, error: `${API} gave no design server token: it answers only this machine's loopback, and only while \`bun exact.mjs tamber tool\` runs.` };
     token = String(((await res.json()) as { token?: unknown }).token ?? '') || null;
     return { token, error: token ? '' : NO_SERVER };
@@ -40,7 +47,7 @@ async function call(path: string, body: unknown, timeout = 15000): Promise<{ err
     const got = await tokenOf();
     if (!got.token) return { error: got.error, reply: {} };
     try {
-      const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, body: JSON.stringify(body),
+      const res = await fetch(`${API}${path}`, { method: 'POST', exactTimeout: timeout, redirect: 'error', body: JSON.stringify(body),
         headers: { 'content-type': 'application/json', 'x-exact-tamber-token': got.token } });
       if (res.status === 404 && attempt === 0) { token = null; continue; }
       const reply = (await res.json().catch(() => ({}))) as Reply;
@@ -84,10 +91,15 @@ const sources: Sources = {
   },
   waitChanges: async ([since, epoch]) => {
     // Up to 25 s with nothing new, and the server answers once there is.
-    const { error, reply } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, epoch: '' }, 40000);
+    // The first asks, at once, from the start of what the server keeps.
+    const { error, reply } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
     answers += 1;
     if (error) return { ok: false, error, answer: answers, seq: place.seq, epoch: place.epoch, missed: false, recent };
     const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean };
+    // Another run of the server (or another app's, on this port), or more
+    // missed than it keeps: its sequence numbers start again, or the list
+    // has a gap, so the list starts again.
+    if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };

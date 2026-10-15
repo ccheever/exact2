@@ -51,15 +51,18 @@ component DesignTool
     after(3000, advance)
 
   action advance
-    // Another run, or more missed than the server keeps: read it all again.
-    if changes.missed or not hello.ok
+    // A change (the files' digests moved), another run, or more missed
+    // than the server keeps: read the files again.
+    if changes.missed or not hello.ok or changes.seq != since
       refresh hello
     since = changes.seq
     epoch = changes.epoch
     asks = asks + 1
   action reconnect
     refresh hello
-    asks = asks + 1
+    // A poll still held answers for itself; a second would race it.
+    if not pending(changes)
+      asks = asks + 1
   action editName(v: string)
     draftName = v
   action saveName
@@ -99,7 +102,7 @@ component DesignTool
               for f in hello.files key=f.path
                 row gap=12
                   text f.path flex=1 testId=`file-${f.path}`
-                  text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote"
+                  text f.digest.slice(0, 12) color="-exact-secondary-label" font="-exact-footnote" testId=`digest-${f.path}`
             column gap=4 testId="following"
               text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
               for c in changes.recent key=`${c.seq}`

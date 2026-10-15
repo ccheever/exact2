@@ -3,15 +3,16 @@
 // calls, app.json's `commands.server`). The real server is
 // scripts/tamber-server.mjs; the tool's own drives use it
 // (`bun exact.mjs agent web --url …`). A test adds an event as another client
-// would with `request POST "/__stub/event" {…} as ada`. Its event log is kept
+// would with `request POST "/__stub/event" {…} as ada`, and restarts it
+// with `/__stub/restart`. Its event log is kept
 // in DB, a JSON file.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { API } from '../app.ts';
 
 const DB = process.env.DB ?? '.exact/tamber-stub.json';
 const TOKEN = 'stub-token';
-const EPOCH = 'stub-epoch';
-const FILES = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
+let EPOCH = 'stub-epoch', restarts = 0;
+let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
 const save = () => writeFileSync(DB, JSON.stringify(log));
@@ -21,6 +22,8 @@ const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers
 const send = (body: unknown, status = 200) => Response.json(body, { status, headers: CORS });
 const preflight = () => new Response(null, { status: 204, headers: CORS });
 const authorized = (req: Request) => req.headers.get('x-exact-tamber-token') === TOKEN;
+// The test driver, as `request … as ada` sends it; no page can.
+const driver = (req: Request) => req.headers.get('authorization') === 'Bearer ada';
 const seq = () => log.at(-1)?.seq ?? 0;
 
 const { hostname, port } = new URL(API);
@@ -42,15 +45,27 @@ Bun.serve({ hostname, port: Number(port), routes: {
     POST: async (req) => {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const { after = 0, epoch } = await req.json().catch(() => ({}));
-      const missed = epoch !== EPOCH;
+      const missed = epoch !== undefined && epoch !== EPOCH;
       return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: [] });
     },
   },
+  // A new run of the server: a new epoch, its numbers from 0 again.
+  '/__stub/restart': {
+    POST: (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      EPOCH = `stub-epoch-${++restarts}`;
+      log.length = 0;
+      save();
+      return send({ ok: true });
+    },
+  },
   '/__stub/event': {
-    OPTIONS: preflight,
     POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
       const e = await req.json().catch(() => ({}));
-      log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], files: FILES, edited: [], ...e, seq: seq() + 1 });
+      // An event's `files` are the digests from then on.
+      if (e.files) FILES = { ...FILES, ...e.files };
+      log.push({ event: 'changed', epoch: EPOCH, client: null, changed: [], edited: [], ...e, files: FILES, seq: seq() + 1 });
       save();
       return send({ ok: true });
     },

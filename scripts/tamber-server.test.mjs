@@ -204,6 +204,9 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   expect(stream.events.slice(before).every(x => x.client === null)).toBe(true);
   // A design file that appears is found, and a long poll hears of it.
   const { seq } = await (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: '{"after":0}' })).json();
+  // `wait: false` answers at once, with nothing new.
+  const now = await (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: seq, wait: false }), signal: AbortSignal.timeout(5000) })).json();
+  expect(now).toMatchObject({ events: [], seq, missed: false });
   const polled = fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: seq }) }).then(r => r.json());
   writeFileSync(join(dir, 'late.tamber'), 'tamber late\n\ntheme\n  late.ink = #404040\n');
   await stream.until(e => e.some(x => x.edited?.includes('late.tamber')));
@@ -231,6 +234,9 @@ test('a second wire for the app, whose lock is the first\'s, answers 503', async
   expect(subscribed.body.error.message).toContain('another tamber server');
   const hello = await ask(second, gate, { path: '/__tamber', method: 'POST', headers: local, body: '{"method":"hello"}' });
   expect(hello.status).toBe(503);
+  // A long poll is told so, not answered empty to ask again at once.
+  const polled = await ask(second, gate, { path: '/__tamber/events', method: 'POST', headers: local, body: '{"after":0}' });
+  expect(polled.status).toBe(503);
   await second.close();
 }, 600_000);
 
