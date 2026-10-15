@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
+import { CompositionKeys, eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
   terminalInputShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
@@ -151,5 +151,36 @@ describe("the input's composing state", () => {
     stop();
     input.dispatchEvent(new Event("compositionstart"));
     expect(states).toHaveLength(6);
+  });
+});
+
+describe("keys that began while text composed", () => {
+  const mods = (init: Partial<{ metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }> = {}) =>
+    ({ metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, ...init });
+
+  test("each mark is taken once, by the next keydown with its modifiers", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(mods({ ctrlKey: true }));
+    // A composing key WebKit still had queued (plain) does not take a ⌃ chord's mark.
+    expect(keys.take(mods())).toBe(false);
+    expect(keys.take(mods({ ctrlKey: true }))).toBe(true);
+    // The second ⌃C, after the commit, is the shell's.
+    expect(keys.take(mods({ ctrlKey: true }))).toBe(false);
+    keys.mark(mods({ altKey: true }));
+    expect(keys.take(mods({ altKey: true, shiftKey: true }))).toBe(false);
+    expect(keys.take(mods({ altKey: true }))).toBe(true);
+  });
+
+  test("a mark whose keydown never came lapses, and so do marks older than the one taken", () => {
+    let now = 0;
+    const keys = new CompositionKeys(() => now);
+    keys.mark(mods({ ctrlKey: true }));
+    now = 1000;
+    expect(keys.take(mods({ ctrlKey: true }))).toBe(false);
+    keys.mark(mods({ ctrlKey: true }));
+    keys.mark(mods({ altKey: true }));
+    expect(keys.take(mods({ altKey: true }))).toBe(true);
+    expect(keys.take(mods({ ctrlKey: true }))).toBe(false);
   });
 });
