@@ -125,6 +125,10 @@ its time counts too.
   at background QoS, where the kernel coalesces timers: a 10 ms sleep takes
   60–90 ms and every wait inflates. Measure from a terminal or an interactive
   launchd job.
+- **Measure with a pruned `target/`.** Cargo never deletes old object files
+  from `target/debug/deps`, and on macOS a test that touches the main bundle
+  lists that directory, so hundreds of thousands of files there cost seconds
+  of system time per test process.
 - **Find the bottleneck first.** Time each binary and each test (`cargo test`
   binaries with `-Zunstable-options --report-time` under `RUSTC_BOOTSTRAP=1`;
   the XCTest per-case lines; `bun test`'s per-test times). A binary's wall time
