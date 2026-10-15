@@ -1,7 +1,8 @@
 // The design server's wire (LLP 1121 D13, stage 3 commit 4): the token only
 // to a local request, every read and write behind it, two clients' writes to
-// one token where one conflicts, a hand edit and a `git checkout` reaching a
-// subscriber, a write announced once, and the dev loop answering `hello`.
+// one token where one conflicts, a hand edit, a new file and a `git checkout`
+// reaching a subscriber and a long poll, a write announced once, a server
+// whose lock is another's answering 503, and the dev loop answering `hello`.
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -21,7 +22,8 @@ const sha = text => createHash('sha256').update(text).digest('hex');
 
 /** A stand-in for `contract tamber serve` that answers `hello`. */
 function fakeServe() {
-  const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null, kill() {} });
+  const child = Object.assign(new EventEmitter(), { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough(), exitCode: null, signalCode: null });
+  child.kill = () => { child.exitCode = 0; child.emit('exit', 0); };
   let buf = '';
   child.stdin.on('data', chunk => {
     buf += chunk; const lines = buf.split('\n'); buf = lines.pop();
@@ -94,8 +96,8 @@ beforeAll(async () => {
   headers = { 'content-type': 'application/json', 'x-exact-tamber-token': token };
   await tamber.ready;
 }, 600_000); // a cold checkout builds the compiler first
-afterAll(() => {
-  tamber?.close();
+afterAll(async () => {
+  await tamber?.close();
   server?.close();
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
@@ -132,21 +134,45 @@ test('two clients writing one token: the second conflicts, and the write is anno
   const stream = await subscribe();
   await stream.until(e => e[0]?.event === 'subscribed');
   const seen = { 'app.tamber': disk('app.tamber') };
+  const anonymous = await post({ method: 'transaction', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] });
+  expect(anonymous.status).toBe(400);
   const first = await post({ method: 'transaction', client: 'one', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#111111' }] });
   expect(first.status).toBe(200);
+  expect(first.ok.written).toEqual(['app.tamber']);
   const second = await post({ method: 'transaction', client: 'two', files: seen, ops: [{ op: 'set-token', name: 'ink', value: '#222222' }] });
   expect(second.status).toBe(409);
   expect(second.error.conflict).toBe(true);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toContain('ink = #111111');
-  await stream.until(e => e.some(x => x.client === 'one'));
-  // The watcher sees the server's own rename and says nothing more.
-  await Bun.sleep(400);
+  // A hand edit after it: the watcher's next read, which would also carry
+  // any second announcement of the write.
+  writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#212121'));
+  await stream.until(e => e.some(x => x.client === null && x.edited?.includes('brand.tamber')));
   const changes = stream.events.filter(x => x.event === 'changed');
-  expect(changes.length).toBe(1);
-  expect(changes[0]).toMatchObject({ client: 'one', edited: ['app.tamber'], changed: [{ file: 'app.tamber', token: 'ink' }] });
+  expect(changes.map(x => [x.client, x.edited])).toEqual([['one', ['app.tamber']], [null, ['brand.tamber']]]);
+  expect(changes[0].changed).toEqual([{ file: 'app.tamber', token: 'ink' }]);
   const undone = await post({ method: 'undo', client: 'one', inverse: first.ok.inverse });
   expect(undone.status).toBe(200);
   expect(readFileSync(join(dir, 'app.tamber'), 'utf8')).toBe(DESIGN);
+  writeFileSync(join(dir, 'brand.tamber'), BRAND);
+  await stream.until(e => e.at(-1).files['brand.tamber'] === sha(BRAND));
+  stream.close();
+}, 30_000);
+
+test('a hand edit made before a write is its own event, not the writer\'s', async () => {
+  const stream = await subscribe();
+  await stream.until(e => e[0]?.event === 'subscribed');
+  const at = stream.events.length;
+  // Too soon for the watcher: the write's reply carries the moved digest.
+  writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#232323'));
+  const done = await post({ method: 'transaction', client: 'one', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#131313' }] });
+  expect(done.status).toBe(200);
+  await stream.until(e => e.slice(at).some(x => x.client === 'one'));
+  const mine = stream.events.slice(at).find(x => x.client === 'one');
+  expect(mine.edited).toEqual(['app.tamber']);
+  await stream.until(e => e.slice(at).some(x => x.client === null && x.edited.includes('brand.tamber')));
+  await post({ method: 'undo', client: 'one', inverse: done.ok.inverse });
+  writeFileSync(join(dir, 'brand.tamber'), BRAND);
+  await stream.until(e => e.at(-1).files['brand.tamber'] === sha(BRAND) && e.at(-1).files['app.tamber'] === sha(DESIGN));
   stream.close();
 }, 30_000);
 
@@ -156,7 +182,7 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
   writeFileSync(join(dir, 'brand.tamber'), BRAND.replace('#202020', '#303030'));
   await stream.until(e => e.some(x => x.event === 'changed' && x.client === null && x.edited.includes('brand.tamber')));
   writeFileSync(join(dir, 'app.tamber'), DESIGN.replace('#101010', '#121212'));
-  await Bun.sleep(300);
+  await stream.until(e => e.at(-1).files['app.tamber'] === sha(DESIGN.replace('#101010', '#121212')));
   const before = stream.events.length;
   // A checkout puts both files back: one change, or two, each a hand edit.
   spawnSync('git', ['checkout', '--', 'app.tamber', 'brand.tamber'], { cwd: dir });
@@ -165,8 +191,32 @@ test('a hand edit and a git checkout reach a subscriber', async () => {
     return e.length > before && last.files['app.tamber'] === sha(DESIGN) && last.files['brand.tamber'] === sha(BRAND);
   });
   expect(stream.events.slice(before).every(x => x.client === null)).toBe(true);
+  // A design file that appears is found, and a long poll hears of it.
+  const { seq } = await (await fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: '{"after":0}' })).json();
+  const polled = fetch(`${origin}/__tamber/events`, { method: 'POST', headers, body: JSON.stringify({ after: seq }) }).then(r => r.json());
+  writeFileSync(join(dir, 'late.tamber'), 'tamber late\n\ntheme\n  late.ink = #404040\n');
+  await stream.until(e => e.some(x => x.edited?.includes('late.tamber')));
+  const answer = await polled;
+  expect(answer.events.some(x => x.edited.includes('late.tamber'))).toBe(true);
+  const late = await post({ method: 'propose', ops: [{ op: 'set-token', file: 'late.tamber', name: 'late.ink', value: '#414141' }] });
+  expect(late.status).toBe(200);
+  rmSync(join(dir, 'late.tamber'));
+  await stream.until(e => !('late.tamber' in e.at(-1).files));
   stream.close();
 }, 30_000);
+
+test('a second wire for the app, whose lock is the first\'s, answers 503', async () => {
+  const second = tamberServer({ appDir: dir, log: () => {} });
+  await second.ready;
+  const gate = developmentGate([{ origin: 'http://127.0.0.1:8801' }], 8801);
+  const local = { host: '127.0.0.1:8801', 'x-exact-tamber-token': second.token };
+  const subscribed = await ask(second, gate, { path: '/__tamber/subscribe', method: 'POST', headers: local });
+  expect(subscribed.status).toBe(503);
+  expect(subscribed.body.error.message).toContain('another tamber server');
+  const hello = await ask(second, gate, { path: '/__tamber', method: 'POST', headers: local, body: '{"method":"hello"}' });
+  expect(hello.status).toBe(503);
+  await second.close();
+}, 600_000);
 
 test("the dev loop mounts the wire, and the theme fixture's server answers hello", async () => {
   const listener = createServer();
@@ -177,9 +227,12 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
   const dev = spawn(process.execPath, [resolve(ROOT, 'host/web/dev.mjs'), '--app', 'theme-fixture', '--port', String(port)], { cwd: ROOT, env: { ...process.env, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     let out = '';
+    let err = '';
+    dev.stderr.on('data', d => { err = (err + d).slice(-4000); });
     await new Promise((ok, fail) => {
       dev.stdout.on('data', d => { out += d; if (out.includes(`127.0.0.1:${port}/`)) ok(); });
-      dev.on('exit', code => fail(new Error(`the dev loop exited ${code}: ${out}`)));
+      dev.on('error', fail);
+      dev.on('exit', code => fail(new Error(`the dev loop exited ${code}: ${out}${err}`)));
     });
     const base = `http://127.0.0.1:${port}`;
     const { token } = await (await fetch(`${base}/__tamber/token`)).json();
@@ -187,9 +240,11 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     expect(hello.ok.protocol).toBe('tamber/1.0');
     expect(Object.keys(hello.ok.files)).toContain('app.tamber');
   } finally {
-    const exit = new Promise(ok => dev.once('exit', ok));
-    dev.kill('SIGTERM');
-    await exit;
+    if (dev.exitCode === null && dev.signalCode === null) {
+      const exit = new Promise(ok => dev.once('exit', ok));
+      dev.kill('SIGTERM');
+      await Promise.race([exit, Bun.sleep(30_000)]);
+    }
     rmSync(dist, { recursive: true, force: true });
   }
 }, 600_000);
