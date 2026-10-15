@@ -63,13 +63,10 @@ final class NativeButtonMac: NSButton {
             && !isHiddenOrHasHiddenAncestor && !owner.cssVisibilityHidden
     }
     override var canBecomeKeyView: Bool { acceptsFirstResponder && owner?.tabStop == true }
-    /// A click gives the button the focus only where its author wrote a
-    /// `tabindex` (LLP 1115.000 D7.1: what the author writes wins, as on iOS,
-    /// where a touch focuses no other button), and not under `retainFocus`.
-    /// AppKit's window focuses a clicked view that accepts first responder
-    /// and needs its panel key, before the mouse-down; an `NSButton` answers
-    /// false, which is why a click on one moves no focus.
-    override var needsPanelToBecomeKey: Bool { owner.map { $0.explicitTabIndex != nil && !$0.retainsFocus } ?? false }
+    /// A click gives the button no focus, whatever its `tabindex` (LLP
+    /// 1115.000 D7.1). AppKit's window focuses a clicked view that accepts
+    /// first responder and needs its panel key, before the mouse-down.
+    override var needsPanelToBecomeKey: Bool { false }
     override func becomeFirstResponder() -> Bool {
         guard acceptsFirstResponder else { return false }
         let ok = super.becomeFirstResponder()
@@ -124,7 +121,7 @@ final class NativeButtonMac: NSButton {
         // A click leaves the first responder where it is (LLP 1115.000
         // D7.1): AppKit's tracking must not take the editor beside it. The
         // button accepts first responder for Tab, `focus()` and `autofocus`.
-        refusesFirstResponder = !needsPanelToBecomeKey
+        refusesFirstResponder = true
         defer { refusesFirstResponder = false }
         super.mouseDown(with: event)
         owner?.pointerReleased(nil)
