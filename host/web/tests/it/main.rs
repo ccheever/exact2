@@ -15,6 +15,7 @@ mod holds;
 mod host;
 mod lengths;
 mod lists;
+mod modes;
 mod navigation;
 mod page;
 mod paint_order;

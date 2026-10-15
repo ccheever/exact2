@@ -67,9 +67,16 @@ struct FieldSelection: Equatable {
 
 final class FieldSelections {
     unowned let presenter: Presenter
+    var onChange: ((UInt32, String, FieldSelection) -> Void)?
+    var onBeforeInput: ((UInt32, String, FieldSelection, FieldInput) -> Void)?
+    var inputDetails: [UInt32: FieldInput] = [:]
+    var editIntent: [UInt32: String] = [:]
+    var composing: Set<UInt32> = []
+    var editing: Set<UInt32> = []
+    private var changedTasks: [UInt32: ObjectIdentifier] = [:]
     /// A text field's `select` (`Bridge.fieldSelect`), where it has a handler.
     var onSelect: ((UInt32, String, FieldSelection) -> Void)?
-    /// An insertReplacementText input, from the command or a hatch (ABI kind 48).
+    /// An insertReplacementText input, from the command or a hatch.
     var onReplacement: ((UInt32, String, FieldSelection) -> Void)?
     /// Each field's selection as last seen, with its direction.
     private var last: [UInt32: FieldSelection] = [:]
@@ -150,6 +157,7 @@ final class FieldSelections {
         var next = FieldSelection(range)
         let before = last[node.id]
         guard !next.same(before) else { return }
+        selectionChanged(node)
         // A batch's value written in, a focus's own select-all, a script's
         // range: not the person's.
         if quiet > 0 || applying {
@@ -186,10 +194,29 @@ final class FieldSelections {
             presenter.session?.log("setSelectionRange refused: (id, start, end[, direction]) expected")
             return
         }
+        #if os(macOS)
+        let inline = presenter.views.values.flatMap { owner in
+            owner.inlineText.filter { $0.props["id"] == name }.map { (owner, $0) }
+        }.min { $0.1.id < $1.1.id }
+        if let (owner, run) = inline {
+            let word = args.count == 4 ? args[3] as? String : nil
+            var range = FieldSelection.clamped(start, end, word, length: run.range.length)
+            range.start += run.range.location; range.end += run.range.location
+            presenter.selection.set(owner, range)
+            return
+        }
+        #endif
         guard let node = presenter.views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }) else {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: no live node with that id")
             return
         }
+        #if os(macOS)
+        if node.isParagraph {
+            let word = args.count == 4 ? args[3] as? String : nil
+            presenter.selection.set(node, .clamped(start, end, word, length: node.paragraphText.utf16.count))
+            return
+        }
+        #endif
         guard Self.tracks(node) else {
             presenter.session?.log("setSelectionRange \"\(name)\" refused: not a text field")
             return
@@ -241,7 +268,7 @@ final class FieldSelections {
         // Value mutation invalidates the prior scripted-selection suppression.
         scripted[node.id] = nil
         set(node, selection, notify: false)
-        replacementInput(node, next, selection)
+        replacementInput(node, next, selection, data: replacement)
         if old != selection {
             // DOM select is a task: later commands finish first, and its
             // handler reads the field's value and selection at delivery.
@@ -269,6 +296,7 @@ final class FieldSelections {
     }
 
     func set(_ node: NodeView, _ s: FieldSelection, notify: Bool = true) {
+        if current(node) != s { selectionChanged(node) }
         let again = scripted[node.id] == s
         scripted[node.id] = s
         last[node.id] = s
@@ -278,9 +306,22 @@ final class FieldSelections {
         if !again && notify { select(node, s) }
     }
 
-    func replacementInput(_ node: NodeView, _ value: String, _ selection: FieldSelection) {
+    func replacementInput(_ node: NodeView, _ value: String, _ selection: FieldSelection, data: String? = nil) {
+        inputDetails[node.id] = FieldInput(inputType: "insertReplacementText", data: data, cancelable: false)
         node.toldText = value
         if node.handlers.contains("input") { onReplacement?(node.id, value, selection) }
+    }
+
+    func selectionChanged(_ node: NodeView) {
+        let id = node.id, identity = ObjectIdentifier(node)
+        guard node.handlers.contains("selectionchange"), changedTasks[id] != identity else { return }
+        changedTasks[id] = identity
+        DispatchQueue.main.async { [weak self, weak node] in
+            guard let self, changedTasks[id] == identity else { return }
+            changedTasks[id] = nil
+            guard let node, presenter.views[id] === node else { return }
+            onChange?(id, node.fieldText, current(node))
+        }
     }
 
     private func select(_ node: NodeView, _ s: FieldSelection) {
@@ -289,6 +330,11 @@ final class FieldSelections {
     }
 
     func reset() {
+        changedTasks.removeAll()
+        inputDetails.removeAll()
+        editIntent.removeAll()
+        composing.removeAll()
+        editing.removeAll()
         last.removeAll()
         scripted.removeAll()
         pending.removeAll()
@@ -311,9 +357,10 @@ extension NodeView {
         field?.stringValue = value
         editor?.string = value
         #else
-        (textArea?.undoManager ?? field?.undoManager)?.removeAllActions()
+        (textArea?.undoManager ?? selectionField?.undoManager)?.removeAllActions()
         textArea?.text = value
         field?.text = value
+        headerField?.text = value
         #endif
     }
 
@@ -322,7 +369,7 @@ extension NodeView {
         #if os(macOS)
         textArea?.string ?? field?.stringValue ?? ""
         #else
-        textArea?.text ?? field?.text ?? ""
+        textArea?.text ?? selectionField?.text ?? ""
         #endif
     }
 
@@ -347,17 +394,17 @@ extension NodeView {
     #else
     var liveSelection: NSRange? {
         if let textArea { return textArea.selectedRange }
-        guard let field, field.isFirstResponder, let r = field.selectedTextRange else { return nil }
+        guard let field = selectionField, field.isFirstResponder, let r = field.selectedTextRange else { return nil }
         return NSRange(location: field.offset(from: field.beginningOfDocument, to: r.start), length: field.offset(from: r.start, to: r.end))
     }
-    var editingField: Bool { textArea?.isFirstResponder ?? field?.isFirstResponder ?? false }
+    var editingField: Bool { textArea?.isFirstResponder ?? selectionField?.isFirstResponder ?? false }
     func showSelection(_ range: NSRange) -> Bool {
         if let textArea {
             guard NSMaxRange(range) <= (textArea.text as NSString).length else { return false }
             textArea.selectedRange = range
             return true
         }
-        guard let field, field.isFirstResponder, let start = field.position(from: field.beginningOfDocument, offset: range.location),
+        guard let field = selectionField, field.isFirstResponder, let start = field.position(from: field.beginningOfDocument, offset: range.location),
               let end = field.position(from: start, offset: range.length) else { return false }
         field.selectedTextRange = field.textRange(from: start, to: end)
         return true

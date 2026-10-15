@@ -28,11 +28,11 @@ component GroupedList
           text "Grouped"
         button role="tab" aria-selected=(kind == "plain") press=pick("plain") flex=1 testId="style-plain"
           text "Plain"
-      when kind == "grouped"
+      if kind == "grouped"
         list appearance="auto" listStyle="grouped" testId="settings" flex=1
           GroupedListRows(taps=taps, receipts=receipts, scheme=scheme, tap=tap, toggle=toggle, choose=choose)
       else
-        when kind == "plain"
+        if kind == "plain"
           list appearance="auto" listStyle="plain" testId="settings" flex=1
             GroupedListRows(taps=taps, receipts=receipts, scheme=scheme, tap=tap, toggle=toggle, choose=choose)
         else
@@ -89,11 +89,11 @@ component GroupedListRows
         input type="checkbox" switch checked=receipts input=toggle testId="receipts" aria-label="Read Receipts"
       button press=choose("dark") testId="dark"
         text "Dark"
-        when scheme == "dark"
+        if scheme == "dark"
           image "symbol:checkmark"
       button press=choose("system") testId="system"
         text "System"
-        when scheme == "system"
+        if scheme == "system"
           image "symbol:checkmark"
       footer
         text "Footer text for the section that explains the setting."

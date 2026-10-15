@@ -291,6 +291,94 @@ final class ContextMenuMacTests: XCTestCase {
         XCTAssertEqual(heard, [1, 82])
     }
 
+    /// Show menu on an element with no `contextmenu` of its own reaches the
+    /// first ancestor whose one answers, as the ContextMenu key's request
+    /// and Chrome's (`contextmenu` at the element bubbles), at the element's
+    /// drawn middle: a button in a row, a link run in a paragraph, and a link
+    /// run in a span run (which the key at that run now reaches too; the key
+    /// at the paragraph's link run now runs at the run's middle). It is
+    /// offered there and not where nothing above answers or the one that
+    /// answers is disabled. (issues/20261013-macos-show-menu-ancestor-contextmenu.md)
+    func testShowMenuReachesTheNearestAncestorThatAnswers() throws {
+        let p = presenter(inSession: true), window = try XCTUnwrap(windows.last)
+        func run(_ id: Int, _ text: String, parent: Int, _ props: [String: String] = [:], _ handlers: [String] = []) -> [String: Any] {
+            ["id": id, "parent": parent, "paint": !text.isEmpty, "props": props.merging(["text": text]) { $1 }, "handlers": handlers, "style": ["font_size": 18.0]]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 20, "kind": "view", "handlers": ["contextmenu"]],
+            ["op": "frame", "id": 20, "x": 180, "y": 20, "w": 200, "h": 40],
+            ["op": "create", "id": 21, "kind": "button", "handlers": ["press"]],
+            ["op": "frame", "id": 21, "x": 10, "y": 5, "w": 100, "h": 30],
+            ["op": "children", "id": 20, "ids": [21]],
+            ["op": "create", "id": 8, "kind": "text", "handlers": ["contextmenu"], "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 8, "runs": [run(81, "Write to ", parent: 8), run(82, "the list", parent: 8, ["href": "mailto:list@example.test"], ["press"])]],
+            ["op": "frame", "id": 8, "x": 20, "y": 80, "w": 400, "h": 28],
+            ["op": "create", "id": 10, "kind": "text", "style": ["font_size": 18.0]],
+            ["op": "paragraph", "id": 10, "runs": [run(101, "See ", parent: 10), run(102, "", parent: 10, [:], ["contextmenu"]),
+                                                  run(103, "the docs", parent: 102, ["href": "https://example.test/docs"], ["press"])]],
+            ["op": "frame", "id": 10, "x": 20, "y": 130, "w": 400, "h": 28],
+            ["op": "create", "id": 7, "kind": "button", "handlers": ["press"]],
+            ["op": "frame", "id": 7, "x": 20, "y": 180, "w": 100, "h": 30],
+            ["op": "children", "id": 9, "ids": [1, 2, 20, 8, 10, 7]],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let button = try XCTUnwrap(p.views[21]), plain = try XCTUnwrap(p.views[7])
+        func link(_ paragraph: UInt32, _ id: UInt32) throws -> NSAccessibilityElement {
+            let elements = try XCTUnwrap(p.views[paragraph]?.accessibilityChildren() as? [NSAccessibilityElement])
+            return try XCTUnwrap(elements.first { ($0 as? AgentOwned)?.agentViewId == id })
+        }
+        let list = try link(8, 82), docs = try link(10, 103)
+        XCTAssertEqual(try offered(button), ["AXPress", "AXShowMenu"], "its row answers")
+        XCTAssertEqual(try offered(list), ["AXPress", "AXShowMenu"], "its paragraph answers")
+        XCTAssertEqual(try offered(docs), ["AXPress", "AXShowMenu"], "its span run answers")
+        XCTAssertEqual(try offered(plain), ["AXPress"], "nothing above answers")
+        var heard: [UInt32] = [], samples: [[String]] = []
+        p.onClipboard = { id, kind, line in
+            XCTAssertEqual(kind, 10)
+            heard.append(id); samples.append(line.components(separatedBy: ","))
+        }
+        XCTAssertFalse(plain.accessibilityPerformShowMenu())
+        XCTAssertTrue(button.accessibilityPerformShowMenu())
+        if try offered(list).contains("AXShowMenu") { XCTAssertTrue(list.accessibilityPerformShowMenu()) }
+        if try offered(docs).contains("AXShowMenu") { XCTAssertTrue(docs.accessibilityPerformShowMenu()) }
+        XCTAssertEqual(heard, [20, 8, 102])
+        XCTAssertEqual(samples.first?.prefix(4).compactMap(Double.init), [60, 20, 0, 0], "the button's middle in its row, no button held")
+        XCTAssertEqual(samples.first?.dropFirst(6).prefix(2).compactMap(Double.init), [240, 40])
+        // The run's middle, where Chrome's request lands on an inline element.
+        func middle(_ element: NSAccessibilityElement) -> NSPoint {
+            let rect = element.accessibilityFrame()
+            return p.client(window.convertFromScreen(NSRect(x: rect.midX, y: rect.midY, width: 0, height: 0)).origin)
+        }
+        for (sample, element) in zip(samples.dropFirst(), [list, docs]) where sample.count > 7 {
+            XCTAssertEqual(Double(sample[6]) ?? 0, Double(middle(element).x), accuracy: 1, "the run's middle")
+            XCTAssertEqual(Double(sample[7]) ?? 0, Double(middle(element).y), accuracy: 1)
+            XCTAssertEqual(sample[2...3].compactMap(Double.init), [0, 0])
+        }
+        // The ContextMenu key at the focused link run takes the same walk.
+        heard = []; samples = []
+        let key = try XCTUnwrap(p.views[10]?.syncInlineKeyViews().first { $0.id == 103 })
+        XCTAssertTrue(window.makeFirstResponder(key))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [102], "the span run's, as on the web")
+        XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(docs).x), accuracy: 1)
+        // The key at a link run whose paragraph answers runs the paragraph's
+        // at the run's middle, as Chrome's at the focused element's box (it
+        // was the paragraph's middle, x 220 here).
+        heard = []; samples = []
+        let mail = try XCTUnwrap(p.views[8]?.syncInlineKeyViews().first { $0.id == 82 })
+        XCTAssertTrue(window.makeFirstResponder(mail))
+        XCTAssertTrue(p.routeKey(contextKey(window), focused: true))
+        XCTAssertEqual(heard, [8], "the paragraph's")
+        XCTAssertEqual(Double(samples.first?[6] ?? "") ?? 0, Double(middle(list).x), accuracy: 1, "the run's middle")
+        XCTAssertEqual(Double(samples.first?[7] ?? "") ?? 0, Double(middle(list).y), accuracy: 1)
+        // An ancestor that answers but is disabled: nothing, as for the key.
+        heard = []
+        p.apply(wireBatch([["op": "props", "id": 20, "set": ["disabled": "true"]]]))
+        XCTAssertEqual(try offered(button), ["AXPress"])
+        XCTAssertFalse(button.accessibilityPerformShowMenu())
+        XCTAssertEqual(heard, [])
+    }
+
     /// X84: show menu on a node with a `contextPopover` runs its action and
     /// then tracks the popover's native menu, as the ContextMenu key does. A
     /// default `button`'s accessibility element is its `NSButton`'s cell
@@ -580,10 +668,11 @@ final class ContextMenuMacTests: XCTestCase {
         let deadline = Date(timeIntervalSinceNow: 5)
         while heard.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.02)) }
         XCTAssertEqual(heard, ["menu Look Up “Alpha”"], "plain words: the word's text menu (#454)")
-        // Show menu on the runs' elements: each one's own, its contextPopover too.
+        // Show menu on the runs' elements: each one's own, its contextPopover
+        // too; "the team" has none and its paragraph's answers.
         let elements = try XCTUnwrap(p.views[8]?.accessibilityChildren() as? [NSAccessibilityElement])
         XCTAssertEqual(elements.map { $0.accessibilityLabel() }, ["the list", "the team", " inner", " menu"])
-        XCTAssertEqual(try elements.map { try offered($0) }, [["AXPress", "AXShowMenu"], ["AXPress"], ["AXPress", "AXShowMenu"], ["AXPress", "AXShowMenu"]])
+        XCTAssertEqual(try elements.map { try offered($0) }, [["AXPress", "AXShowMenu"], ["AXPress", "AXShowMenu"], ["AXPress", "AXShowMenu"], ["AXPress", "AXShowMenu"]])
         heard = []
         XCTAssertTrue(elements[3].accessibilityPerformShowMenu())
         let shown = Date(timeIntervalSinceNow: 5)

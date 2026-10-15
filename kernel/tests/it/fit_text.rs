@@ -196,6 +196,7 @@ fn a_new_scale_in_a_box_that_held_is_published() {
         &[Op::ClearStyle {
             id: 2,
             mask: fit_row,
+            written: false,
         }],
     )
     .unwrap();

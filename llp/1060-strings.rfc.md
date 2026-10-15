@@ -144,8 +144,9 @@ reports the viewer's locale (`set_place`); nothing used it for text.
   router's model (LLP 1038 D2): a value the runner owns, read through
   ordinary slot dependencies.
 - **Boot:** the slot is filled first, so a state initializer may call `t`.
-  Bake and boot therefore show the base, and bake output is
-  deterministic.
+  A host's launch locale selects the table before those initializers run.
+  Without a launch locale, including a bake, it starts at the base; bake
+  output remains deterministic.
 - **`set_place(locale, zone)`** also resolves the tag and writes the result
   into the slot, in the same single commit as the `exactTime` re-answer.
   Resolution is RFC 4647 lookup:
@@ -170,15 +171,12 @@ reports the viewer's locale (`set_place`); nothing used it for text.
 - **Lookup:** `t` reads the text for (slot, key), or the base's when that
   table lacks the key. A key missing from the base traps. The compiler
   proved that key exists, so this happens only in a hand-built plan.
-- **Carry:** a dev reload keeps the slot like any slot. The page keeps its
-  language instead of flashing the base, and the host's next `set_place`
-  resolves to the same table.
+- **Carry:** a dev reload may carry the slot, but the current launch locale
+  takes precedence before new state initializers run. Existing authored state
+  keeps its carried value; newly added state calling `t` uses the launch's table.
 - *Rejected:* resolving in `t` at every call from a runner-held place. The
   runner would have to invalidate every `t` reader by hand. A slot gets
   that from dependency tracking and shows in `state` for the agent.
-- *Rejected:* excluding the slot from carry, as the router's is excluded.
-  The router slot is excluded because its value decodes through the old
-  plan's shapes. A locale is a plain string.
 
 ### D5 — TypeScript imports the same files
 

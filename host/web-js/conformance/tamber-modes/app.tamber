@@ -1,0 +1,21 @@
+// The design of the app-modes conformance plan (LLP 1121 D7): an axis beside
+// the scheme, tokens that vary by it, and a second axis whose token names
+// the accent.
+tamber modes
+
+axes
+  dark-style = black | dim  under scheme=dark
+  ink = tint | plain
+
+theme
+  surface.page = light-dark(#ffffff, #000000)
+    when dark-style=dim: light-dark(#ffffff, #15202b)
+  surface.card = light-dark(#f1f3f5, #16181c)
+    when dark-style=dim: light-dark(#f1f3f5, #1e2732)
+  text.primary = light-dark(#0f1419, #e7e9ea)
+    when dark-style=dim: light-dark(#0f1419, #f7f9f9)
+  border.hairline = light-dark(#cfd9de, #2f3336)
+    when dark-style=dim: light-dark(#cfd9de, #38444d)
+  accent.text = AccentColor
+    when ink=plain: light-dark(#0f1419, #8b98a5)
+  CanvasText = light-dark(#5a1f2b, #f6e7d8)

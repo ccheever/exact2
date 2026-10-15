@@ -162,11 +162,6 @@ final class SelectableText: UIResponder, UITextInput, UITextInteractionDelegate 
             // None of them holds back the node's own touch: its press is a
             // touch down and up, and fires at the lift, once.
             recognizer.delaysTouchesEnded = false
-            // The node's own `contextmenu` is nearer than its text: its
-            // long press is tried first.
-            if let own = node.contextRecognizer, interaction.gesturesForFailureRequirements.contains(where: { $0 === recognizer }) {
-                recognizer.require(toFail: own)
-            }
         }
         syncTaps()
     }
@@ -415,11 +410,10 @@ extension Presenter {
     /// or a long press selects it, and the reply's `selection` says what
     /// (`text`, and `start` and `end` in the node's own text, as
     /// `selectionchange` has them). Nil when `hit` is not selectable text,
-    /// has no word there, or (a long press) has a `contextmenu` or a context
-    /// popover of its own, which is nearer than its text.
+    /// has no word there, or a long press belongs to its own or a row's menu.
     func agentSelect(_ hit: UIView, at point: CGPoint, event: String) -> [String: Any]? {
         guard let node = hit as? NodeView, textSelection.admits(node) else { return nil }
-        if event == "contextmenu", node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return nil }
+        if event == "contextmenu", node.contextMenuSource != nil { return nil }
         guard let found = textSelection.selectWord(in: node, at: node.convert(point, from: nil)) else { return nil }
         return ["text": found.text, "start": found.range.location, "end": NSMaxRange(found.range)]
     }
@@ -429,21 +423,26 @@ extension NodeView {
     /// A touch hit-tested here (`hitTest`): selectable text is made ready
     /// for it.
     func touchedText() { presenter?.textSelection.touched(self) }
-    /// Whether `touch` is on selectable text below this node, whose long
-    /// press selects: this node's own `contextmenu` long press stands down.
-    func selectsText(under touch: UITouch) -> Bool {
-        guard let hit = touch.view as? NodeView, hit !== self else { return false }
-        return presenter?.textSelection.admits(hit) == true
+    /// A row's menu wins a long press over selectable text; an authored
+    /// menu on the paragraph itself is the nearest menu. Disabled or inert
+    /// ancestry admits neither one.
+    var contextMenuSource: NodeView? {
+        guard let presenter, presenter.menus.eligible(self) else { return nil }
+        var next: UIView? = self
+        while let view = next {
+            if let node = view as? NodeView,
+               node.handlers.contains("contextmenu") || node.props["contextPopover"]?.isEmpty == false { return node }
+            next = view.superview
+        }
+        return nil
     }
-    /// The selectable paragraph a finger at `point` (this view's space) is
-    /// on, when it is not this node: a long press there selects, and an
-    /// ancestor's `contextmenu` or `contextPopover` waits for a press that
-    /// is not on the text (the nearest thing its author wrote wins; a
-    /// `UITableView` row's menu does win over a text view inside it, and its
-    /// delegate declining, as here, is what lets the text view select).
-    func selectableText(at point: CGPoint) -> NodeView? {
-        guard let hit = hitTest(point, with: nil) as? NodeView, hit !== self, presenter?.textSelection.admits(hit) == true else { return nil }
-        return hit
+    /// Dynamic failure ordering follows the current row, including a menu
+    /// added or removed after this paragraph took its text interaction.
+    package func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+        guard gesture === contextRecognizer, let paragraph = other.view as? NodeView,
+              paragraph.contextMenuSource === self,
+              let text = presenter?.textSelection.text(for: paragraph) else { return false }
+        return text.interaction.gesturesForFailureRequirements.contains { $0 === other }
     }
 }
 #endif

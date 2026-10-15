@@ -23,8 +23,8 @@ use exact_runner::{
 use ibex2::boundary::HostError;
 use ibex2::stdlib::abort::{AbortController, AbortRegistration};
 use ibex2::stdlib::fetch_async::{
-    AsyncTransport, Collected, Exchange, FetchEvents, FetchTask, Flow, Head, HeaderCaps,
-    HopMetrics, HopRequest, Sink, Upload,
+    AsyncTransport, Collected, Exchange, FetchEvents, Flow, Head, HeaderCaps, HopMetrics,
+    HopRequest, Sink, Upload,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -34,6 +34,12 @@ use std::time::{Duration, Instant};
 #[path = "executor_timer.rs"]
 mod timer;
 use timer::Timer;
+#[path = "executor_async_file.rs"]
+mod file;
+#[cfg(test)]
+pub(super) use file::ReaderPhase;
+#[path = "executor_workers.rs"]
+mod workers;
 
 /// Resumed independent HTTP exchanges at once, the session's per-host
 /// connection limit too (LLP 1120 D2, D5): HTTP/2 multiplexes them.
@@ -42,7 +48,11 @@ pub(super) const IN_FLIGHT: usize = super::build_number(option_env!("EXACT_HTTP_
 /// reports `h2` or `h3` (D3): URLSession's own limit, so it never queues.
 const PER_ORIGIN: usize = 6;
 /// The base set: two starters, two finishers, the timer, the disposer (D4).
-pub(super) const THREADS: usize = 6;
+pub(super) const THREADS: usize = 6 + if cfg!(any(not(target_vendor = "apple"), test)) {
+    1 + super::INDEPENDENT
+} else {
+    0
+};
 
 /// A job's run: its ticket and generation.
 type Run = (u64, u64);
@@ -75,6 +85,8 @@ fn claim(state: &mut State, run: Run, claim: Claim) -> bool {
 /// The async core's bookkeeping, in `State`.
 #[derive(Default)]
 pub(super) struct Book {
+    /// The portable blocking adapter retains one additional upload copy.
+    pub(super) portable: [bool; 2],
     /// Live independent HTTP exchanges, and places held for ones about to
     /// start: the in-flight cap's count.
     in_flight: usize,
@@ -100,6 +112,9 @@ pub(super) struct Book {
     /// What a sized `exactBodyFrom` job learned: its file's size, kept
     /// while it is parked at the head (D5).
     pub(super) sized: HashMap<u64, u64>,
+    /// One sizing decision per lane: successors remain queued, so a park
+    /// accounts for every request buffer that could otherwise crowd it out.
+    sizing: [Option<Run>; 2],
     /// A sizing reader waiting for the finisher's decision.
     deciders: HashMap<Run, mpsc::Sender<Decision>>,
     /// The last run's generation.
@@ -113,14 +128,36 @@ impl Book {
     /// The bytes the parked uploads in `jobs` still need, which admission
     /// counts as taken (LLP 1120 §6 question 8, provisional), wherever in
     /// the queue they wait.
-    pub(super) fn parked(&self, jobs: &VecDeque<Job>) -> usize {
+    pub(super) fn parked(&self, lane: usize, jobs: &VecDeque<Job>) -> usize {
         jobs.iter()
             .filter_map(|j| {
-                self.sized
-                    .get(&j.ticket)
-                    .map(|n| j.limit - j.charge + *n as usize)
+                self.sized.get(&j.ticket).map(|n| {
+                    j.limit - j.charge
+                        + self
+                            .upload_bytes(lane, *n as usize)
+                            .expect("admitted upload")
+                })
             })
             .sum()
+    }
+    pub(super) fn reserve_inline_copy(
+        &self,
+        request: &Request,
+        (lane, charge, limit): (usize, usize, usize),
+    ) -> Result<(usize, usize, usize), &'static str> {
+        let extra = if self.portable[lane] {
+            request.body.len()
+        } else {
+            0
+        };
+        let limit = limit.checked_add(extra).ok_or("request size overflow")?;
+        if limit > BYTES[lane] {
+            return Err("native response ceiling exceeds the lane's byte budget");
+        }
+        Ok((lane, charge, limit))
+    }
+    fn upload_bytes(&self, lane: usize, size: usize) -> Option<usize> {
+        size.checked_mul(if self.portable[lane] { 2 } else { 1 })
     }
 }
 
@@ -166,7 +203,7 @@ struct FileJob {
     abort: AbortController,
     retiring: AbortRegistration,
     transport: Arc<dyn AsyncTransport>,
-    grants: Arc<ibex2::grant::GrantSet>,
+    fetch: ibex2::host::Fetch,
 }
 
 /// What the finisher tells a sizing reader.
@@ -182,7 +219,7 @@ type Start = Box<dyn FnOnce(&Arc<Machine>) + Send>;
 /// What a finisher runs after an event, off the lock.
 type After = Box<dyn FnOnce(&Arc<Machine>)>;
 /// A lane's transport and the grants its owner holds.
-type Lane = (Arc<dyn AsyncTransport>, Arc<ibex2::grant::GrantSet>);
+type Lane = (Arc<dyn AsyncTransport>, ibex2::host::Fetch);
 
 /// What a finisher applies.
 enum Event {
@@ -191,8 +228,7 @@ enum Event {
     /// Something physical of a run ended: a hop (with the origin it
     /// counted, and whether it sent the upload), a reader, a start.
     Ended(Run, Option<String>, bool),
-    /// A run's upload buffer was made and lent, and its last release.
-    Lent(Run),
+    /// A charged upload buffer's last release, including queued disposal.
     Released(Run),
     /// An origin's protocol, from a hop's metrics.
     Protocol(String, String),
@@ -217,6 +253,7 @@ enum Done {
 /// The machine for one core: its lanes' transports, channels and threads.
 pub(super) struct Machine {
     shared: Arc<Shared>,
+    worker_budget: Arc<workers::Budget>,
     transports: [Option<Lane>; 2],
     /// Why a request is refused on a lane with no transport.
     unbound: String,
@@ -226,11 +263,16 @@ pub(super) struct Machine {
     host: StreamHost,
     /// Retired: a starter starts nothing more.
     retired: AtomicBool,
+    #[cfg(test)]
+    pub(super) reader_hook: Mutex<Option<file::ReaderHook>>,
 }
 
 /// How a lane's transport is made from its owner's bindings.
-pub(super) type Lanes =
-    Arc<dyn Fn(usize, &ibex2::host::Bindings) -> Arc<dyn AsyncTransport> + Send + Sync>;
+pub(super) type Lanes = Arc<
+    dyn Fn(usize, &ibex2::host::Bindings, Arc<workers::Budget>) -> (Arc<dyn AsyncTransport>, bool)
+        + Send
+        + Sync,
+>;
 
 impl Machine {
     pub(super) fn new(
@@ -251,18 +293,27 @@ impl Machine {
             .next()
             .flatten()
             .or_else(|| parsed().ok().map(|g| host().endow(g)));
+        let worker_budget = Arc::new(workers::Budget::default());
         let transport = |lane: usize, b: Option<ibex2::host::Bindings>| {
-            b.map(|b| (lanes(lane, &b), b.fetch.parts().1))
+            b.map(|b| {
+                let (transport, portable) = lanes(lane, &b, worker_budget.clone());
+                shared.state.lock().unwrap().book.portable[lane] = portable;
+                (transport, b.fetch)
+            })
         };
+        let transports = [transport(0, ordered), transport(1, independent)];
         Arc::new(Machine {
             shared,
-            transports: [transport(0, ordered), transport(1, independent)],
+            transports,
+            worker_budget,
             unbound,
             finishers: [Mutex::new(None), Mutex::new(None)],
             timer: Timer::default(),
             grants: grants.to_string(),
             host,
             retired: AtomicBool::new(false),
+            #[cfg(test)]
+            reader_hook: Mutex::new(None),
         })
     }
 
@@ -274,13 +325,14 @@ impl Machine {
         let mut ok = true;
         let mut spawn = |name: String, body: Box<dyn FnOnce() + Send>| {
             let slot = slots.next();
-            ok &= std::thread::Builder::new()
-                .name(name)
-                .spawn(move || {
+            ok &= workers::spawn(
+                name,
+                Box::new(move || {
                     let _slot = slot;
                     body()
-                })
-                .is_ok();
+                }),
+            )
+            .is_ok();
         };
         for lane in 0..2 {
             let (send, receive) = mpsc::channel();
@@ -300,6 +352,9 @@ impl Machine {
         spawn("exact-timer".into(), Box::new(move || m.timer()));
         let m = self.clone();
         spawn("exact-dispose".into(), Box::new(move || m.disposer()));
+        if ok {
+            *self.worker_budget.0.lock().unwrap() = slots.collect();
+        }
         ok
     }
 
@@ -327,7 +382,8 @@ impl Machine {
     }
 
     fn post(&self, lane: usize, event: Event) {
-        if let Some(send) = self.finishers[lane].lock().unwrap().as_ref() {
+        let send = self.finishers[lane].lock().unwrap().clone();
+        if let Some(send) = send {
             let _ = send.send(event);
         }
     }
@@ -360,6 +416,7 @@ impl Machine {
                 }
             };
             for (run, start) in starts {
+                let _ended = Ended(self.clone(), lane, run);
                 // Started only if its run is still open: one settled meanwhile
                 // (or retirement) lets it go unstarted. Either way the start's
                 // own hold on the run ends with it.
@@ -367,11 +424,18 @@ impl Machine {
                     && find(&mut self.shared.state.lock().unwrap().running, run)
                         .is_some_and(|r| !r.terminal && r.claim == Claim::None);
                 if open {
-                    start(&self);
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| start(&self)))
+                        .is_err()
+                    {
+                        self.answer(
+                            lane,
+                            run,
+                            failed(FailureKind::Aborted, "native start panicked"),
+                        );
+                    }
                 } else {
                     drop(start);
                 }
-                self.post(lane, Event::Ended(run, None, false));
             }
         }
     }
@@ -422,6 +486,13 @@ impl Machine {
                 break;
             }
             let exchange = kind == Kind::Http && job.request.body_from.is_none();
+            if kind == Kind::Http
+                && job.request.body_from.is_some()
+                && !state.book.sized.contains_key(&job.ticket)
+                && state.book.sizing[lane].is_some()
+            {
+                break;
+            }
             if exchange && lane == 1 && state.book.in_flight >= IN_FLIGHT {
                 break;
             }
@@ -454,13 +525,16 @@ impl Machine {
     fn take(&self, state: &mut State, lane: usize, index: usize, kind: Kind) -> (Run, Start) {
         let job = state.jobs[lane].remove(index).expect("index");
         let mut job = job;
-        let (more, upload) = charge(&state.book, &job, kind);
+        let (more, upload) = charge(&state.book, lane, &job, kind);
         job.charge += more;
         state.bytes[lane] += more + upload;
         state.book.generation += 1;
         let run = (job.ticket, state.book.generation);
-        if upload > 0 {
-            state.book.sized.remove(&job.ticket);
+        let sized = state.book.sized.remove(&job.ticket).is_some();
+        if kind == Kind::Http && job.request.body_from.is_some() && !sized {
+            state.book.sizing[lane] = Some(run);
+        }
+        if sized {
             state.book.uploads.insert(run, Charged::new(lane, upload));
         }
         if kind == Kind::Http && job.request.body_from.is_none() {
@@ -489,7 +563,7 @@ impl Machine {
             claim: Claim::None,
         });
         let start: Start =
-            Box::new(move |m: &Arc<Machine>| m.run(lane, run, kind, job, upload > 0, abort));
+            Box::new(move |m: &Arc<Machine>| m.run(lane, run, kind, job, sized, abort));
         (run, start)
     }
 
@@ -551,8 +625,8 @@ impl Machine {
                 refuse(outcome);
             }
             Kind::Http => {
-                let grants = scoped.map(|s| s.expect("checked").fetch.parts().1);
-                self.http(lane, run, request, forced, sized, abort, retiring, grants)
+                let fetch = scoped.map(|s| s.expect("checked").fetch);
+                self.http(lane, run, request, forced, sized, abort, retiring, fetch)
             }
         }
     }
@@ -569,7 +643,7 @@ impl Machine {
         sized: bool,
         abort: AbortController,
         retiring: AbortRegistration,
-        scoped: Option<Arc<ibex2::grant::GrantSet>>,
+        scoped: Option<ibex2::host::Fetch>,
     ) {
         let refuse = |outcome| self.answer(lane, run, outcome);
         if abort.signal().aborted() {
@@ -578,10 +652,10 @@ impl Machine {
         if let Some(why) = request.timeout_refusal() {
             return refuse(failed(FailureKind::Refused, why));
         }
-        let Some((transport, grants)) = &self.transports[lane] else {
+        let Some((transport, fetch)) = &self.transports[lane] else {
             return refuse(failed(FailureKind::Refused, self.unbound.clone()));
         };
-        let (transport, grants) = (transport.clone(), scoped.unwrap_or_else(|| grants.clone()));
+        let (transport, fetch) = (transport.clone(), scoped.unwrap_or_else(|| fetch.clone()));
         let limit = match request.http {
             HttpScheduling::Ordered => MAX_BODY,
             HttpScheduling::Independent { max_response_bytes } => max_response_bytes as usize,
@@ -594,96 +668,15 @@ impl Machine {
                 abort,
                 retiring,
                 transport,
-                grants,
+                fetch,
             };
             return self.file(lane, run, file, sized);
         }
         // The deadline arms when the task is resumed (D3), in `Tracked`.
         let deadline = request.timeout_ms.map(|ms| (ms, abort.clone()));
         self.fetch(
-            lane, run, request, None, forced, abort, retiring, limit, transport, grants, deadline,
+            lane, run, request, None, forced, abort, retiring, limit, transport, fetch, deadline,
         );
-    }
-
-    /// An `exactBodyFrom` job (D5): its deadline armed, a reader sizes the
-    /// file for the finisher to decide, then, its whole charge taken, reads
-    /// at most the charged size; a parked one, sized before, is read at once.
-    fn file(self: &Arc<Self>, lane: usize, run: Run, file: FileJob, sized: bool) {
-        let request = &file.request;
-        if let Some(why) = request.body_from_refusal() {
-            return self.answer(lane, run, body_refused(why.to_string()));
-        }
-        if let Some(ms) = request.timeout_ms {
-            self.timer.arm(ms, lane, run, file.abort.clone());
-        }
-        let path = request.body_from.clone().expect("a file job");
-        let (scope, app) = (request.grants.clone(), self.grants.clone());
-        let probe = request.clone();
-        let (decide, decision) = mpsc::channel();
-        // The read stops between chunks once the request has ended.
-        let cancel = Arc::new(AtomicBool::new(false));
-        let told = cancel.clone();
-        let stop = file
-            .abort
-            .signal()
-            .register(move || told.store(true, Ordering::Release));
-        let size = {
-            let mut state = self.shared.state.lock().unwrap();
-            // Registered only for a run still open on a live machine, in one
-            // step with its reader's place in `live`.
-            let open = !state.retired
-                && find(&mut state.running, run)
-                    .is_some_and(|r| !r.terminal && r.claim == Claim::None);
-            if !open {
-                return;
-            }
-            let size = sized.then(|| state.book.uploads.get(&run).map(|u| u.bytes as u64));
-            if size.is_none() {
-                state.book.deciders.insert(run, decide);
-            }
-            state.book.files.insert(run, file);
-            find(&mut state.running, run).expect("open").live += 1;
-            size.flatten()
-        };
-        let m = self.clone();
-        let job = move || {
-            let _stop = stop;
-            // Its end is posted however the reader leaves, an unwind too.
-            let _ended = Ended(m.clone(), lane, run);
-            // The app's directories open here, on the reader, never on the
-            // starter: a stalled disk holds a reader, not a lane.
-            let roots = m.shared.roots_for(&probe);
-            let size = match size {
-                Some(size) => Some(size),
-                None => {
-                    let answer = body::size(roots, &app, scope.as_deref(), &path);
-                    let ok = answer.as_ref().ok().copied();
-                    // A failure claims the run when it happens, as any outcome.
-                    if ok.is_some()
-                        || claim(&mut m.shared.state.lock().unwrap(), run, Claim::Answered)
-                    {
-                        m.post(lane, Event::Sized(run, answer));
-                    }
-                    match (ok, decision.recv()) {
-                        (Some(size), Ok(Decision::Read)) => Some(size),
-                        _ => None,
-                    }
-                }
-            };
-            if let Some(size) = size {
-                let read =
-                    body::read_at_most(roots, &app, scope.as_deref(), &path, size, true, &cancel);
-                if read.is_ok() || claim(&mut m.shared.state.lock().unwrap(), run, Claim::Answered)
-                {
-                    m.post(lane, Event::Read(run, read));
-                }
-            }
-        };
-        if let Err(outcome) = body::reader(job) {
-            self.shared.state.lock().unwrap().book.deciders.remove(&run);
-            self.answer(lane, run, outcome);
-            self.post(lane, Event::Ended(run, None, false));
-        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -698,7 +691,7 @@ impl Machine {
         retiring: AbortRegistration,
         limit: usize,
         transport: Arc<dyn AsyncTransport>,
-        grants: Arc<ibex2::grant::GrantSet>,
+        fetch: ibex2::host::Fetch,
         deadline: Option<(u32, AbortController)>,
     ) {
         let timeout = request.timeout_ms;
@@ -721,9 +714,8 @@ impl Machine {
             run,
             deadline: Mutex::new(deadline),
         });
-        FetchTask::start(
+        fetch.start_async(
             tracked,
-            grants,
             req,
             upload,
             abort.signal(),
@@ -754,10 +746,9 @@ impl Machine {
     }
 
     /// Apply one event under the lock; anything to run after it, unlocked.
-    fn apply(&self, state: &mut State, lane: usize, event: Event) -> Option<After> {
+    fn apply(self: &Arc<Self>, state: &mut State, lane: usize, event: Event) -> Option<After> {
         match event {
             Event::Outcome(run, done) => {
-                let r = find(&mut state.running, run)?;
                 // Only the claimant settles: a fetch's outcome claims when it
                 // is posted, as the timer and a forget do.
                 let claimant = match &done {
@@ -765,7 +756,10 @@ impl Machine {
                     Done::Cancelled => Claim::Cancelled,
                     Done::Fetch(..) | Done::Now(_) => Claim::Answered,
                 };
-                if r.terminal || r.claim != claimant {
+                if !find(&mut state.running, run)
+                    .is_some_and(|r| !r.terminal && r.claim == claimant)
+                {
+                    state.book.trash.push(Box::new(done));
                     return None;
                 }
                 let outcome = match done {
@@ -801,13 +795,6 @@ impl Machine {
                 release_upload(state, run);
                 None
             }
-            Event::Lent(run) => {
-                if let Some(u) = state.book.uploads.get_mut(&run) {
-                    u.made = true;
-                    u.buffer = true;
-                }
-                None
-            }
             Event::Protocol(origin, protocol) => {
                 if matches!(protocol.as_str(), "h2" | "h3") {
                     state.book.multiplexed[lane].insert(origin);
@@ -822,6 +809,7 @@ impl Machine {
                 let open = find(&mut state.running, run)
                     .is_some_and(|r| !r.terminal && r.claim == Claim::None);
                 if !open {
+                    state.book.trash.push(Box::new(start));
                     return None;
                 }
                 state.book.hops[lane].push_back(Hop {
@@ -849,159 +837,13 @@ impl Machine {
     fn settle(&self, state: &mut State, run: Run, outcome: Outcome) -> After {
         if claim(state, run, Claim::Answered) {
             settle(state, run, outcome);
+        } else {
+            state.book.trash.push(Box::new(outcome));
         }
         if let Some(decider) = state.book.deciders.remove(&run) {
             let _ = decider.send(Decision::Exit);
         }
         Box::new(move |m: &Arc<Machine>| m.timer.remove(run))
-    }
-
-    /// The finisher's decision for a sized upload (D5; §6 question 8).
-    fn sized(
-        &self,
-        state: &mut State,
-        lane: usize,
-        run: Run,
-        size: Result<u64, Outcome>,
-    ) -> Option<After> {
-        let decider = state.book.deciders.remove(&run);
-        let tell = |decision| {
-            if let Some(decider) = &decider {
-                let _ = decider.send(decision);
-            }
-        };
-        if let Err(outcome) = size {
-            // The reader claimed it.
-            return Some(self.settled(state, run, outcome));
-        }
-        let open = find(&mut state.running, run)
-            .filter(|r| !r.terminal && r.claim == Claim::None)
-            .map(|r| (r.limit, r.charge));
-        let Some((limit, charge)) = open else {
-            tell(Decision::Exit);
-            return None;
-        };
-        let size = size.expect("checked") as usize;
-        let behind: usize = state.jobs[lane]
-            .iter()
-            .filter(|j| j.ticket > run.0)
-            .map(|j| j.charge)
-            .sum();
-        let refusal = if limit + size > BYTES[lane] {
-            Some("the file and response ceiling exceed the lane's byte budget")
-        } else if limit + size + behind > BYTES[lane] {
-            Some("the file and the requests queued behind it exceed the lane's byte budget")
-        } else {
-            None
-        };
-        if let Some(why) = refusal {
-            tell(Decision::Exit);
-            return Some(self.settle(state, run, failed(FailureKind::Refused, why)));
-        }
-        let need = limit - charge + size;
-        if need <= BYTES[lane].saturating_sub(state.bytes[lane]) {
-            let r = find(&mut state.running, run).expect("found");
-            r.charge = limit;
-            state.bytes[lane] += need;
-            state.book.uploads.insert(run, Charged::new(lane, size));
-            tell(Decision::Read);
-            return None;
-        }
-        // Back to the head of its lane, disarmed, its size known, holding
-        // its waiting charge only: in this one step, so nothing passes it.
-        tell(Decision::Exit);
-        let at = state
-            .running
-            .iter()
-            .position(|r| (r.ticket, r.generation) == run)
-            .expect("found");
-        let r = state.running.swap_remove(at);
-        if r.blocking {
-            state.book.blocking = false;
-        }
-        let file = state.book.files.remove(&run).expect("a file job");
-        state.book.sized.insert(run.0, size as u64);
-        // In admission order: behind any job still queued ahead of it.
-        let at = state.jobs[lane]
-            .iter()
-            .position(|j| j.ticket > run.0)
-            .unwrap_or(state.jobs[lane].len());
-        state.jobs[lane].insert(
-            at,
-            Job {
-                ticket: run.0,
-                request: file.request,
-                forced: file.forced,
-                work: None,
-                charge: r.charge,
-                limit: r.limit,
-                forgotten: r.forgotten,
-            },
-        );
-        Some(Box::new(move |m: &Arc<Machine>| m.timer.remove(run)))
-    }
-
-    /// A file read for `run`: its upload made and its first exchange queued
-    /// for the starter, or its failure settled.
-    fn read(
-        &self,
-        state: &mut State,
-        lane: usize,
-        run: Run,
-        read: Result<Vec<u8>, Option<Outcome>>,
-    ) -> Option<After> {
-        let bytes = match read {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                // The reader claimed it.
-                let path = state
-                    .book
-                    .files
-                    .get(&run)
-                    .and_then(|f| f.request.body_from.clone());
-                let outcome = e.unwrap_or_else(|| {
-                    body_refused(format!(
-                        "exactBodyFrom {}: the file changed while it was read",
-                        path.unwrap_or_default()
-                    ))
-                });
-                return Some(self.settled(state, run, outcome));
-            }
-        };
-        let open =
-            find(&mut state.running, run).is_some_and(|r| !r.terminal && r.claim == Claim::None);
-        let file = state.book.files.remove(&run);
-        let (true, Some(file)) = (open, file) else {
-            state.book.trash.push(Box::new(bytes));
-            return None;
-        };
-        let url = file.request.url.clone();
-        // The starter resumes the task; the buffer's release is posted.
-        let start: Start = Box::new(move |m: &Arc<Machine>| {
-            let releaser = m.clone();
-            let upload = Upload::new(
-                bytes,
-                Some(Box::new(move || releaser.post(lane, Event::Released(run)))),
-            );
-            // Lent from here: its charge now waits for its last release.
-            m.post(lane, Event::Lent(run));
-            m.fetch(
-                lane,
-                run,
-                file.request,
-                Some(upload),
-                file.forced,
-                file.abort,
-                file.retiring,
-                file.limit,
-                file.transport,
-                file.grants,
-                None,
-            )
-        });
-        let origin = Some(origin(&url));
-        state.book.hops[lane].push_back(Hop { run, origin, start });
-        None
     }
 
     // ---- the timer and the disposer ----
@@ -1063,28 +905,24 @@ pub(super) fn asynchronous() -> bool {
 }
 
 /// Each lane's transport: Apple's session per lane, or, in tests, the
-/// owner's blocking transport on a thread per exchange.
+/// owner's blocking transport on bounded, reserved workers.
 pub(super) fn asynch_lanes() -> Lanes {
     #[cfg(all(target_vendor = "apple", not(test)))]
     {
-        Arc::new(|lane, _| {
+        Arc::new(|lane, _, _| {
             let per_host = if lane == 1 { IN_FLIGHT } else { 0 };
-            Arc::new(ibex2::transport::DarwinLane::new(per_host))
+            (
+                Arc::new(ibex2::transport::darwin_async::DarwinLane::new(per_host)),
+                false,
+            )
         })
     }
     #[cfg(any(not(target_vendor = "apple"), test))]
     {
-        Arc::new(|_, bindings: &ibex2::host::Bindings| {
-            let spawn: ibex2::stdlib::fetch_async::Spawn = Arc::new(|job| {
-                std::thread::Builder::new()
-                    .name("exact-adapter".into())
-                    .spawn(job)
-                    .is_ok()
-            });
-            Arc::new(ibex2::stdlib::fetch_async::BlockingAdapter::new(
-                bindings.fetch.parts().0,
-                spawn,
-            ))
+        Arc::new(|lane, bindings: &ibex2::host::Bindings, budget| {
+            let threads = if lane == 0 { 1 } else { super::INDEPENDENT };
+            let workers = Arc::new(workers::Workers::new(threads, budget));
+            (Arc::new(bindings.fetch.blocking_adapter(workers)), true)
         })
     }
 }
@@ -1132,19 +970,23 @@ fn at_limit(state: &State, lane: usize, origin: &str) -> bool {
 /// What starting `job` charges more: response bytes, and a sized upload's
 /// file. A handoff charges no response bytes, a job sizing its file only
 /// the request buffers it holds (D5).
-fn charge(book: &Book, job: &Job, kind: Kind) -> (usize, usize) {
+fn charge(book: &Book, lane: usize, job: &Job, kind: Kind) -> (usize, usize) {
     let sized = book.sized.get(&job.ticket).map(|n| *n as usize);
     let more = match kind {
         Kind::Handoff => 0,
         Kind::Http if job.request.body_from.is_some() && sized.is_none() => 0,
         _ => job.limit - job.charge,
     };
-    (more, sized.unwrap_or(0))
+    (
+        more,
+        book.upload_bytes(lane, sized.unwrap_or(0))
+            .expect("admitted upload"),
+    )
 }
 
 /// Whether `job` fits the lane's free bytes now.
 fn fits(state: &State, lane: usize, job: &Job, kind: Kind) -> bool {
-    let (more, upload) = charge(&state.book, job, kind);
+    let (more, upload) = charge(&state.book, lane, job, kind);
     more + upload <= BYTES[lane].saturating_sub(state.bytes[lane])
 }
 
@@ -1230,8 +1072,13 @@ fn classify(result: Result<Collected, HostError>, limit: usize, retired: bool) -
 /// physical end too (D5's later-of rule).
 fn settle(state: &mut State, run: Run, outcome: Outcome) {
     let Some(r) = find(&mut state.running, run) else {
+        state.book.trash.push(Box::new(outcome));
         return;
     };
+    if r.terminal {
+        state.book.trash.push(Box::new(outcome));
+        return;
+    }
     r.terminal = true;
     let (lane, limit, read, forgotten) = (r.lane, r.limit, r.read, r.forgotten);
     let elapsed = r.started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
@@ -1241,6 +1088,7 @@ fn settle(state: &mut State, run: Run, outcome: Outcome) {
     }
     let outcome = bounded_outcome(outcome, limit);
     if forgotten {
+        state.book.trash.push(Box::new(outcome));
         state.counts[lane] -= 1;
         find(&mut state.running, run).expect("found").drained = true;
     } else {
@@ -1280,6 +1128,9 @@ fn physical(state: &mut State, run: Run) {
     }
     let r = state.running.swap_remove(at);
     let lane = r.lane;
+    if state.book.sizing[lane] == Some(run) {
+        state.book.sizing[lane] = None;
+    }
     // An exchange chosen that never started gives back its places.
     if let Some(origin) = state.book.reserved.remove(&run) {
         unreserve(&mut state.book, lane, origin.as_deref());
@@ -1348,77 +1199,10 @@ struct Tracked {
     deadline: Mutex<Option<(u32, AbortController)>>,
 }
 
-impl AsyncTransport for Tracked {
-    fn start(&self, request: HopRequest, sink: Box<dyn Sink>) -> Exchange {
-        let origin = origin(&request.url);
-        let sends = request.body.is_some();
-        {
-            let mut state = self.machine.shared.state.lock().unwrap();
-            let book = &mut state.book;
-            // The places the starter held, the origin's too when it was
-            // not known then (a redirect's).
-            match book.reserved.remove(&self.run) {
-                Some(Some(_)) => {}
-                Some(None) => *book.origins[self.lane].entry(origin.clone()).or_default() += 1,
-                None => {
-                    *book.origins[self.lane].entry(origin.clone()).or_default() += 1;
-                    if self.lane == 1 {
-                        book.in_flight += 1;
-                    }
-                }
-            }
-            if let Some(r) = find(&mut state.running, self.run) {
-                r.live += 1;
-            }
-            if let Some(u) = state.book.uploads.get_mut(&self.run).filter(|_| sends) {
-                u.hops += 1;
-            }
-        }
-        let sink = Box::new(TrackedSink {
-            inner: sink,
-            machine: self.machine.clone(),
-            lane: self.lane,
-            run: self.run,
-            origin: Some(origin),
-            sends,
-        });
-        let exchange = self.inner.start(request, sink);
-        if let Some((ms, abort)) = self.deadline.lock().unwrap().take() {
-            self.machine.timer.arm(ms, self.lane, self.run, abort);
-        }
-        exchange
-    }
-}
-
-struct TrackedSink {
-    inner: Box<dyn Sink>,
-    machine: Arc<Machine>,
-    lane: usize,
-    run: Run,
-    origin: Option<String>,
-    /// It sends the run's upload.
-    sends: bool,
-}
-
-impl Sink for TrackedSink {
-    fn head(&mut self, head: Head) -> Flow {
-        self.inner.head(head)
-    }
-    fn data(&mut self, bytes: &[u8]) -> Flow {
-        self.inner.data(bytes)
-    }
-    fn end(&mut self, result: Result<(), HostError>) {
-        // The release is the finisher's; posted before the task hears the
-        // end, so a next hop is queued after it.
-        let origin = self.origin.take();
-        self.machine
-            .post(self.lane, Event::Ended(self.run, origin, self.sends));
-        self.inner.end(result);
-    }
-    fn metrics(&mut self, metrics: HopMetrics) {
-        self.inner.metrics(metrics);
-    }
-}
+#[path = "executor_metrics.rs"]
+mod metrics_log;
+#[path = "executor_async_transport.rs"]
+mod tracked_transport;
 
 /// A fetch's events, to its lane's finisher.
 struct Events {
@@ -1433,8 +1217,11 @@ struct Events {
 
 impl FetchEvents for Events {
     fn outcome(&self, result: Result<Collected, HostError>) {
-        let state = &mut self.machine.shared.state.lock().unwrap();
-        if claim(state, self.run, Claim::Answered) {
+        let accepted = {
+            let state = &mut self.machine.shared.state.lock().unwrap();
+            claim(state, self.run, Claim::Answered)
+        };
+        if accepted {
             self.machine.post(
                 self.lane,
                 Event::Outcome(self.run, Done::Fetch(result, self.limit)),
@@ -1442,7 +1229,7 @@ impl FetchEvents for Events {
         }
     }
     fn metrics(&self, url: &str, metrics: HopMetrics) {
-        ibex2::transport::metrics_log::note(
+        metrics_log::note(
             "lane",
             url,
             metrics.protocol.as_deref(),

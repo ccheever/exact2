@@ -101,6 +101,87 @@ final class ScrollRoutingTests: XCTestCase {
         XCTAssertNil(removed?.superview, "the obsolete mouse target leaves after release")
     }
 
+    /// The T3 Code clone's abort on a thread change under a press on its
+    /// timeline's empty area (X87): a batch replaces the panel the scroll
+    /// node is in, and the node is freed. AppKit asks the scroll view to
+    /// leave as it frees the node (`-[NSView _finalize]`); one that stayed
+    /// would reach its own dealloc with a superview, which AppKit raises.
+    /// With no node hearing the pointer the node is freed in the batch;
+    /// with an ancestor that does, at the up that ends the hold. AppKit's
+    /// calls are made directly, as `GesturePrecedenceMacTests` makes them:
+    /// a test's window ordered in keeps the removed views past the batch.
+    func testAnEmptyScrollPortFreedUnderAPressGoesWithItsNode() throws {
+        _ = NSApplication.shared
+        clicksArriveAsInTheKeyWindow()
+        for hears in [false, true] {
+            let session = ExactApp.shared.makeSession(label: "freed-scroll")
+            defer { session.destroy() }
+            let p = session.presenter
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 240), styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = p.viewport
+            defer { window.close() }
+            weak var node: NodeView?
+            weak var scroll: ChainingScrollView?
+            var point = NSPoint.zero
+            autoreleasepool {
+                p.apply(wireBatch([
+                    ["op": "create", "id": 1, "kind": "view", "handlers": hears ? ["pointerdown", "pointerup"] : []],
+                    ["op": "create", "id": 2, "kind": "view"],
+                    ["op": "create", "id": 3, "kind": "view", "style": ["overflow_y": "scroll"]],
+                    ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+                    ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 300, "h": 240],
+                    ["op": "frame", "id": 2, "x": 0, "y": 0, "w": 300, "h": 240],
+                    ["op": "frame", "id": 3, "x": 0, "y": 0, "w": 300, "h": 240],
+                    ["op": "content", "id": 3, "w": 300, "h": 60]]))
+                node = p.views[3]
+                scroll = node?.scroll
+                // The empty port, below its 60 points of content.
+                point = node?.convert(NSPoint(x: 100, y: 150), to: nil) ?? .zero
+            }
+            var heard: [String] = []
+            p.onPointer = { id, kind, _ in heard.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
+            p.onPress = { heard.append("press \($0)") }
+            func event(_ type: NSEvent.EventType) throws -> NSEvent {
+                try XCTUnwrap(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+            }
+            func hit() throws -> NSView { try XCTUnwrap(p.viewport.hitTest(try XCTUnwrap(p.viewport.superview).convert(point, from: nil))) }
+            try autoreleasepool {
+                let pressed = try hit()
+                XCTAssertTrue(pressed === scroll, "the empty port's hit is its scroll view")
+                pressed.mouseDown(with: try event(.leftMouseDown))
+            }
+            // The batch a key starts while the button is held (thread.jump):
+            // another panel, and the scroll node's destroyed.
+            autoreleasepool {
+                p.apply(wireBatch([
+                    ["op": "create", "id": 4, "kind": "view"],
+                    ["op": "create", "id": 5, "kind": "button", "handlers": ["press"]],
+                    ["op": "children", "id": 4, "ids": [5]], ["op": "children", "id": 1, "ids": [4]],
+                    ["op": "destroy", "id": 3], ["op": "destroy", "id": 2],
+                    ["op": "frame", "id": 4, "x": 0, "y": 0, "w": 300, "h": 240],
+                    ["op": "frame", "id": 5, "x": 0, "y": 0, "w": 300, "h": 240]]))
+            }
+            XCTAssertEqual(node == nil, !hears, "only a hold keeps the node the button went down on")
+            XCTAssertEqual(scroll == nil, !hears)
+            // No up for that press: AppKit sends it to no view, the one
+            // pressed having left the window. The next click is on the new
+            // panel, and its up ends a hold (#519).
+            try autoreleasepool {
+                let button = try hit()
+                XCTAssertTrue(button === p.views[5])
+                button.mouseDown(with: try event(.leftMouseDown))
+                button.mouseUp(with: try event(.leftMouseUp))
+            }
+            XCTAssertNil(node, "the scroll node is freed")
+            XCTAssertNil(scroll, "its scroll view went with it")
+            XCTAssertEqual(heard, hears ? ["down 1", "up 1", "press 5"] : ["press 5"])
+            XCTAssertNil(p.pointerHeld)
+            XCTAssertNil(p.pointerSource)
+        }
+    }
+
     /// A person's wheel, which AppKit scrolls; `atOnce` is the agent's.
     override func setUp() { ChainingScrollView.appliesAtOnce = false }
     override func tearDown() { ChainingScrollView.appliesAtOnce = ExactEnv.agentMode }

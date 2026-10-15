@@ -236,9 +236,10 @@ struct BadgeFace: Equatable {
 }
 
 /// The delegate Exact gives each navigation controller it builds: Exact's
-/// own handling first (pop reconciliation, LLP 1035.001 D1, D2), then the
-/// app's delegate, which receives straight anything Exact does not
-/// implement — a custom transition's animator (LLP 1075.003 §3.5).
+/// own handling first, then the app's delegate, which receives straight
+/// anything Exact does not implement — a custom transition's animator
+/// (LLP 1075.003 §3.5). An animated push or pop is reconciled (LLP 1035.001
+/// D1, D2) in its coordinator's completion, after both have heard `didShow`.
 final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
     weak var host: NavigationHost?
     weak var app: UINavigationControllerDelegate?
@@ -271,28 +272,59 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 
 /// A header's search field as UIKit's search controller (LLP 1075.003
 /// §9.6): text, focus and blur go to the authored field's handlers.
-final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate {
+final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate, UITextFieldDelegate {
     let controller = UISearchController(searchResultsController: nil)
     weak var host: NavigationHost?
-    weak var field: NodeView?
-    private var last: String?
+    weak var field: NodeView? {
+        didSet {
+            if oldValue !== field { oldValue?.headerField = nil }
+            #if os(iOS)
+            field?.headerField = controller.searchBar.searchTextField
+            controller.searchBar.searchTextField.pasteDelegate = field
+            #endif
+        }
+    }
+    private weak var textDelegate: UITextFieldDelegate?
     init(host: NavigationHost) {
         self.host = host
         super.init()
         controller.searchResultsUpdater = self
         controller.searchBar.delegate = self
         controller.delegate = self
+        #if os(iOS)
+        textDelegate = controller.searchBar.searchTextField.delegate
+        controller.searchBar.searchTextField.delegate = self
+        #endif
         controller.obscuresBackgroundDuringPresentation = false
         controller.hidesNavigationBarDuringPresentation = true
     }
     func updateSearchResults(for search: UISearchController) {
         let text = search.searchBar.text ?? ""
-        guard text != last, let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
-        last = text
-        presenter.typed(field.id, text, input: field.handlers.contains("input"))
+        guard let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
+        field.typedText(text)
+    }
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+        guard field?.textField(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true else { return false }
+        return textDelegate?.textField?(textField, shouldChangeCharactersIn: range, replacementString: string) ?? true
+    }
+    func textFieldShouldClear(_ textField: UITextField) -> Bool {
+        guard field?.textFieldShouldClear(textField) ?? true else { return false }
+        return textDelegate?.textFieldShouldClear?(textField) ?? true
+    }
+    func textFieldDidChangeSelection(_ textField: UITextField) {
+        textDelegate?.textFieldDidChangeSelection?(textField)
+        if let field { host?.presenter.fieldSelections.changed(field) }
+    }
+    // UISearchBar remains the recipient of UIKit's focus, return and private callbacks.
+    override func responds(to selector: Selector!) -> Bool {
+        super.responds(to: selector) || (textDelegate?.responds(to: selector) ?? false)
+    }
+    override func forwardingTarget(for selector: Selector!) -> Any? {
+        textDelegate?.responds(to: selector) == true ? textDelegate : nil
     }
     func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
         guard let field else { return }
+        host?.presenter.fieldSelections.focused(field)
         host?.presenter.focus(field.id)
     }
     /// The keyboard's Search key is this field's Return (LLP 1115.000 D9.2):
@@ -446,6 +478,14 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
+        // The theme's label colour on the bar's titles (LLP 1095 D4); its
+        // glyphs take the app's tint, which the theme's `AccentColor` sets.
+        if let ink = ThemeRoles.color("label") ?? ThemeRoles.color("CanvasText") {
+            nav.navigationBar.titleTextAttributes = [.foregroundColor: ink]
+            #if !os(tvOS)
+            nav.navigationBar.largeTitleTextAttributes = [.foregroundColor: ink]
+            #endif
+        }
         if presenter.session?.natives.hatchesConnected == true {
             stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
             stack.hatched = true
@@ -654,6 +694,7 @@ extension NavigationHost {
             if let search = c.search {
                 search.controller.searchBar.resignFirstResponder()
                 search.controller.isActive = false
+                search.field = nil
                 c.navigationItem.searchController = nil
                 c.search = nil
                 // UIKit restores its bar at the end of search dismissal.

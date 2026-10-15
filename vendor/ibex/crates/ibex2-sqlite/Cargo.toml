@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "ibex2-sqlite"
 version = "0.1.0"

@@ -504,3 +504,56 @@ pub(super) fn caret(
     );
     backend.pop_clip();
 }
+
+/// A list's row under the neutral look (LLP 1115.000 D16), as the page's
+/// sheet draws it: over the row's own ground, the wash of what presses in
+/// it (where a pointer hovers, and a stronger one while it is held), then,
+/// under each row but the last, one line that only divides, inside the
+/// row's box. Which node is a row, and whether its author wrote that edge,
+/// is the kernel's to say (`Kernel::row_separator`); which node shows the
+/// wash is the presenter's (`presenter/feedback.rs`). A control keeps its
+/// own states.
+pub(super) fn row(
+    backend: &mut dyn Backend,
+    kernel: &exact_kernel::Kernel,
+    node: &NodeRef<'_>,
+    outer: &Shape,
+    ts: Transform,
+    dark: bool,
+    feedback: (Option<exact_kernel::ViewId>, Option<exact_kernel::ViewId>),
+) {
+    if !look::neutral() {
+        return;
+    }
+    if node.node_type != exact_kernel::NodeType::Control {
+        let wash = if feedback.1 == Some(node.id) {
+            Some("-exact-tertiary-fill")
+        } else if feedback.0 == Some(node.id) {
+            Some("-exact-quaternary-fill")
+        } else {
+            None
+        };
+        if let Some(name) = wash {
+            backend.fill(outer, role(name, dark), ts);
+        }
+    }
+    if kernel.row_separator(node.id) {
+        let (x, y, w, h) = outer.rect;
+        let line = look::px(metric::CONTROL_LINE, em(node));
+        // On whole device pixels, as a browser snaps a box's edge: a row
+        // that layout put at half a pixel would else show the line as two
+        // faint ones. Only where the row is drawn upright.
+        let (top, line) = if ts.kx == 0.0 && ts.ky == 0.0 && ts.sy > 0.0 {
+            let thick = (line * ts.sy).round().max(1.0);
+            let bottom = (ts.sy * (y + h) + ts.ty).round();
+            ((bottom - thick - ts.ty) / ts.sy, thick / ts.sy)
+        } else {
+            (y + h - line, line)
+        };
+        backend.fill(
+            &Shape::rect((x, top, w, line)),
+            role("-exact-separator", dark),
+            ts,
+        );
+    }
+}

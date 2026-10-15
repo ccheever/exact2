@@ -58,9 +58,8 @@ extension MenuHost {
     func isConfirmation(_ pop: NodeView) -> Bool {
         pop.props["popover"] != nil && pop.props["accessibilityRole"] == "alertdialog"
     }
-    func closes(_ row: NodeView, _ pop: NodeView) -> Bool {
-        row.props["popovertarget"] == pop.props["id"] && row.props["popovertargetaction"] == "hide"
-    }
+    /// A chooser shows as a popover
+    func closes(_ row: NodeView, _ pop: NodeView) -> Bool { presenter?.invocation(of: row)?.closes(pop, modally: false) ?? false }
     /// Live, pressable, enabled, not inert, and not hidden by the page — its
     /// own or an ancestor's `display: none` or hiding — though the popover
     /// itself is hidden in place while its menu presents it (iOS's `eligible`).

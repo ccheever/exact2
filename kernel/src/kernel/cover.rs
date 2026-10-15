@@ -100,8 +100,8 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
     let (style, env) = (arena.style(slot), arena.env());
     match arena.cover(slot) {
         Some(HostCover::Whole) => s.display = taffy::style::Display::None,
-        Some(HostCover::Edges([top, right, bottom, left])) => {
-            let top = top + header_inset(arena, slot, top);
+        Some(HostCover::Edges(_)) => {
+            let [top, right, bottom, left] = added_padding(arena, slot);
             s.padding = taffy::geometry::Rect {
                 top: style.padding_top.floor_lp(env, top),
                 right: style.padding_right.floor_lp(env, right),
@@ -109,10 +109,23 @@ pub(crate) fn apply(arena: &NodeArena, slot: u32, s: &mut taffy::style::Style) {
                 left: style.padding_left.floor_lp(env, left),
             };
         }
-        Some(HostCover::Inset([top, bottom])) => {
-            s.padding.bottom = style.padding_bottom.floor_lp(env, top + bottom);
+        Some(HostCover::Inset(_)) => {
+            let [_, _, bottom, _] = added_padding(arena, slot);
+            s.padding.bottom = style.padding_bottom.floor_lp(env, bottom);
         }
         None => {}
+    }
+}
+
+/// The points a cover adds to the box's padding for layout (`apply`), top,
+/// right, bottom and left: the host's sizing, not the box's CSS padding.
+pub(crate) fn added_padding(arena: &NodeArena, slot: u32) -> [f32; 4] {
+    match arena.cover(slot) {
+        Some(HostCover::Edges([top, right, bottom, left])) => {
+            [top + header_inset(arena, slot, top), right, bottom, left]
+        }
+        Some(HostCover::Inset([top, bottom])) => [0.0, 0.0, top + bottom, 0.0],
+        _ => [0.0; 4],
     }
 }
 

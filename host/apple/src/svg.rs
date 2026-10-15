@@ -71,6 +71,8 @@ pub(crate) struct SvgState {
     dirty: IdSet<ViewId>,
     /// The last scene sent per `svg`, and its content box.
     sent: IdMap<ViewId, (String, Rect)>,
+    /// Environment used by the cached scenes, including the window unit basis.
+    environment: Option<exact_kernel::Env>,
     /// Boxes whose lowered animations may have changed, and their last spec.
     boxes: IdSet<ViewId>,
     box_sent: IdMap<ViewId, String>,
@@ -177,6 +179,14 @@ impl SvgState {
         }
     }
 
+    /// Owes every scene sent again, as the presenter may not have it.
+    pub(crate) fn resend(&mut self) {
+        for (id, (scene, _)) in &mut self.sent {
+            scene.clear();
+            self.dirty.insert(*id);
+        }
+    }
+
     /// A presented value moved on an element: its scene is rebuilt.
     pub(crate) fn presented(&mut self, id: ViewId) -> bool {
         match self.elements.get(&id) {
@@ -190,6 +200,13 @@ impl SvgState {
 
     /// The `svg` and `animations` ops this batch owes.
     pub(crate) fn emit(&mut self, kernel: &Kernel, engine: &Engine, batch: &mut Batch) {
+        let environment = kernel.arena().env();
+        if self.environment.as_ref() != Some(environment) {
+            // A fixed content box can contain window-relative geometry, including
+            // referenced definitions. Unchanged scenes are suppressed below.
+            self.all_dirty();
+            self.environment = Some(environment.clone());
+        }
         // A resized `svg` needs a new transform.
         let moved: Vec<ViewId> = self
             .sent

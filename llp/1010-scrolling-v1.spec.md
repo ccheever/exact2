@@ -1171,13 +1171,13 @@ with the padding showing, as Bluesky's does.
 *Surface.* A virtualized list takes CSS's `scroll-padding-top` and
 `-bottom` (`-left` and `-right` on a row list), and the `scroll-padding`
 shorthand, in padding's forms; its main-axis sides refuse a percentage and a
-computed string (`lower-collection-flow`), as padding's do. The cross-axis
-sides are taken and read by nothing. Anywhere but a virtualized list,
-`scroll-padding*` is refused (`lower-scroll-padding`): the element form of
-`scrollIntoView` on an ordinary scroller is the host's own (UIKit's,
-AppKit's, the Linux presenter's), which reads no scroll padding, so only the
-browser would follow it. Nothing else reads it: no snapping, and only
-`scrollIntoView` and the corrections that settle it align by it.
+computed string (`lower-collection-flow`), as padding's do. Ordinary scrollers also take the padding, including percentages of the
+scrollport's corresponding dimension (issue #277, Charlie's 2026-10-08
+ruling; implemented 2026-10-13 by the scrollpad2 lane). The element form
+aligns its target's border box expanded by `scroll-margin-top/right/bottom/left`
+(or `scroll-margin`), within that inset port, on Apple, Linux and the web.
+Scroll margins accept signed lengths, not percentages, and change no layout
+or scroll range. Nothing here enables snapping.
 
 *Meaning, as CSS's.* `scrollIntoView` aligns the row in the port less its
 scroll padding (the optimal viewing region; CSS Scroll Snap 1 §4.1):
@@ -1236,3 +1236,15 @@ which aligns its end),
 `scroll_padding_is_a_virtualized_lists_and_takes_lengths`; the web host's
 `style_rows_lower_to_css_by_their_names` (the CSS); `CollectionTests`
 (Apple's parser takes a negative correction and `from`).
+
+
+### 6.10 App-owned list restoration (2026-10-13)
+
+LLP 1070.000 §13 implements Charlie's 2026-10-08 ruling for issue #277:
+`ScrollEvent.firstVisibleKey` and `firstVisibleOffset` expose the virtual
+list's first visible row and signed main-axis offset, and the list form of
+`scrollIntoView` accepts `offset=` to restore them after mounting. The runner
+and JS target use the same index and bounded correction path as other row
+jumps. No top-level cache is added. The tests and remaining native GUI
+qualification are recorded there; this does not widen §6.9's scroll-padding
+admission or add scroll-margin, smooth element jumps or authored scrollend.

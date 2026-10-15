@@ -1,0 +1,4 @@
+5:3: tamber-dial-inert: `shade` moves no token; every dial moves at least one (D4)
+6:3: tamber-dial-inert: `tint` moves no token; every dial moves at least one (D4)
+7:3: tamber-dial-inert: `roundness` moves no token; every dial moves at least one (D4)
+8:3: tamber-dial-inert: `gap` moves no token; every dial moves at least one (D4)

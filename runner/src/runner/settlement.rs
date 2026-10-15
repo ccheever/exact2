@@ -679,6 +679,35 @@ impl<D: DataSource> Runner<D> {
                                     origin = 0;
                                     Held::new(value)
                                 }
+                                // @ref LLP 1027.000 D3 — a TypeScript answer's
+                                // failure belongs to its resource, not its input.
+                                Err(RunnerError::Data {
+                                    resource,
+                                    error: DataError::Failed(code, why),
+                                }) => {
+                                    let kept = if let Some(state) = &states[i] {
+                                        placeholder = state.placeholder;
+                                        value_args = state.args.clone();
+                                        answered_for = state.answered_for.clone();
+                                        Some(state.value.clone())
+                                    } else {
+                                        placeholder = true;
+                                        self.placeholder(i, &row, &resources).map(Held::new)
+                                    };
+                                    let Some(kept) = kept else {
+                                        return Err(RunnerError::Data {
+                                            resource,
+                                            error: DataError::Failed(code, why),
+                                        });
+                                    };
+                                    effects[i] = RequestEffect::Answered;
+                                    pending_res[i] = false;
+                                    self.log(super::lines::failed_now(&resource, &why));
+                                    self.failed_args[i] = Some(args.clone());
+                                    self.failed_why[i] =
+                                        Some(crate::failure::Failure { code, message: why });
+                                    kept
+                                }
                                 Err(error) => return Err(error),
                                 Ok(Answer::Now(v)) => {
                                     if pending_res[i] || self.streaming(i) {

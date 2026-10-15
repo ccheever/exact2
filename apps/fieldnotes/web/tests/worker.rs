@@ -4,8 +4,8 @@
 //! wheel scrolling, judged against the display's own frame interval, at 1×
 //! and 4× CPU throttling. Needs `CHROME` and a Fieldnotes `host/web/dist`
 //! built as the dev loop builds it (`EXACT_WEB_LINK=all bun
-//! host/web/build.mjs fieldnotes`; `EXACT_WEB_DIST` names another); skips
-//! otherwise. The drive swaps the module generation, the dev loop's module
+//! host/web/build.mjs fieldnotes`; `EXACT_FIELDNOTES_DIST`, else `EXACT_WEB_DIST`,
+//! names another); skips otherwise, or fails under `EXACT_REQUIRED=1`. The drive swaps the module generation, the dev loop's module
 //! swap: a shipped TypeScript client takes no module replacement (LLP 1047
 //! D6, D7). The numbers are reported, not asserted: the bar is the RFC's to
 //! judge, on a named device.
@@ -17,11 +17,12 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
     let chrome = std::env::var("CHROME")
         .unwrap_or_else(|_| "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into());
     if !Path::new(&chrome).exists() {
-        eprintln!("Fieldnotes web drive unavailable: set CHROME");
+        missing("chrome", "Fieldnotes web drive unavailable: set CHROME");
         return;
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");
-    let dist = std::env::var_os("EXACT_WEB_DIST")
+    let dist = std::env::var_os("EXACT_FIELDNOTES_DIST")
+        .or_else(|| std::env::var_os("EXACT_WEB_DIST"))
         .map(PathBuf::from)
         .unwrap_or_else(|| root.join("host/web/dist"));
     let receipt = std::fs::read_to_string(dist.join("app.module.json")).unwrap_or_default();
@@ -29,9 +30,12 @@ fn fieldnotes_web_drives_on_its_placement_and_reports_frame_gaps_under_a_backup(
     if !receipt.contains("\"com.exact.fieldnotes\"")
         || !build.contains("\"EXACT_WEB_LINK\":\"all\"")
     {
-        eprintln!(
-            "Fieldnotes web drive unavailable: {} is not a development Fieldnotes build (EXACT_WEB_LINK=all bun host/web/build.mjs fieldnotes)",
-            dist.display()
+        missing(
+            "fixture",
+            &format!(
+                "Fieldnotes web drive unavailable: {} is not a development Fieldnotes build (EXACT_WEB_LINK=all bun host/web/build.mjs fieldnotes)",
+                dist.display()
+            ),
         );
         return;
     }
@@ -245,3 +249,14 @@ try {
   await exited; server.closeAllConnections(); await new Promise(r => server.close(r)); rmSync(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
 "#;
+
+/// A prerequisite this run lacks: skipped, and a failure under EXACT_REQUIRED=1,
+/// which the async lane sets (scripts/coverage.mjs).
+fn missing(kind: &str, why: &str) {
+    assert_ne!(
+        std::env::var("EXACT_REQUIRED").as_deref(),
+        Ok("1"),
+        "missing {kind}: {why}"
+    );
+    eprintln!("SKIP missing {kind}: {why}");
+}

@@ -1310,7 +1310,8 @@ mod placement_abi_tests {
     #[test]
     fn destroyed_device_recovers_without_replacing_the_surface_table() {
         if load(&REGISTRY) != 0 {
-            eprintln!("SKIP native recovery: {}", error());
+            // Only an absent adapter skips (and fails under EXACT_REQUIRED); a load failure fails.
+            crate::fixture::device_or_skip::<()>(Err(error()));
             return;
         }
         let id = create_headless("sign");

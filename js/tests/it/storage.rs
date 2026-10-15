@@ -26,7 +26,7 @@ component App
         text "Save file"
       button press=invoke("add", "from SQLite") testId="sqlite"
         text "Save row"
-      when pending(output)
+      if pending(output)
         text "Working" testId="pending"
       match output
         case some(result)
@@ -1095,7 +1095,7 @@ fn a_document_the_person_chose_is_storage_without_app_directories() {
     std::fs::write(folder.join("sub/b.txt"), "B").unwrap();
     let doc = exact_data::documents::mint(&folder, 9101).unwrap();
     let mut s = Store::new(GRANTS, Vec::<(String, Vec<u8>)>::new());
-    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable failed";
+    let expected = "a.txt=A sub/0 new=hi Unavailable ENOENT Unavailable denied Unavailable EISDIR Unavailable ENOTDIR Unavailable ENOTEMPTY Unavailable failed Unavailable failed Unavailable ENOENT";
     let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
     agent.set_document_owner(9101);
     agent.set_budget_ms(f64::INFINITY);

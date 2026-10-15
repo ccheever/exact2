@@ -148,7 +148,7 @@ impl Lowerer<'_> {
                     }
                     _ => return err(
                         "lower-appearance",
-                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field), `\"textfield\"` (the same, without a number field's stepper) or `\"none\"` (the bare box). To switch between them, write `when` with two fields",
+                        "a text field's `appearance` is a literal: `\"auto\"` (the platform's own field), `\"textfield\"` (the same, without a number field's stepper) or `\"none\"` (the bare box). To switch between them, write `if` with two fields",
                         a.span,
                     ),
                 },

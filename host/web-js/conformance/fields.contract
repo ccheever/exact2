@@ -22,8 +22,8 @@ component Fields
   state version = 0
   state mode = "a"
   state few = false
-  resource coins = coins(version) as shape list<Coin>
-  derive shown = filter(coins, c => not few or c.up)
+  resource coins = coins(version) as shape Coin[]
+  derive shown = coins.filter(c => not few or c.up)
   action tick
     version = version + 1
   action flip
@@ -40,10 +40,10 @@ component Fields
         button press=narrow testId="narrow"
           text (few ? "all" : "rising")
       column testId="pure"
-        each c in shown key=c.id
+        for c in shown key=c.id
           Line(c=c)
       column testId="impure"
-        each c in coins key=`${c.id}-${mode}`
+        for c in coins key=`${c.id}-${mode}`
           row testId=`k-${c.id}` gap=6
             text c.ticker
             text `${c.price} ${c.change}` color=(c.up ? "#16a34a" : "#dc2626")

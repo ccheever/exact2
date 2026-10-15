@@ -3,20 +3,12 @@
 //! touch a scroll won pressing nothing, and the app's own scroll moving a
 //! scroller's revision on so the shell's fling ends.
 use super::*;
-use exact_runner::{DataError, Value};
+use exact_runner::Value;
 
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
-
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (400., 400.),
         1.,
         PathBuf::new(),
@@ -28,7 +20,7 @@ fn boot(source: &str) -> Presenter<Nothing> {
     p
 }
 
-fn settle(p: &mut Presenter<Nothing>) {
+fn settle(p: &mut Presenter<()>) {
     for _ in 0..8 {
         assert!(p.pump(p.host.now()).is_none());
         if p.dirty() {
@@ -37,12 +29,12 @@ fn settle(p: &mut Presenter<Nothing>) {
     }
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
 }
 
-fn log(p: &Presenter<Nothing>) -> String {
+fn log(p: &Presenter<()>) -> String {
     let k = p.host().kernel();
     let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
     node.props.str(PropId::Text).unwrap_or_default().to_string()
@@ -165,7 +157,7 @@ fn a_page_taller_than_the_viewport_is_the_last_scroller() {
 fn the_reader_moves_a_scroller_and_is_told_where_it_is() {
     let mut p = boot(PAGE_OF_SCROLLERS);
     let (page, inner) = (id(&p, "page"), id(&p, "inner"));
-    // Nothing is told before a touch asks.
+    // () is told before a touch asks.
     assert_eq!(p.reader_scrollers(&[], 2.), None);
     assert_eq!(p.reader_scrolled(page, (0., 10.), 0), None, "never told");
     // The touch's answer, in the reader's pixels (two a point).
@@ -311,7 +303,7 @@ fn the_fixtures_list_its_strip_and_its_nested_scroller_are_told() {
     p.tap(id(&p, "open-rows")).unwrap();
     settle(&mut p);
     let (rows, strip, nested) = (id(&p, "rows"), id(&p, "strip"), id(&p, "nested"));
-    let middle = |p: &mut Presenter<Nothing>, id: ViewId| {
+    let middle = |p: &mut Presenter<()>, id: ViewId| {
         let b = p.box_of(id).unwrap();
         (b.rect.0 + b.rect.2 / 2., b.rect.1 + b.rect.3 / 2.)
     };
@@ -350,7 +342,7 @@ fn native_intersect_mount_and_scroll_without_a_scroll_handler() {
     let mut p = boot(include_str!(
         "../../../../scripts/fixtures/intersect.contract"
     ));
-    let facts = |p: &Presenter<Nothing>| {
+    let facts = |p: &Presenter<()>| {
         p.host
             .runner()
             .slot("count")
@@ -359,6 +351,39 @@ fn native_intersect_mount_and_scroll_without_a_scroll_handler() {
     };
     let root = id(&p, "port");
     assert_eq!(facts(&p), 1.0, "initial offscreen entry");
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(1.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(true))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyRatio"),
+        Some(&Value::Number(1.0))
+    );
+    let sticky = id(&p, "sticky-port");
+    p.scroll_to(sticky, (0.0, 201.0));
+    settle(&mut p);
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(2.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(false))
+    );
+    p.scroll_to(sticky, (0.0, 60.0));
+    settle(&mut p);
+    assert_eq!(
+        p.host.runner().slot("stickyCount"),
+        Some(&Value::Number(3.0))
+    );
+    assert_eq!(
+        p.host.runner().slot("stickyInside"),
+        Some(&Value::Bool(true))
+    );
     assert_eq!(p.host.runner().slot("inside"), Some(&Value::Bool(false)));
     assert_eq!(p.scroll_to(root, (0.0, 60.0)), Some((0.0, 60.0)));
     settle(&mut p);

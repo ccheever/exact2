@@ -1,6 +1,7 @@
 #if os(iOS)
 import CoreText
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
 import XCTest
 @testable import ExactKit
 
@@ -8,9 +9,9 @@ import XCTest
 /// selectable takes UIKit's own text interaction when a finger first lands
 /// on it and answers it from the paragraph's own lines; text nobody made
 /// selectable takes nothing. UIKit synthesizes no touch for a unit test, so
-/// a gesture's result is asked for as the driver asks (`selectWord`), and
-/// the real long press, double tap and handles are driven on a simulator
-/// (`scripts/agent.mjs ios --touch platform`).
+/// a gesture's result is asked for as the driver asks (`selectWord`).
+/// Real long presses, double taps and handles need simulator coordinate
+/// touches; the agent's contextmenu and dblclick deliver recognized events.
 /// UIKit, so a simulator runs it: bun host/apple/build.mjs --test --ios
 final class TextSelectionIOSTests: XCTestCase {
     private var window: UIWindow?
@@ -100,7 +101,7 @@ final class TextSelectionIOSTests: XCTestCase {
         let p = page()
         let prose = try node(p, 4)
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(text) \(start) \(end)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(text) \(start) \(end)") }
         XCTAssertTrue(prose.interactions.isEmpty, "nothing until a finger lands")
         // A finger lands: UIKit's interaction, in its read-only mode, on the paragraph's own view.
         p.textSelection.touched(prose)
@@ -183,7 +184,7 @@ final class TextSelectionIOSTests: XCTestCase {
         XCTAssertEqual(p.textSelection.selection?.text, "quick")
         // Its own text changing drops it.
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(text) \(start) \(end)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(text) \(start) \(end)") }
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["text": "Other words stand here now."]]]))
         XCTAssertNil(p.textSelection.selection)
         XCTAssertNil(held.selectedTextRange)
@@ -219,26 +220,119 @@ final class TextSelectionIOSTests: XCTestCase {
         override func location(in view: UIView?) -> CGPoint { hit.convert(CGPoint(x: hit.bounds.midX, y: hit.bounds.midY), to: view) }
     }
 
-    func testALongPressOnSelectableTextIsNotItsRowsContextMenu() throws {
+    private final class Hold: UILongPressGestureRecognizer {
+        var phase = UIGestureRecognizer.State.possible
+        override var state: UIGestureRecognizer.State { get { phase } set { phase = newValue } }
+    }
+
+    func testARowsContextMenuWinsALongPressButDoubleTapStillSelectsText() throws {
         let p = page()
         let row = try node(p, 6), selectable = try node(p, 7), label = try node(p, 8)
         let longPress = try XCTUnwrap(row.contextRecognizer, "the row's `contextmenu` is a long press")
-        // The row's long press does not take a touch that lands on selectable text below it.
-        XCTAssertFalse(row.gestureRecognizer(longPress, shouldReceive: Touch(selectable)))
+        XCTAssertTrue(row.gestureRecognizer(longPress, shouldReceive: Touch(selectable)))
         XCTAssertTrue(row.gestureRecognizer(longPress, shouldReceive: Touch(label)))
         XCTAssertTrue(row.gestureRecognizer(longPress, shouldReceive: Touch(row)))
-        // A context popover's menu asks the same question of the point it is asked for.
-        XCTAssertTrue(row.selectableText(at: CGPoint(x: selectable.frame.midX, y: selectable.frame.midY)) === selectable)
-        XCTAssertNil(row.selectableText(at: CGPoint(x: label.frame.midX, y: label.frame.midY)))
-        XCTAssertNil(row.selectableText(at: CGPoint(x: 350, y: 55)))
-        XCTAssertNil(selectable.selectableText(at: CGPoint(x: 10, y: 10)), "a node's own menu is nearer than its text")
-        // The driver's long press says the same: the word is selected and no `contextmenu` is sent.
-        var menus = 0
-        p.onContextmenu = { _ in menus += 1 }
         let at = selectable.convert(try point(in: selectable, of: "words"), to: nil)
-        XCTAssertEqual(p.agentSelect(selectable, at: at, event: "contextmenu")?["text"] as? String, "words")
-        XCTAssertEqual(menus, 0)
-        XCTAssertNil(p.agentSelect(label, at: label.convert(CGPoint(x: 10, y: 10), to: nil), event: "contextmenu"))
+        let held = try XCTUnwrap(p.textSelection.text(for: selectable))
+        XCTAssertFalse(held.interaction.gesturesForFailureRequirements.isEmpty)
+        for gesture in held.interaction.gesturesForFailureRequirements {
+            XCTAssertTrue(row.gestureRecognizer(longPress, shouldBeRequiredToFailBy: gesture), "the row is tried before selection")
+        }
+        XCTAssertNil(p.agentSelect(selectable, at: at, event: "contextmenu"))
+        XCTAssertNil(p.textSelection.selection)
+        var menus: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { menus.append(id) } }
+        let hold = Hold()
+        for phase in [UIGestureRecognizer.State.began, .changed, .ended] { hold.phase = phase; row.openContext(hold) }
+        XCTAssertEqual(menus, [6], "one action for the recognized long press")
+        XCTAssertNil(p.textSelection.selection)
+        XCTAssertEqual(p.agentSelect(selectable, at: at, event: "dblclick")?["text"] as? String, "words")
+        p.textSelection.clear()
+        let prose = try node(p, 4)
+        let word = prose.convert(try point(in: prose, of: "brown"), to: nil)
+        XCTAssertEqual(p.agentSelect(prose, at: word, event: "contextmenu")?["text"] as? String, "brown", "without a row menu a long press selects")
+        XCTAssertFalse(row.gestureRecognizer(longPress, shouldReceive: Touch(UITextView())))
+        XCTAssertFalse(row.gestureRecognizer(longPress, shouldReceive: Touch(UITextField())))
+    }
+
+    func testMenuPrecedenceFollowsChangedHandlersAndDisabledOrInertAncestry() throws {
+        let p = page(), row = try node(p, 6), paragraph = try node(p, 7)
+        let at = paragraph.convert(try point(in: paragraph, of: "words"), to: nil)
+        let held = try XCTUnwrap(p.textSelection.text(for: paragraph))
+        let selectionGesture = try XCTUnwrap(held.interaction.gesturesForFailureRequirements.first)
+        let rowPress = try XCTUnwrap(row.contextRecognizer)
+        paragraph.handlers = ["contextmenu"]; paragraph.updateContextGestures()
+        let ownPress = try XCTUnwrap(paragraph.contextRecognizer)
+        XCTAssertTrue(paragraph.contextMenuSource === paragraph)
+        XCTAssertFalse(row.gestureRecognizer(rowPress, shouldReceive: Touch(paragraph)))
+        XCTAssertTrue(paragraph.gestureRecognizer(ownPress, shouldBeRequiredToFailBy: selectionGesture))
+        XCTAssertFalse(row.gestureRecognizer(rowPress, shouldBeRequiredToFailBy: selectionGesture))
+        paragraph.handlers = []; paragraph.updateContextGestures()
+        XCTAssertTrue(paragraph.contextMenuSource === row)
+        XCTAssertTrue(row.gestureRecognizer(rowPress, shouldBeRequiredToFailBy: selectionGesture))
+        row.handlers = ["press"]; row.updateContextGestures()
+        XCTAssertNil(paragraph.contextMenuSource)
+        XCTAssertEqual(p.agentSelect(paragraph, at: at, event: "contextmenu")?["text"] as? String, "words")
+        p.textSelection.clear()
+        row.handlers.insert("contextmenu"); row.updateContextGestures()
+        let replaced = try XCTUnwrap(row.contextRecognizer)
+        XCTAssertTrue(p.textSelection.text(for: paragraph) === held, "the same text interaction follows the new menu")
+        XCTAssertTrue(row.gestureRecognizer(replaced, shouldBeRequiredToFailBy: selectionGesture))
+        for id in [6, 1] as [UInt32] {
+            let ancestor = try node(p, id)
+            ancestor.props["disabled"] = "true"
+            XCTAssertNil(paragraph.contextMenuSource)
+            XCTAssertFalse(row.gestureRecognizer(replaced, shouldReceive: Touch(paragraph)))
+            XCTAssertFalse(row.gestureRecognizer(replaced, shouldBeRequiredToFailBy: selectionGesture))
+            ancestor.props["disabled"] = nil
+            ancestor.props["inert"] = "true"
+            XCTAssertNil(paragraph.contextMenuSource)
+            XCTAssertNil(p.agentSelect(paragraph, at: at, event: "contextmenu"))
+            XCTAssertFalse(row.gestureRecognizer(replaced, shouldReceive: Touch(paragraph)))
+            ancestor.props["inert"] = nil
+        }
+    }
+
+    func testARowsNativeContextPopoverAdmitsSelectableTextAndFiresOnce() throws {
+        if ExactEnv.agentMode { throw XCTSkip("under the agent the popover is painted (D4)") }
+        let p = page(), row = try node(p, 6), paragraph = try node(p, 7)
+        p.apply(wireBatch([
+            box(20, props: ["id": "row-menu", "popover": "auto"]),
+            box(21, props: ["accessibilityLabel": "Pin"], handlers: ["press"], kind: "button"),
+            text(22, "Pin"), ["op": "children", "id": 21, "ids": [22]],
+            ["op": "children", "id": 20, "ids": [21]], ["op": "children", "id": 1, "ids": [2, 3, 6, 20]],
+            ["op": "props", "id": 6, "set": ["contextPopover": "row-menu"]], frame(20, 0, h: 44, w: 220), frame(21, 0, h: 44, w: 220),
+        ]))
+        let host = p.menus.context
+        let interaction = try XCTUnwrap(row.interactions.compactMap { $0 as? UIContextMenuInteraction }.first)
+        let local = try point(in: paragraph, of: "words"), at = paragraph.convert(local, to: row)
+        XCTAssertNil(p.agentSelect(paragraph, at: paragraph.convert(local, to: nil), event: "contextmenu"))
+        var menus: [UInt32] = []
+        p.onClipboard = { id, kind, _ in if kind == 10 { menus.append(id) } }
+        let configuration = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at))
+        let owner = try XCTUnwrap(host.open)
+        XCTAssertEqual(try XCTUnwrap(host.menu(owner)).children.first?.title, "Pin")
+        _ = host.menu(owner); _ = host.lift(owner)
+        XCTAssertEqual(menus, [6])
+        XCTAssertNil(p.textSelection.selection)
+        host.contextMenuInteraction(interaction, willEndFor: configuration, animator: nil)
+        let readOnly = UITextView(); readOnly.isEditable = false
+        for editor in [UITextField(), UITextView(), readOnly] as [UIView] {
+            editor.frame = row.bounds; row.container.addSubview(editor)
+            XCTAssertTrue(row.hitsNativeEditor(row.hitTest(at, with: nil)))
+            XCTAssertNil(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at), "a native editor keeps its long press")
+            editor.removeFromSuperview()
+        }
+        paragraph.handlers = ["contextmenu"]; paragraph.updateContextGestures()
+        XCTAssertNil(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at), "the paragraph's own menu stays nearest")
+        paragraph.handlers = []; paragraph.updateContextGestures()
+        row.handlers = ["press"]; row.updateContextGestures(); p.menus.sync()
+        XCTAssertTrue(paragraph.contextMenuSource === row, "a popover needs no contextmenu action")
+        XCTAssertNil(p.agentSelect(paragraph, at: paragraph.convert(local, to: nil), event: "contextmenu"))
+        let popoverOnly = try XCTUnwrap(host.contextMenuInteraction(interaction, configurationForMenuAtLocation: at))
+        _ = host.menu(try XCTUnwrap(host.open))
+        XCTAssertEqual(menus, [6], "opening the popover alone invents no action")
+        host.contextMenuInteraction(interaction, willEndFor: popoverOnly, animator: nil)
     }
 
     func testRightToLeftTextAndLargerTypeSelectTheirOwnLines() throws {

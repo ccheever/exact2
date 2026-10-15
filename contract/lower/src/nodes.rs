@@ -146,6 +146,8 @@ impl Lowerer<'_> {
         };
         tags::validate_list(tag, expanded, *span)?;
         self.check_collection(tag, expanded, children, *span, scope)?;
+        // @ref LLP 1115.000 D16 — whether this list's rows are cells.
+        let cells = cells::rows(tag, expanded, children, grouped.is_some());
         // A row list is a flex item of its column like any carousel;
         // CSS's own fix keeps its spacers' extent from widening that
         // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -239,6 +241,19 @@ impl Lowerer<'_> {
         }
         for (prop, value) in t.fixed_props {
             bindings.push(prop_row(*prop, self.fixed(false, value), IMPLIED));
+        }
+        if cells {
+            let rows = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(exact_kernel::PropId::ListRows, rows, IMPLIED));
+        }
+        // @ref LLP 1115.000 D6 — the author's own disabled look: no default dim.
+        if disabled_look::styled(expanded) {
+            let styled = self.b.constant(&Value::Bool(true));
+            bindings.push(prop_row(
+                exact_kernel::PropId::DisabledStyled,
+                styled,
+                IMPLIED,
+            ));
         }
         self.link_color(
             tag,

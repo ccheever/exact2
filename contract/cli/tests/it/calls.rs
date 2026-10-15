@@ -26,6 +26,21 @@ impl DataSource for NoData {
 /// The declarations `items()` needs, ahead of a test's root.
 const ITEMS: &str = "shape Item\n  id: string\n\n";
 
+#[test]
+fn relaunch_is_a_host_command_without_arguments() {
+    let src = "component App\n  action restart\n    relaunch()\n  view\n    button press=restart\n      text \"Restart\"\n";
+    let mut r = boot(src);
+    r.act("restart", vec![]).unwrap();
+    let commands = r.take_commands();
+    assert_eq!(commands.len(), 1);
+    assert_eq!(commands[0].name, "relaunch");
+    assert!(commands[0].args.is_empty());
+    let error = contract::compile(&src.replace("relaunch()", "relaunch(1)"))
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("takes no arguments"), "{error}");
+}
+
 fn boot(src: &str) -> Runner<NoData> {
     let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
     Runner::boot(
@@ -66,7 +81,7 @@ const VIEWER: &str = r#"component App
     last = why
   view
     column
-      when open
+      if open
         Viewer(hide=dismiss)
       text `${closes} ${last} ${open}` testId="closes"
 
@@ -353,7 +368,7 @@ component Child
   state out = ""
   action go(length: number)
     let toString = length + 1
-    out = `${toString} ${toString(length)}`
+    out = `${toString} ${length.toString()}`
     done()
   view
     column
@@ -457,10 +472,10 @@ fn a_child_calls_its_own_action_in_a_row() {
     let src = &format!(
         "{ITEMS}{}",
         r#"component App
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id)
 
 component Row
@@ -490,12 +505,12 @@ fn a_prop_called_from_a_same_component_callee_runs_the_owners_action_in_the_row(
         "{ITEMS}{}",
         r#"component App
   state picked = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action pick(id: string)
     picked = id
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, choose=pick(item.id))
       text picked testId="picked"
 
@@ -551,12 +566,12 @@ fn an_arrow_parameter_spelled_like_a_written_slot_is_not_a_stale_read() {
         r#"component App
   state count = 0
   state shown = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action reset
     count = 0
   action go
     reset()
-    shown = join(map(items, count => count.id), ",")
+    shown = items.map(count => count.id).join(",")
   view
     column
       button press=go testId="go"
@@ -604,14 +619,14 @@ fn curried_and_payload_arguments_are_passed_explicitly() {
         "{ITEMS}{}",
         r#"component App
   state seen = ""
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   action flip(id: string, checked: bool)
     seen = `${id} ${checked}`
   action toggled(id: string, checked: bool)
     flip(id, checked)
   view
     column
-      each item in items key=item.id
+      for item in items key=item.id
         Row(label=item.id, set=toggled(item.id))
       text seen testId="seen"
 

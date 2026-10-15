@@ -288,7 +288,8 @@ mod seams {
     #[test]
     fn module_seams_drain_once_and_stamp_frames() {
         if gpu_load() != 0 {
-            eprintln!("{}; seam device test skipped", exact_gpu::native::error());
+            // Only an absent adapter skips (and fails under EXACT_REQUIRED); a load failure fails.
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: a retained Metal layer stays alive until after gpu_destroy.
@@ -422,7 +423,7 @@ mod seams {
     #[test]
     fn surface_failures_reach_the_real_abi_and_committed_binds_stay_accepted() {
         if gpu_load() != 0 {
-            eprintln!("SKIP error ABI fixture: {}", exact_gpu::native::error());
+            exact_gpu::fixture::device_or_skip::<()>(Err(exact_gpu::native::error()));
             return;
         }
         // SAFETY: retained layer outlives the canvas.

@@ -24,6 +24,8 @@ exact-motion = { path = "../../motion" }
 exact-num = { path = "../../num" }
 # Which literal is a colour, for the one-scheme warning (LLP 1116.002 D1).
 exact-color = { path = "../../color" }
+# The build's one design evaluator (LLP 1121 D2): `theme` and `app.tamber`.
+exact-tamber = { path = "../../tamber" }
 
 # CLDR script direction is baked per table; no locale data ships in a host.
 icu_locale = "=2.3.0"

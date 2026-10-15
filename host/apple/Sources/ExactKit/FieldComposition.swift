@@ -11,10 +11,9 @@
 // platform takes to do either (UIKit's text view says its text changed as a
 // composition starts, before it has). A composition that is cancelled is
 // heard, since its text goes.
-// `change` is still the commit of the editing (the focus leaving, or Return
-// in a single line). Contract has no `compositionstart`, `compositionend` or
-// `isComposing`: an action is handed the field's value and cannot tell
-// marked text from committed text, as it cannot on the web without them.
+// `change` is still the commit of editing (focus leaving or Return in a
+// single line). InputEvent.isComposing identifies marked-text edits; their
+// beforeinput is noncancelable. Composition start/end events remain absent.
 //
 // **What the app's value does.** It never ends a composition. A commit that
 // sets the value the editor already shows changes nothing in it: the
@@ -23,8 +22,7 @@
 // the editor's text takes its place with nothing), and when the composition
 // ends, committed or cancelled, the app is first told the text if it
 // changed and then what is still held is written, if it is not the text.
-// Contract gives an action no way to know a composition is going on, so an
-// action that rewrites what it hears (upper-cases it, strips spaces, formats
+// An action that rewrites what it hears (upper-cases it, strips spaces, formats
 // a number) would otherwise end one at its first keystroke, and nobody
 // could type Japanese or Chinese in that field. Its rewrite shows a moment
 // later instead. Nothing marked, a value is written at once.

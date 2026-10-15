@@ -20,8 +20,7 @@ const ROLES = (() => {
   for (const [name, webkit, ios, mac, light, dark, neutralLight, neutralDark] of rows) for (const n of [name, webkit, ios, mac, ios?.replace(/Color$/, '')]) if (n && !byName.has(n)) byName.set(n, { name, apple: { light, dark }, neutral: { light: neutralLight, dark: neutralDark } });
   return byName;
 })();
-/** The column an observation's host draws a role in: a web page says its look (host/web-js/check.js: the neutral one is
- *  every build's, LLP 1115.000 D4), and a host that says none draws Apple's (iOS; a page built `EXACT_WEB_LOOK=apple`). */
+/** Web observations name the neutral column; native Apple observations leave the column unsaid. */
 const columnOf = (obs) => obs.look === 'neutral' ? 'neutral' : 'apple';
 const role = (raw) => (raw && ROLES.get(String(raw).replace(/^-exact-/, ''))?.name) ?? null;
 const hex = (c) => '#' + c.slice(0, 3).map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');

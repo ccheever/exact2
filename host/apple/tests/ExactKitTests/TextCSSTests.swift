@@ -10,7 +10,7 @@ final class TextCSSTests: XCTestCase {
 
     func testRuntimeInstalledFamiliesSelectTheirOwnFacesAndWidths() throws {
         guard !TextEngine.installedFaces("Arial").isEmpty,
-              !TextEngine.installedFaces("Menlo").isEmpty else { throw XCTSkip("Arial or Menlo unavailable") }
+              !TextEngine.installedFaces("Menlo").isEmpty else { throw missing("fonts", "Arial or Menlo unavailable") }
         let engine = TextEngine(resolve: { _ in nil })
         let arial = Array("Arial".utf8), menlo = Array("Menlo".utf8)
         arial.withUnsafeBufferPointer { a in

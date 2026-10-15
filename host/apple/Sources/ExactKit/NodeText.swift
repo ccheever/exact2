@@ -84,6 +84,12 @@ extension NodeView {
     }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
+        #if os(macOS)
+        // In a table's selected row that AppKit draws emphasized, a role's ink is the selected item's (TableInkMac.swift).
+        let outer = SystemColor.selectedItem
+        SystemColor.selectedItem = inEmphasizedRow
+        defer { SystemColor.selectedItem = outer }
+        #endif
         let align = textAlignmentCode, rtl = style["direction"]?.string == "rtl"
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it

@@ -124,14 +124,6 @@ impl<D: DataSource> Presenter<D> {
 mod tests {
     use super::*;
     use crate::presenter::PainterChoice;
-    use exact_runner::{DataError, Value};
-
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-    }
 
     const SRC: &str = r##"routes nav
   home "/"
@@ -144,13 +136,13 @@ component App
     nav = go(nav, url)
   view
     main navigationKey=`${current.id}` navigationBack="back" navigate=follow width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" inset=0 padding=10 background-color="#fff"
           text "- [Note](/note/3) and [out](https://example.com) and [inert](ftp://x)" markup="markdown" testId=`reader-${e.name}` font-size=16
 "##;
 
     /// Where the run linking to `href` paints in `reader`, in window points.
-    fn link(p: &mut Presenter<NoData>, reader: &str, href: &str) -> (f32, f32) {
+    fn link(p: &mut Presenter<()>, reader: &str, href: &str) -> (f32, f32) {
         p.frame();
         let kernel = p.host.kernel();
         let id = kernel
@@ -179,8 +171,8 @@ component App
     #[test]
     fn a_markdown_link_to_a_route_navigates_and_one_out_of_the_app_is_logged() {
         let (mut p, error) = Presenter::boot_with(
-            &contract::compile(SRC).unwrap().encode(),
-            NoData,
+            &crate::test_plan(SRC),
+            (),
             (400., 300.),
             1.,
             std::path::PathBuf::new(),
@@ -211,7 +203,7 @@ component App
         );
     }
 
-    impl Presenter<NoData> {
+    impl Presenter<()> {
         fn paragraph_runs_with_href(&mut self, reader: &str) -> Vec<String> {
             self.frame();
             let kernel = self.host.kernel();

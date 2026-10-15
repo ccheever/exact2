@@ -289,9 +289,6 @@ export function observe(views, inactive = () => false) {
   const root = document.getElementById('exact-root'), probe = document.createElement('span');
   probe.style.color = 'light-dark(rgb(0, 0, 1), rgb(0, 0, 2))'; root.append(probe);
   const used = getComputedStyle(probe).color.includes('2)') ? 'dark' : 'light'; probe.remove();
-  // The look the page draws, where its stylesheet says one (LLP 1115.000 D4 part B: the neutral sheet's mark on the root,
-  // which the wasm glue reads too): the judge reads a role's drawn colours in that look's column of the table.
-  const look = getComputedStyle(document.documentElement).getPropertyValue('--exact-look').trim();
   const coarse = matchMedia('(pointer: coarse)').matches, overlap = Math.max(0, H - (globalThis.visualViewport?.height ?? H));
-  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, ...(look ? { look } : {}), target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
+  return { viewport: { w: W, h: H, scrollW: page.scrollWidth }, scheme: used, look: 'neutral', target: coarse ? 44 : 24, ...(overlap ? { keyboard: r2(H - overlap) } : {}), items, ...(advice.length ? { advice } : {}) };
 }

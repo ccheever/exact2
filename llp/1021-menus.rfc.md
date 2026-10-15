@@ -118,7 +118,8 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
 **D2 — the top layer is the host's; open state never enters the plan.**
 The kernel lays the popover subtree out on every commit regardless of
 visibility — a hidden layer, anchored: top-left at the invoker's
-bottom-left, clamped to the viewport, sized by content. The host shows
+bottom-left by default, sized by content. Authored `position-area` and
+`position-try-fallbacks` follow the placement amendment below. The host shows
 and hides it; opening is **no relayout**, the instant-menu
 property, and the same discipline as scroll offset (LLP 1008: host state,
 never plan state). Light dismiss, the one-auto-popover rule, and Escape
@@ -521,12 +522,39 @@ to 16 points. Under the agent (D4) every popover stays painted, so the
 agent's taps need no host activation here. `ChooserMacTests` is the
 evidence; `<dialog>` stays the session's modal top layer on macOS.
 
+**Flip fallbacks (Charlie, 2026-10-08; implementation slice: Codex,
+2026-10-13).** This amends D2's unconditional clamp and §5's no-flip scope.
+Invoker popovers may name ordered CSS `position-try-fallbacks`: try the base
+area, then each fallback against the viewport; keep the current option when
+none fits (the base on a fresh opening).
+The author chooses the list. There is no unconditional clamp on an edge-aligned
+area. CSS's `anchor-center` still shifts a centred axis into the viewport.
+The margin box decides fit, and flips exchange the corresponding margins.
+See [CSS Anchor Positioning §6.1 and §6.5](https://drafts.csswg.org/css-anchor-position-1/#position-try-fallbacks).
+
+The first slice implements `none`, `flip-block`, `flip-inline` and their
+combinations in a comma-separated list, on the web and painted Apple layers.
+These native layers use horizontal writing mode; physical top/bottom/left/right
+areas include the opposite-side spans and corners. An authored fallback row on
+a non-menu macOS popover selects the painted layer so AppKit cannot replace
+its order with a screen-based choice. Adding or removing that row while open
+switches presentation without closing the popover or losing its focused control
+and text selection. Native menus and confirmations retain
+the platform's placement. A fitting choice survives resize and invoker movement;
+changing the area, fallback list, margins or size clears it. An overflowing choice tries the list
+again, preserving the current option if none fits. `flip-start`, logical areas,
+area-dependent sizing,
+nonzero insets and non-default self-alignment, full scroll-offset bookkeeping,
+and general Linux popover presentation remain outside this slice. `anchor-name`,
+`position-anchor`, named `@position-try` rules and `position-visibility` are
+not admitted by this work.
+
 **Placement, `position-area` (Claude, 2026-10-04):** the chooser's next
 consumer is an "Open in…" button at the foot of a card, whose chooser must
 sit above it or centred on it: the first popover that cannot live at the
 invoker's bottom-left, which §5 named as the condition. CSS `position-area`
 is admitted on a `popover` only, its anchor the invoker that opens it (the
-implicit anchor; no `anchor-name`, `position-anchor` or `position-try`),
+implicit anchor; no `anchor-name` or `position-anchor`),
 with these values, spelled as CSS spells them:
 
 | `position-area` | CSS meaning (implicit anchor = the invoker) | placed |
@@ -539,14 +567,14 @@ with these values, spelled as CSS spells them:
 | `center` | `center center`, the anchor's own cell; `anchor-center` in both axes | centred over the invoker |
 | `right span-bottom` | the right column, centre and bottom rows; aligned to the anchor's top edge | top-left at the invoker's top-right: a submenu beside its row (§5.2) |
 
-A single keyword names its row and spans every column, so `top` *is* `top
-span-all` (centred), not `top span-right`; `bottom` alike. Any other
-value (a corner, `left`, `right` alone or spanning up, `span-left`, logical
-keywords, `span-all top`) fails the build with `lower-css-position-area`, as does the row on a
-node that is not a popover. Every host clamps the box to the viewport (the
-layer): CSS does the same, as an absolutely positioned box that overflows
-its area but fits its containing block is shifted back into it. Nothing
-flips: a flip is `position-try`, still refused.
+A single keyword names its row and spans every column, so `top` is `top
+span-all` (centred), not `top span-right`; `bottom` alike. The 2026-10-13
+slice also admits `top span-left`, `bottom span-left`, `left`, `right`,
+`left span-top`, `left span-bottom`, `left span-all`, `right span-top`,
+`right span-all`, and the four `top|bottom left|right` corners.
+Logical keywords and reordered spellings remain refused, as does either
+placement row on a node that is not a popover. The flip amendment above
+replaces the unconditional clamp for an authored area.
 
 The row is a schema enum (`PositionArea`, bit 176). The web writes it as
 the CSS declaration on both targets and the browser places the popover
@@ -563,7 +591,7 @@ and macOS's — place by the table, from one function (`PositionArea.swift`),
 and macOS pops a menu up at the point it gives (the menu's size the box).
 As CSS does, it aligns the popover's margin box, not its border box:
 `position-area="top"` with `margin-bottom=12` leaves 12 points between the
-popover and the invoker, and clamping keeps the margins inside the layer.
+popover and the invoker. Fallback fit includes the margins.
 Margins are the kernel's resolved points (`auto` and a percentage are 0):
 the Apple style encoder, which leaves margins out of every other box's
 dictionary (the kernel placed the box), carries the four on a popover
@@ -661,9 +689,10 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
   popover must be driven by something other than toggle/show/hide, take
   the newer names; `popovertarget` is the shipped subset.
 - **CSS anchor positioning rows** (`anchor-name`, `position-anchor`,
-  `position-try`) — a popover placed against something other than its
-  invoker, or one that must flip when it does not fit. **`position-area`
-  — earned back 2026-10-04** by an "Open in…" chooser at the foot of a
+  named `@position-try` rules) — a popover placed against something other
+  than its invoker. Flip fallbacks are admitted by Charlie's 2026-10-08
+  ruling, with the first implementation slice recorded in D2 above.
+  **`position-area` — earned back 2026-10-04** by an "Open in…" chooser at the foot of a
   card that must open above its invoker: a subset, on popovers only, with
   the invoker as the implicit anchor ("Placement", D2).
 - **A destructive row — earned back 2026-09-10:** the original return

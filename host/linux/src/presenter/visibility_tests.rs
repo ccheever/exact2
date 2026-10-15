@@ -2,15 +2,6 @@
 //! paints, hits and focuses nothing of its own. A descendant that computes
 //! `visible` still paints and is hit. One that inherits `hidden` does not.
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Empty;
-impl DataSource for Empty {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 const APP: &str = r##"component App
   view
@@ -20,10 +11,10 @@ const APP: &str = r##"component App
         box testId="kept" width=40 height=30 background-color="#0000ff" tabindex=0 position="absolute" left=72 top=8
 "##;
 
-fn boot() -> Presenter<Empty> {
+fn boot() -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
-        Empty,
+        &crate::test_plan(APP),
+        (),
         (200., 200.),
         1.,
         PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
@@ -34,12 +25,12 @@ fn boot() -> Presenter<Empty> {
     p
 }
 
-fn id(p: &Presenter<Empty>, test_id: &str) -> ViewId {
+fn id(p: &Presenter<()>, test_id: &str) -> ViewId {
     let k = p.host().kernel();
     k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
 }
 
-fn rgba(p: &mut Presenter<Empty>, x: f32, y: f32) -> [u8; 4] {
+fn rgba(p: &mut Presenter<()>, x: f32, y: f32) -> [u8; 4] {
     let c = p.frame().pixel(x as u32, y as u32).unwrap().demultiply();
     [c.red(), c.green(), c.blue(), c.alpha()]
 }

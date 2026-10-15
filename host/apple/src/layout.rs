@@ -2,7 +2,28 @@
 use super::*;
 
 impl<D: DataSource> Host<D> {
-    pub(super) fn withhold_layout(&mut self) {
+    /// Writes `batch` for the presenter; every batch with ops is written
+    /// here. From a failed layout until one settles, whatever turn made the
+    /// batch, its layout geometry is taken out, including what an earlier
+    /// pass staged in it, and the settled layout sends it again. The failed
+    /// layout's own batch also loses its motion samples; later batches keep
+    /// theirs, as nothing would send them again.
+    pub(super) fn write(&mut self, mut batch: Batch, error: Option<&str>) -> String {
+        if batch.layout_provisional {
+            self.withhold_layout();
+        }
+        if self.layout_withheld {
+            batch.withhold(!batch.layout_provisional);
+        }
+        batch.finish(
+            self.runner.timer_due_ms(),
+            !self.engine.quiescent(),
+            self.runner.now_ms(),
+            error,
+        )
+    }
+
+    fn withhold_layout(&mut self) {
         // These geometry rows will be withheld. Force a settled retry to
         // publish them even if the kernel's last guessed boxes compare equal.
         self.layout_withheld = true;
@@ -311,6 +332,11 @@ impl<D: DataSource> Host<D> {
         self.snap_layout(batch);
         self.emit_sticky(batch);
         self.emit_fragments(batch);
+        // A withheld batch held the scenes it placed: sent again
+        if self.layout_withheld {
+            self.svg.resend();
+            self.svg.emit(self.runner.kernel(), &self.engine, batch);
+        }
         self.layout_withheld = false;
         self.emit_ranks(batch);
         // Layout/receipt work may change the live window. Motion-only ticks and
@@ -378,7 +404,7 @@ impl<D: DataSource> Host<D> {
                 Some(exact_kernel::HostCover::Edges([_, _, bottom, _])) => bottom,
                 _ => 0.0,
             };
-            let (pl, pt, pr, pb) = kernel.resolved_padding(key).unwrap_or_default();
+            let (pl, pt, pr, pb) = kernel.layout_padding(key).unwrap_or_default();
             let (bl, bt, br, bb) = kernel.resolved_border(key).unwrap_or_default();
             let sig = [node.frame.width, pl, pt, pr, pb, bl, bt, br, bb, cover];
             if !self.layout_withheld && !refit.contains(&id) && last == Some(sig) {
@@ -400,29 +426,49 @@ impl<D: DataSource> Host<D> {
     }
 }
 
-/// Publish native editor geometry, or a CSS content box when authored padding
-/// needs layout to resolve it (percentages use the containing block's width).
-pub(super) fn published_content_box(node: &NodeRef<'_>, kernel: &Kernel) -> Option<Frame> {
-    node.field_content_rect().or_else(|| {
-        let s = node.style;
-        let points = [
-            s.padding_top,
-            s.padding_right,
-            s.padding_bottom,
-            s.padding_left,
-        ]
-        .iter()
-        .all(|d| matches!(d, exact_kernel::Dimension::Points(_)));
-        (!points).then(|| {
-            let (x, y, width, height) = exact_kernel::svg::scene::content_box(kernel, node);
-            Frame {
+/// Publish native editor geometry, or the CSS content box of a box with
+/// padding or a border and the padding layout resolved: what the presenter
+/// places content and insets by, so a sheet or a failed layout holds it with
+/// the frame (a style row is never held). A box with neither is its own
+/// content box and sends none, unless it is a native button whose author
+/// wrote a padding: which sides the author wrote is geometry too, held with
+/// the values, as a written `0` and an unsaid side inset its title apart.
+pub(super) fn published_content_box(
+    node: &NodeRef<'_>,
+    kernel: &Kernel,
+) -> Option<crate::batch::ContentBox> {
+    if let Some(rect) = node.field_content_rect() {
+        return Some(crate::batch::ContentBox {
+            rect,
+            padding: None,
+        });
+    }
+    let (x, y, width, height) = exact_kernel::svg::scene::content_box(kernel, node);
+    let f = node.frame;
+    let (left, top, right, bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let button = exact_kernel::ControlKind::of(node.node_type, node.props)
+        == Some(exact_kernel::ControlKind::Button);
+    let side = |id: exact_kernel::StyleId, value: f32| {
+        (!button || node.style.mask.has(id)).then_some(value)
+    };
+    let padding = [
+        side(exact_kernel::StyleId::PaddingTop, top),
+        side(exact_kernel::StyleId::PaddingRight, right),
+        side(exact_kernel::StyleId::PaddingBottom, bottom),
+        side(exact_kernel::StyleId::PaddingLeft, left),
+    ];
+    let written = button && padding.iter().any(Option::is_some);
+    (written || x != 0.0 || y != 0.0 || width != f.width || height != f.height).then_some(
+        crate::batch::ContentBox {
+            rect: Frame {
                 x,
                 y,
                 width,
                 height,
-            }
-        })
-    })
+            },
+            padding: Some(padding),
+        },
+    )
 }
 
 /// Natural scrollable overflow, including padding and descendants. The
@@ -433,7 +479,7 @@ pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
     // `content_size` (its flex containers do); CSS's `scrollHeight` does.
     // Floor with the direct children's extent plus the end padding, as the
     // last layout resolved it (a percentage is of the containing block).
-    let (_, _, pad_right, pad_bottom) = kernel.resolved_padding(node.key).unwrap_or_default();
+    let (_, _, pad_right, pad_bottom) = kernel.layout_padding(node.key).unwrap_or_default();
     // A scroller UIKit insets: its end padding holds those insets, which
     // UIKit adds back (LLP 1116.000 D1.2), as `node.content` leaves them out.
     let pad_bottom = match kernel.arena().cover(node.key.index) {
@@ -715,8 +761,9 @@ mod tests {
     /// presenter as the kernel's content box, which a host reading the
     /// authored rows could not compute: on a bare field, which places its
     /// editor there, and on a box, whose paragraph or image goes there. A
-    /// resize that moves no frame still republishes it, and a padding back
-    /// in points clears it.
+    /// resize that moves no frame still republishes it. A padding in points
+    /// is published too, the one source a sheet or a failed layout holds; a
+    /// box with no padding or border is its own content box and sends none.
     #[test]
     fn padding_resolved_at_layout_publishes_the_content_box() {
         use exact_kernel::{StyleId, StyleProps, StyleValue};
@@ -751,13 +798,14 @@ mod tests {
                 .map(|op| (op["id"].as_u64().unwrap(), op["rect"].clone()))
                 .collect()
         };
-        let [bare, pct, sized, points] =
-            ["bare", "pct", "sized", "points"].map(|name| u64::from(id(&host, name)));
+        let [bare, pct, sized, points, holder] =
+            ["bare", "pct", "sized", "points", "holder"].map(|name| u64::from(id(&host, name)));
         let first = rects(&boot);
         assert_eq!(first[&bare][1], 22.0, "border 2 + min(40, 20): {boot}");
         assert_eq!(first[&pct][1], 40.0, "10% of 400: {boot}");
         assert_eq!(first[&sized][0], 40.0, "10% of 400: {boot}");
-        assert!(!first.contains_key(&points), "points need no box: {boot}");
+        assert_eq!(first[&points][0], 5.0, "{boot}");
+        assert!(!first.contains_key(&holder), "no padding, no box: {boot}");
 
         let sized_frame = host.mirror[&(sized as ViewId)].frame;
         let resized = host.resize(300., 700.);
@@ -769,7 +817,9 @@ mod tests {
         );
         assert_eq!(second[&pct][1], 30.0, "{resized}");
         assert_eq!(
-            host.mirror[&(bare as ViewId)].field_content.map(|r| r.y),
+            host.mirror[&(bare as ViewId)]
+                .field_content
+                .map(|c| c.rect.y),
             Some(22.0),
             "min(30, 20) is still 20"
         );
@@ -791,6 +841,9 @@ mod tests {
             )
             .unwrap();
         let cleared = host.commit(&[Timed { at_ms: 0., receipt }], None);
-        assert!(rects(&cleared)[&pct].is_null(), "back in points: {cleared}");
+        assert!(
+            !rects(&cleared).contains_key(&pct),
+            "30 points is the box 10% of 300 made: {cleared}"
+        );
     }
 }

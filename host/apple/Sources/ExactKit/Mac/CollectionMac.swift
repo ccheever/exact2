@@ -135,6 +135,28 @@ final class KnobDrag {
     }
 }
 
+extension Presenter {
+    /// Charge the report (decode, layout and apply) to the
+    /// rows it created. Cheap rows share those fixed costs in the next report.
+    /// Grow at most twofold and retain recent expensive samples conservatively.
+    struct ListFillCost {
+        private(set) var secondsPerRow: TimeInterval?
+        private var lastRows = 1
+        mutating func record(seconds: TimeInterval, rows: Int) {
+            guard rows > 0 else { return }
+            let sample = max(0.000001, seconds / Double(rows))
+            secondsPerRow = max(sample, (secondsPerRow ?? sample) * 0.75 + sample * 0.25)
+            lastRows = rows
+        }
+        func rows(within remaining: TimeInterval) -> UInt32 {
+            guard remaining > 0 else { return 0 }
+            guard let secondsPerRow else { return 1 }
+            let fitting = floor(remaining * 0.9 / secondsPerRow)
+            return UInt32(max(0, min(Double(lastRows) * 2, fitting, Double(UInt32.max - 1))))
+        }
+    }
+}
+
 extension CollectionHost {
     /// AppKit insets no list's port by a bar it runs under (iOS's
     /// `portInsets`): nothing moves it.
@@ -221,28 +243,6 @@ extension CollectionHost {
         for id in entries.keys {
             guard let scroll = presenter?.views[id]?.scroll else { continue }
             (KnobDrag.of(scroll) ?? KnobDrag(scroll)).horizontal = entries[id]?.snapshot.horizontal == true
-        }
-    }
-
-    func orderChildren(_ children: [NodeView], in container: NSView) {
-        // Spacer reuse can move a pinned row within the same parent. Detaching
-        // it to reorder clears AppKit's first responder, even when its logical
-        // selection and the row itself survive the collection commit.
-        // A row playing its exit (LLP 1063) is still a subview but no longer
-        // a child: it stays above its old siblings, where `beginExit` put it,
-        // and every subview has a rank (mail F22: a nil rank trapped). A
-        // paint ghost keeps its own place (`keepingGhosts`).
-        let wanted = Set(children.map(ObjectIdentifier.init))
-        let leaving = container.subviews.filter { ($0 as? NodeView).map { !$0.paintGhost } ?? false && !wanted.contains(ObjectIdentifier($0)) }
-        let ordered = container.subviews.filter { !($0 is NodeView) } + NodeView.keepingGhosts(children.filter { $0.superview === container }, in: container) + leaving
-        guard !ordered.elementsEqual(container.subviews, by: { $0 === $1 }) else { return }
-        var ranks = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
-        withUnsafeMutablePointer(to: &ranks) { context in
-            container.sortSubviews({ left, right, raw in
-                let order = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
-                let a = order[ObjectIdentifier(left)]!, b = order[ObjectIdentifier(right)]!
-                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
-            }, context: context)
         }
     }
 
@@ -415,7 +415,7 @@ extension CollectionHost {
             switch event.type {
             case .leftMouseDown, .rightMouseDown, .otherMouseDown:
                 let point = presenter.viewport.superview?.convert(event.locationInWindow, from: nil) ?? event.locationInWindow
-                pointerDown(nodeID(presenter.viewport.hitTest(point)), event: event)
+                pointerDown(nodeID(TableRowCell.whatIsThere { presenter.viewport.hitTest(point) }), event: event)
             case .leftMouseUp, .rightMouseUp, .otherMouseUp:
                 // Release after AppKit delivers this event and any authored
                 // handler. Captured generation is checked by the weak helper.

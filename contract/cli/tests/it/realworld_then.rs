@@ -155,6 +155,20 @@ fn the_signed_out_guard_stays_on_the_tick() {
     assert_eq!(current(&r).0, "login");
 }
 
+#[test]
+fn the_signed_out_guard_keeps_a_push_when_following_is_revisited_between_ticks() {
+    let mut r = boot("/?feed=following");
+    reply(&mut r, "me");
+    r.advance(100.0).unwrap();
+    assert_eq!(current(&r).1, "/");
+    r.act("followLink", vec![Value::str("/?feed=following")])
+        .unwrap();
+    r.advance(200.0).unwrap();
+    assert_eq!(current(&r).0, "login");
+    r.act("back", vec![]).unwrap();
+    assert_eq!(current(&r).1, "/?feed=following");
+}
+
 /// The `testId` views on the shown screen, and on the covered ones.
 fn views(r: &Runner<Api>, id: &str) -> (Vec<exact_kernel::ViewId>, Vec<exact_kernel::ViewId>) {
     let k = r.kernel();

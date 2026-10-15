@@ -10,7 +10,7 @@ fn app(extra: &str, row: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "component App\n  state picked = -1\n  action pick(n: number)\n    picked = n\n  view\n    column width=\"100%\" height=\"100%\"\n      text `picked ${{picked}}`\n      list virtualized=true estimated-item-height=16 flex=1 min-height=0 testId=\"items\" {extra}\n        each n in [{numbers}] key=n\n{row}\n"
+        "component App\n  state picked = -1\n  action pick(n: number)\n    picked = n\n  view\n    column width=\"100%\" height=\"100%\"\n      text `picked ${{picked}}`\n      list virtualized=true estimated-item-height=16 flex=1 min-height=0 testId=\"items\" {extra}\n        for n in [{numbers}] key=n\n{row}\n"
     )
 }
 
@@ -138,7 +138,7 @@ fn hidden_dialog_rows_retire_but_the_clicked_rows_handler_still_runs() {
         text "open"
       dialog id="dialog" closedby="any" width="20ch" height="8lh" display="flex" flex-direction="column"
         list virtualized=true estimated-item-height=16 flex=1 min-height=0
-          each v in ["alpha", "beta", "gamma"] key=v
+          for v in ["alpha", "beta", "gamma"] key=v
             button press=pick(v) commandfor="dialog" command="close" testId=v
               text v
 "#;
@@ -195,7 +195,7 @@ fn logical_navigation_reaches_zero_height_rows() {
 
 #[test]
 fn navigation_skips_rows_without_enabled_controls_in_both_directions() {
-    let row = "          column\n            text `label ${n}`\n            when n == 0 || n == 100 || n == 199\n              button disabled=(n == 100) press=pick(n) testId=`row-${n}`\n                text `row ${n}`";
+    let row = "          column\n            text `label ${n}`\n            if n == 0 || n == 100 || n == 199\n              button disabled=(n == 100) press=pick(n) testId=`row-${n}`\n                text `row ${n}`";
     let (mut host, mut vt) = boot(&app("", row), 40, 8);
     host.key(Key::Named("Tab"));
     host.key(Key::Named("ArrowDown"));

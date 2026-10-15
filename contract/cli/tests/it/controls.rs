@@ -374,7 +374,7 @@ const THEME: &str = r#"shape Theme
   name: string
 
 component App
-  resource themes = themes() as shape list<Theme>
+  resource themes = themes() as shape Theme[]
   state theme = "system"
   state moves = 0
   action setTheme(value: string)
@@ -387,7 +387,7 @@ component App
       select value=theme change=setTheme testId="theme" aria-label="Theme"
         option value="system"
           text "System"
-        each t in themes key=t.id
+        for t in themes key=t.id
           option t.name value=t.id testId=`theme-${t.id}`
         option "Sepia" value="sepia" disabled=true
       select value=theme input=refuse testId="fixed" aria-label="Fixed"
@@ -420,7 +420,7 @@ fn a_select_is_a_control_whose_options_are_its_children() {
     assert_eq!(node.node_type, NodeType::Control);
     assert_eq!(node.props.str(PropId::Type), Some("select"));
     assert_eq!(node.props.str(PropId::AccessibilityRole), Some("combobox"));
-    // `each` and keys work: the options are nodes, never laid out.
+    // `for` and keys work: the options are nodes, never laid out.
     let choices = r.kernel().select_choices(theme);
     let values: Vec<_> = choices.iter().map(|c| c.value.as_str()).collect();
     assert_eq!(values, ["system", "light", "dark", "sepia"]);
@@ -1062,4 +1062,86 @@ fn the_compiler_refuses_what_a_progress_does_not_take() {
         "component App\n  view\n    progress value=0.5 aria-valuetext=\"Half\" aria-label=\"Upload\"\n",
     )
     .unwrap_or_else(|e| panic!("{e}"));
+}
+
+#[test]
+fn field_selectionchange_reports_caret_without_changing_the_value() {
+    for tag in ["input", "textarea"] {
+        let mut r = boot(&format!(
+            r#"component App
+  state caret = ""
+  action moved(e: InputEvent)
+    caret = `${{e.value}}:${{e.selectionStart}}-${{e.selectionEnd}}`
+  view
+    column
+      {tag} value="see @a.ts now" selectionchange=moved testId="field"
+      text caret testId="caret"
+"#
+        ));
+        let field = view_of(&r, "field");
+        r.dispatch(
+            field,
+            Event::of_host_kind(52, "3,3,none,see @a.ts now").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "caret"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some("see @a.ts now:3-3")
+        );
+        assert_eq!(
+            r.kernel().node(field).unwrap().props.str(PropId::Value),
+            Some("see @a.ts now")
+        );
+    }
+}
+
+#[test]
+fn beforeinput_carries_the_proposed_edit_and_input_carries_the_applied_edit() {
+    let mut r = boot(
+        r#"component App
+  state seen = ""
+  action before(e: InputEvent)
+    seen = `${e.value}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+    preventDefault()
+  action edited(v: string, e: InputEvent)
+    seen = `${v}:${e.inputType}:${match e.data { case some(data) => data, case none => "null" }}:${e.cancelable}:${e.isComposing}`
+  view
+    column
+      textarea value="abc" beforeinput=before input=edited testId="field"
+      text seen testId="seen"
+"#,
+    );
+    let field = view_of(&r, "field");
+    for (kind, payload, expected) in [
+        (
+            53,
+            "insertFromPaste,1,0,7,a,\n😀1,2,none,abc",
+            "abc:insertFromPaste:a,\n😀:true:false",
+        ),
+        (
+            53,
+            "insertCompositionText,0,1,3,あ1,2,none,abc",
+            "abc:insertCompositionText:あ:false:true",
+        ),
+        (
+            54,
+            "deleteContentBackward,0,0,-1,1,1,none,ac",
+            "ac:deleteContentBackward:null:false:false",
+        ),
+    ] {
+        r.dispatch(field, Event::of_host_kind(kind, payload).unwrap())
+            .unwrap();
+        assert_eq!(
+            r.kernel()
+                .node(view_of(&r, "seen"))
+                .unwrap()
+                .props
+                .str(PropId::Text),
+            Some(expected)
+        );
+    }
 }

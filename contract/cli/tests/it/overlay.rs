@@ -25,10 +25,10 @@ component App
   mutation flag as shape Item
   mutation stamped as shape Item refreshes time
   mutation filed as shape Item refreshes files
-  resource items = items() as shape list<Item>
+  resource items = items() as shape Item[]
   resource time = exactTime() as shape Time
-  resource files = files(folder) as shape list<Item>
-  derive shown = join(map(items, i => i.text), ",")
+  resource files = files(folder) as shape Item[]
+  derive shown = items.map(i => i.text).join(",")
   derive itemsFailed = failed(items)
   derive itemsPending = pending(items)
   derive itemsCode = match failure(items) { case some(f) => f.code, case none => "ok" }

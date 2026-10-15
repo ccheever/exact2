@@ -210,7 +210,7 @@ fn dirty_lists_follow_rows_parent_display_and_inserted_descendants() {
         box
           box position="relative"
       box
-        when changed
+        if changed
           box position="absolute" z-index=3
       box
 "#,
@@ -229,11 +229,11 @@ fn dirty_lists_follow_layout_policy_and_text_flow_structure() {
     box
       button "Toggle" testId="toggle" press=toggle
       box
-        when changed
+        if changed
           box -exact-layout-transition="200ms linear"
       box position="relative"
         text "paragraph"
-        when changed
+        if changed
           box position="absolute" width=20 height=20 shape-outside="circle(50%)" wrap-flow="both"
       box transition=(changed ? "opacity 1s" : "color 1s")
       box

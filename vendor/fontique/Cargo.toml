@@ -191,3 +191,6 @@ unused_import_braces = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
+
+# EXACT: keep this path dependency out of enclosing workspaces.
+[workspace]

@@ -35,6 +35,8 @@ public struct Batch {
     public var controls = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
+    /// The window's app modes after a `setMode` (LLP 1121 D5), when the call was one.
+    public var modes: [String: String]? = nil
     /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
     public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
@@ -325,6 +327,8 @@ package final class Runtime {
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }
+    /// A scroll finished (DOM's `scrollend`), after its last `scroll`.
+    func scrollend(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 51, 0, now)) } }
     /// The agent's `tap <list> into <key>` (LLP 1070.000 §5).
     func intoView(_ view: UInt32, key: String, block: String, inline: String) -> Batch {
         return on {
@@ -378,9 +382,11 @@ package final class Runtime {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
     /// `selectionchange` (35): a `text`'s part of the selection, its source
-    /// UTF-16 offsets and then its text.
-    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
-        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
+    /// UTF-16 offsets, rectangle count and coordinates, then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, rects: [CGRect], now: Double) -> Batch {
+        let boxes = rects.flatMap { [$0.minX, $0.minY, $0.width, $0.height].map { String(Double($0)) } }
+        let payload = ([String(start), String(end), String(rects.count)] + boxes + [text]).joined(separator: ",")
+        return on { read(exact_dispatch(rt, view, 35, write(payload), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
@@ -434,6 +440,9 @@ package final class Runtime {
     /// the selection it now has.
     func fieldSelect(_ view: UInt32, _ value: String, _ selection: FieldSelection, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, 42, write(selection.payload(value)), now)) }
+    }
+    func fieldEvent(_ view: UInt32, _ kind: UInt32, _ payload: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind, write(payload), now)) }
     }
     /// A checkbox's state: `change` when `commit`, else `input`.
     func checked(_ view: UInt32, _ checked: Bool, commit: Bool, now: Double) -> Batch {
@@ -524,9 +533,11 @@ package final class Runtime {
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
     func setTime(epochAtZero: Double, utcOffset: Double) -> Batch { on { read(exact_set_time(rt, epochAtZero, utcOffset)) } }
     func setLaunchTime(epochAtZero: Double, utcOffset: Double) { on { () -> Void in _ = exact_set_launch_time(rt, epochAtZero, utcOffset) } }
+    func setLaunchPlace(locale: String, timeZone: String, seed: UInt64) { on { () -> Void in _ = exact_set_launch_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) } }
     func setPreferences(_ bits: UInt32) -> Batch { on { read(exact_set_preferences(rt, bits)) } }
     func setPage(_ bits: UInt32) -> Batch { on { read(exact_set_page(rt, bits)) } }
     func setRootFontSize(_ px: Double) -> Batch { on { read(exact_set_root_font_size(rt, px)) } }
+    func setModes(_ pins: [String: String], check: Bool = false) -> Batch { on { read(exact_set_mode(rt, write((check ? "?" : "") + pins.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",")))) } }
     func setDisplayScale(_ scale: Double) -> Batch { on { read(exact_set_display_scale(rt, scale)) } }
     func setPlace(locale: String, timeZone: String, seed: UInt64) -> Batch { on { read(exact_set_place(rt, write(locale + "\0" + timeZone + "\0" + String(seed))) ) } }
     func listIndex(_ view: UInt32, key: String) -> Int? {

@@ -231,6 +231,14 @@ class Collection {
       rows: this.mounted.map(m => ({ view: m.view, root: m.root, index: m.position, start: this.index.prefix(m.position), size: this.index.h[m.position], epoch: m.epoch, measured: this.index.measured(this.index.order[m.position]) })),
       pending: this.pending || !!this.target, correction: this.correction }; // an into-view request wants its next report
   }
+  scrollAnchor() {
+    const horizontal = this.axis === "x", i = this.index;
+    const offset = (horizontal ? this.el.scrollLeft : this.el.scrollTop) - i.leading;
+    const port = horizontal ? this.el.clientWidth : this.el.clientHeight;
+    const p = i.rowAt(Math.max(0, offset));
+    if (p === null || port <= 0 || i.prefix(p) >= offset + port) return [null, 0];
+    return [i.order[p].replace(/^d\d+:/, "").slice(2), offset - i.prefix(p)];
+  }
   // ------------------------------------------------ data (mod.rs update_data)
   update(items, [idents, dups], fresh) {
     const anchor = this.anchor(), last = this.index.order.at(-1), count = this.index.len;
@@ -650,15 +658,15 @@ class Collection {
       return [text];
     };
     if (typeof key === "string" && key.trim() !== "" && isFinite(Number(key))) { const r = exactly(Number(key)); if (r[0]) return r; }
+    if (key === "true" || key === "false") { const r = exactly(key === "true"); if (r[0]) return r; }
     return exactly(key);
   }
-  /** The row root's margins on this axis: its wrapper encloses them, and the
-   * web aligns the element's border box. */
+  /** Insets from the row wrapper to its border box, expanded by scroll margins. */
   margins(p) {
     const m = this.mounted.find(m => m.position === p), root = m?.wrapper.firstElementChild;
     if (!root) return [0, 0];
     const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
-    return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
+    return this.axis === "y" ? [n(cs.marginTop) - n(cs.scrollMarginTop), n(cs.marginBottom) - n(cs.scrollMarginBottom)] : [n(cs.marginLeft) - n(cs.scrollMarginLeft), n(cs.marginRight) - n(cs.scrollMarginRight)];
   }
   /** The list's scroll-padding at each end on this axis, read when it aligns, as CSSOM View reads it. */
   scrollPadding() {
@@ -666,7 +674,8 @@ class Collection {
     return this.axis === "y" ? [n(cs.scrollPaddingTop), n(cs.scrollPaddingBottom)] : [n(cs.scrollPaddingLeft), n(cs.scrollPaddingRight)];
   }
   // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
-  aligned(p, align, current) {
+  aligned(p, align, current, offset) {
+    if (offset != null) return Math.min(Math.max(this.index.prefix(p) + offset, -this.index.leading), this.index.maxOffset(this.geometry?.port_main ?? 0));
     const [before, after] = this.margins(p);
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
     const [i0, i1] = this.scrollPadding(), low = i0, high = Math.max(i0, port - i1), view = high - low;
@@ -681,11 +690,11 @@ class Collection {
   }
   /** Start a request: its window is built at the destination now, and the
    * host told to move there before it paints (the correction). */
-  intoView(key, align) {
+  intoView(key, align, within) {
     const p = this.index.pos.get(key), g = this.geometry;
-    const offset = this.aligned(p, align, g ? g.offset : this.startOffset);
+    const offset = this.aligned(p, align, g ? g.offset : this.startOffset, within);
     this.restoredAt = null; this.atEnd = false;
-    this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
+    this.target = { key, align, offset: within, reports: 0, travelling: 0, aligned: 0 };
     this.status = [key, "pending"];
     if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
     else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
@@ -709,7 +718,7 @@ class Collection {
     const p = this.index.pos.get(t.key);
     if (p === undefined) return this.end("cancelled");
     if (!g) return;
-    const desired = this.aligned(p, t.align, reported);
+    const desired = this.aligned(p, t.align, reported, t.offset);
     const first = Math.min(this.mounted[0]?.position ?? p, p);
     if (Math.abs(desired - reported) <= 0.5) {
       t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
@@ -783,16 +792,17 @@ const Refused = [];
 /** The command (`scrollIntoView("id", key, block=, inline=, behavior=,
  * row=)`) and the agent's `tap <list> into <key>` (`view`), as the runner's
  * `scroll_into_view` (runner/src/runner/into_view.rs). */
-function intoView(list, key, block, inline, row, view) {
+function intoView(list, key, block, inline, row, view, offset) {
   const refuse = why => { journal.push(`scrollIntoView ${list} refused: ${why}`); Refused.push({ list, status: "refused: " + why.replaceAll('"', "'") }); if (Refused.length > 8) Refused.shift(); };
+  if (offset != null && (typeof offset !== "number" || !Number.isFinite(offset))) return refuse("offset must be a finite number of CSS pixels");
   for (const a of [block, inline]) if (!ALIGN.includes(a)) { if (view != null) throw new Error(`no alignment ${a}: start, center, end or nearest`); return refuse(`no alignment ${a}`); }
-  const begin = (c, k) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline); return true; };
+  const begin = (c, k, within = offset) => { const [text, why] = c.resolve(k); if (!text) return refuse(why); c.intoView(text, c.axis === "y" ? block : inline, within); return true; };
   if (view != null) { const c = Lists.get(view); if (!c) return refuse(`view ${view} is not a mounted virtualized list`); begin(c, key); }
   else if (row == null) { const c = [...Lists.values()].find(c => !c.up && c.el.id === list); if (!c) return refuse(`no virtualized list has id ${list}`); begin(c, key); }
   else {
     const outer = [...Lists.values()].find(c => !c.up && c.resolve(row)[0]);
     if (!outer) { let t = ""; try { t = keyText(row); } catch {} return refuse(`no virtualized list holds a row keyed ${t}`); }
-    if (!begin(outer, row)) return;
+    if (!begin(outer, row, null)) return;
     const m = outer.mounted.find(m => m.key === outer.resolve(row)[0]);
     if (!m) return refuse("the outer row did not mount");
     const c = m.inner.find(c => c.el.id === list);
@@ -801,8 +811,8 @@ function intoView(list, key, block, inline, row, view) {
   }
   settled();
 }
-const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's six (rt.js)
-Hosts.scrollIntoView = (...a) => a.length !== 6 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5]);
+const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's seven (rt.js)
+Hosts.scrollIntoView = (...a) => a.length !== 7 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5], null, a[6]);
 /** `state.scrollIntoView`: each list's latest request, then refusals. */
 const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
 function publish() {

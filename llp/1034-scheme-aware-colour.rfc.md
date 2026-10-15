@@ -176,6 +176,8 @@ That matters more than it looks. It means LLP 1033's token record does not
 have to change shape: `markdown-parse::theme` returns pair-strings instead of
 single colours, and the readers' `provide`/`inject` threading, all 21 tokens
 of it, is untouched. The apps lose only the appearance plumbing D3 deletes.
+(Since superseded: the readers' palette is a root `theme` block, LLP 1095
+D4, and the record is gone.)
 
 ### D5 — It costs a wire format, and pre-1.0 that is the whole cost
 

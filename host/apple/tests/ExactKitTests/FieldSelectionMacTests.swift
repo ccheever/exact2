@@ -36,6 +36,121 @@ final class FieldSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testCaretChangesAndCancelableBeforeInput() throws {
+        let p = presenter()
+        for id: UInt32 in [2, 3] {
+            let node = try XCTUnwrap(p.views[id])
+            node.handlers.formUnion(["selectionchange", "beforeinput"])
+            var changes: [FieldSelection] = [], edits: [FieldInput] = []
+            p.fieldSelections.onChange = { view, _, selection in if view == id { changes.append(selection) } }
+            p.fieldSelections.onBeforeInput = { view, _, _, edit in
+                if view == id { edits.append(edit); p.defaultPrevented = true }
+            }
+            window.makeFirstResponder(node.textArea ?? node.field!)
+            let editor = try XCTUnwrap(node.textArea ?? node.field?.currentEditor() as? NSTextView)
+            editor.setSelectedRange(NSRange(location: 2, length: 0))
+            let deadline = Date().addingTimeInterval(2)
+            while changes.isEmpty && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+            XCTAssertEqual(changes.last?.start, 2)
+            editor.insertText("X", replacementRange: editor.selectedRange())
+            XCTAssertEqual(node.fieldText, "hello", "canceling beforeinput keeps the native buffer")
+            XCTAssertEqual(editor.selectedRange(), NSRange(location: 2, length: 0))
+            XCTAssertEqual(edits.last?.inputType, "insertText")
+            XCTAssertEqual(edits.last?.data, "X")
+            XCTAssertEqual(edits.last?.cancelable, true)
+            p.fieldSelections.onBeforeInput = nil
+        }
+    }
+
+    func testPasteCancellationAndCompositionMetadata() throws {
+        let p = presenter()
+        for id: UInt32 in [2, 3] {
+            let node = try XCTUnwrap(p.views[id])
+            node.handlers.insert("beforeinput")
+            var edits: [FieldInput] = []
+            p.fieldSelections.onBeforeInput = { view, _, _, edit in
+                if view == id { edits.append(edit); p.defaultPrevented = true }
+            }
+            window.makeFirstResponder(node.textArea ?? node.field!)
+            let editor = try XCTUnwrap(node.textArea ?? node.field?.currentEditor() as? NSTextView)
+            editor.setSelectedRange(NSRange(location: 2, length: 0))
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString("PASTE", forType: .string)
+            editor.paste(nil)
+            XCTAssertEqual(node.fieldText, "hello")
+            XCTAssertEqual(edits.last?.inputType, "insertFromPaste")
+            XCTAssertEqual(edits.last?.data, "PASTE")
+            edits.removeAll()
+            editor.setMarkedText("あ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+            XCTAssertTrue(node.fieldText.contains("あ"), "composition ignores preventDefault")
+            XCTAssertEqual(edits.last?.inputType, "insertCompositionText")
+            XCTAssertEqual(edits.last?.cancelable, false)
+            XCTAssertEqual(edits.last?.isComposing, true)
+            editor.unmarkText()
+            p.fieldSelections.onBeforeInput = nil
+        }
+    }
+
+    func testUndoShortcutReportsHistoryAndCanBeCanceled() throws {
+        let p = presenter()
+        defer { p.fieldSelections.onBeforeInput = nil }
+        let node = try XCTUnwrap(p.views[2])
+        let editor = try XCTUnwrap(node.textArea as? TextArea)
+        window.makeFirstResponder(editor)
+        let manager = try XCTUnwrap(editor.undoManager)
+        manager.groupsByEvent = false
+        manager.beginUndoGrouping()
+        editor.setSelectedRange(NSRange(location: 5, length: 0))
+        editor.insertText("X", replacementRange: editor.selectedRange())
+        editor.breakUndoCoalescing()
+        manager.endUndoGrouping()
+        node.handlers.insert("beforeinput")
+        var types: [String] = [], prevent = true
+        p.fieldSelections.onBeforeInput = { _, _, _, edit in types.append(edit.inputType); p.defaultPrevented = prevent }
+        let key = try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0, windowNumber: window.windowNumber, context: nil, characters: "z", charactersIgnoringModifiers: "z", isARepeat: false, keyCode: 6))
+        XCTAssertTrue(editor.performKeyEquivalent(with: key))
+        XCTAssertEqual(node.fieldText, "helloX")
+        prevent = false
+        XCTAssertTrue(editor.performKeyEquivalent(with: key))
+        XCTAssertEqual(node.fieldText, "hello")
+        editor.redo(nil)
+        XCTAssertEqual(node.fieldText, "helloX")
+        XCTAssertEqual(types, ["historyUndo", "historyUndo", "historyRedo"])
+    }
+
+    func testContractSessionReceivesFieldEditsAndCancelsPaste() throws {
+        _ = NSApplication.shared
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../..").standardizedFileURL
+        let plan = root.appendingPathComponent("target/rangeedit2-session-\(UUID().uuidString).plan")
+        defer { try? FileManager.default.removeItem(at: plan) }
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", root.appendingPathComponent("host/web-js/conformance/range-edit.contract").path, "-o", plan.path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        let session = ExactApp.shared.makeSession(label: "rangeedit2")
+        defer { session.destroy() }
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = session.presenter.viewport
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: plan), size: CGSize(width: 500, height: 600)).error)
+        let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "editor" })
+        let result = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "result" })
+        let editor = try XCTUnwrap(node.textArea)
+        window.makeFirstResponder(editor)
+        editor.setSelectedRange(NSRange(location: 3, length: 0))
+        editor.insertText("X", replacementRange: editor.selectedRange())
+        XCTAssertTrue(result.paragraphText.hasPrefix("seeX @a.ts now|1|4-4|"), result.paragraphText)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("PASTE", forType: .string)
+        editor.paste(nil)
+        XCTAssertEqual(node.fieldText, "seeX @a.ts now")
+        XCTAssertTrue(result.paragraphText.contains("insertFromPaste:PASTE"), result.paragraphText)
+        let deadline = Date().addingTimeInterval(2)
+        while !result.paragraphText.contains("|4-4|insertFromPaste") && Date() < deadline { RunLoop.main.run(mode: .default, before: deadline) }
+        XCTAssertTrue(result.paragraphText.contains("|4-4|insertFromPaste"), result.paragraphText)
+    }
+
     func testTypingReportsTheCaretAndAScriptsRangeWaitsForTheFocus() throws {
         let p = presenter()
         let editor = try XCTUnwrap(p.views[2]?.textArea)

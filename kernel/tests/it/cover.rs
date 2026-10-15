@@ -150,6 +150,10 @@ fn a_cover_on_a_percent_padding_keeps_the_percent() {
         .unwrap();
     // Padding percentages resolve against the containing block's width.
     assert_eq!(frame(&mut kernel, 3), (0.0, 83.0, 390.0, 52.0));
+    // The bar is the host's sizing, not the route's CSS padding
+    let route = kernel.node(2).unwrap().key;
+    assert_eq!(kernel.resolved_padding(route), Some((0.0, 39.0, 0.0, 0.0)));
+    assert_eq!(kernel.layout_padding(route), Some((0.0, 83.0, 0.0, 0.0)));
 }
 
 #[test]
@@ -279,7 +283,7 @@ fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
         .unwrap();
     kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 106.0);
-    // The header goes (a `when`), the bar's cover stays.
+    // The header goes (an `if`), the bar's cover stays.
     let op = Op::SetChildren {
         id: 2,
         children: vec![4],
@@ -381,6 +385,13 @@ fn a_scroller_the_platform_insets_lays_out_its_content_between_the_insets() {
         "the scroller keeps its box"
     );
     assert_eq!(frame(&mut kernel, 5), (0.0, 16.0, 390.0, 638.0));
+    let list = kernel.node(4).unwrap().key;
+    assert_eq!(
+        kernel.resolved_padding(list),
+        Some((0.0, 16.0, 0.0, 16.0)),
+        "CSS's"
+    );
+    assert_eq!(kernel.layout_padding(list), Some((0.0, 16.0, 0.0, 190.0)));
     assert_eq!(
         kernel.node(4).unwrap().content.1,
         670.0,

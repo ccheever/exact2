@@ -12,7 +12,7 @@ component AudioFixture
 
   view
     main width="100%" height="100%" background-color="#16202b" color="#ffffff"
-      when playing
+      if playing
         canvas surface=world() testId="world" width="100%" height="100%" position="relative"
           text `Voices ${hud.voices} · loops ${hud.loops}` aria-live="polite" testId="hud" position="absolute" top=24 left=24 padding=12 border-radius=8 background-color="#16202b" font-size=18
       else

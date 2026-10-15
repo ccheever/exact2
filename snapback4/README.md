@@ -150,7 +150,7 @@ component Guestbook
             text "Alice"
           option value="bob"
             text "Bob"
-        when banner != ""
+        if banner != ""
           text banner testId="banner"
         text (board.online ? "Synced" : board.message) testId="status"
         text `${board.sending} sending` testId="sending"
@@ -160,7 +160,7 @@ component Guestbook
             text "Post"
         text notice testId="notice"
         text board.latest testId="latest"
-        each note in board.notes key=note.id
+        for note in board.notes key=note.id
           text `${note.author}: ${note.body}${note.pending ? " (sending)" : ""}` testId=`note-${note.id}`
 ```
 

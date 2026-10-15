@@ -32,7 +32,7 @@ syntax, `{ … }` for repetition, and quoted text for literal tokens. `NL`, `IND
 and `DEDENT` describe logical line boundaries. `block(X)` means an indented run of
 `X` entries, `NL [ INDENT { X } DEDENT ]`; blank and comment-only lines do not
 count as entries. Most bodies may be empty (a shape, a style, `props`, an action,
-an `each` body, a `case` arm, a test). The bodies of `if`/`else` and `when`/`else`,
+a `for` body, a `case` arm, a test). The bodies of `if`/`else`,
 a `keyframes` or `font` block, and a component need at least one entry.
 
 - A name starts with `[A-Za-z_]`, followed by ASCII alphanumerics/underscores or
@@ -70,10 +70,10 @@ a `keyframes` or `font` block, and a component need at least one entry.
 
 The lexer reserves no separate keyword token kind. Sixteen words are reserved,
 and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
-LLP 1088 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
+LLP 1088 D5): `when`, `if`, `else`, `for`, `in`, `match`, `case`, `as`, `fn`,
 `and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
 props, injects and provided names; states, derives, resources, mutations and actions; action and
-`fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
+`fn` parameters and `fn` names; `let`, a `for` item and index, `case some(x)`,
 an arrow parameter; and a shape name (a shape name builds the shape, so
 `shape none` is refused). There a reserved word is refused as "`in` is reserved
 in Contract (it shapes an expression); choose another name", and is never a value.
@@ -93,7 +93,7 @@ word.
 ```ebnf
 file          = { declaration } ;
 declaration   = use | shape | function | style | keyframes | font | sound
-              | routes | component | test ;
+              | theme | routes | component | test ;
 use           = "use" use-name { "," use-name } "from" STRING NL ;
 use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
@@ -110,6 +110,7 @@ keyframe-line = selector { "," selector } { FIELD "=" frame-value } NL ;
 selector      = "from" | "to" | NUMBER "%" ;
 frame-value   = STRING | NUMBER | "-" NUMBER | constant-call ;
 constant-call = IDENT "(" [ arguments ] ")" ;
+theme         = "theme" block(IDENT "=" STRING NL) ;   (* the root file's; LLP 1095 D4 *)
 font          = "font" STRING ( "=" STRING NL | block(font-face) ) ;
 font-face     = NUMBER [ "italic" ] "=" STRING NL ;
 sound         = "sound" STRING NL ;
@@ -188,7 +189,7 @@ component remains the root. A name both declared and used
 
 A route pattern is an absolute path with literal or whole `:name` segments.
 Indentation determines its parent. The optional fallback is `notfound` without
-a path; with none, the compiler writes it and its screen (a navigation root drawing `each e in stack(nav)`). Route policy fields use attribute syntax and are validated by the
+a path; with none, the compiler writes it and its screen (a navigation root drawing `for e in stack(nav)`). Route policy fields use attribute syntax and are validated by the
 [route/document compiler](../contract/lower/src/routes.rs).
 
 ## Components and actions
@@ -199,7 +200,7 @@ section       = "props" block(field)
               | "inject" block(field)
               | "provide" block(provider)
               | "slot" NL
-              | "state" IDENT "=" expr [ "persist" ] NL
+              | "state" IDENT [ ":" type ] "=" expr [ "persist" ] NL
               | "derive" IDENT "=" expr NL
               | resource | mutation | action | task
               | "view" block(node) ;
@@ -235,15 +236,16 @@ There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
 timer only while `cond` holds, armed from the commit that made it true; `key=`
-re-arms it from the commit that changed the key (compared as an `each` key),
+re-arms it from the commit that changed the key (compared as a `for` key),
 and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
 key a string, number or bool (`type-task-key`), and neither reads `performanceNow()`,
 directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
-`else if c` is `else` around one nested `if c`, and `else when c` in a view
-is `else` around one nested `when c`: the same tree, so the same plan. The
-keyword after `else` is its construct's own (`syntax-else-keyword`).
+`else if c` is `else` around one nested `if c`, in an action and in a view
+alike: the same tree, so the same plan. A view refuses `when` and `each`
+(`syntax-view-keyword`) and `else when` (`syntax-else-keyword`), naming the
+edit.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 or awaits. A standalone call statement `name(args)` is a host command when `name`
@@ -284,7 +286,7 @@ Component `contract` sections are also refused.
 ## Views
 
 ```ebnf
-node          = element | component-use | when | each | view-match | children ;
+node          = element | component-use | view-if | for | view-match | children ;
 element       = TAG { attribute | expr | special-word } NL [ element-body ] ;
 attribute     = FIELD "=" expr | "autofocus" ;
 element-body  = INDENT { continuation | element-part } { node } DEDENT ;
@@ -293,8 +295,8 @@ element-part  = "::" "placeholder" NL block(continuation) ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
-when          = "when" expr block(node) [ "else" ( when | block(node) ) ] ;
-each          = "each" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
+view-if       = "if" expr block(node) [ "else" ( view-if | block(node) ) ] ;
+for           = "for" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
 view-match    = "match" expr block(view-case) ;
 view-case     = "case" "some" "(" IDENT ")" block(node)
               | "case" "none" block(node) ;
@@ -314,21 +316,22 @@ to the children's level.
 A repeated attribute on one element is refused. A component use takes named
 arguments; its name starts uppercase to distinguish it from an element.
 
-An `each` key is a string, number, or boolean, with unique stable values required
+A `for` key is a string, number, or boolean, with unique stable values required
 for useful row identity. Its optional second binding is the numeric row index.
-`when` conditions are boolean and `match` subjects are options. Root regions are
+`if` conditions are boolean and `match` subjects are options. Root regions are
 refused: wrap them in an element. `children` requires a declared slot.
 
 ## Expressions and types
 
 ```ebnf
-type          = "number" | "string" | "bool" | "unit" | IDENT | "action"
-              | "option" "<" type ">" | "list" "<" type ">" ;
+type          = type-atom { "[" "]" } ;               (* string[] is a list of strings *)
+type-atom     = "number" | "string" | "bool" | "unit" | IDENT | "action"
+              | "option" "<" type ">" ;
 expr          = ternary ;
 ternary       = binary [ "?" expr ":" expr ] ;
 binary        = unary { binary-op unary } ;
 unary         = ( "-" | "not" | "!" ) unary | postfix ;
-postfix       = primary { "." FIELD } ;
+postfix       = primary { "." FIELD [ "(" [ arguments ] ")" ] } ;
 primary       = NUMBER | STRING | TEMPLATE | "true" | "false" | "none"
               | "some" "(" expr ")" | list | IDENT
               | IDENT "(" [ arguments ] ")"
@@ -371,8 +374,22 @@ An app-declared shape's call constructs a record: either all named fields, or on
 positional base followed by zero or more replacements. A `list` literal is
 a list of its items, left to right; their types meet as a ternary's arms do (`type-list-item` when they do
 not), and a trailing comma is kept. There is no spread (`[...xs, x]` is
-refused), object literal, method call, bracket indexing, assignment
-expression, `??`, `?.`, or `===`. `any` in an internal roster signature describes
+refused), object literal, bracket indexing, assignment
+expression, `??`, `?.`, or `===`.
+
+A call on a value, `e.f(args)`, is the roster function `f` with `e` as its first
+argument, for the functions the table below writes that way: the web's string
+and array methods of that name and meaning (`s.trim()`, `xs.filter(x => …)`,
+`n.toFixed(2)`). `e.length` is the count of a list or text, so a shape field
+cannot be named `length` (`syntax-length-field`). The free spelling (`trim(s)`,
+`length(xs)`) is refused with the edit (`syntax-method-form`), and so is any
+other method (`xs.reduce(…)`: `syntax-method-call`); the rest of the roster is
+called as a function (`first(xs)`, `round(n)`).
+
+A list type is `T[]`, as in TypeScript (`Item[]`, `option<number>[]`); `list<T>`
+is refused with the edit (`syntax-list-type`). A `state` may declare its type
+(`state picked: option<Item> = none`), which is otherwise inferred; a `derive`'s
+type is its expression's and takes no annotation. `any` in an internal roster signature describes
 special typing; it is not a source-language type annotation.
 
 ## Authored tests
@@ -560,7 +577,9 @@ never breaks an app that declared it first.
 `contract vocab <name>` prints one function's entry from these tables (its rows and
 examples) beside the roster's signature, so what a row says here is what `vocab`
 says. Every roster function has a row and an example, and each example written
-`` `call` is `value` `` holds: a contract test evaluates them.
+`` `call` is `value` `` holds: a contract test evaluates them. A row written
+`x.f(…)` is called on its first argument, as the web's method is
+([expressions](#expressions-and-types)); the others are called as functions.
 
 | Call | Result / restriction | Example |
 | --- | --- | --- |
@@ -569,11 +588,11 @@ says. Every roster function has a row and an example, and each example written
 | `formatDate(ms, offsetMinutes, "medium" or "month-year" or "iso")` | String; format is a literal choice, not an expression containing `or`. `"iso"` is `YYYY-MM-DD`: the date at that wall time, which is `toISOString`'s date part at a whole-minute offset (a fractional offset's sub-millisecond wall time is not clipped again, as no style's is) (LLP 1102 §3.4); every style prints `""` outside years 1–9999 | `formatDate(1790000000000, 0, "medium")` is `"Sep 21, 2026"` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format (`1.2K`) | `formatNumber(1249, "compact")` is `"1.2K"` |
 | `formatNumber(n, "decimal")`, `formatNumber(n, "percent")`, `formatNumber(n, "currency", "USD")` | String; `Intl.NumberFormat("en-US")`'s deterministic forms (LLP 1116 D8): `"decimal"` is grouped with at most three fraction digits (`1,234.567`), `"percent"` multiplies by 100 with none (`0.256` is `26%`), `"currency"` takes an ISO 4217 code literal and prints its symbol and fraction digits (`$1,481.47`, `-$5.00`, `¥1,235`, `CHF 5.00`; the codes are USD, EUR, GBP, JPY, CNY, INR, CAD, AUD, NZD, HKD, SGD, CHF, SEK, NOK, DKK, PLN, MXN, BRL, KRW, ZAR, TWD, ILS, PHP and VND). Each rounds the value's shortest decimal digits half away from zero, as `Intl` does (`1.005` is `$1.01`, where `toFixed` says `1.00`), and signs a negative zero (`-0`); `NaN` and the infinities print `""`. The code is written with `"currency"` only (`type-format-style`) | `formatNumber(1481.47, "currency", "USD")` is `"$1,481.47"` |
-| `toFixed(n, digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`toFixed(1.005, 2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `toFixed(3.14159, 2)` is `"3.14"` |
+| `n.toFixed(digits)` | String; JavaScript's `Number.prototype.toFixed`: the binary value rounded (`(1.005).toFixed(2)` is `"1.00"`), a tie away from zero, `-0.001` at 2 is `"-0.00"`, `1e21` and up as `toString` prints; one declared difference: `NaN` and the infinities print `""` (LLP 1054.000.003 D7). `digits` is a whole-number literal 0–100 (LLP 1102 §3.2) | `(3.14159).toFixed(2)` is `"3.14"` |
 | `formatDecimal(units, digits)` | String; an integer count of a smallest unit as a decimal, exactly: `formatDecimal(1234, 2)` is `"12.34"`, `formatDecimal(-5, 2)` is `"-0.05"`, `-0` is `"0.00"`; a count that is not an integer, or not finite, is `""`, so money is a count of cents, or `formatDecimal(round(price * 100), 2)` for a price of at most two decimals under a trillion. `digits` is a whole-number literal 0–20 (LLP 1102 §3.2) | `formatDecimal(1234, 2)` is `"12.34"` |
-| `length(value)` | Number; list item count or string UTF-16 code-unit count | `length([4, 5, 6])` is `3` |
-| `isEmpty(value)` | Boolean; empty string or list | `isEmpty("")` is `true` |
-| `toString(value)` | String; number, boolean, or string conversion | `toString(42)` is `"42"` |
+| `value.length` | Number; list item count or string UTF-16 code-unit count | `[4, 5, 6].length` is `3` |
+| `value.isEmpty()` | Boolean; empty string or list | `"".isEmpty()` is `true` |
+| `value.toString()` | String; number, boolean, or string conversion | `(42).toString()` is `"42"` |
 | `floor(n)` | Number | `floor(2.7)` is `2` |
 | `ceil(n)` | Number; `Math.ceil` | `ceil(2.1)` is `3` |
 | `round(n)` | Number; JavaScript's `Math.round`: a half rounds up (`round(2.5)` is 3, `round(-2.5)` is -2), not away from zero. Two decimals is `round(v * 100) / 100` | `round(2.5)` is `3` |
@@ -581,24 +600,24 @@ says. Every roster function has a row and an example, and each example written
 | `calendarDiff(from, to, "years" or "months")` | `option<number>`; whole years or months from one `YYYY-MM-DD` date to another, counted as an age is: a period completes when `to`'s month and day reach `from`'s (months compare the day), so a Feb 29 start completes a year on Mar 1 of a common year and a Jan 31 start a month on Mar 1, as Temporal's `PlainDate.until` counts with `largestUnit` `"years"` or `"months"`. When `to` is earlier, the count back, negated; `none` when either is not a real date (LLP 1102 §3.4) | `calendarDiff("1990-05-10", "2026-05-09", "years")` is `some(35)` |
 | `max(a, b)` | Number | `max(3, 7)` is `7` |
 | `min(a, b)` | Number | `min(3, 7)` is `3` |
-| `includes(text, substring)` | Boolean, case-sensitive literal substring | `includes("grocery", "roc")` is `true` |
-| `includes(list<T>, item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `includes(["a", "b"], "b")` is `true` |
-| `startsWith(text, prefix)` | Boolean, case-sensitive | `startsWith("/settings", "/")` is `true` |
-| `endsWith(text, suffix)` | Boolean, case-sensitive | `endsWith("photo.png", ".png")` is `true` |
-| `trim(text)` | String, JavaScript whitespace/line-terminator trimming | `trim("  milk ")` is `"milk"` |
-| `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `slice("Tuesday", 0, 3)` is `"Tue"` |
-| `slice(list<T>, start, end?)` | `list<T>`; the items, the indices clamped as text's are | `slice([1, 2, 3, 4], 1)` is `[2, 3, 4]` |
-| `concat(list<T>, list<T>)` | `list<T>`; both lists' items in order (`[...xs, x]` is `concat(xs, [x])`) | `concat([1, 2], [3])` is `[1, 2, 3]` |
-| `indexOf(text, substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `indexOf("a,b", ",")` is `1` |
-| `indexOf(list<T>, item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `indexOf(["a", "b"], "c")` is `-1` |
-| `split(text, separator)` | `list<string>`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `split("", "")` is `[]` | `split("a,b,c", ",")` is `["a", "b", "c"]` |
-| `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `replaceAll("a-b-c", "-", " ")` is `"a b c"` |
-| `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `toLowerCase("Milk")` is `"milk"` |
-| `first(list<T>)` | `option<T>` | `first([4, 5])` is `some(4)` |
-| `at(list<T>, index)` | `option<T>`; truncates index toward zero, negative from end | `at([4, 5, 6], -1)` is `some(6)` |
-| `map(list<T>, callback)` | `list<U>`; callback returns one value | `map([1, 2], x => x * 10)` is `[10, 20]` |
-| `filter(list<T>, callback)` | `list<T>`; callback returns boolean | `filter([1, 2, 3], x => x > 1)` is `[2, 3]` |
-| `join(list<string/number/bool>, separator)` | String; primitive item printing | `join(["a", "b"], ", ")` is `"a, b"` |
+| `text.includes(substring)` | Boolean, case-sensitive literal substring | `"grocery".includes("roc")` is `true` |
+| `xs.includes(item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) | `["a", "b"].includes("b")` is `true` |
+| `text.startsWith(prefix)` | Boolean, case-sensitive | `"/settings".startsWith("/")` is `true` |
+| `text.endsWith(suffix)` | Boolean, case-sensitive | `"photo.png".endsWith(".png")` is `true` |
+| `text.trim()` | String, JavaScript whitespace/line-terminator trimming | `"  milk ".trim()` is `"milk"` |
+| `text.slice(start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD | `"Tuesday".slice(0, 3)` is `"Tue"` |
+| `xs.slice(start, end?)` | `T[]`; the items, the indices clamped as text's are | `[1, 2, 3, 4].slice(1)` is `[2, 3, 4]` |
+| `xs.concat(T[])` | `T[]`; both lists' items in order (`[...xs, x]` is `xs.concat([x])`) | `[1, 2].concat([3])` is `[1, 2, 3]` |
+| `text.indexOf(substring)` | Number; the first match's position in UTF-16 code units, `-1` for none, `0` for `""` | `"a,b".indexOf(",")` is `1` |
+| `xs.indexOf(item)` | Number; `T` a string, number or bool, compared by `===` (`NaN` is never found, `-0` is `0`); `-1` for none | `["a", "b"].indexOf("c")` is `-1` |
+| `text.split(separator)` | `string[]`; the pieces between the separator's matches, left to right; `""` splits into UTF-16 code units (a cut surrogate half is U+FFFD), and `"".split("")` is `[]` | `"a,b,c".split(",")` is `["a", "b", "c"]` |
+| `text.replaceAll(find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions | `"a-b-c".replaceAll("-", " ")` is `"a b c"` |
+| `text.toLowerCase()` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) | `"Milk".toLowerCase()` is `"milk"` |
+| `first(T[])` | `option<T>` | `first([4, 5])` is `some(4)` |
+| `xs.at(index)` | `option<T>`; truncates index toward zero, negative from end | `[4, 5, 6].at(-1)` is `some(6)` |
+| `xs.map(callback)` | `U[]`; callback returns one value | `[1, 2].map(x => x * 10)` is `[10, 20]` |
+| `xs.filter(callback)` | `T[]`; callback returns boolean | `[1, 2, 3].filter(x => x > 1)` is `[2, 3]` |
+| `xs.join(separator)` | String; `xs` a list of strings, numbers or bools, each printed | `["a", "b"].join(", ")` is `"a, b"` |
 | `encodeURIComponent(text)` | String | `encodeURIComponent("a b&c")` is `"a%20b%26c"` |
 | `encodeRouteSegment(text)` | String; routing's checked segment encoding | `encodeRouteSegment("a b")` is `"a%20b"` |
 | `open(router, location)` | Router | `top(open(nav, "/item/7")).name` is `"item"` |
@@ -607,17 +626,17 @@ says. Every roster function has a row and an example, and each example written
 | `back(router)` | Router | `depth(back(push(nav, "/item/7")))` is `1` |
 | `select(router, tabName)` | Router | `nav = select(nav, "search")`, in an action, shows the `search` tab |
 | `go(router, location)` | Router | `top(go(nav, "/item/7")).name` is `"item"` |
-| `stack(router)` | `list<Entry>` | `length(stack(push(nav, "/item/7")))` is `2` |
+| `stack(router)` | `Entry[]` | `stack(push(nav, "/item/7")).length` is `2` |
 | `top(router)` | `Entry` | `top(nav).name` is `"home"` |
 | `depth(router)` | Number | `depth(nav)` is `1` |
-| `params(router, parameterName)` | `list<string>`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
+| `params(router, parameterName)` | `string[]`: that parameter's non-empty values over the selected stack, bottom first, duplicates kept (one entry's own value is `entry.params.<name>`, `""` where its route does not bind it; the name must be a parameter of some route) | `params(push(nav, "/item/7"), "id")` is `["7"]` |
 | `searchParam(entry, name)` | String | `searchParam(top(push(nav, "/item/7?tab=notes")), "tab")` is `"notes"` |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders | `t("greeting", name=user.name)` is the `greeting` string of the app's locale with `{name}` filled |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it, as `getBoundingClientRect`: in the viewport, every scroll offset and transform applied | `frame("card").height`, in an action, is the card's height as drawn |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement | `measure("note").height`, in an action, is the note's natural height |
 | `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over | `elementFromPoint(x, y)`, in a pointer action, is `some("card-3")` over that card |
-| `elementsFromPoint(x, y)` | `list<string>`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
-| `querySelectorAll(selector)` | `list<string>`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
+| `elementsFromPoint(x, y)` | `string[]`, actions only; own ids of every hit box, including hit ancestors, front to back; id-less boxes skipped, with `elementFromPoint`'s clips, transforms and skips | `elementsFromPoint(e.clientX, e.clientY)` sees through an Inspect overlay |
+| `querySelectorAll(selector)` | `string[]`, actions only; only `[data-word~="value"]` for a declared `data-*` word; own ids of mounted, displayed, non-inert matches in tree order, excluding covered routes and unselected tabs; any other dynamic selector gives `[]` | `querySelectorAll("[data-paint~=\"accent\"]")` lists the accent nodes |
 
 On Apple, `frame` of an inline `text` run returns the viewport-space union of
 its line fragments, using the run's own font metrics and excluding hanging
@@ -838,7 +857,7 @@ or the source changes: `formats`, space-separated (the inline command names,
 `mixed`, true when the selection spans different formats or links; `link`, the
 common link target or `""`; and `unavailable`, the commands that cannot apply
 there, space-separated (most of them, inside a code block). No offsets cross.
-A toolbar reads one format as `includes(` ${s.formats} `, " bold ")`;
+A toolbar reads one format as `` ` ${s.formats} `.includes(" bold ") ``;
 [Markdown Stress](../apps/markdown-stress/app.contract) is a whole toolbar and
 link sheet.
 
@@ -861,7 +880,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange` |
 | One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
-| One `list<Picked>`, then optionally an `InputEvent` | `change`, `input` on `type="file"` |
+| One `Picked[]`, then optionally an `InputEvent` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` on the Markdown editor (`textarea markup="markdown"`) |
 | One `InputEvent` | `select` on a text field or any other `textarea` ([form controls](#form-controls-radio-inputevent-setselectionrange)) |
 | Two numbers | `pan`, `panrelease`, `heightrelease` |
@@ -875,9 +894,10 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
 | Zero or one `FocusEvent` (the action takes it or leaves it) | `focusin`, `focusout`: `target` is the focused element's `id` (or `""`); `relatedTarget` is `some(id)` for the other element or `none` |
 | Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
+| Zero or one `InputEvent` | `selectionchange` and `beforeinput`, on a plain text field |
 | Zero or one `MediaSessionActionDetails` (the action takes it or leaves it) | `seekbackward`, `seekforward`, `seekto`, `previoustrack`, `nexttrack`, `stop`, on an `audio` or `video` with `metadata=` ([media session](#media-session)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
-| None | `beforeunload`, `cancel`, `close`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| None | `beforeunload`, `cancel`, `close`, `scrollend`, `focus`, `blur`, `submit`, `load`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 A dialog's `close=action` runs after dismissal and focus restoration on the web,
 macOS and iOS, whether an action, an invoker button or Escape closed it. It takes
@@ -923,12 +943,43 @@ it clamps to:
 ```text
 action moved(x: number, y: number, e: ScrollEvent)
   away = e.scrollHeight - e.scrollTop - e.clientHeight > 1
-list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
+list appearance="none" virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
 ```
+
+On a virtualized list, the record also carries `firstVisibleKey: option<string>`
+and `firstVisibleOffset: number`: the first row intersecting the port, and the
+signed distance in CSS pixels from its wrapper's start to the port's start,
+on the list's axis. Keys are text (numeric and boolean keys use their text
+representation). The snapshot uses the event's offset and the list's latest
+measured/estimated sizes; zero-size rows are skipped. An ordinary scroller,
+an empty list, or a port showing only padding reports `none` and `0`.
+
+The app can save these two fields by document or conversation and restore
+after mounting the list with `scrollIntoView("feed", key, offset=within)`.
+`offset=` is a finite number and belongs only to the list form. It places the
+port that many pixels into the keyed row wrapper, overriding that list's
+`block`/`inline` alignment and scroll-padding, clamped to the scroll range.
+
+`scroll-padding` (or its four physical sides) insets any scroll container’s
+alignment port. `scroll-margin` expands the target element’s border box for
+`scrollIntoView`; its signed lengths change neither layout nor scroll range.
+Padding percentages use the corresponding scrollport dimension on ordinary
+scrollers; a virtual list still requires resolvable main-axis lengths.
+Negative offsets preserve padding showing before the row. With `row=`, only
+the inner list takes the offset; the outer row aligns normally. Unmounting a
+top-level list saves nothing automatically, with either `scroll-restoration`
+value.
 
 As on the web, the event comes when the offset changes (a follow of the end
 moves it); content that grows below a reader who is not following it changes
 no offset and sends none.
+
+`scrollend`, on a `scroll` or a `list`, comes once a scroll that moved the
+offset is over, after its last `scroll`: the finger lifted with nothing thrown,
+the momentum or a smooth scroll stopped, or (a jump, a mouse wheel's notches)
+the offset still for 100 ms on Apple's hosts. It takes no payload. An app that
+needs to know a fling has stopped hears it, instead of restarting a timer on
+every `scroll`. Not yet on the Linux and Android host.
 
 `intersect=action` offers an optional final `IntersectionObserverEntry` after
 any authored arguments. The record contains `isIntersecting: bool` and
@@ -1042,7 +1093,7 @@ scroll wheel=wheeled …
 
 `drop` is DOM's `drop` of files dragged in from outside the app (Finder, the
 desktop) onto the innermost node that declares it: its `DragEvent` is
-`offsetX`, `offsetY`, `files` (a `list<string>` of `doc:` handles minted as a
+`offsetX`, `offsetY`, `files` (a `string[]` of `doc:` handles minted as a
 picker's are, [LLP 1069.010](../llp/1069.010-the-mac-as-a-document-platform.rfc.md)
 D1, readable under `fs.read doc:/`) and the modifiers. Only files of the types
 the manifest's `file_handlers` declares are taken; another is refused into the
@@ -1096,14 +1147,37 @@ column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 when the part of the reader's text selection inside that paragraph changes —
 a drag, a double or triple click, select-all, a click that clears it — an
 action that takes one more parameter gets a `Selection`: its `text` (the
-selected part, as `Range.toString()` gives it) and its `start` and `end`,
+selected source text), its `rects: Geometry[]`
+(the selected fragments in viewport coordinates), and its `start` and `end`,
 UTF-16 offsets into the node's own text as written (white space before CSS
-collapses it, a `text`'s inline children joined in order). Nothing selected
-there is `text: ""` with `start == end == 0`; it fires while a drag moves,
+collapses it, a `text`'s inline children joined in order, and Markdown line
+breaks counted as newlines). Inline IDs use offsets within that inline text.
+Nothing selected
+there is `text: ""` with `start == end == 0` and `rects: []`; it fires while a drag moves,
 once per change. The web and macOS select text; iOS selects text its author
 made selectable (`user-select="text"`), by a long press, a double tap and the
 selection's handles; Linux has no text selection on a `text`, so it never
 fires there.
+
+On web and macOS, `removeAllRanges()` clears the reader's selection. Each
+paragraph that held a part reports its empty selection. The documented
+extension `setSelectionRange(id, start, end[, direction])` also selects a
+`text`: offsets are UTF-16 in its source text, clamped as for a field; an end
+before the start collapses at the end. Requested source boundaries survive
+CSS whitespace collapsing. `backward` puts the anchor at the end,
+as `Selection.setBaseAndExtent` does. The command replaces the page's previous
+selection and fires `selectionchange` for changed parts without focusing a
+field. An unchanged part does not fire again. These two commands on reader
+text remain unsupported on iOS and Linux; iOS selection events carry an empty
+rectangle list.
+
+Rectangles are snapshots at that event, not live layout facts. On the web they
+are the paragraph's selected `Range.getClientRects()`; macOS uses the same
+CoreText fragments as its selection highlight and inline-run geometry. Their
+`provisional` and `unavailable` flags are false; an empty selection has no
+rectangles. Native paragraphs rendered by the reader worker currently return
+an empty rectangle list: their caret geometry is not available synchronously.
+Scrolling alone does not emit another selection event.
 
 ```text
 action mark(para: string, s: Selection)
@@ -1175,7 +1249,7 @@ refused, a radio being unchecked only by checking another.
 ```text
 action pick(value: string)
   color = value
-each c in colors key=c
+for c in colors key=c
   input type="radio" name="color" value=c checked=color == c change=pick aria-label=c
 ```
 
@@ -1185,9 +1259,13 @@ names — `value` (a checkbox's or a radio's own `value`, `on` when it has
 none; a range's number as text), `checked`, and a text field's
 `selectionStart`, `selectionEnd` (UTF-16 offsets into its value) and
 `selectionDirection` (`forward`, `backward` or `none`); a control without a
-text selection reports 0, 0 and `none`. `inputType` reports `insertReplacementText` for range replacements, hatch
-`input(text)`, and DOM edits carrying that type (such as browser spelling
-corrections); other input types currently report an empty string. After typing, the caret sits after
+text selection reports 0, 0 and `none`. `inputType` names the edit (for example
+`insertText`, `insertFromPaste`, `deleteContentBackward` or `historyUndo`).
+`data` is `option<string>`: inserted text, or `none` for deletion and history.
+`cancelable` and `isComposing` report whether the event can be canceled and
+whether it belongs to an IME composition. Events without edit metadata
+(`change`, `select`, `selectionchange`) report `""`, `none`, `false`, `false`.
+After typing, the caret sits after
 the typed text; the direction then is the platform's (Chrome's varies with
 the input), so test the offsets. A text field's `select` (an `input` that is
 no control, a `textarea` that is not the Markdown editor) is HTML's: it fires
@@ -1240,7 +1318,21 @@ hosts queue replacement selects after the action's commands and report the
 field's current value and selection at delivery. macOS Chrome resets direction
 to `none` on replacement; Apple follows it. URL inputs strip leading and trailing
 ASCII whitespace after removing CR/LF. Contract's
-field `selectionchange` and `beforeinput` remain unimplemented (issue #275).
+field `selectionchange` also reports collapsed caret moves through an optional
+`InputEvent`, independently of a reader's `Selection`. It is queued and
+coalesced per field, and reads the current value and selection at delivery.
+
+`beforeinput=action` takes an optional `InputEvent` describing the old value
+and selection and the proposed `inputType` and `data`. `preventDefault()`
+keeps a cancelable edit from changing the field. A subsequent `input`
+describes the applied edit and is noncancelable. IME composition edits are
+noncancelable; `preventDefault()` cannot interrupt them. `setRangeText`
+continues to emit only its recorded extra input, without beforeinput.
+The web forwards the browser's metadata. AppKit and Linux intercept ordinary
+field edits and paste before applying them; AppKit's undo/redo responder
+commands are cancelable too. UIKit's delegate observes ordinary edits,
+but undo operations that bypass its delegate remain a host limit. Linux
+has no native field undo history. These events exclude Markdown editors.
 
 ```text
 action edited(text: string, e: InputEvent)
@@ -1262,9 +1354,12 @@ focus left the subtree. `stopPropagation()` stops the current event from
 reaching further ancestor handlers. Autofocus also delivers focus transitions;
 IDs reflect their value when focus moves.
 Web, AppKit, UIKit and Linux dispatch these transitions. An edited field sends
-`change`, `blur`, `focusout`, then the next field's `focus`, `focusin`. Native
-limitation: a wrapper destroyed by `blur` does not receive the later `focusout`;
-Chrome can still deliver it inside the detached subtree (issue #283).
+`change`, `blur`, `focusout`, then the next field's `focus`, `focusin`. If `blur`
+removes a wrapper, its `focusout` still runs inside the detached subtree;
+former connected ancestors do not hear that event, even while an exit animation
+keeps the removed wrapper visible. A blur caused by a tree update runs before
+the update's focus commands or autofocus. A nested focus transition
+from commit processing does not cancel the outgoing event.
 
 `key` is the DOM's `keydown` and `keyup` its `keyup`, on every host (web,
 macOS, iOS and iPadOS with a hardware keyboard, Linux):
@@ -1389,7 +1484,7 @@ task release when hints and not page.hasFocus
 ```
 
 `resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
-key=down keyup=up`, and `when hints and page.hasFocus` around the hints. The
+key=down keyup=up`, and `if hints and page.hasFocus` around the hints. The
 driver holds and releases a key with `type "list" key "Meta" down` and `key
 "Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
 +1` for the task), and `key "a" for 1200` repeats a key while held, as a
@@ -1500,9 +1595,9 @@ rows and content lifted into a popover; an explicit
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `removeAllRanges`, `selectText`, `setSelectionRange`, `setRangeText`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`, `scrollBy`, `showModal`,
-`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `relaunch`, `close`,
 `playSound`, `playSounds`, `stopSounds`
 ([pointer](#pointer): a window's `beforeunload`), `preventDefault` and
 `stopPropagation` ([keys](#keys)).
@@ -1517,19 +1612,19 @@ argument validation. Use the working implementation when selecting arguments:
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
-| `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
+| `setSelectionRange(id, start, end[, direction])`: a text field's or text's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `setRangeText(id, text[, start, end[, selectionMode]])`: plain-field range replacement, one `input`, preserve selection by default, no undo step ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [Chrome comparison](../host/web/tests/field-range.test.mjs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
-| `setRootFontSize(px)`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
+| `setRootFontSize(px)`, `setRootFontSize("125%")`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A percentage (CSS's number syntax, above 0) is that share of the host's size and follows it as the host's changes (LLP 1121 D6). A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=, navigate=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a click opens `navigate=` through the navigation root, cold or warm. A newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
-| `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
+| `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=, offset=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). macOS animates element-form `smooth` (and `auto` under `scroll-behavior: smooth`), landing immediately under reduced motion. iOS/tvOS and Linux currently land element jumps at once, including smooth requests (host deviation, LLP 1070.000 §14); UIKit still sends `scrollend` after a jump that moved | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `scrollBy(id, x, y)`: `Element.scrollBy(x, y)` on a scroll container by its `id`, in pixels (a terminal's row is 16, its column 8), clamped to its travel; an element that does not scroll does not move. A reader's `j` and `k`. The terminal, Linux and the web's JS target take it; Apple and the wasm web host do not yet | [the LLP terminal reader](../apps/llp/terminal.contract), [`reading.rs`](../host/terminal/tests/reading.rs) |
 | `showPopover(id, source="trigger")`, `hidePopover(id)`, `togglePopover(id, source="trigger")`: HTML's methods by element id. `source=` is optional and explicit; it need not carry `popovertarget`, and the key handler's node is not inferred. Repeated show/hide is a no-op. Visibility changes immediately in command order, including hide then show during native dismissal. Bad targets or sources are refused in the journal. A popover's `toggle=changed` action may take `e: ToggleEvent`, with `oldState` and `newState` (`"open"` or `"closed"`); events follow logical visibility, coalescing changes in one turn. Without a source the popover has no invoker. A following `focus(id)` in the opening action selects a native menu row on macOS and windowed Linux; AppKit refuses changing the highlight once native tracking begins. UIKit navigation-bar menus still lack command dismissal and toggle observation (issue #319 remaining work). Desktop/headless Linux reports unsupported; windowed Linux uses its existing supported menu/alert shapes. | [menus](../llp/1021-menus.rfc.md) |
 | `showModal(id)`, `close(id)`: `HTMLDialogElement.showModal()` and `close()` on a dialog by its `id`, from an action (bare `close()` is the window's). The terminal takes them (LLP 1101.001 P5); iOS presents a `dialog` or `role="alertdialog"` popover by its id as its confirmation (an alert or action sheet, with no invoker) and any other `dialog` as a sheet as tall as its content (LLP 1115.000 D11.5), the web shows the dialog (or the alertdialog popover), macOS the dialog in its top layer, or a `role="alertdialog"` one in the alert's shape as `NSAlert`, a sheet on the window (LLP 1115 D6, LLP 1115.000 D7.6) | [the harness](../apps/harness/terminal.contract), [the native fixture](../apps/native-fixture/app.contract) (`askClear`) |
@@ -1552,6 +1647,15 @@ iOS closes no window either: its `close` is journaled as unsupported. On the web
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).
 
+`relaunch()` takes no arguments. In the standalone macOS app it asks the same
+`beforeunload` handlers as Quit, drains pending storage for up to five seconds,
+destroys the sessions, then starts the same executable with the same arguments
+and environment after the old process exits. A cancelled quit cancels the relaunch.
+It works without the development menu. iOS/tvOS and Linux refuse it in the journal;
+the web reloads the page, with the browser's usual storage and unload rules.
+Native agent sessions refuse it explicitly: start another drive on the same
+`--storage` instead. `reload()` and update activation keep their existing lifecycles.
+
 Element-targeted commands use `id`, not `testId`. File pickers publish handles
 through the target's `change` event; cancellation uses `cancel`. Permissions,
 accepted file types, app identity, and platform support remain part of the app
@@ -1562,12 +1666,13 @@ integration. A recognized command name alone does not prove those prerequisites.
 Syntax is only the first layer. In particular:
 
 - Types are closed; unknown/unresolved types, cycles, and invalid property values
-  are refused. `none` and `[]` need enough context to infer their contained type.
+  are refused. `none` and `[]` need enough context to infer their contained type,
+  or a state's declared one (`state ids: string[] = []`).
 - Record construction requires all fields once; copying requires a matching base.
   Shapes are finite and nonrecursive. Equality compares values structurally.
 - Function bodies are effect-free, nonrecursive expressions (they may read
-  `performanceNow()`); app functions cannot shadow
-  roster names or take a declared shape's constructor name.
+  `performanceNow()`); an app's function may shadow a roster name (and is then
+  called `name(x)`, as it is declared) but not take a declared shape's constructor name.
 - Action reads see the starting snapshot. Writes land together. Locals are
   immutable and cannot shadow visible names or escape their block.
 - Resources/mutations/tasks are root-owned. A child may own ordinary state,

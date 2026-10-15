@@ -80,7 +80,7 @@ component TypeTour
     main testId="typetour" viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" box-sizing="border-box" display="flex" flex-direction="column" overflow="hidden" font-family="Exposure Sans" font-size=17 color="light-dark(#000000, #ffffff)" background-color="light-dark(#f2f2f7, #000000)"
 
       // ---------------------------------------------------------------- lock
-      when screen == "lock"
+      if screen == "lock"
         column testId="lock-screen" flex=1 min-height=0 box-sizing="border-box" background-color="#0c0c0e" color="#ffffff" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)"
           button press=unlock testId="lock-clock" width="100%" display="flex" flex-direction="column" align-items="center" padding-top=28 padding-bottom=8
             text "Sunday, September 14" font-size=22 font-weight=500 color="#ffffffd9"
@@ -101,7 +101,7 @@ component TypeTour
             box width=134 height=5 border-radius=3 background-color="#ffffff"
 
       // ---------------------------------------------------------------- home
-      when screen == "home"
+      if screen == "home"
         column testId="home-screen" flex=1 min-height=0 box-sizing="border-box" background-color="#141416" color="#ffffff" padding-top="env(safe-area-inset-top)"
           scroll flex=1 min-height=0
             column padding-left=20 padding-right=20 padding-top=14 gap=24
@@ -156,7 +156,7 @@ component TypeTour
           HomeBar(tone="#ffffff", press=go("home"))
 
       // ------------------------------------------------------------ settings
-      when screen == "settings"
+      if screen == "settings"
         column testId="settings-screen" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
           scroll flex=1 min-height=0
             column padding-left=16 padding-right=16 padding-bottom=24
@@ -210,7 +210,7 @@ component TypeTour
           HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
 
       // ------------------------------------------------- display & text size
-      when screen == "display"
+      if screen == "display"
         column testId="display-screen" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#f2f2f7, #000000)"
           row height=44 align-items="center" padding-left=8 padding-right=8 flex-shrink=0
             button press=go("settings") testId="back-settings" width=88 height=44 display="flex" flex-direction="row" align-items="center" gap=2
@@ -268,8 +268,8 @@ component TypeTour
           HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))
 
       // ------------------------------------------------------------ messages
-      when screen == "messages"
-        when thread == ""
+      if screen == "messages"
+        if thread == ""
           column testId="messages-list" flex=1 min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)" background-color="light-dark(#ffffff, #000000)"
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
               button appearance="none" press=go("home") testId="messages-edit" height=44 display="flex" flex-direction="row" align-items="center"
@@ -304,7 +304,7 @@ component TypeTour
             scroll flex=1 min-height=0
               column padding=16 gap=6
                 text (thread == "ortega" ? "Friday 4:02 PM" : thread == "builds" ? "Saturday 11:20 PM" : thread == "mom" or thread == "james" ? "Yesterday 6:15 PM" : "Today 8:31 AM") font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="center" padding-bottom=10
-                when thread == "nico"
+                if thread == "nico"
                   Bubble(body="Got the v4 Lilt build onto the Pink phone", out=false, scale=scale)
                   Bubble(body="The flare on the t reads at 17 px now. It was mush in v3.", out=false, scale=scale)
                   Bubble(body="That was the whole point of the terminal pass", out=true, scale=scale)
@@ -313,7 +313,7 @@ component TypeTour
                   Bubble(body="The Lilt terminals look great on the 4a Pro. Can you push the v4 build to Silver tonight?", out=false, scale=scale)
                   Bubble(body="Building now. Give me twenty minutes.", out=true, scale=scale)
                   text "Delivered" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
-                when thread == "crew"
+                if thread == "crew"
                   Sender(name="James")
                   Bubble(body="New Exposure Sans 03 italics are in the branch", out=false, scale=scale)
                   Sender(name="Nico")
@@ -322,19 +322,19 @@ component TypeTour
                   Bubble(body="I still think the g needs a smaller ear", out=false, scale=scale)
                   Bubble(body="Ship the ear as is. We tune it after we see it on the lock screen.", out=true, scale=scale)
                   text "Delivered" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
-                when thread == "mom"
+                if thread == "mom"
                   Bubble(body="Did you eat?", out=false, scale=scale)
                   Bubble(body="Yes 😄 pasta", out=true, scale=scale)
                   Bubble(body="Good. Call me when you land 🩵", out=false, scale=scale)
-                when thread == "james"
+                if thread == "james"
                   Bubble(body="Sent you the kerning diff", out=false, scale=scale)
                   Bubble(body="Mostly pairs with T and Y, nothing structural.", out=false, scale=scale)
                   Bubble(body="Merging. Thanks!", out=true, scale=scale)
                   text "Read 6:20 PM" font-size=12 font-weight=500 color="light-dark(#8e8e93, #98989d)" text-align="right" padding-right=4
-                when thread == "builds"
+                if thread == "builds"
                   Bubble(body="N-Silver rung 11 audio probe: attended run passed. 3 of 3 sine sweeps audible on the speaker.", out=false, scale=scale)
                   Bubble(body="Next: Maple playback root staging for Lavender.", out=false, scale=scale)
-                when thread == "ortega"
+                if thread == "ortega"
                   Bubble(body="Reminder: your appointment is Tuesday at 10:30 AM. Reply C to confirm.", out=false, scale=scale)
                   Bubble(body="C", out=true, scale=scale)
                   Bubble(body="Thank you! Your appointment is confirmed.", out=false, scale=scale)
@@ -343,7 +343,7 @@ component TypeTour
                 text "+" font-family="Exciting Lilt" font-weight=700 font-size=20 color="light-dark(#000000, #ffffff)"
               row flex=1 min-width=0 height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #48484a)" align-items="center" padding-left=14 padding-right=4 gap=6
                 input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder="Message" aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#000000, #ffffff)"
-                when draft != ""
+                if draft != ""
                   button press=sendDraft testId="send" aria-label="Send" width=28 height=28 border-radius=14 background-color="#0a84ff" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "↑" font-size=16 font-weight=700 color="#ffffff"
             HomeBar(tone="light-dark(#000000, #ffffff)", press=go("home"))

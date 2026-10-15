@@ -253,7 +253,6 @@ impl DataSource for Llp {
         // The bake has no corpus to read: the first frame is an empty index
         // and the welcome document, and the real one arrives after it.
         match source {
-            "theme" => Ok(markdown_parse::theme::value()),
             "start" => Ok(Value::record(vec![Value::str(&self.start)])),
             "index" => Ok(index_value("", &[], "", "", false, None)),
             "document" => {
@@ -274,10 +273,7 @@ impl DataSource for Llp {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        // The palette is one constant: every token is a `light-dark()` pair
-        // and the host resolves it, so this takes no appearance and is never
-        // re-asked when the scheme changes (LLP 1034 D1/D3).
-        if source == "theme" || source == "start" {
+        if source == "start" {
             return self.query(source, args).map(Answer::Now);
         }
         let asked = match args.first().and_then(Value::as_str) {

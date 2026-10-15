@@ -26,10 +26,12 @@ private final class VideoModule {
     }
     static let shared: VideoModule? = {
         #if os(macOS)
-        let path = Bundle.main.executableURL!.deletingLastPathComponent().path + "/libexact_video.dylib"
+        let standard = Bundle.main.executableURL!.deletingLastPathComponent().path + "/libexact_video.dylib"
         #else
-        let path = embeddedModule(framework: "ExactVideo", dylib: "libexact_video.dylib")
+        let standard = embeddedModule(framework: "ExactVideo", dylib: "libexact_video.dylib")
         #endif
+        // A test runner, which embeds no module, is given one (host/apple/build.mjs `--test`).
+        let path = ProcessInfo.processInfo.environment["EXACT_VIDEO_DYLIB"] ?? standard
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             FileHandle.standardError.write(Data("exact video: \(String(cString: dlerror()))\n".utf8)); return nil
         }

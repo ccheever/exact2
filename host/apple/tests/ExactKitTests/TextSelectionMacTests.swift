@@ -52,6 +52,120 @@ final class TextSelectionMacTests: XCTestCase {
         return p
     }
 
+    func testCommandsSelectTextAndClearEachParagraph() throws {
+        let p = fixture(measured: true)
+        let node = try XCTUnwrap(p.views[2]), other = try XCTUnwrap(p.views[5])
+        node.props["id"] = "p1"; other.props["id"] = "p2"
+        other.handlers = ["selectionchange"]
+        let arial = CTFontDescriptorCreateWithNameAndSize("ArialMT" as CFString, 16)
+        session?.text.catalog = [9: [RegisteredFace(family: "Arial", generic: nil, weight: 400, italic: false, descriptor: arial)]]
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px"]],
+            ["op": "frame", "id": 2, "x": 8, "y": 29, "w": 120, "h": 48],
+            ["op": "style", "id": 5, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px"]],
+            ["op": "frame", "id": 5, "x": 10, "y": 100, "w": 300, "h": 24],
+        ]))
+        var heard: [String] = [], boxes: [[CGRect]] = []
+        p.onSelectionChange = { id, text, start, end, rects in
+            heard.append("\(id):\(start)-\(end):\(text)"); boxes.append(rects)
+        }
+        p.fieldSelections.setSelectionRange(["p1", 0, 5, "backward"])
+        XCTAssertEqual(p.selection.selectedText(), "Alpha")
+        XCTAssertEqual(heard, ["2:0-5:Alpha"])
+        let rect = try XCTUnwrap(boxes.last?.first)
+        // Chrome's Range for 16px Arial, 24px line-height at (8,29).
+        XCTAssertEqual(rect.minX, 8, accuracy: 1)
+        XCTAssertEqual(rect.minY, 32, accuracy: 1)
+        XCTAssertEqual(rect.width, 40.921875, accuracy: 1)
+        XCTAssertEqual(rect.maxY, 49, accuracy: 1)
+        p.fieldSelections.setSelectionRange(["p1", 0, 5, "backward"])
+        XCTAssertEqual(heard.count, 1)
+        p.fieldSelections.setSelectionRange(["p1", 0, 100])
+        XCTAssertGreaterThan(try XCTUnwrap(boxes.last).count, 1)
+        p.fieldSelections.setSelectionRange(["p2", 0, 7])
+        XCTAssertEqual(Array(heard.suffix(2)), ["2:0-0:", "5:0-7:Another"])
+        XCTAssertTrue(boxes[boxes.count - 2].isEmpty)
+        p.selection.clear()
+        XCTAssertEqual(p.selection.selectedText(), "")
+        XCTAssertEqual(heard.last, "5:0-0:")
+        XCTAssertEqual(boxes.last, [])
+        heard.removeAll(); boxes.removeAll()
+        try press(node, 2, to: 7, in: other)
+        XCTAssertEqual(heard.last, "5:0-7:Another")
+        XCTAssertEqual(try XCTUnwrap(boxes.last?.last).maxY, 120, accuracy: 1)
+        p.selection.clear()
+        XCTAssertEqual(Array(heard.suffix(2)), ["2:0-0:", "5:0-0:"])
+        XCTAssertTrue(boxes.suffix(2).allSatisfy(\.isEmpty))
+    }
+
+    func testSelectionRectanglesFollowColumnFragments() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "Alpha\nbeta\ngamma\ndelta"]
+        let arial = CTFontDescriptorCreateWithNameAndSize("ArialMT" as CFString, 16)
+        session?.text.catalog = [9: [RegisteredFace(family: "Arial", generic: nil, weight: 400, italic: false, descriptor: arial)]]
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": ["font_family": 9.0, "font_size": 16.0, "line_height": "24px", "white_space": "pre"]],
+            ["op": "frame", "id": 2, "x": 8, "y": 29, "w": 220, "h": 48],
+            ["op": "fragments", "id": 2, "fragments": [[0, 0, 100, 48, 0, 2, 0, 0], [120, 0, 100, 48, 2, 4, 120, -48]]],
+        ]))
+        var boxes: [CGRect] = []
+        p.onSelectionChange = { _, _, _, _, rects in boxes = rects }
+        p.fieldSelections.setSelectionRange(["p", 11, 16])
+        let rect = try XCTUnwrap(boxes.first)
+        XCTAssertEqual(boxes.count, 1)
+        // Chrome: the third line starts the second 100px column, after a 20px gap.
+        XCTAssertEqual(rect.minX, 128, accuracy: 1)
+        XCTAssertEqual(rect.minY, 32, accuracy: 1)
+        XCTAssertEqual(rect.maxY, 49, accuracy: 1)
+    }
+
+    func testCommandResolvesInlineTextSourceRange() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = [:]
+        p.apply(wireBatch([["op": "paragraph", "id": 2, "runs": [
+            ["id": 21, "parent": 2, "paint": true, "props": ["text": "Before "]],
+            ["id": 22, "parent": 2, "paint": true, "props": ["text": "Alpha", "id": "word"], "handlers": ["selectionchange"]],
+            ["id": 23, "parent": 2, "paint": true, "props": ["text": " after"]],
+        ]]]))
+        var heard: [String] = []
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id):\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["word", 0, 99, "backward"])
+        XCTAssertEqual(p.selection.selectedText(), "Alpha")
+        XCTAssertEqual(p.selection.range(node), NSRange(location: 7, length: 5))
+        XCTAssertTrue(heard.contains("2:7-12:Alpha"))
+        XCTAssertTrue(heard.contains("22:0-5:Alpha"))
+        p.selection.clear()
+        XCTAssertTrue(heard.contains("22:0-0:"))
+    }
+
+    func testCommandKeepsSourceBoundariesInsideCollapsedWhitespace() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "a  b"]
+        node.invalidateText()
+        var heard: [String] = []
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["p", 0, 2])
+        XCTAssertEqual(heard.last, "0-2:a ")
+        p.fieldSelections.setSelectionRange(["p", 0, 3])
+        XCTAssertEqual(heard.last, "0-3:a  ")
+        p.fieldSelections.setSelectionRange(["p", 2, 3])
+        XCTAssertEqual(heard.last, "2-3: ")
+        p.selection.clear()
+        XCTAssertEqual(heard.last, "0-0:")
+    }
+
+    func testCommandCountsHardNewlineInSourceOffsets() throws {
+        let p = fixture(measured: true), node = try XCTUnwrap(p.views[2])
+        node.props = ["id": "p", "text": "Hello\nworld"]
+        node.style["white_space"] = .string("pre")
+        node.invalidateText()
+        var heard: [String] = []
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
+        p.fieldSelections.setSelectionRange(["p", 6, 11])
+        XCTAssertEqual(heard.last, "6-11:world")
+        XCTAssertEqual(p.selection.selectedText(), "world")
+    }
+
     private func mouse(_ type: NSEvent.EventType, _ point: NSPoint, clicks: Int = 1, flags: NSEvent.ModifierFlags = []) -> NSEvent {
         NSEvent.mouseEvent(with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: clicks, pressure: type == .leftMouseUp ? 0 : 1)!
@@ -136,7 +250,7 @@ final class TextSelectionMacTests: XCTestCase {
     func testAButtonPressKeepsTheSelectionForItsAction() throws {
         let p = fixture()
         var heard: [String] = []
-        p.onSelectionChange = { _, text, start, end in heard.append("\(start)-\(end):\(text)") }
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
         var read: [String] = []
         p.onPress = { _ in read.append(p.selection.selectedText()) }
         try select(p)
@@ -162,7 +276,7 @@ final class TextSelectionMacTests: XCTestCase {
     func testAClickOnTextOrIntoAFieldStillClears() throws {
         let p = fixture()
         var heard: [String] = []
-        p.onSelectionChange = { _, text, start, end in heard.append("\(start)-\(end):\(text)") }
+        p.onSelectionChange = { _, text, start, end, _ in heard.append("\(start)-\(end):\(text)") }
         try select(p)
         click(try XCTUnwrap(p.views[5]), at: NSPoint(x: 2, y: 10))
         XCTAssertEqual(p.selection.selectedText(), "", "a click on other text collapses the selection")
@@ -226,10 +340,58 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertNil(p.selection.range(p.views[9]!), "a button's label is the control's")
     }
 
+    /// ⌘A and ⌘C leave out text the reader cannot see or reach, as Chrome
+    /// does (155, the same cases): two stacked tabs, both mounted, the inactive
+    /// one under `visibility: hidden` (T3 F12-2), whose text is neither
+    /// highlighted nor copied; a text that computes `visible` inside it is
+    /// shown, and is. `inert` text and a `display: none` subtree are out too.
+    /// Wire batches carry each node's computed style, so a hidden box's
+    /// texts carry `visibility: hidden` themselves.
+    func testSelectAllAndCopyLeaveOutHiddenText() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        func text(_ id: Int, _ value: String, _ style: [String: Any] = [:]) -> [String: Any] {
+            ["op": "create", "id": id, "kind": "text", "props": ["text": value], "style": style]
+        }
+        let hidden: [String: Any] = ["visibility": "hidden"]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "view"], text(3, "Shown tab"), text(4, "Its body"),
+            ["op": "create", "id": 5, "kind": "view", "style": hidden], text(6, "Hidden tab", hidden), text(7, "Shown again", ["visibility": "visible"]),
+            ["op": "create", "id": 8, "kind": "view", "props": ["inert": "true"]], text(9, "Inert text"),
+            ["op": "create", "id": 10, "kind": "view", "style": ["display": "none"]], text(11, "Not displayed"),
+            text(12, "Hidden paragraph", hidden),
+            ["op": "children", "id": 1, "ids": [2, 5, 8, 10, 12]],
+            ["op": "children", "id": 2, "ids": [3, 4]], ["op": "children", "id": 5, "ids": [6, 7]],
+            ["op": "children", "id": 8, "ids": [9]], ["op": "children", "id": 10, "ids": [11]],
+            ["op": "roots", "ids": [1]],
+        ]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Shown tab\n\nIts body\n\nShown again")
+        for id: UInt32 in [6, 9, 11, 12] { XCTAssertNil(p.selection.range(p.views[id]!), "\(id) is not highlighted") }
+        XCTAssertEqual(p.selection.range(p.views[7]!), NSRange(location: 0, length: 11))
+        NSPasteboard.general.clearContents()
+        p.selection.copy()
+        XCTAssertEqual(NSPasteboard.general.string(forType: .string), "Shown tab\n\nIts body\n\nShown again")
+        // The tabs swap: the other's text is the one selected.
+        p.apply(wireBatch([
+            ["op": "style", "id": 2, "style": hidden], ["op": "style", "id": 3, "style": hidden], ["op": "style", "id": 4, "style": hidden],
+            ["op": "style", "id": 5, "style": ["visibility": "visible"]], ["op": "style", "id": 6, "style": ["visibility": "visible"]],
+        ]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Hidden tab\n\nShown again")
+        XCTAssertNil(p.selection.range(p.views[3]!))
+        // `inert` lifted by a prop, with no change of structure: its text takes part again.
+        p.apply(wireBatch([["op": "props", "id": 8, "clear": ["inert"]]]))
+        p.selection.selectAll()
+        XCTAssertEqual(p.selection.selectedText(), "Hidden tab\n\nShown again\n\nInert text")
+    }
+
     /// X81: a copy across a virtualized list's rows leaves out its
     /// `user-select: none` text, as the copy of plain rows does and as Chrome
-    /// does. The runner copies a list (rows need not be mounted), between
-    /// endpoints the host numbers; a label before the code moves neither.
+    /// does, and its `visibility: hidden` and `inert` text. The runner
+    /// copies a list (rows need not be mounted), between endpoints the host
+    /// numbers; a label before the code moves neither.
     func testACopyAcrossListRowsLeavesOutUnselectableText() throws {
         _ = NSApplication.shared
         let source = """
@@ -237,27 +399,34 @@ final class TextSelectionMacTests: XCTestCase {
           view
             main width="100%" height="100%" display="flex" flex-direction="column" gap=8
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `L${n}` user-select="none" width=24
                     text `vcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     text `wcode ${n} body`
                     text `L${n}` user-select="none" width=24
               list virtualized=true height=140 width=360 estimated-item-height=28
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=28 align-items="center" gap=12
                     view role="button"
                       text `R${n}`
                     text `rcode ${n} body`
               list virtualized=true height=140 width=360 estimated-item-height=36
-                each n in [1, 2, 3, 4, 5] key=n
+                for n in [1, 2, 3, 4, 5] key=n
                   row height=36 align-items="center" gap=12
                     button
                       text `B${n}`
                     text `bcode ${n} body`
+              list virtualized=true height=140 width=360 estimated-item-height=28
+                for n in [1, 2, 3, 4, 5] key=n
+                  row height=28 align-items="center" gap=12
+                    text `hcode ${n} body`
+                    text `card ${n}` visibility="hidden"
+                    view inert=true
+                      text `inert ${n}`
 
         """
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -271,15 +440,16 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(compiler.terminationStatus, 0)
         let session = ExactApp.shared.makeSession(label: "list-copy")
         self.session = session
-        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 640)).error)
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 640), styleMask: [.titled], backing: .buffered, defer: false)
+        XCTAssertNil(session.boot(plan: try Data(contentsOf: dir.appendingPathComponent("app.plan")), size: CGSize(width: 400, height: 800)).error)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 800), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = ExactView(session: session)
         let p = session.presenter
         func text(_ value: String) -> NodeView? { p.views.values.first { $0.isParagraph && $0.props["text"] == value } }
         // The rows mount once the lists report their geometry.
         let limit = Date(timeIntervalSinceNow: 20)
-        while text("wcode 3 body") == nil || text("vcode 3 body") == nil || text("rcode 3 body") == nil || text("bcode 3 body") == nil, Date() < limit {
+        while text("wcode 3 body") == nil || text("vcode 3 body") == nil || text("rcode 3 body") == nil || text("bcode 3 body") == nil
+                || text("hcode 3 body") == nil, Date() < limit {
             window.contentView?.layoutSubtreeIfNeeded()
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
@@ -302,6 +472,10 @@ final class TextSelectionMacTests: XCTestCase {
         XCTAssertEqual(pressable, "rcode 1 body\n\nrcode 2 body\n\nrcode 3 body")
         XCTAssertNil(p.selection.range(try XCTUnwrap(text("R2"))))
         XCTAssertEqual(try drag("bcode 1 body", "bcode 3 body"), "bcode 1 body\n\nbcode 2 body\n\nbcode 3 body", "a native title has no paragraph view")
+        // A hidden card and inert text are neither copied nor painted.
+        XCTAssertEqual(try drag("hcode 1 body", "hcode 3 body"), "hcode 1 body\n\nhcode 2 body\n\nhcode 3 body")
+        XCTAssertNil(p.selection.range(try XCTUnwrap(text("card 2"))))
+        XCTAssertNil(p.selection.range(try XCTUnwrap(text("inert 2"))))
         // A drag that ends inside row 3's code copies what is painted.
         let copied = try drag("vcode 1 body", "vcode 3 body", x: 30)
         let painted = try XCTUnwrap(p.selection.range(try XCTUnwrap(text("vcode 3 body"))))
@@ -609,20 +783,22 @@ final class TextSelectionMacTests: XCTestCase {
         p.selection.begin(node, event: mouse(.leftMouseDown, node.convert(NSPoint(x: 5, y: 10), to: nil), clicks: 3))
         XCTAssertEqual(p.selection.selectedText(), "Alpha beta gamma")
 
-        // The space after "Alpha": inside the selection, under no glyph. A
-        // test process's window has the focus only if a person gave it.
+        // Compare painted colours through the same capture path: AppKit's
+        // HDR colour conversion can differ from usingColorSpace's components.
         let space = try glyph(node, 5)
-        let rep = try XCTUnwrap(Capture.picture(of: node))
-        let scale = CGFloat(rep.pixelsWide) / rep.size.width
-        let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))
-        var wanted: NSColor?
-        node.effectiveAppearance.performAsCurrentDrawingAppearance {
-            wanted = TextSelection.fill(focused: PageFacts.hasFocus(self.window)).usingColorSpace(.sRGB)
-        }
-        let fill = try XCTUnwrap(wanted)
-        XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.01, "at full strength: the page does not show through it")
-        for (got, want) in [(drawn.redComponent, fill.redComponent), (drawn.greenComponent, fill.greenComponent), (drawn.blueComponent, fill.blueComponent)] {
-            XCTAssertEqual(got, want, accuracy: 0.06, "\(drawn) is not \(fill)")
+        let swatch = Swatch(frame: NSRect(x: 0, y: 60, width: 10, height: 10))
+        p.root.addSubview(swatch)
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            window.appearance = NSAppearance(named: appearance)
+            swatch.color = TextSelection.fill(focused: PageFacts.hasFocus(window))
+            let fill = try XCTUnwrap(Capture.picture(of: swatch)?.colorAt(x: 2, y: 2)?.usingColorSpace(.sRGB))
+            let rep = try XCTUnwrap(Capture.picture(of: node))
+            let scale = CGFloat(rep.pixelsWide) / rep.size.width
+            let drawn = try XCTUnwrap(rep.colorAt(x: Int((space.x + space.width / 2) * scale), y: Int(10 * scale))?.usingColorSpace(.sRGB))
+            XCTAssertEqual(drawn.alphaComponent, 1, accuracy: 0.01, "at full strength: the page does not show through it")
+            for (got, want) in [(drawn.redComponent, fill.redComponent), (drawn.greenComponent, fill.greenComponent), (drawn.blueComponent, fill.blueComponent)] {
+                XCTAssertEqual(got, want, accuracy: 0.01, "\(appearance): \(drawn) is not \(fill)")
+            }
         }
 
         // A layer that has displayed needs no display until something asks.
@@ -690,7 +866,15 @@ final class TextSelectionMacTests: XCTestCase {
             XCTAssertTrue(copy.target === held)
             XCTAssertTrue(copy.isEnabled)
             XCTAssertEqual(items.first { $0.title == "Cut" }?.isEnabled, false)
-            XCTAssertTrue(items.first { $0.title.hasPrefix("Search With ") }?.isEnabled == true)
+            // Search is present only when AppKit has a configured provider.
+            // Ask AppKit again before checking the host's targets and validation.
+            let native = try XCTUnwrap(held.menu(for: right))
+            let searches = items.filter { $0.title.hasPrefix("Search With ") }
+            XCTAssertEqual(searches.map(\.title), native.items.filter { $0.title.hasPrefix("Search With ") }.map(\.title))
+            for search in searches {
+                XCTAssertTrue(search.target === held)
+                XCTAssertTrue(search.isEnabled)
+            }
             // Copy is the page's: the whole selection, through the node's own copy.
             NSPasteboard.general.clearContents()
             _ = (copy.target as? NSObject)?.perform(copy.action, with: copy)
@@ -718,7 +902,7 @@ final class TextSelectionMacTests: XCTestCase {
         let p = fixture(measured: true)
         window.orderFrontRegardless()
         var heard: [String] = []
-        p.onSelectionChange = { id, text, start, end in heard.append("\(id) \(start)-\(end):\(text)") }
+        p.onSelectionChange = { id, text, start, end, _ in heard.append("\(id) \(start)-\(end):\(text)") }
         var authored: [UInt32] = []
         p.onClipboard = { id, kind, _ in if kind == 10 { authored.append(id) } }
         var menus: [(titles: [String], copy: Bool, heard: String?)] = []

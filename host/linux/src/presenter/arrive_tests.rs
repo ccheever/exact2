@@ -5,15 +5,6 @@
 //! a focus the commit set, a route with no press, a press too old to explain
 //! one, a replace, and another tab.
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// Two tabs and a field beside the routes. Home pushes Detail (a header
 /// with the Back control and a heading), Bare (no header) and Form (a
@@ -42,10 +33,10 @@ component App
     main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="nav" width="100%" height="100%" display="flex" flex-direction="column"
       input testId="aside" value=note input=typed height=30
       column flex=1 min-height=0 position="relative"
-        each t in nav.tabs key = t.name
+        for t in nav.tabs key = t.name
           column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
-            each e in t.stack key = e.id
-              when e.name == "home"
+            for e in t.stack key = e.id
+              if e.name == "home"
                 column navigationKey=`${e.id}` testId="route-home" position="absolute" inset=0
                   button press=open("/detail") testId="open" height=40
                     text "Open"
@@ -53,7 +44,7 @@ component App
                     text "Bare"
                   button press=open("/form") testId="open-form" height=40
                     text "Form"
-              when e.name == "detail"
+              if e.name == "detail"
                 column navigationKey=`${e.id}` testId="route-detail" position="absolute" inset=0
                   header display="flex"
                     button id="back" press=back testId="back" height=40
@@ -61,16 +52,16 @@ component App
                     text "Detail" role="heading" testId="detail-title"
                   button press=swap("/bare") testId="swap" height=40
                     text "Swap"
-              when e.name == "bare"
+              if e.name == "bare"
                 column navigationKey=`${e.id}` testId="route-bare" position="absolute" inset=0
                   button id="back" press=back testId="bare-back" height=40
                     text "Back"
-              when e.name == "form"
+              if e.name == "form"
                 column navigationKey=`${e.id}` testId="route-form" position="absolute" inset=0
                   header
                     text "Form" role="heading" testId="form-title"
                   input autofocus=true testId="field" height=30
-              when e.name == "other"
+              if e.name == "other"
                 column navigationKey=`${e.id}` testId="route-other" position="absolute" inset=0
                   header
                     text "Other" role="heading" testId="other-title"
@@ -81,10 +72,10 @@ component App
           text "Other"
 "#;
 
-fn boot() -> Presenter<Nothing> {
+fn boot() -> Presenter<()> {
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(APP),
+        (),
         (400., 800.),
         1.,
         PathBuf::new(),
@@ -96,7 +87,7 @@ fn boot() -> Presenter<Nothing> {
     p
 }
 
-fn settle(p: &mut Presenter<Nothing>) {
+fn settle(p: &mut Presenter<()>) {
     for _ in 0..4 {
         assert!(p.pump(p.host.now()).is_none());
         if p.dirty() {
@@ -105,7 +96,7 @@ fn settle(p: &mut Presenter<Nothing>) {
     }
 }
 
-fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
+fn id(p: &Presenter<()>, name: &str) -> ViewId {
     let k = p.host().kernel();
     let key = k.find_by_test_id(name).first().copied();
     let node = key.and_then(|key| k.node_by_key(key));
@@ -113,7 +104,7 @@ fn id(p: &Presenter<Nothing>, name: &str) -> ViewId {
 }
 
 /// The node that has the focus, by its `testId`.
-fn focused(p: &Presenter<Nothing>) -> String {
+fn focused(p: &Presenter<()>) -> String {
     let Some(focus) = p.focus() else {
         return "nothing".into();
     };
@@ -122,14 +113,14 @@ fn focused(p: &Presenter<Nothing>) -> String {
 }
 
 /// A mouse's click at the middle of `name`.
-fn click(p: &mut Presenter<Nothing>, name: &str) {
+fn click(p: &mut Presenter<()>, name: &str) {
     let (x, y, w, h) = p.rect_of(id(p, name)).unwrap();
     p.press_at(x + w / 2.0, y + h / 2.0, p.host.now());
     settle(p);
 }
 
 /// Enter, with the focus on `name`.
-fn enter(p: &mut Presenter<Nothing>, name: &str) {
+fn enter(p: &mut Presenter<()>, name: &str) {
     let target = id(p, name);
     assert!(p.set_focus(Some(target), p.host.now()).is_none());
     p.key_down("Enter", p.host.now());
@@ -138,7 +129,7 @@ fn enter(p: &mut Presenter<Nothing>, name: &str) {
 
 /// A location that arrives with no press: the root's `navigate`, as a
 /// timer's push or a deep link.
-fn arrive_at(p: &mut Presenter<Nothing>, location: &str) {
+fn arrive_at(p: &mut Presenter<()>, location: &str) {
     let (root, now) = (id(p, "nav"), p.host.now());
     let error = p
         .host
@@ -191,7 +182,7 @@ fn a_focus_the_commit_set_is_left_alone() {
 
 #[test]
 fn a_route_that_arrives_with_no_press_takes_the_focus_only_when_nothing_has_it() {
-    // Nothing has the focus: the route's heading takes it. Back from a
+    // () has the focus: the route's heading takes it. Back from a
     // route no press pushed has no control to return to: the route beneath.
     let mut p = boot();
     arrive_at(&mut p, "/detail");

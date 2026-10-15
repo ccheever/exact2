@@ -27,7 +27,7 @@ fn messages(src: &str) -> Vec<String> {
 const SWIPE: &str = "lower-swipe-wiring";
 
 /// A list of rows, each a swipe `scroll`; `row` is what is in the scroll, `after` is
-/// written beside it, in the row's `each` (lines 9 on).
+/// written beside it, in the row's `for` (lines 9 on).
 fn rows(attrs: &str, row: &str, after: &str) -> String {
     let indent = |text: &str, by: usize| -> String {
         text.lines()
@@ -35,7 +35,7 @@ fn rows(attrs: &str, row: &str, after: &str) -> String {
             .collect()
     };
     format!(
-        "component App\n  state items = [\"Milk\", \"Eggs\"]\n  action remove(item: string)\n    items = filter(items, i => i != item)\n  view\n    column\n      each i in items key=i\n        scroll {attrs} overflow-x=\"scroll\" overflow-y=\"hidden\" scroll-snap-type=\"x mandatory\"\n{}{}",
+        "component App\n  state items = [\"Milk\", \"Eggs\"]\n  action remove(item: string)\n    items = items.filter(i => i != item)\n  view\n    column\n      for i in items key=i\n        scroll {attrs} overflow-x=\"scroll\" overflow-y=\"hidden\" scroll-snap-type=\"x mandatory\"\n{}{}",
         indent(row, 10),
         indent(after, 8)
     )
@@ -153,7 +153,7 @@ const KEY: &str = "lower-navigation-key";
 /// (lines 8 and 11).
 fn stack(root: &str, home: &str, pushed: &str) -> String {
     format!(
-        "routes nav\n  rooms \"/\"\n    room \"/room/:id\"\ncomponent App\n  view\n    main navigationKey={root} navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      each e in stack(nav) key=e.id\n        when e.name == \"rooms\"\n          column navigationKey={home} position=\"absolute\" inset=0\n            text \"Rooms\"\n        when e.name == \"room\"\n          column navigationKey={pushed} position=\"absolute\" inset=0\n            text \"Room\"\n"
+        "routes nav\n  rooms \"/\"\n    room \"/room/:id\"\ncomponent App\n  view\n    main navigationKey={root} navigationBack=\"back\" width=\"100%\" height=\"100%\"\n      for e in stack(nav) key=e.id\n        if e.name == \"rooms\"\n          column navigationKey={home} position=\"absolute\" inset=0\n            text \"Rooms\"\n        if e.name == \"room\"\n          column navigationKey={pushed} position=\"absolute\" inset=0\n            text \"Room\"\n"
     )
 }
 

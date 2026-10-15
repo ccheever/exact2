@@ -4,18 +4,18 @@
 component App
   state expr = "12+3"
   state face = "a😀b"
-  derive back = slice(expr, 0, -1)
-  derive tail = slice(expr, 1)
-  derive fraction = slice(expr, 1.9, -1.2)
-  derive nan = slice(expr, 0 / 0, 2)
-  derive past = slice(expr, 10)
-  derive reversed = slice(expr, 3, 1)
-  derive cutHigh = slice(face, 1, 2)
-  derive cutLow = slice(face, 2, 4)
-  derive whole = slice(face, 0, -1)
-  derive huge = slice(expr, -1 / 0, 1 / 0)
+  derive back = expr.slice(0, -1)
+  derive tail = expr.slice(1)
+  derive fraction = expr.slice(1.9, -1.2)
+  derive nan = expr.slice(0 / 0, 2)
+  derive past = expr.slice(10)
+  derive reversed = expr.slice(3, 1)
+  derive cutHigh = face.slice(1, 2)
+  derive cutLow = face.slice(2, 4)
+  derive whole = face.slice(0, -1)
+  derive huge = expr.slice(-1 / 0, 1 / 0)
   action backspace
-    expr = slice(expr, 0, -1)
+    expr = expr.slice(0, -1)
   view
     column
       text expr testId="expr"

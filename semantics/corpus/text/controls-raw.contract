@@ -2,7 +2,7 @@
 // typed string: both sides must quote them identically.
 component App
   state s = ""
-  derive n = length(s)
+  derive n = s.length
   action set(v: string)
     s = v
   view

@@ -72,7 +72,7 @@ const APP: &str = r#"component App
 
 fn boot() -> Presenter<Keeps> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Keeps,
         (400., 400.),
         1.,
@@ -97,7 +97,7 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 fn focus_bubbles_into_within_and_out_of_a_wrapper() {
     let source = include_str!("../../../../contract/corpus/focus-bubble.contract");
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (400., 400.),
         1.,
@@ -149,12 +149,12 @@ fn a_pressed_button_that_removes_itself_sends_focusout_to_its_wrapper() {
     shown = false
   view
     column focusout=left width=200
-      when shown
+      if shown
         button "Hide" id="hide" press=hide testId="hide" height=32
       text log testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (400., 400.),
         1.,
@@ -181,13 +181,13 @@ fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
     column width=200 height=200
       button "Arm" testId="arm" press=arm height=30
       button "Hide" testId="hide" press=hide height=30
-      when shown
+      if shown
         column cursor=(armed ? "crosshair" : "default") width=200 height=100
           button "HUD" testId="hud" cursor="auto" press=arm width=50 height=30
           box testId="zone" width=200 height=70
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
+        &crate::test_plan(source),
         Keeps,
         (200., 200.),
         1.,
@@ -292,7 +292,7 @@ fn capture_precedes_target_and_bubble_and_controls_the_default() {
       text heard testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         Keeps,
         (300., 200.),
         1.,
@@ -348,7 +348,7 @@ fn keys_skip_disabled_controls_without_cutting_off_ancestors() {
       text heard testId="log"
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(SOURCE).unwrap().encode(),
+        &crate::test_plan(SOURCE),
         Keeps,
         (300., 200.),
         1.,
@@ -458,7 +458,7 @@ fn press_fixture() -> Presenter<Keeps> {
         "width=100 height=32 scale=1.5 -exact-press-scale=0.5 transform-origin=\"0 0\"\n      box opacity",
     );
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&source).unwrap().encode(),
+        &crate::test_plan(&source),
         Keeps,
         (400., 400.),
         1.,
@@ -528,7 +528,8 @@ fn a_repress_during_release_keeps_the_original_hit_box_and_cancel_never_activate
 
 /// LLP 1005 §3, LLP 1056 §3 stage 3: the pointer's down, moves and up reach
 /// the node hearing them with its record, from its content box; a free
-/// pointer's moves too, with no button down.
+/// pointer's moves too, with no button down. A native input's content box is
+/// CSS's: the platform's chrome inside its border is not part of the border.
 #[test]
 fn the_pointer_events_carry_their_record_from_the_content_box() {
     const PAD: &str = r#"component App
@@ -545,9 +546,10 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
       box pointerdown=down pointermove=move pointerup=up testId="pad" width=200 height=100 padding=10
         box testId="inner" width=50 height=50
       text seen testId="log" height=20
+      input value="x" pointerdown=down width=200 height=40
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(PAD).unwrap().encode(),
+        &crate::test_plan(PAD),
         Keeps,
         (400., 400.),
         1.,
@@ -581,6 +583,9 @@ fn the_pointer_events_carry_their_record_from_the_content_box() {
         "{}",
         log(&p)
     );
+    p.pointer_down(20., 190., 13.).unwrap();
+    p.pointer_up(20., 190., 14.).unwrap();
+    assert!(log(&p).ends_with(" d20,10/1"), "{}", log(&p));
 }
 
 /// An `svg` paints its content where its hits land: inside the padding
@@ -595,7 +600,7 @@ fn an_svg_paints_its_content_where_it_is_hit() {
         rect x=0 y=0 width=20 height=20 fill="#ff0000"
 "##;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(ART).unwrap().encode(),
+        &crate::test_plan(ART),
         Keeps,
         (400., 200.),
         1.,
@@ -636,7 +641,7 @@ fn a_disabled_box_hears_the_wheel_and_a_disabled_button_does_not() {
       text seen testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(WHEELS).unwrap().encode(),
+        &crate::test_plan(WHEELS),
         Keeps,
         (400., 400.),
         1.,
@@ -674,7 +679,7 @@ fn frame_reads_a_box_with_the_scroll_above_it_applied() {
       text `${y}` testId="log" height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(PANE).unwrap().encode(),
+        &crate::test_plan(PANE),
         Keeps,
         (400., 400.),
         1.,
@@ -725,7 +730,7 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
       box tabindex=0 display="none" testId="hidden" width=40 height=20
 "#;
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(TABS).unwrap().encode(),
+        &crate::test_plan(TABS),
         Keeps,
         (400., 400.),
         1.,
@@ -796,7 +801,7 @@ fn tabindex_makes_tab_stops_and_tab_walks_them() {
 fn aria_disabled_keeps_a_linux_button_in_tab_order_and_runs_press() {
     const APP: &str = "component App\n  state count = 0\n  action tick\n    count = count + 1\n  view\n    column width=200 height=100\n      button \"First\" testId=\"first\" height=20\n      button \"Update\" aria-disabled=true press=tick testId=\"update\" height=20\n      button \"Last\" testId=\"last\" height=20\n      text `${count}` testId=\"count\"\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Keeps,
         (200., 100.),
         1.,
@@ -1161,7 +1166,7 @@ fn re_asks_past_their_window_settle_on_the_wake_alone() {
     }
     src += "  view\n    column width=200 height=200\n      text \"waiting\"\n";
     let (mut p, error) = Presenter::boot_with(
-        &contract::compile(&src).unwrap().encode(),
+        &crate::test_plan(&src),
         source,
         (200., 200.),
         1.,

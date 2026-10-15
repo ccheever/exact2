@@ -1,7 +1,7 @@
 # LLP 1120: Network concurrency without a thread per request
 
 **Type:** RFC
-**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off.
+**Status:** Draft r7, 2026-10-12, with round 7's findings written in (§0). **Approved by Charlie, 2026-10-10**, to be implemented once the design rounds converge (rounds up to 7 allowed). Rounds 1–7 were reviewed blind by GPT-6 Astra (max) and Grok 4.7 (xhigh); every verdict was RIGHT WITH CHANGES (`llp/reviews/1120-network-concurrency-without-threads{,-r2,-r3,-r4,-r5,-r6,-r7}.{astra,grok}.md`). r7 takes every round-6 finding, and round 7's are written in without another round, the last allowed (§0). One needs a ruling (§6, question 8). Stage 1 is built behind a switch, off (§4); §5's Apple gate, measured 2026-10-12, failed, so the switch stays off. The October 13 adoption below uses upstream Ibex services without enabling the production switch. Charlie explicitly authorized the remaining correctness and rollout follow-up on October 13 ("ok do all those things"); §4 records the implementation. Independent Codex and Grok code reviews cleared the stage-1 correctness follow-up and its Ibex pin adoption at Exact `56f107fa4`; the broader stages below remain open. A passing measured §5 gate remains required before default activation.
 **Systems:** the native executor (`host/apple/src/executor_core.rs`, `executor_stream.rs`, `executor_body.rs`), compiled into Apple, Linux and the render host; ibex2's fetch layer (`vendor/ibex/crates/ibex2/src/stdlib/fetch.rs`) and transports (`transport/darwin.rs`, `darwin_http.mm`, `darwin_websocket.*`, `websocket.rs`, `rustls_http.rs`).
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-10, r6 and r7 2026-10-12
@@ -423,15 +423,23 @@ Each line is a test today. The semantic assertions are kept and run against the 
 
 **As built, stage 1 (2026-10-12).** Stage 1a is ibex2's asynchronous fetch: `fetch_async.rs` (`Sink`, `Flow`, `Upload`, `Exchange` with an explicit activation, `FetchTask`, and a `BlockingAdapter` over any blocking `Transport`) and Apple's `DarwinLane` (`darwin_async.rs`, `darwin_task.mm`). Stage 1b is the core, `host/apple/src/executor_async.rs`, under the existing admission, queues, settlement and fence of `executor_core.rs`. Where it differs from the text above, until the stages that finish it:
 - **A switch.** `EXACT_HTTP_ASYNC=1`, at build or in the process's environment, runs the machine; without it the workers run, unchanged. It stays off until §5's gate passes. Only `Executor::start` (Apple's) takes it; the render host's `start_on` keeps the workers.
-- **Threads.** The base set (six) is reserved at `start` from today's `LIVE_WORKERS` bound and created at the first request, as the workers are; `MAX_THREADS` and the adapter's bounded pool with its stragglers (D4) come with Linux, stage 2. Off Apple, and in tests, the lanes are `BlockingAdapter`s with a thread per exchange.
+- **Threads.** The six machine threads are reserved at `start` from `LIVE_WORKERS` and created at the first request. The October 13 adoption also reserves the bounded portable adapter's one ordered and six independent workers (the latter follows `EXACT_HTTP_WORKERS`), created on their first transport reservation and charged until accepted work returns. Linux/render activation and the broader `MAX_THREADS` rollout remain stage 2.
 - **Streams** keep their own threads and transports (stage 3), so the file-backed stream rule of D5 waits for them.
 - **Scoped grants** use the lane's transport with the scope's grants.
 - **A redirect's next hop** waits only for the in-flight cap; it counts toward its origin's HTTP/1.1 count when it starts.
-- **Open before the switch can default on (round 4 of the code review, 2026-10-12).** Stage 1b landed over Astra's DO NOT LAND because its path is off by default; each of these must be fixed and pass both reviewers before `EXACT_HTTP_ASYNC` can default on:
-  - *Blocking (Astra):* two uploads sizing at once can deadlock: the park refusal counts only queued successors, not one still sizing (count those too, or size one upload a lane at a time). An unstarted upload exchange sent to the disposer has its charge refunded while its closure still owns the bytes (carry the release with the buffer).
-  - *Material:* retirement can destroy a reader's file job before the abort fires, so the reader keeps reading (Astra); a panic in an HTTP start or a reader never releases the start's hold nor settles the run (Grok: `catch_unwind` and guards); a stale redirect hop and a duplicate outcome are dropped under the state lock (both: to the disposer).
-  - *Tests (Grok):* a parked upload behind the head, a reader that fails to spawn, an upload buffer released while a sending hop is up.
+- **Correctness follow-up (2026-10-13; implemented and independently reviewed).** This closes the still-listed stage-1b findings from Astra and Grok's October 12 round 4. The production switch remains off; these repairs do not waive §5 or authorize blind retry of writes.
+  - **Upload progress:** one unsized file per lane is selected until its size is decided or its reader ends. Every successor therefore stays in the queue counted by the park-refusal test. A parked upload reserves its future bytes wherever it is in the queue, including behind an origin-blocked head.
+  - **Upload ownership:** the read result becomes the charged `Upload` before its first exchange is queued. A timed-out start awaiting disposal retains that charge until the last buffer owner releases it and the sending hops physically end. Upstream's last-release callback must run after the allocation is freed; the follow-up Ibex pin supplies that ordering fix.
+  - **Retirement and panics:** the active reader owns its shared-retirement registration independently of the disposable file job. Reader and starter physical holds have unwind guards; failure to spawn a reader and unwinding sizing/reading or preparation/activation panics publish a terminal outcome and leave the lane usable. The native app profiles use `panic=abort`: an aborting panic terminates that process and cannot be caught by these guards. The tracked sink owns a prepared hop's physical hold even when its transport refuses or unwinds.
+  - **Destruction:** stale redirect starts, duplicate outcomes, forgotten outcomes, and a parked file job's retired transport/abort handles go to the disposer. Posting an event releases the finisher-channel lock before handing over or dropping the event. No opaque stale capture is destroyed under the state lock.
+  - **Regression evidence:** `executor_async_tests.rs` covers blocked disposal with a charged queued upload, retirement after file-job disposal, injected reader spawn refusal and sizing/reading panics, transport preparation/activation panics in both lanes, a sending hop surviving buffer release, and parking behind an origin-blocked head. `executor_async_file.rs` checks the two-upload sizing deadlock boundary and stale-hop/duplicate-outcome disposal off the state lock. The executor-core run passes 92 tests with 9 explicitly manual cases ignored; its nested async-core replay passes 71 with 9 ignored. The fault hooks are per-machine test-only hooks; production scheduling has no new test dispatch path.
 - **The executor's suite** runs again on the machine (`the_suite_passes_on_the_asynchronous_core`), and `executor_async_tests.rs` adds the cap, the per-origin pass-over and its h2 lift, the ordered slot at a timeout, the later-of release, a forgotten write, and question 8's park and refusal.
+
+
+Real-file upload tests in the worker and async suites share one test guard,
+matching the process-wide four-reader limit. Otherwise unrelated tests can
+consume that capacity and turn an expected timeout into an admission refusal.
+Each test keeps its own concurrent-reader assertions; other tests run in parallel.
 
 
 There are no shims; each step deletes what it replaces in the executor.
@@ -551,8 +559,8 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
   4. **Fails with gate 5,** likewise. Windows 1 and 3 alone would pass: C 1481 and 1602 against A6 1508 and 1624; worst 2002 and 1932 against 2351 and 1955.
   5. **Fails for C.** Windows 1 and 3 have no failed run (one window-1 C launch logged 27 exchanges, one pagination read fewer, with all 19 feed reads). But window 2's C failed two launches, and by the rule above a treatment failure fails that arm's gate; contamination doesn't excuse it. One painted nothing (the null in its block); the other painted at 16.5 s with 14 of its 19 feed reads, five author feeds never connecting and not retried (it is in the table's median, IQR and worst; without it, C's window 2 is 1513, IQR 186, worst 3050).
 - **In sum:** in the clean windows' gated pairs async was not slower (C7 against A7, C against A6 and C7), and in window 3 its spread was the narrowest (C's IQR 78, C7's 110, against 284 and 128); but the primary outcome, gate 1, is a tie well inside the noise, and C failed two launches in window 2.
-- **Finding: one connection, one point of failure (window 2).** In C's failed launch the connection's setup stalled for 15 s, the request deadline (`data/atproto.ts`), and every request of the launch was cancelled together (`NSURLErrorCancelled`, -999, in that run's simulator log); its 12 log lines carry no endpoint or protocol, in two clusters 15 s apart. The cause is open: we read a 15 s stall as unlikely to be CPU contention, a judgement, not a measurement, in a contaminated window. Hypotheses, not shown: the 16.5 s launch (`connect_to_post` 16263 ms), whose five unconnected feed reads log the same way, is the same stall, the rest of its reads getting a connection; under the workers the same stall would cost one connection's share of the exchanges (two to seven of 28), still a failed run, rather than all of them, and no worker launch lost an exchange in any window. Before any default-on, worth trying: a connection-setup timeout shorter than the request deadline with a retry on a fresh connection, or a second connection when the first hasn't opened.
-- **Not done:** the 1b review follow-ups (§4, needed only if this gate passed), stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and a physical device. Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
+- **Finding: connection setup did not complete before the deadline (window 2).** The failed launch waited 15 s, the request deadline (`data/atproto.ts`), then logged clustered `NSURLErrorCancelled` (-999) completions. Those twelve records carry no endpoint or protocol. They establish a setup stall and shared cancellation timing, but do not establish how many physical connections existed or its cause. The earlier “one connection, one point of failure” description was an inference, not a measurement. The 16.5 s launch (`connect_to_post` 16263 ms) may share the cause; its five unconnected feed reads do not prove that. No retry or speculative duplicate request is introduced on that evidence.
+- **Remaining qualification:** stage 2 (Linux), the preconnect experiment, the non-gating recordings other than `connect_to_post` and the connection log (the feed reads' span, active exchanges and byte-budget stalls, peak threads and memory, CPU, `fling-discover`, LAN runs, the idle-executor cost), and the physical-device network/UI gate. The October 13 stage-1b repairs have completed independent code review (§4). Results: `~/x2p2/gate/lte-{1,2,3}` on the measuring machine.
 
 ## 6. Questions for the ruling
 
@@ -569,3 +577,104 @@ This decides the adapter, not HTTP/2 on Linux; that would need D4's spike first.
 
 - Opaque Rust closure captures remain count-bounded only (§8.4).
 - A handed-off outcome can retain more than the lane's budget when it completes, as LLP 1041 already records (`llp/1041-graceful-overload.rfc.md:689`).
+
+**Controlled setup-stall follow-up (2026-10-13).** The ignored Exact test
+`native_tls_setup_stall_observes_connections_deadlines_and_an_unretried_write`
+uses the real `DarwinLane` and executor, with a loopback peer that accepts TCP
+and retains TLS ClientHello without replying. Nineteen independent reads have
+the original 15-second deadline. Cold-origin admission allows six requests;
+activation-relative deadlines produce terminal waves of 6 / 6 / 6 / 1 at
+15.35 / 30.35 / 45.35 / 60.36 seconds. The peer accepts **four TCP connections**,
+one per wave: URLSession coalesces the six tasks waiting for setup. An ordered
+POST to a healthy loopback origin completes exactly once during the stall; an
+independent GET succeeds afterward, and every charge returns. This supports the
+setup-sharing mechanism under a controlled failure, not the cause of the old
+LTE failures or a performance claim. The run used macOS 27.0.1 on a loaded host.
+The first diagnostic harness had incorrectly allowed only 25 seconds for all
+nineteen activation-relative deadlines; that failed expectation and the corrected
+run are retained in the follow-up run ledger. Production deadlines are unchanged.
+
+The historical `bsky4` commit `c5e6e50` and its `tools/perf/measure.py` are absent
+from the available local, Air and Studio checkouts. The older local Bluesky
+checkout has a Rust-only data module despite `rust.mode=off`, so using it would
+require an app migration and would not reproduce the specified baseline.
+Charlie assigned the historical `bsky4` benchmarking and rollout campaign to
+the agent on Tuft on October 13. That lane owns recovering the original fixture
+and measurement script, the four interleaved 12-run LTE arms, HTTP/2 transaction
+and connection-overlap evidence, and the remaining §5 recordings. Its handoff
+includes the controlled stall's four connections and 6 / 6 / 6 / 1 terminal
+waves, the exact activation-relative deadline semantics, and the prohibition
+on speculative replay of writes. Current included-app device smoke and these
+controlled diagnostics cannot satisfy that gate. Independent Codex and Grok
+code reviews cleared the current stage-1 implementation and pin adoption at
+Exact `56f107fa4`; their verdicts are retained in the consumer-release run
+ledger. The default remains off until the external campaign passes §5. These
+reviews do not complete the broader Linux/render, thread-cap and stream stages.
+
+## Ibex consumer adoption, 2026-10-13
+
+The transport interface now comes from upstream Ibex's asynchronous fetch
+implementation. A transport reserves capacity before accepting an exchange;
+a refusal releases Exact's origin, upload and lane accounting without waiting
+for a callback from work never accepted. The first accepted activation arms
+Exact's one real-time deadline. Upload sizing and parking still precede it,
+and redirects reuse it. Logical outcome, physical hop retirement and final
+upload-buffer release retain their separate accounting.
+
+The portable fallback uses Ibex's bounded worker service instead of spawning
+one thread per exchange. Exact still owns lane policy and its numerical
+budgets. The render host explicitly selects `portable-http`; Apple's native
+transport stays the default. This adoption does not select asynchronous mode
+by default or replace this RFC's production comparison.
+
+The vendor refresh also imports Ibex's borrowed clock/cycle primitives.
+Exact's modules still expose neither ambient timers nor sockets: the runner
+owns application clocks and stream handles (LLP 1027.000 and 1016.000).
+
+The portable worker materializes one additional upload buffer. Its lane therefore
+reserves twice a file upload's length (and the extra inline body length) before
+starting it, with checked size arithmetic. Native Apple uploads retain the shared
+buffer once. Both charges stay until physical retirement and the last buffer
+release; the portable worker queue also has an explicit capacity.
+
+The old vendored process-wide metric-file hook is now Exact's optional
+`executor_metrics.rs` observer of asynchronous hop callbacks. It preserves the
+`IBEX2_HTTP_METRICS` file selection for that lane. Blocking/native comparisons
+use Ibex's explicit diagnostic; a file from only the async observer is not a
+qualified two-arm comparison. The production async switch stays opt-in.
+
+Portable fallback pools start lazily at their first reservation: one ordered
+worker and the configured independent-worker count (six by default). Their
+slots count alongside the six machine threads under Exact's process limit, and
+each actual worker owns its slot until its thread exits, including idle retirement
+and partial pool construction. Failed pool construction is terminal for that lane;
+it cannot retry using slots still held by a previous attempt.
+
+If any base thread cannot start, the failed core releases every unstarted
+portable reservation immediately. Already-started base threads keep their own
+slots until exit. The lifecycle witness injects failure at each of the six
+base positions while retaining the failed cores, then checks lazy startup,
+physical pool retirement and refusal to retry failed pool construction.
+
+
+## Physical iPhone follow-up, 2026-10-14
+
+The isolated Conduit fixture was built from Exact `a01c62241` with
+`EXACT_HTTP_ASYNC=1` and the published V5 Hermes bundle, then signed and installed
+on a physical iPhone 17 Pro Max (`iPhone18,2`), iOS 27.0.1 (24A446). Its first
+launch was refused while the phone was locked. After a normal unlock it
+launched, but the test-control socket could not reach the Mac's selected IPv4
+endpoint (`No route to host`). The fixture was then rebuilt normally with the
+documented `host.ios.localNetworking=true` option. Its next launch did not
+establish the agent connection before the readiness timeout. That is a control
+channel failure, not evidence of an HTTP transport failure or a successful
+anonymous-network UI drive. No rerouting or device security setting was changed.
+
+The prepared storage fixture has the same documented local-network option;
+its UI write/read and same-store restart remain unqualified while the control
+connection is unavailable. The separate signed ImageIO harness needs no LAN
+control channel and passed all six bounded physical cases recorded in
+LLP 1069.002's October 14 qualification. Those native image-service results
+neither stand in for the missing network/storage UI proof nor pass the LTE
+gate. Tuft still owns the measured rollout campaign, and the async default
+remains off. The broader stages and Draft status are unchanged.

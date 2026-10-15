@@ -1,5 +1,5 @@
 // A stateful child in a slot fill, the slot component showing `children`
-// under its own `when`: the fill renders at `children`, so the arm around
+// under its own `if`: the fill renders at `children`, so the arm around
 // `children` owns the child's state, and hiding and showing the arm starts
 // it fresh — not the use site, which keeps rendering throughout.
 component App
@@ -16,7 +16,7 @@ component Box
   view
     column
       button "toggle" press=toggle testId="toggle"
-      when open
+      if open
         children
 
 component Counter

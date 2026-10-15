@@ -30,7 +30,7 @@ component Split
               text "Bill"
               input value=billText input=editBill inputmode="decimal" placeholder="0.00"
                 aria-label="Bill" text-align="end" testId="bill" flex=1 min-width=0
-            when billError != ""
+            if billError != ""
               text billError font="-exact-footnote" color="-exact-system-red" testId="bill-error"
         row
           text "People"
@@ -39,7 +39,7 @@ component Split
       section
         row
           text "Each Pays"
-          text (bill > 0 ? toFixed(bill / people, 2) : "—") font-variant-numeric="tabular-nums" testId="share"
+          text (bill > 0 ? (bill / people).toFixed(2) : "—") font-variant-numeric="tabular-nums" testId="share"
 ```
 
 ```contract-test

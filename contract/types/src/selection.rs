@@ -55,7 +55,7 @@ pub(super) fn selection_range_args(
     }
     err(
         "type-set-selection-range",
-        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the field's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
+        "`setSelectionRange(\"id\", start, end)` or `setSelectionRange(\"id\", start, end, \"backward\")`: the node's `id`, the UTF-16 offsets, and optionally `forward`, `backward` or `none`",
         span,
     )
 }
@@ -82,7 +82,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "selectionchange" => Some("Selection"),
         // The target as HTML's `input` and `change` leave it (x2apps
         // codeedit #2, survey #2): its value, checked state and selection.
-        "input" | "change" => Some("InputEvent"),
+        "input" | "change" | "beforeinput" => Some("InputEvent"),
         "focusin" | "focusout" => Some("FocusEvent"),
         "resize" => Some("DOMRectReadOnly"),
         "intersect" => Some("IntersectionObserverEntry"),
@@ -164,6 +164,9 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("selectionEnd".into(), Ty::Number),
             ("selectionDirection".into(), Ty::String),
             ("inputType".into(), Ty::String),
+            ("data".into(), Ty::Option(Box::new(Ty::String))),
+            ("cancelable".into(), Ty::Bool),
+            ("isComposing".into(), Ty::Bool),
         ],
     );
     // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
@@ -176,13 +179,18 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // diary), what `selectionchange` hands its action, in the order
     // `exact_runner::Event::SelectionChange` writes it: the selected text
     // (DOM `Range.toString()`) and its UTF-16 start and end in the node's
-    // own text, as written. Nothing selected there is "" with equal offsets.
+    // own text, as written, followed by viewport rectangle snapshots.
+    // Nothing selected there is "" with equal offsets and no rectangles.
     shapes.map.insert(
         "Selection".into(),
         vec![
             ("text".into(), Ty::String),
             ("start".into(), Ty::Number),
             ("end".into(), Ty::Number),
+            (
+                "rects".into(),
+                Ty::List(Box::new(Ty::Record("Geometry".into()))),
+            ),
         ],
     );
     // DOM's `PointerEvent`, the subset every host measures, in the order
@@ -270,7 +278,12 @@ pub(super) fn declare(shapes: &mut Shapes) {
             "clientHeight",
         ]
         .map(|f| (f.into(), Ty::Number))
-        .to_vec(),
+        .into_iter()
+        .chain([
+            ("firstVisibleKey".into(), Ty::Option(Box::new(Ty::String))),
+            ("firstVisibleOffset".into(), Ty::Number),
+        ])
+        .collect(),
     );
     // What a `resize` handler's action hears after the content box's width
     // and height when it takes one more parameter, in the order

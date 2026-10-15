@@ -440,9 +440,9 @@ impl Lowerer<'_> {
                         .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
                         .or_else(|| {
                             colour
-                                .then(|| crate::values::role_hint(&value))
+                                .then(|| crate::edits::role_hint(&value, true))
                                 .flatten()
-                                .map(|h| h.trim_start_matches("; ").to_string())
+                                .map(|edit| edit.clause())
                         });
                     if let Some(hint) = hint {
                         ok = false;
@@ -519,6 +519,13 @@ impl Lowerer<'_> {
             );
         }
         for a in attrs {
+            if a.name == "transform" && !element && tag != "svg" {
+                return err(
+                    "lower-attr-tag",
+                    crate::vocab::BOX_TRANSFORM_REFUSAL,
+                    a.span,
+                );
+            }
             // A `clipPath` by reference clips SVG elements (LLP 1055.000 D10);
             // a box's `clip-path` is a path.
             if matches!(tag, "text" | "tspan") && element && a.name == "rotate" {

@@ -53,6 +53,7 @@ final class TextFlowPresentationTests: XCTestCase {
              "style": ["font_size": 16.0, "line_height": "24px", "padding_left": 10.0, "padding_top": 12.0]],
             ["op": "create", "id": 2, "kind": "text", "props": ["text": "Unchanged neighbor"]],
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 370.0, "h": 500.0],
+            contentOp(1, 370, 500, padding: [12, 0, 0, 10]),
             ["op": "frame", "id": 2, "x": 0.0, "y": 500.0, "w": 370.0, "h": 40.0],
             ["op": "roots", "ids": [1, 2]],
         ])
@@ -75,11 +76,11 @@ final class TextFlowPresentationTests: XCTestCase {
         apply([
             ["op": "style", "id": 1, "style": ["font_size": 16.0, "line_height": "24px",
                 "padding_left": 10.0, "padding_top": ["pct": 5.0]]],
-            ["op": "fieldContent", "id": 1, "rect": [10.0, 20.0, 360.0, 480.0]],
+            contentOp(1, 370, 500, padding: [20, 0, 0, 10]),
             ["op": "flow", "id": 1, "shapes": [["kind": "Circle", "cx": 190.0, "cy": 108.0, "r": 52.0]]],
         ])
         let beforeContentMove = try XCTUnwrap(node.paragraphLayout())
-        apply([["op": "fieldContent", "id": 1, "rect": [10.0, 10.0, 360.0, 490.0]]])
+        apply([contentOp(1, 370, 500, padding: [10, 0, 0, 10])])
         let moved = try XCTUnwrap(node.paragraphLayout())
         XCTAssertFalse(moved === beforeContentMove, "the content box moved the exclusion")
         XCTAssertTrue(neighbor.paragraphLayout() === unchanged)

@@ -30,6 +30,7 @@ mod symbols;
 pub mod terminal;
 mod typescript;
 
+pub use contract_lower::vocab::collection_edge_refusal;
 pub use contract_types::strings::Strings;
 /// The data seam, re-exported for an app's build script: the bake asks the
 /// crate its grants for the compatibility id (`Caltrain.grants()`).
@@ -39,7 +40,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{Package, Source, SourceGraph};
+pub use sources::{design_path, Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 

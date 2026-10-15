@@ -35,7 +35,7 @@ component Tea
     finished = false
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="app" width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` navigationScroll="presets" position="absolute" inset=0
           display="flex" flex-direction="column"
           header display="flex" align-items="center" padding="8px 16px"
@@ -47,10 +47,10 @@ component Tea
               text (running ? "Stop" : "Start")
           list id="presets" appearance="auto" listStyle="inset-grouped" flex=1 min-height=0
             section
-              each m in [1, 3, 5, 10] key=m
+              for m in [1, 3, 5, 10] key=m
                 button press=choose(m) disabled=running testId=`min-${m}`
                   text `${m} min`
-                  when minutes == m
+                  if minutes == m
                     image "symbol:checkmark"
 ```
 

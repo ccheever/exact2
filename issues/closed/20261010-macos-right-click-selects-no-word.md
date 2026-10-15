@@ -39,7 +39,7 @@ clone keeps that difference (its `EXACT2-GAPS.md`, "Text context menu", S1).
 ## Reproduction
 
 The app is made with `bun scripts/exact.mjs new <dir>` on main `42fd5d99e4c884a366483aecd226f08442dee793`. Its
-`app.ts` exports an empty `sources`. The full contract (it also carries X77's rows) is in the record.
+`app.ts` exports an empty `sources`.
 
 ```text
 component X76app
@@ -61,12 +61,6 @@ tree`. The agent sends a real secondary click, through the application on macOS 
 | Same, web | Exact web (JS target) in Chrome 155.0.8059.39 | main `42fd5d99e` | `selected=[Known]`, highlighted | (the reference) | image (left), record |
 | Control: a double click on "Known" (`tap t clicks 2 at 30 14`) | macOS | main `42fd5d99e` | `selected=[Known]` | (selection works) | record |
 | Hand-built AppKit: a read-only, selectable `NSTextView` and a `WKWebView` holding the same text, sent `rightMouseDown`/`rightMouseUp` on "Known" | macOS 26.6.2, `swiftc` | — | both select "Known". Menus: `NSTextView` Look Up "Known", Translate "Known", Search With Google, Cut, Copy, Paste, …; `WKWebView` Look Up "Known", Translate "Known", Search with Google, Copy, … | — | record (oracle source beside it) |
-
-![X76: a right-click on an unselected word, Exact web in Chrome and macOS](https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x76-right-click-word-web-macos.png)
-
-Record (contract, commands, both drives, the control, the AppKit and WebKit oracle):
-https://raw.githubusercontent.com/ccheever/exact2/3d74174e0644477a05bcb95c1802f7af3c3555f0/fw-issues-20261010g/x76-record.txt
-(oracle source: `fw-issues-20261010g/x76-appkit-webkit-oracle.swift.txt` at the same commit).
 
 Not run: #327's head, a right-click inside an existing selection, text whose node or ancestor has a
 `contextmenu` handler, `user-select="none"` text and labels inside controls, iOS, Linux, and real hardware input

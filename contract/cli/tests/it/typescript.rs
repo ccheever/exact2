@@ -9,18 +9,18 @@ const CONTRACT: &str = r#"
 shape Item
   id: string
   enabled: bool
-  scores: list<number>
+  scores: number[]
   child: option<string>
 
 component App
   state query = ""
-  resource items = search(query) as shape list<Item>
+  resource items = search(query) as shape Item[]
   resource found = find(query) as shape option<Item>
   mutation outcome as shape Item
   action save
     send outcome = save(query, true)
   view
-    text `${length(items)}`
+    text `${items.length}`
 "#;
 
 const VALID: &str = r#"
@@ -70,6 +70,11 @@ async function storageTypes() {
   await database.query('SELECT ?', [{unexpected: true}]);
   // @ts-expect-error SQLite row IDs are bigint, never lossy numbers
   const lossy: number = batch[0].lastInsertRowid;
+  // `fs.compressImage` as the docs give it (LLP 1069.002 A1): options in, the record out.
+  const image = await storage.fs.compressImage(path, storage.fs.directories.cache + '/out.jpg', {maxDimension: 1024, maxBytes: 1_000_000});
+  const shrunk: {path: string; type: 'image/jpeg'; size: number; width: number; height: number} = image;
+  // @ts-expect-error the engine's positional binding is not the app interface
+  await storage.fs.compressImage(path, path, 1024, 1_000_000);
 }
 // @ts-expect-error store.set has no success value
 const success: boolean = store.set('token', 'value');
@@ -123,6 +128,32 @@ impl Drop for Fixture {
     fn drop(&mut self) {
         std::fs::remove_dir_all(&self.0).unwrap();
     }
+}
+
+/// The app interface of `storage.fs.compressImage` (LLP 1069.002 A1) as
+/// docs/reference.md gives it: the declaration apps type-check against says
+/// options in and the record out. Kept beside the tsc check (the async lane),
+/// which the default checks skip: an Ibex refresh once replaced the
+/// declaration with the engine's positional binding and nothing failed.
+#[test]
+fn compress_image_is_declared_as_the_docs_give_it() {
+    let declared = include_str!("../../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts");
+    for line in [
+        "compressImage(from: string, to: string, options: CompressImageOptions): Promise<CompressedImage>;",
+        "readonly maxDimension: number;",
+        "readonly maxBytes: number;",
+        "readonly type: \"image/jpeg\";",
+        "readonly width: number;",
+        "readonly height: number;",
+        "readonly size: number;",
+        "readonly path: string;",
+    ] {
+        assert!(declared.contains(line), "storage.d.ts lost `{line}`");
+    }
+    // The engine's positional binding is the prelude's to adapt, never the app's.
+    assert!(!declared.contains("compressImage(from: string, to: string, maxDimension"));
+    let reference = include_str!("../../../../docs/reference.md");
+    assert!(reference.contains("`storage.fs.compressImage(from, to, {maxDimension, maxBytes})`"));
 }
 
 #[test]
@@ -369,4 +400,45 @@ fn a_contract_without_sources_has_no_summary() {
         "// @generated from Contract source signatures; do not edit.\n\
          // Static types do not replace runtime shape, identity, or grant checks.\n\n"
     ));
+}
+
+#[test]
+#[ignore = "async lane: checks the stream handle with tsc"]
+fn generated_socket_handle_types_text_binary_and_close_events() {
+    let plan = contract::compile(CONTRACT).unwrap();
+    let fixture = Fixture::new();
+    fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+    let output = fixture.check(
+        r#"
+import type { StreamSocket } from './app.contract.d.ts';
+let kept: StreamSocket | undefined;
+fetch('wss://example.test', { exactStream(event, socket) {
+  kept = socket;
+  const payload: string | ArrayBuffer = event.data;
+  const code: number | undefined = event.code;
+  const reason: string | undefined = event.reason;
+  const clean: boolean | undefined = event.wasClean;
+  return typeof payload === 'string' ? payload : new TextDecoder().decode(payload);
+}});
+function mutation() {
+  if (!kept) return;
+  kept.send('subscribe');
+  kept.send(new Uint8Array([1, 2]));
+  kept.send(new ArrayBuffer(2));
+  kept.close(4001, 'finished');
+  const state: number = kept.readyState;
+  const bytes: number = kept.bufferedAmount;
+  // @ts-expect-error the handle cannot send arbitrary records
+  kept.send({ secret: true });
+  // @ts-expect-error the state is owned by the transport
+  kept.readyState = 1;
+}
+"#,
+    );
+    assert!(
+        output.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

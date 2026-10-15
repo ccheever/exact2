@@ -33,7 +33,8 @@ pub(super) struct Checkpoint {
     timers: Vec<super::Timer>,
     published: Option<Box<Published>>,
     commands: usize,
-    root_font: (super::root_font::RootFont, f32),
+    /// The root font size, and the window's app tuple (`setMode`).
+    root_font: (super::root_font::RootFont, f32, u32),
     /// Kept answers refused before this commit (`kept::refuse`).
     refused: usize,
 }
@@ -66,7 +67,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Open top-layer boxes in the presenter's back-to-front order and their
-    /// actual viewport frames.
+    /// viewport frames: where the host shows each border box (its placement,
+    /// a keyboard's lift included) before the box's own CSS transform, which
+    /// the runner applies.
     pub fn top_layer_frames(&mut self, frames: &[(ViewId, [f64; 4])]) {
         self.scrolled.top_layer_frames(&self.kernel, frames);
     }
@@ -109,7 +112,11 @@ impl<D: DataSource> Runner<D> {
                     })
                 }),
             commands: self.commands.len(),
-            root_font: (self.root_font, self.kernel.root_font_size()),
+            root_font: (
+                self.root_font,
+                self.kernel.root_font_size(),
+                self.ids.theme.window,
+            ),
             refused: self.keeping.refused.len(),
         }
     }
@@ -181,6 +188,7 @@ impl<D: DataSource> Runner<D> {
                 self.keeping.refused.truncate(c.refused);
                 self.root_font = c.root_font.0;
                 let _ = self.kernel.set_root_font_size(c.root_font.1);
+                self.ids.theme.window = c.root_font.2;
             }
         }
         self.refused_unsent.clear();
@@ -693,6 +701,7 @@ impl<D: DataSource> Runner<D> {
         let mut answered: Vec<(u32, Value)> = Vec::new();
         let mut asked: Vec<usize> = Vec::new();
         let mut landed_now: Vec<usize> = Vec::new();
+        let mut failed_now = Vec::new();
         // Non-queue mutations whose send replaces one in flight without a
         // request of its own: an answer at once, or one waiting for the source.
         let mut replaced: Vec<usize> = Vec::new();
@@ -745,6 +754,13 @@ impl<D: DataSource> Runner<D> {
                 }
                 Ok(super::queue::Asked::Later(request)) => {
                     later.push((m, source.clone(), sargs.clone(), request))
+                }
+                Ok(super::queue::Asked::Failed) => {
+                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
+                    later = rest;
+                    self.discard_later(&older);
+                    self.pending_mut[m] = false;
+                    failed_now.push(m);
                 }
                 Err(e) => {
                     self.discard_later(&later);
@@ -885,7 +901,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A send answered at once, or waiting for the source, replaces one
         // still in flight (newest wins): the older reply is not wanted.
-        for m in landed_now.into_iter().chain(replaced) {
+        for m in landed_now.into_iter().chain(replaced).chain(failed_now) {
             if !self.plan.mutations[m].queue {
                 self.forget_ticket(Target::Mutation(m));
             }
@@ -902,6 +918,7 @@ impl<D: DataSource> Runner<D> {
                 self.plan.str(self.plan.mutations[*m].name),
             ));
         }
+        self.take_set_modes(first_command);
         // `setRootFontSize` is the runner's too: the size lands in this
         // commit's layout, and the command stays for a host that mirrors it;
         // a refused one is journaled as refused, never as a command.
@@ -933,10 +950,10 @@ impl<D: DataSource> Runner<D> {
         // `scrollIntoView` of a list's row is the runner's own (LLP
         // 1070.000): it runs in this commit, after the update, and never
         // reaches a host. An element's (its id and three options, not the
-        // row form's six arguments) is the host's, as `focus` is.
+        // row form's seven arguments) is the host's, as `focus` is.
         let stated: Vec<Command> = self.commands.drain(first_command..).collect();
         for command in stated {
-            if command.name != "scrollIntoView" || command.args.len() != 6 {
+            if command.name != "scrollIntoView" || command.args.len() != 7 {
                 self.commands.push(command);
                 continue;
             }
@@ -955,27 +972,6 @@ impl<D: DataSource> Runner<D> {
             self.apply_sounds(first_command);
         }
         result
-    }
-
-    /// The voice table takes the commit's `playSound`, `playSounds` and
-    /// `stopSounds` once it stands, in the order they were issued; the
-    /// commands stay for the host, which skips them (LLP 1096 D5). A
-    /// `reload` ends every live voice first.
-    fn apply_sounds(&mut self, from: usize) {
-        let commands = &self.commands[from.min(self.commands.len())..];
-        let calls: Vec<_> = commands
-            .iter()
-            .filter_map(|c| crate::sound::Call::of(&c.name, &c.args))
-            .collect();
-        let mut lines = Vec::new();
-        if !calls.is_empty() {
-            self.sounds
-                .apply(&self.plan, self.now_ms, &calls, &mut lines);
-        }
-        if !self.plan.sounds.is_empty() && commands.iter().any(|c| c.name == "reload") {
-            self.sounds.reload(self.now_ms, &mut lines);
-        }
-        lines.into_iter().for_each(|l| self.log(l));
     }
 
     /// Whether `value` conforms to `ty`, checking only the list items not

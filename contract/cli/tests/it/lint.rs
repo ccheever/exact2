@@ -158,7 +158,7 @@ fn check_refuses_without_data_what_no_answer_could_change() {
     // A label the module answers is empty until it does: not this check's
     // to judge, nor a `scroll` that only its answered rows reach the bound
     // of (unanswered, it is exactly as tall as its header).
-    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            each r in rows key=r\n              text r\n";
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape string[]\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            for r in rows key=r\n              text r\n";
     contract::check(&contract::compile(answered).unwrap()).unwrap();
 }
 
@@ -400,7 +400,7 @@ fn number_only_style_choices_reject_computed_string_arms() {
         "view opacity=(match maybe { case some(x) => x, case none => label })",
         "view flex-grow=(on ? 1 : label)",
         "view opacity=`${label}`",
-        "view opacity=toString(label)",
+        "view opacity=label.toString()",
     ] {
         let e = contract::compile(&app(node)).unwrap_err();
         assert_eq!(e.id, "lower-attr-type", "{node}: {e}");
@@ -420,7 +420,7 @@ fn number_only_style_choices_reject_mixed_nested_expressions() {
     };
     for node in [
         "view opacity=`${on ? label : 1}`",
-        "view opacity=toString(on ? label : 1)",
+        "view opacity=(on ? label : 1).toString()",
         "view opacity=(on ? 0.5 : `${on ? label : 1}`)",
         "view opacity=(match (on ? some(label) : some(1)) { case some(x) => x, case none => 0 })",
     ] {
@@ -471,10 +471,10 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (
             app("  state n = 0\n", "text n"),
             "lower-attr-type",
-            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `toString(…)`",
+            "`text` takes a string; this expression is `number`: interpolate it in a template, `${…}`, or write `x.toString()`",
         ),
         (
-            app("", "when draft = \"x\"\n        text \"a\""),
+            app("", "if draft = \"x\"\n        text \"a\""),
             "syntax-expected-newline",
             "expected end of line, found `=`; `==` compares, and only a statement assigns",
         ),
@@ -486,10 +486,10 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         // The app farm's guesses (round 1): a tag, a count, a placeholder.
         (app("", "heading \"T\""), "lower-unknown-tag", "unknown tag `heading`; a heading is `text role=\"heading\" aria-level=1` (2 and on for the level)"),
         (app("", "table"), "lower-unknown-tag", "unknown tag `table`; a table or grid is `view display=\"grid\"` with `grid-template-columns`, or a `column` of `row`s"),
-        (app("  state xs = [1]\n", "text toString(count(xs))"), "type-refused-idiom", "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
-        (app("  state xs = [1]\n", "text toString(xs.size)"), "type-not-a-record", "`list<number>` has no fields: write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function"),
+        (app("  state xs = [1]\n", "text count(xs).toString()"), "type-refused-idiom", "write `x.length`, of text or of a list"),
+        (app("  state xs = [1]\n", "text xs.size.toString()"), "type-not-a-record", "`number[]` has no fields: write `x.length`, of text or of a list"),
         (
-            app("  resource todos = todosOf() as shape list<Todo> else []\n", "text \"a\""),
+            app("  resource todos = todosOf() as shape Todo[] else []\n", "text \"a\""),
             "syntax-placeholder-call",
             "a resource's `else` is a call: `else empty()` is its shape's zero (`[]` for a list, `\"\"` for text), with `field=constant` overrides for a record, or `else source(values…)`",
         ),
@@ -513,7 +513,17 @@ fn the_element_lint_finds_nothing_in_any_app() {
         let Ok(src) = std::fs::read_to_string(&path) else {
             continue;
         };
-        let file = contract_syntax::parse(&src).unwrap();
+        let mut file = contract_syntax::parse(&src).unwrap();
+        // The app's design is the driver's to read (LLP 1121 D2), as `contract build` does.
+        let design = path.with_file_name("app.tamber");
+        file.design =
+            std::fs::read_to_string(&design)
+                .ok()
+                .map(|text| contract_syntax::DesignSource {
+                    path: design.display().to_string(),
+                    text,
+                    source_id: 1,
+                });
         let found = contract_lower::lint(&file);
         assert!(found.is_empty(), "{}: {found:?}", path.display());
         checked += 1;
@@ -543,7 +553,7 @@ const TODOS: &str = r#"shape Todo
 component App
   state draft = ""
   state count = 0
-  resource todos = items(3) as shape list<Todo>
+  resource todos = items(3) as shape Todo[]
   action add
     count = count + 1
   view
@@ -551,7 +561,7 @@ component App
       input value=drat
       buton press=add
         text "Add" color="bleu"
-      each t in todos key=t.id
+      for t in todos key=t.id
         Row(todo=t, onPik=add)
 component Row
   props

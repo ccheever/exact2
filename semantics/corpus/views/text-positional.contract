@@ -11,9 +11,9 @@ component App
     choice = v
   view
     column
-      text toString(n) testId="num"
-      text toString(on) testId="bool"
-      text toString(n / 3) testId="expr"
+      text n.toString() testId="num"
+      text on.toString() testId="bool"
+      text (n / 3).toString() testId="expr"
       text (on ? "yes" : "no") testId="tern"
       text "" testId="empty"
       text "  spaced  " testId="spaced"

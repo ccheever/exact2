@@ -80,7 +80,7 @@ fn the_precedence_fixture_keeps_exacts_bare_contact_target() {
 #[test]
 fn its_face_is_its_children_read_live() {
     let mut r = boot(&app(
-        "button appearance=\"auto\" press=go testId=\"b\"\n  image \"symbol:send\"\n  when n == 0\n    text \"Send\"\n  else\n    text \"Sent  again\"",
+        "button appearance=\"auto\" press=go testId=\"b\"\n  image \"symbol:send\"\n  if n == 0\n    text \"Send\"\n  else\n    text \"Sent  again\"",
     ));
     let b = view_of(&r, "b");
     assert_eq!(
@@ -212,7 +212,7 @@ fn its_face_is_a_title_a_symbol_or_both() {
             "is a symbol",
         ),
         (
-            "button appearance=\"auto\" press=go\n  when busy\n    text \"Wait\"",
+            "button appearance=\"auto\" press=go\n  if busy\n    text \"Wait\"",
             "neither",
         ),
         // A blank title is no title (astra's code review).
@@ -280,7 +280,7 @@ fn it_goes_where_a_button_goes_and_admits_dialog_and_popover_invokers() {
         "header\n  button appearance=\"auto\" press=go\n    text \"Back\"",
         "row toolbarPlacement=\"window\" role=\"toolbar\"\n  button appearance=\"auto\" buttonStyle=\"filled\" toolbarPlacement=\"navigation\" press=go\n    text \"Edit\"",
         "button appearance=\"auto\" press=go aria-keyshortcuts=\"Meta+S\"\n  text \"Save\"",
-        "column id=\"menu\" popover=\"auto\" role=\"menu\"\n  button appearance=\"auto\" role=\"menuitem\" press=go\n    image \"symbol:send\"\n    text \"Send\"\n  when busy\n    button appearance=\"auto\" press=go\n      text \"Wait\"",
+        "column id=\"menu\" popover=\"auto\" role=\"menu\"\n  button appearance=\"auto\" role=\"menuitem\" press=go\n    image \"symbol:send\"\n    text \"Send\"\n  if busy\n    button appearance=\"auto\" press=go\n      text \"Wait\"",
         "scroll swipeContent=\"body\" swipeTrailing=\"mute\" overflow-x=\"scroll\" width=200 height=40\n  row id=\"body\" width=200 height=40\n    button appearance=\"auto\" press=go\n      text \"Open\"\n  button id=\"mute\" appearance=\"auto\" press=go aria-label=\"Mute\"\n    image \"symbol:send\"",
         "column id=\"confirm\" popover=\"auto\" role=\"alertdialog\"\n  text \"Delete it?\"\n  button appearance=\"auto\" popovertarget=\"confirm\" popovertargetaction=\"hide\" press=go destructive=true\n    text \"Delete\"\n  button appearance=\"auto\" popovertarget=\"confirm\" popovertargetaction=\"hide\"\n    text \"Cancel\"",
         "dialog id=\"ask\" closedby=\"any\"\n  button appearance=\"auto\" commandfor=\"ask\" command=\"close\" press=go\n    text \"Send\"",
@@ -712,13 +712,13 @@ fn default_admission_reuses_every_native_refusal_and_face_arm() {
     }
     for children in ["box width=4 height=4", "text \"A\"\n  text \"B\"\n  text \"C\"",
         "image \"photo.png\"", "image \"symbol:add\"", "text \"Go\" font-family=\"system-ui\"",
-        "text \"Go\"\n  when busy\n    box width=4 height=4",
+        "text \"Go\"\n  if busy\n    box width=4 height=4",
         "match (busy ? some(1) : none)\n    case some(x)\n      text \"Go\"\n    case none\n      box width=4 height=4",
-        "each x in [1, 2] key=x\n    text \"Go\""] {
+        "for x in [1, 2] key=x\n    text \"Go\""] {
         let src = app(&format!("button testId=\"b\"\n  {children}"));
         assert_eq!(appearance_of(&src), (NodeType::Pressable, exact_kernel::Appearance::None), "{children}");
     }
-    let src = app("button testId=\"b\"\n  when busy\n    text \"Busy\"\n  else\n    text \"Go\"");
+    let src = app("button testId=\"b\"\n  if busy\n    text \"Busy\"\n  else\n    text \"Go\"");
     assert_eq!(
         appearance_of(&src),
         (NodeType::Control, exact_kernel::Appearance::Auto)
@@ -771,7 +771,7 @@ fn any_merged_class_or_none_arm_disables_the_default_permanently() {
 fn a_bare_default_style_refusal_reports_its_first_reason() {
     for (body, reason) in [
         ("button background-color=\"red\" border=\"1px solid blue\" buttonStyle=\"filled\"\n  text \"Go\"", "background-color"),
-        ("button border-radius=8 buttonStyle=\"filled\"\n  text \"Go\"", "border-top-left-radius"),
+        ("button border-radius=8 buttonStyle=\"filled\"\n  text \"Go\"", "border-radius"),
         ("button font-family=\"system-ui\" buttonStyle=\"filled\"\n  text \"Go\"", "font-family"),
         ("button href=\"/x\" buttonStyle=\"filled\"\n  text \"Go\"", "href"),
         ("button buttonStyle=\"filled\"\n  box width=4 height=4", "box"),
@@ -779,7 +779,11 @@ fn a_bare_default_style_refusal_reports_its_first_reason() {
     ] {
         let (id, message) = refused(body);
         assert_eq!(id, "lower-button-style", "{message}");
-        assert!(message.contains(reason) && message.contains("Remove") && message.contains("appearance=\"none\"") && message.contains("without `buttonStyle`"), "{message}");
+        // LLP 1116.014 D1: the custom-face edit, and a native button's where there is one.
+        assert!(message.contains(reason) && message.contains("remove `buttonStyle`") && message.contains("appearance=\"none\""), "{message}");
+        let native = message.starts_with("for a native button, keep only `text` and a symbol `image`")
+            || message.starts_with("to keep the native button, remove `");
+        assert_eq!(native, !matches!(reason, "href" | "canvas"), "{message}");
     }
 }
 

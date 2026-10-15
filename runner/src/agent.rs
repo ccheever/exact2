@@ -427,6 +427,27 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
     }
 }
 
+/// A row's token, when it read one (LLP 1121 D7's index): `"token":{"names":
+/// […],"text":…,"modes":"axis=value,…","implied":bool}`, `implied` for a
+/// boundary's row its author did not write.
+fn token_json<D: DataSource>(runner: &Runner<D>, id: u32, row: StyleId, s: &mut String) {
+    let Some((names, text, modes, implied)) = runner.row_token(id, row) else {
+        return;
+    };
+    s.push_str(",\"token\":{\"names\":[");
+    for (i, n) in names.iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(n, s);
+    }
+    s.push_str("],\"text\":");
+    quote(&text, s);
+    s.push_str(",\"modes\":");
+    quote(&modes, s);
+    let _ = write!(s, ",\"implied\":{implied}}}");
+}
+
 /// One node, explained (LLP 1035.002 D1): every row it sets or inherits with
 /// where the value came from — `authored` (the own row), `inherited` from
 /// the ancestor whose own row won (CSS inheritance, LLP 1035.000 D1), or
@@ -515,6 +536,10 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         quote(row.name(), &mut s);
         s.push_str(":{\"value\":");
         row::row_json(row, node.computed(row), &mut s);
+        // @ref LLP 1121 D7 — the token beside the value, from the index.
+        if own {
+            token_json(runner, id, row, &mut s);
+        }
         if own && dynamic(row) {
             s.push_str(",\"source\":\"dynamic\"}");
         } else if own {
@@ -705,6 +730,8 @@ fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         media.gamut.keyword(),
         if media.high_dynamic_range { "high" } else { "standard" }
     );
+    s.push_str(",\"displayMode\":");
+    quote(media.display_mode.keyword(), &mut s);
     s.push('}');
     // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
     if !runner.faults().is_empty() {

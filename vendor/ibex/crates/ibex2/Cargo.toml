@@ -1,3 +1,5 @@
+[workspace]
+
 [package]
 name = "ibex2"
 version = "0.1.0"
@@ -6,7 +8,6 @@ license = "MIT"
 publish = false
 
 [dependencies]
-exact-grants = { path = "../../../../grants" }
 libc = "0.2"
 # LLP 0059.000 §3.4: a partial URL parser is a security bug rather than a
 # missing feature, so URL is a well-tested crate and not hand-written.
@@ -26,6 +27,7 @@ hermes-lean-sys = { path = "../hermes-lean-sys", optional = true, default-featur
 [dev-dependencies]
 ibex2-sqlite = { path = "../ibex2-sqlite" }
 # Exercise the portable transport on Apple too, without linking it in Apple builds.
+mio = { version = "1", features = ["os-poll", "net"] }
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
@@ -40,9 +42,9 @@ cc = "1"
 # The transport off Apple platforms (LLP 0057 §3; OQ2 of LLP 0068, resolved
 # 2026-08-30): HTTP/1.1 over rustls with the webpki roots — pure Rust, no
 # system TLS, nothing a builder without -dev packages lacks. Redirects and
-# the rest of `fetch` stay above it, in Rust, as on Apple. Exact patch 3 also
-# builds it on macOS for the render host; Apple device platforms omit it.
-[target.'cfg(not(any(target_os = "ios", target_os = "tvos", target_os = "watchos", target_os = "visionos")))'.dependencies]
+# the rest of `fetch` stay above it, in Rust, as on Apple.
+[target.'cfg(not(target_vendor = "apple"))'.dependencies]
+mio = { version = "1", features = ["os-poll", "net"] }
 socket2 = "0.6"
 libc = "0.2"
 ureq = { version = "=3.4.0", default-features = false, features = ["rustls"] }
@@ -56,11 +58,15 @@ rustls-native-certs = "0.7"
 webpki-roots = "1"
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_WindowsProgramming"] }
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_Foundation", "Win32_Networking_WinSock", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_SystemInformation", "Win32_System_WindowsProgramming"] }
 
-[target.'cfg(windows)'.dev-dependencies]
-# Restore only the owned document-refusal fixture's captured DACL.
-windows-sys = { version = "0.61.2", features = ["Win32_Security_Authorization"] }
+[target.'cfg(target_vendor = "apple")'.dependencies]
+mio = { version = "1", features = ["os-poll", "net"], optional = true }
+socket2 = { version = "0.6", optional = true }
+ureq = { version = "=3.4.0", default-features = false, features = ["rustls"], optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+rustls-native-certs = { version = "0.7", optional = true }
+webpki-roots = { version = "1", optional = true }
 
 [features]
 default = ["crypto", "websocket"]
@@ -80,4 +86,13 @@ crypto-asymmetric = ["crypto"]
 # Application WebSockets. The grant grammar and the refusing Rust/JS surface
 # remain present when this is off; only the transport implementation is cut.
 websocket = []
-test-support = []
+test-support = ["portable-http"]
+# Explicit production alternative; the native Apple transport remains default.
+portable-http = [
+    "dep:mio",
+    "dep:socket2",
+    "dep:ureq",
+    "dep:rustls",
+    "dep:rustls-native-certs",
+    "dep:webpki-roots",
+]

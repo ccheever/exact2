@@ -15,14 +15,14 @@ import CExact
 
 /// The containing block a native container gives one subtree, in points.
 struct HostBlock: Equatable {
-    /// One axis: the block is this long, or at most this long and as long
-    /// as its content.
+    /// One axis: a size, a maximum, or a limit for automatic content fitting.
     enum Axis: Equatable {
-        case size(CGFloat), atMost(CGFloat)
-        fileprivate var wire: (length: CGFloat, most: CGFloat) {
+        case size(CGFloat), atMost(CGFloat), fit(CGFloat)
+        fileprivate var wire: (length: CGFloat, policy: CGFloat) {
             switch self {
             case .size(let length): (length, 0)
             case .atMost(let length): (length, 1)
+            case .fit(let length): (length, 2)
             }
         }
     }
@@ -31,6 +31,8 @@ struct HostBlock: Equatable {
     static func size(_ size: CGSize) -> HostBlock { HostBlock(width: .size(size.width), height: .size(size.height)) }
     /// A sheet's: as large as its content, at most this.
     static func atMost(_ size: CGSize) -> HostBlock { HostBlock(width: .atMost(size.width), height: .atMost(size.height)) }
+    /// A modal route fits an automatic size; its authored size and minimum win.
+    static func fit(_ size: CGSize) -> HostBlock { HostBlock(width: .fit(size.width), height: .fit(size.height)) }
 }
 
 extension Runtime {
@@ -41,7 +43,7 @@ extension Runtime {
             var bytes = Data(capacity: blocks.count * 24)
             for (view, block) in blocks {
                 let width = block?.width.wire, height = block?.height.wire
-                let lengths = [width?.length ?? 0, height?.length ?? 0, width?.most ?? 0, height?.most ?? 0].map { Float($0).bitPattern }
+                let lengths = [width?.length ?? 0, height?.length ?? 0, width?.policy ?? 0, height?.policy ?? 0].map { Float($0).bitPattern }
                 for word in [view, block == nil ? 5 : 4] + lengths {
                     withUnsafeBytes(of: word.littleEndian) { bytes.append(contentsOf: $0) }
                 }
@@ -95,6 +97,13 @@ final class BlockHost {
     /// its authored parent leaves it there.
     func owns(_ node: NodeView) -> Bool { entries[node.id]?.node === node }
 
+    /// Event paths keep the authored parent across a native container.
+    /// A home that has disappeared ends the path.
+    func parent(of node: NodeView) -> NSView? {
+        guard let entry = entries[node.id], entry.node === node else { return node.superview }
+        return entry.home
+    }
+
     /// The node children `home` holds, with the subtrees that left it for a
     /// container of their own back in their places: its authored children,
     /// for a reader of the tree's shape (a stack's routes). Each goes after
@@ -114,7 +123,8 @@ final class BlockHost {
     /// hears its used size, now and whenever layout gives it another.
     func show(_ node: NodeView, in container: NSView, block: HostBlock, used: ((CGSize) -> Void)? = nil) {
         guard let presenter, presenter.views[node.id] === node else { return }
-        if entries[node.id] == nil {
+        // A node of another runner may have had this id (a restart): its entry is not this node's.
+        if entries[node.id]?.node !== node {
             let home = node.superview, siblings = home?.subviews ?? []
             let next = siblings.firstIndex(of: node).flatMap { $0 + 1 < siblings.count ? siblings[$0 + 1] : nil }
             // Its authored siblings, those already in containers of their own among them.

@@ -1,23 +1,14 @@
 //! The device's settings reach the app through the presenter's doors
 //! (LLP 1115.001 D3.1, D3.2): what a shell tells with [`Presenter::set_device`].
 use super::*;
-use exact_runner::{DataError, Value};
-
-#[derive(Default)]
-struct Nothing;
-impl DataSource for Nothing {
-    fn query(&mut self, name: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(name.into()))
-    }
-}
 
 /// An app that reads every preference a device sets, and sizes a box in `rem`.
 const READS: &str = "shape Media\n  prefersColorScheme: string\n  prefersReducedMotion: bool\n  prefersContrast: string\n  pointer: string\n  hover: string\ncomponent App\n  resource media = exactViewport() as shape Media\n  view\n    column width=300 height=300\n      text `${media.prefersColorScheme} ${media.prefersReducedMotion} ${media.prefersContrast} ${media.pointer} ${media.hover}` testId=\"facts\"\n      box testId=\"rem\" width=\"10rem\" height=\"1rem\"\n";
 
-fn boot(source: &str) -> Presenter<Nothing> {
+fn boot(source: &str) -> Presenter<()> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(source).unwrap().encode(),
-        Nothing,
+        &crate::test_plan(source),
+        (),
         (400., 500.),
         1.,
         PathBuf::new(),
@@ -44,7 +35,7 @@ fn phone() -> Device {
     }
 }
 
-fn facts(p: &Presenter<Nothing>) -> String {
+fn facts(p: &Presenter<()>) -> String {
     let kernel = p.host().kernel();
     let node = kernel
         .node_by_key(kernel.find_by_test_id("facts")[0])
@@ -52,7 +43,7 @@ fn facts(p: &Presenter<Nothing>) -> String {
     node.props.str(PropId::Text).unwrap_or_default().to_owned()
 }
 
-fn width(p: &Presenter<Nothing>, name: &str) -> f32 {
+fn width(p: &Presenter<()>, name: &str) -> f32 {
     let kernel = p.host().kernel();
     kernel
         .node_by_key(kernel.find_by_test_id(name)[0])

@@ -5,7 +5,7 @@
 //! without moving the focus; each `input` and `change` reports it, and the
 //! field's `select` fires as the person or a command makes one.
 use super::*;
-use exact_runner::{ControlValue, FieldSelection, SelectionDirection};
+use exact_runner::{ControlValue, FieldSelection, InputDetails, SelectionDirection};
 
 /// A field's selection as this host keeps it, beside the value it indexes.
 #[derive(Debug, Clone)]
@@ -170,6 +170,9 @@ impl<D: DataSource> Presenter<D> {
         selection: FieldSelection,
         by_command: bool,
     ) {
+        if self.field_selection(id) != selection {
+            self.field_change_tasks.insert(id);
+        }
         let kernel = self.host.kernel();
         self.fields.retain(|id, _| kernel.node(*id).is_some());
         self.fields.insert(
@@ -210,6 +213,7 @@ impl<D: DataSource> Presenter<D> {
         {
             let value = self.field_value(id);
             self.mark_field(id, &value, FieldSelection::at_end(&value), false);
+            self.drain_field_select_tasks();
         }
     }
 
@@ -416,7 +420,15 @@ impl<D: DataSource> Presenter<D> {
         {
             if let Some(error) = self.host.dispatch_at(
                 id,
-                Event::Input(ControlValue::Replacement(next.clone(), selection)),
+                Event::Input(ControlValue::Edit(
+                    next.clone(),
+                    selection,
+                    InputDetails {
+                        input_type: "insertReplacementText".into(),
+                        data: args.get(1).and_then(|v| v.as_str()).map(str::to_owned),
+                        ..Default::default()
+                    },
+                )),
                 self.host.now(),
             ) {
                 self.host.log(format!("setRangeText: {error}"));
@@ -432,6 +444,24 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn drain_field_select_tasks(&mut self) {
+        for id in std::mem::take(&mut self.field_change_tasks) {
+            if self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Selectionchange)
+            {
+                let event =
+                    Event::FieldSelectionChange(self.field_value(id), self.field_selection(id));
+                if let Some(e) = self
+                    .host
+                    .dispatch_at(id, event, self.host.now())
+                    .or(self.after_commit())
+                {
+                    eprintln!("exact: {e}");
+                }
+            }
+        }
         for id in std::mem::take(&mut self.field_select_tasks) {
             if self.host.kernel().node(id).is_some() {
                 self.field_select(
@@ -481,6 +511,57 @@ impl<D: DataSource> Presenter<D> {
         bound: String,
         now_ms: f64,
     ) {
+        self.apply_field_edit(id, next, after, bound, now_ms, InputDetails::default());
+    }
+
+    fn edit_field(
+        &mut self,
+        id: ViewId,
+        next: String,
+        after: FieldSelection,
+        now: f64,
+        mut edit: InputDetails,
+    ) {
+        let value = self.field_text(id);
+        let bound = self.bound_text(id);
+        if self
+            .host
+            .runner()
+            .handlers_of(id)
+            .contains(&EventKind::Beforeinput)
+        {
+            let event = Event::BeforeInput(value.clone(), self.field_selection(id), edit.clone());
+            if let Some(e) = self
+                .host
+                .dispatch_at(id, event, now)
+                .or(self.after_commit())
+            {
+                eprintln!("exact: {e}");
+                return;
+            }
+            let queued = self.commands.len();
+            self.commands.retain(|c| c.name != "preventDefault");
+            if (edit.cancelable && queued != self.commands.len())
+                || self.host.kernel().node(id).is_none()
+                || self.field_text(id) != value
+            {
+                return;
+            }
+        }
+        edit.cancelable = false;
+        self.apply_field_edit(id, next, after, bound, now, edit);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn apply_field_edit(
+        &mut self,
+        id: ViewId,
+        next: String,
+        after: FieldSelection,
+        bound: String,
+        now_ms: f64,
+        edit: InputDetails,
+    ) {
         self.edited = Some(id);
         self.mark_field(id, &next, after, false);
         self.host.values.watch(id, Some(bound.clone()));
@@ -490,7 +571,7 @@ impl<D: DataSource> Presenter<D> {
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            let event = Event::Input(ControlValue::Field(next.clone(), after));
+            let event = Event::Input(ControlValue::Edit(next.clone(), after, edit));
             if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
                 eprintln!("exact: {e}");
             }
@@ -499,6 +580,7 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         self.keep_typed(id, next, bound);
+        self.drain_field_select_tasks();
     }
 
     /// A key's default action in the focused text field: Enter submits an
@@ -521,7 +603,6 @@ impl<D: DataSource> Presenter<D> {
                 exact_kernel::control::text_maxlength(node.props),
             )
         };
-        let bound = self.bound_text(id);
         // What earlier commits replaced goes first: this edit starts from what shows.
         self.forget_replaced_choices();
         let value = self.field_text(id);
@@ -547,6 +628,7 @@ impl<D: DataSource> Presenter<D> {
                 if extend && to.start != to.end && to != selection {
                     self.field_select(id, &value, to, now_ms);
                 }
+                self.drain_field_select_tasks();
                 return;
             }
             "Enter" => replace(&value, selection, "\n"),
@@ -564,7 +646,24 @@ impl<D: DataSource> Presenter<D> {
         }) {
             return;
         }
-        self.field_edit(id, next, after, bound, now_ms);
+        let (input_type, data) = match name {
+            "Backspace" => ("deleteContentBackward", None),
+            "Delete" => ("deleteContentForward", None),
+            "Enter" => ("insertLineBreak", None),
+            _ => ("insertText", Some(name.to_owned())),
+        };
+        self.edit_field(
+            id,
+            next,
+            after,
+            now_ms,
+            InputDetails {
+                input_type: input_type.into(),
+                data,
+                cancelable: true,
+                is_composing: false,
+            },
+        );
     }
 
     /// A paste's default action at an editable text field: the text in at
@@ -583,7 +682,6 @@ impl<D: DataSource> Presenter<D> {
             }
             exact_kernel::control::text_maxlength(node.props)
         };
-        let bound = self.bound_text(id);
         self.forget_replaced_choices();
         let value = self.field_text(id);
         let selection = self.field_selection(id);
@@ -594,6 +692,17 @@ impl<D: DataSource> Presenter<D> {
             text.truncate(byte_at(&text, room));
         }
         let (next, after) = replace(&value, selection, &text);
-        self.field_edit(id, next, after, bound, now_ms);
+        self.edit_field(
+            id,
+            next,
+            after,
+            now_ms,
+            InputDetails {
+                input_type: "insertFromPaste".into(),
+                data: Some(text),
+                cancelable: true,
+                is_composing: false,
+            },
+        );
     }
 }

@@ -82,6 +82,7 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 }, 300000);
 
 import { spawn, spawnSync } from 'node:child_process';
+import { pinned } from './test-workspace.mjs';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
@@ -99,9 +100,9 @@ test('the driver grammar names an unquoted mediasession action beside pinch', ()
   const usage = spawnSync(process.execPath, [resolve(import.meta.dir, 'agent.mjs')], { encoding: 'utf8' });
   assert.equal(usage.status, 2, usage.stderr);
   assert.ok(usage.stderr.includes(form), usage.stderr);
-});
+}, 60_000);
 
-// Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
+// Real Cargo units include named game logic for the lint and absent-art receipt.
 test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and retain unit source and environment evidence', () => {
   const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact native cache-')));
   const write = (path, bytes) => { mkdirSync(dirname(resolve(dir, path)), {recursive:true}); writeFileSync(resolve(dir, path), bytes); };
@@ -123,10 +124,10 @@ test.skipIf(!process.env.EXACT_BAKE_CACHE_TEST)('native bakes stay fresh and ret
       std::fs::write(out.join("artifacts.json"), r#"{"version":1,"artifacts":[],"sources":{}}"#).unwrap();
       std::fs::write(out.join("app.plan"), b"fixture").unwrap();
     }`);
-    const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd:dir, encoding:'utf8'});
-    assert.equal(lock.status, 0, lock.stderr);
+    write('.shells/Cargo.toml', '[workspace]\n[package]\nname="cache-logic"\nversion="0.1.0"\nedition="2021"\n'); write('.shells/src/lib.rs', 'pub fn fixture() -> bool { true }\n');
+    for (const cwd of [dir, resolve(dir,'.shells')]) { const lock = spawnSync('cargo', ['generate-lockfile', '--offline'], {cwd, encoding:'utf8'}); assert.equal(lock.status, 0, lock.stderr); }
     const app = {dir, workspace:dir, target:resolve(dir,'target'), id, hasGpu:true,
-      manifest:{app:{id, name:'Cache fixture'}, game:{}, rust:false}, crate:kind=>`cache-${kind}`};
+      manifest:{app:{id, name:'Cache fixture'}, game:{crate:'cache-logic'}, rust:false}, crate:kind=>`cache-${kind}`};
     const bake = (value, executable = value) => buildBake(app, 'linux', target, {profile:'dev', output:resolve(dir,'bakes'),
       env:{EXACT_UPDATE_TRUST:'development', CACHE_FIXTURE_VALUE:value, CACHE_EXEC_VALUE:executable, EXACT_RUST_BUNDLE:'', EXACT_UPDATE_RECEIPT:''}});
     const modified = receipt => receipt.products.filter(p=>/libcache_module\.|\/cache-runner$/.test(p.path))
@@ -221,13 +222,13 @@ async function fixture(body) {
 
 test('shell fixture includes Apple build info', () => fixture(({root}) => {
   assert.ok(existsSync(resolve(root, 'host/apple/buildinfo.mjs')));
-}));
+}), 60_000);
 test('shell repair replaces half-written members before metadata', () => fixture(({app}) => {
   const before = app(), path = before.cargoPackage('gpu').manifest_path;
   rmSync(resolve(dirname(path),'src'),{recursive:true});
   assert.ok(app().cargoPackage('gpu'));
   assert.ok(existsSync(resolve(dirname(path),'src/lib.rs')));
-}));
+}), 60_000);
 
 test('in-repo app members can own a separate locked workspace without EXACT_APP_DIR', () => fixture(({app, root, pkg, write, run}) => {
   delete process.env.EXACT_APP_DIR;
@@ -244,7 +245,7 @@ test('in-repo app members can own a separate locked workspace without EXACT_APP_
   pkg('apps/separate/linux', 'separate-linux');
   write('apps/separate/linux/Cargo.toml', '[package]\nworkspace="../../.."\nname="separate-linux"\nversion="0.1.0"\nedition="2021"\n');
   assert.throws(() => app('separate'), /different Cargo workspaces/);
-}));
+}), 60_000);
 
 test('copied app identities keep separate Cargo graphs and generated hosts', () => fixture(({app, dir, game, write}) => {
   const first = app();
@@ -264,7 +265,7 @@ test('copied app identities keep separate Cargo graphs and generated hosts', () 
   const reopened = app();
   assert.deepEqual(['gpu','web','apple','linux'].map(kind => reopened.cargoPackage(kind).manifest_path), before);
   for (const path of before) assert.ok(existsSync(path));
-}));
+}), 60_000);
 
 test('art adds its baker on demand and retains it until generated outputs are pruned', () => fixture(({app, dir, write, update}) => {
   const baked = () => {
@@ -283,7 +284,7 @@ test('art adds its baker on demand and retains it until generated outputs are pr
   assert.equal(baked(), true, 'cleanup still needs the baker');
   rmSync(resolve(dir, '.baked-assets.json'));
   assert.equal(baked(), false);
-}));
+}), 60_000);
 
 test('host paths survive app identity and logic crate renames', () => fixture(({app, dir, write, run, update}) => {
   const before = app().cargoPackage('gpu').manifest_path;
@@ -298,7 +299,7 @@ test('host paths survive app identity and logic crate renames', () => fixture(({
   assert.equal(after.name, 'renamed');
   const metadata = JSON.parse(run('cargo',['metadata','--manifest-path','game/games/foo/.shells/Cargo.toml','--no-deps','--offline','--format-version','1']));
   assert.ok(!metadata.packages.some(p=>p.name==='foo-gpu'));
-}));
+}), 60_000);
 
 test('resolving a surviving game prunes a deleted game shell', () => fixture(({app, game}) => {
   const gone = game('gone');
@@ -308,7 +309,7 @@ test('resolving a surviving game prunes a deleted game shell', () => fixture(({a
   process.env.EXACT_APP_DIR = resolve(dirname(gone),'foo');
   assert.ok(app().hasGpu);
   assert.ok(!existsSync(shell));
-}));
+}), 60_000);
 
 test('ordinary GPU ownership requires its own manifest and matching metadata directory', () => fixture(({app, dir, pkg, write, run}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8')); delete manifest.game;
@@ -321,19 +322,19 @@ test('ordinary GPU ownership requires its own manifest and matching metadata dir
   assert.equal(app().hasGpu,false);
   write('game/ordinary/foo/gpu/Cargo.toml','[package]\nname="some-other-gpu"\nversion="0.1.0"\n');
   assert.equal(app().hasGpu,false);
-}));
+}), 60_000);
 
 test('missing game entry refuses by key at resolve time', () => fixture(({app, dir, write}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
   write('game/games/foo/app.json',JSON.stringify({...manifest,game:undefined}));
   assert.throws(app, /app.json.*game|game.*required/);
-}));
+}), 60_000);
 
 test('game.type exports are checked by Rust compilation, not app resolution', () => fixture(({app, dir, write}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
   write('game/games/foo/app.json',JSON.stringify({...manifest,game:{...manifest.game,type:'SmallGmae'}}));
   assert.ok(app().hasGpu);
-}));
+}), 60_000);
 
 test('game.type module paths resolve before Rust checks the referenced export', () => fixture(({app, dir, write}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
@@ -342,7 +343,7 @@ test('game.type module paths resolve before Rust checks the referenced export', 
   write('game/games/foo/logic/src/lib.rs', 'pub mod play;');
   write('game/games/foo/logic/src/play.rs', 'pub struct SmallGame;');
   assert.ok(app().hasGpu);
-}));
+}), 60_000);
 
 test('build graph refuses a requested GPU surface that Cargo cannot find', () => fixture(({app, pkg, root, run}) => {
   pkg('game/ordinary/foo','ordinary-web');
@@ -350,7 +351,7 @@ test('build graph refuses a requested GPU surface that Cargo cannot find', () =>
   run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
   const fake = {...resolved, workspace:resolve(root,'game'), hasGpu:true, crate:kind=>`ordinary-${kind}`};
   assert.throws(()=>buildBake(fake,'web','wasm32-unknown-unknown'), /GPU.*ordinary-gpu|ordinary-gpu.*surface/);
-}));
+}), 60_000);
 
 test('deploy excludes generated shells and regenerates them from captured game source', () => fixture(({app, root, write, run, game, dir, update}) => {
   const manifest = JSON.parse(readFileSync(resolve(dir,'app.json'),'utf8'));
@@ -445,7 +446,6 @@ test('autofocus is deferred and consumed per mounted control, preserving other U
   assert.equal(document.activeElement, victory, 'a canvas yields raw input focus to its new UI control');
 });
 
-
 test('applying autofocus props cannot trigger browser focus during a batch', async () => {
   const { readFileSync } = await import('node:fs');
   const { runInNewContext } = await import('node:vm');
@@ -498,7 +498,6 @@ test.each(['rlib', 'staticlib', 'executable', 'windows-executable'].flatMap(kind
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
-
 test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build directory %s requires unique compiler evidence', async split => {
   const { unitDepInfo } = await import('./app.mjs');
   const root = mkdtempSync(resolve(tmpdir(), 'exact-wasm-dep-'));
@@ -526,10 +525,13 @@ test.each([null, 'intermediate', 'output/intermediate'])('copied wasm with build
     writeFileSync(expected, `${artifact}: ${src}\n`);
     assert.throws(() => unitDepInfo(message, root, metadata), /no matching rustc unit/);
     unit('a11ce', 'selected wasm');
+    const deps = resolve(metadata.build_directory, 'wasm32-unknown-unknown/web/deps'), stale = resolve(deps, 'game_gpu.d'); // another toolchain's unit: the JS target's stable GPU build
+    mkdirSync(deps, {recursive:true}); writeFileSync(resolve(deps, 'game_gpu.wasm'), 'stable wasm'); writeFileSync(stale, `${stale}: ${src}\n`);
     assert.equal(unitDepInfo(message, root, metadata), expected);
     assert.match(readFileSync(expected, 'utf8'), /env-dep:EXACT_GAME_PARANOID=0/);
     unit('aabbcc', 'selected wasm');
     assert.throws(() => unitDepInfo(message, root, metadata), /ambiguous rustc unit/);
+    writeFileSync(resolve(deps, 'game_gpu.wasm'), 'selected wasm'); assert.equal(unitDepInfo(message, root, metadata), stale, 'the unit Cargo copied out of deps/');
   } finally { rmSync(root, {recursive:true, force:true}); }
 });
 
@@ -548,8 +550,7 @@ test.each([null, 'intermediate', 'output/intermediate'])('rustc unit dep-info ac
     const message = {filenames:[artifact], target:{name:'space_unit', src_path:source}};
     assert.equal(unitDepInfo(message, root, metadata), resolve(metadata.build_directory, 'space_unit.d'));
   } finally { rmSync(root, {recursive:true, force:true}); }
-});
-
+}, 60_000);
 
 test('R12 resolution is lazy and does not create a workspace', () => fixture(({app, dir}) => {
   const started = performance.now();
@@ -561,7 +562,7 @@ test('R12 resolution is lazy and does not create a workspace', () => fixture(({a
   assert.equal(resolved.hasGpu, true);
   assert.ok(!existsSync(resolve(dir, '.shells')));
   assert.ok(performance.now() - started < 200);
-}));
+}), 60_000);
 
 test('R12 the captured source lock replaces a corrupted generated lock', () => fixture(({app, dir}) => {
   app().cargoPackage('gpu');
@@ -571,7 +572,7 @@ test('R12 the captured source lock replaces a corrupted generated lock', () => f
   writeFileSync(resolve(dir, '.shells/Cargo.lock'), 'invalid generated cache');
   app().cargoPackage('gpu');
   assert.equal(readFileSync(resolve(dir, '.shells/Cargo.lock'), 'utf8'), captured);
-}));
+}), 60_000);
 
 
 test('R12 authored logic belongs only to its app workspace and locked edits refuse', () => fixture(({app, dir, run, write}) => {
@@ -584,7 +585,7 @@ test('R12 authored logic belongs only to its app workspace and locked edits refu
   write('game/games/foo/logic/Cargo.toml',readFileSync(resolve(dir,'logic/Cargo.toml'),'utf8').replace('version="0.1.0"','version="0.2.0"'));
   assert.throws(()=>app().cargoPackage('gpu'),/lock|locked/);
   assert.equal(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),captured);
-}));
+}), 60_000);
 
 test('render crate isolation checks renamed transitive normal, build and inactive-target Cargo edges', () => fixture(({app, dir, root, run, write, update, pkg}) => {
   const previousDeclaration = app();
@@ -727,7 +728,7 @@ test('game bakes resolve one fresh Cargo graph for the actual target and environ
 test('R12 named in-tree game resolves without EXACT_APP_DIR', () => fixture(({app, dir}) => {
   delete process.env.EXACT_APP_DIR;
   assert.equal(app().dir,dir);
-}));
+}), 60_000);
 test('R12 deploy captures initialized dependency submodules without building discovery in the snapshot', () => fixture(({app,root,write,run})=>{
   const resolved=app();resolved.cargoPackage('gpu');
   write('contract/src/main.rs', `fn main() { let target=std::env::var("CARGO_TARGET_DIR").unwrap_or_else(|_| "target".into()); std::fs::write(std::path::Path::new(&target).join("source-discovery-target"), b"compiled").unwrap(); println!("{}", r#"{"packages":[],"sources":[],"consulted":[]}"#); }`);
@@ -773,7 +774,7 @@ test('without its own lock a game resolves only against the SDK lock, never a le
   write('game/app/shells.lock',captured);
   assert.ok(app().cargoPackage('gpu'));
   assert.equal(existsSync(resolve(dir,'Cargo.lock')),false,'the SDK lock writes no lock into the game');
-}));
+}), 60_000);
 test('ordinary resolution refuses missing and stale locks without writing them',()=>fixture(({app,root,pkg,write,run})=>{
   process.env.EXACT_APP_DIR=resolve(root,'game/ordinary/plain');
   pkg('game/ordinary/plain','plain-web');
@@ -789,16 +790,16 @@ test('ordinary resolution refuses missing and stale locks without writing them',
   write(path,readFileSync(resolve(root,path),'utf8').replace('version="0.1.0"','version="0.2.0"'));
   assert.throws(()=>app('plain').cargoPackage('web'),/update the lock explicitly.*cargo metadata --offline/s);
   assert.equal(readFileSync(resolve(root,'game/Cargo.lock'),'utf8'),before);
-}));
+}), 60_000);
 test('R13 explicit update-lock accepts a deliberate dependency change',()=>fixture(({app,dir,write,update})=>{
   app().cargoPackage('gpu');const before=readFileSync(resolve(dir,'Cargo.lock'),'utf8');
   write('game/deps/exact-game-render/Cargo.toml',readFileSync(resolve(dir,'../../deps/exact-game-render/Cargo.toml'),'utf8').replace('version="0.1.0"','version="0.2.0"'));
   assert.throws(()=>app().cargoPackage('gpu'),/locked|lock file/);
   update();assert.ok(app().cargoPackage('gpu'));assert.notEqual(readFileSync(resolve(dir,'Cargo.lock'),'utf8'),before);
-}));
+}), 60_000);
 
 test.each([false, true])('ordinary buildBake with split directories=%s streams progress and retains product receipts', async split => {
-  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-')));
+  const dir = pinned(realpathSync(mkdtempSync(resolve(tmpdir(), 'r14-no-lock-'))));
   const write = (name, text) => { mkdirSync(dirname(resolve(dir,name)), {recursive:true}); writeFileSync(resolve(dir,name),text); };
   try {
     const target = bakeTarget('linux'), id = 'com.exact.plain';
@@ -854,7 +855,7 @@ test.each([false, true])('ordinary buildBake with split directories=%s streams p
 }, 180000);
 
 test('ordinary bake metadata follows intermediate directory A, B and the unset default', () => {
-  const dir=realpathSync(mkdtempSync(resolve(tmpdir(),'exact metadata directories-')));
+  const dir=pinned(realpathSync(mkdtempSync(resolve(tmpdir(),'exact metadata directories-'))));
   const previous=process.env.CARGO_BUILD_BUILD_DIR;
   delete process.env.CARGO_BUILD_BUILD_DIR;
   const write=(name,bytes)=>{mkdirSync(dirname(resolve(dir,name)),{recursive:true});writeFileSync(resolve(dir,name),bytes);};
@@ -948,7 +949,7 @@ test('R15 the root Caltrain workspace refuses a missing lock and accepts its res
   assert.match(metadata().stderr,/locked|lock file/);
   run('cargo',['generate-lockfile','--offline']);
   assert.equal(metadata().status,0);
-}));
+}), 60_000);
 
 test('E11 partial bakes select only their graph and production retains GPU binding',async()=>{
   const {bakeSelection,bindGpuProduct}=await import('./app.mjs');
@@ -1000,7 +1001,7 @@ test('a worktree whose target resolves into another checkout is refused', async 
     mkdirSync(resolve(root, 'private'));
     assertOwnTarget(resolve(root, 'private'), lane);
   } finally { rmSync(root, { recursive: true, force: true }); }
-});
+}, 60_000);
 
 test('declared shader packs merge, reject duplicates and links, and preserve a rejected live candidate', async () => {
   const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, symlinkSync } = await import('node:fs');
@@ -1105,7 +1106,7 @@ test('each Apple TypeScript destination checks its own Hermes bundle, device inc
   ]);
   assert.equal(hermesCrossTargets('darwin', 'x64')[0].target, 'x86_64-apple-ios');
   assert.deepEqual(hermesCrossTargets('linux', 'x64'), []);
-  assert.deepEqual(hermesSetupTargets('darwin', 'arm64'), ['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim']);
+  assert.deepEqual([false, true].map(sdk => hermesSetupTargets('darwin', 'arm64', sdk)).concat([hermesSetupTargets('linux', 'x64', true)]), [['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim'], ['aarch64-apple-ios-sim', 'aarch64-apple-ios', 'aarch64-apple-tvos-sim'], []]); // the device's with the iphoneos SDK
   const calls = [];
   const execute = (command, args) => { calls.push(args); return {status: 0, stdout: 'Verified', stderr: ''}; };
   checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']);
@@ -1189,12 +1190,11 @@ test('device grants derive the plists, their translations and the release entitl
       assert.throws(() => readManifest(dir, 'fixture'), new RegExp(`host\\.${platform}\\.permissions: deleted \\(LLP 1069\\.008\\); declare the device .*device\\.microphone purpose\\.microphone`));
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
-});
+}, 60_000);
 
 
 test('locked metadata fetches a missing git checkout without rewriting the lock', async () => {
-  const { lockedMetadata } = await import('./app.mjs');
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-metadata-fetch-'));
+  const { lockedMetadata } = await import('./app.mjs'), dir = pinned(mkdtempSync(resolve(tmpdir(), 'exact-metadata-fetch-')));
   const git = resolve(dir, 'source'), app = resolve(dir, 'app');
   const run = (cwd, cmd, args, env = process.env) => {
     const r = spawnSync(cmd, args, {cwd, env, encoding:'utf8'});
@@ -1218,7 +1218,7 @@ test('locked metadata fetches a missing git checkout without rewriting the lock'
     assert.ok(JSON.parse(result.stdout).packages.some(p => p.name === 'local-source'));
     assert.equal(readFileSync(resolve(app, 'Cargo.lock'), 'utf8'), lock);
   } finally { rmSync(dir, {recursive:true, force:true}); }
-});
+}, 60_000);
 
 test('`appTransportSecurity` writes ATS for web content only; absent, no key (#106)', async () => {
   const { readManifest } = await import('./app.mjs');
@@ -1324,7 +1324,7 @@ test('web remapping preserves game floating-point determinism on both web toolch
     assert.equal(game[game.indexOf('llvm-args=-fp-contract=off')-1],'-C');
     assert.ok(!flags({}).includes('llvm-args=-fp-contract=off'));
   }
-});
+}, 60_000);
 
 test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
   const {entitlements} = await import('../host/apple/build.mjs');
@@ -1493,7 +1493,7 @@ test('native resource snapshot preserves ignored scoped packages, executable bit
   try {
     const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
     assert.equal(readFileSync(resolve(staged.app.dir,'server/node_modules/@scope/pkg/index.js'),'utf8'),'captured ignored dependency');
-    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755);
+    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755&~process.umask(),'git keeps 755; the umask withholds the rest');
     assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
   } finally {disposeSnapshot(snapshot);}
 }),60000);

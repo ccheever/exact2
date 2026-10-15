@@ -14,6 +14,7 @@ pub(crate) fn text_palette(
     reveal: Option<exact_kernel::ViewId>,
     out: &mut Vec<RunPaint>,
 ) {
+    let _accent = super::accent_scope(node);
     if node.props.str(PropId::Text).is_some() {
         // A hidden run keeps its advance and paints no glyphs. The ghost's
         // `reveal` is `revealed`, so a label the wrapper hid still draws.
@@ -48,6 +49,7 @@ pub(super) fn text_backgrounds(
     out: &mut Vec<Option<[u8; 4]>>,
 ) {
     let own = |n: &NodeRef<'_>| {
+        let _accent = super::accent_scope(n);
         n.style
             .mask
             .has(StyleId::BackgroundColor)

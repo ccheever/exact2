@@ -136,11 +136,8 @@ final class SegmentHost {
     private func measure(_ owner: NodeView, _ control: NSSegmentedControl) {
         let natural = control.intrinsicContentSize
         var size = CGSize(width: max(natural.width, 1), height: natural.height)
-        if owner.style["box_sizing"]?.string == "border-box" {
-            let border = owner.number("border_width")
-            size.height += owner.number("border_width_top", border) + owner.padding("top")
-                + owner.number("border_width_bottom", border) + owner.padding("bottom")
-        }
+        // The padding and border around the content box layout sent
+        if owner.style["box_sizing"]?.string == "border-box" { size.height += owner.bounds.height - owner.contentBox().height }
         guard size.width.isFinite, size.height.isFinite, size.height > 0, sizes[owner.id] != size else { return }
         sizes[owner.id] = size
         report(owner, size)

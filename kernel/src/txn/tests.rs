@@ -80,9 +80,86 @@ fn a_node_keeps_which_of_its_rows_its_author_wrote() {
     k.apply(0, 4, &[colour(1, "#222222", false)]).unwrap();
     assert!(wrote(&k, 1).is_empty(), "the winner's bit");
     // A cleared row has no bit.
-    k.apply(0, 5, &[Op::ClearStyle { id: 2, mask: row }])
-        .unwrap();
+    k.apply(
+        0,
+        5,
+        &[Op::ClearStyle {
+            id: 2,
+            mask: row,
+            written: false,
+        }],
+    )
+    .unwrap();
     assert!(wrote(&k, 2).is_empty() && !k.node(2).unwrap().style.mask.has(StyleId::TextColor));
+}
+
+#[test]
+fn explicit_clear_intent_changes_without_an_own_value() {
+    let color = StyleId::TextColor;
+    let row = crate::StyleMask::of(color);
+    let mut ops = create([1, 2, 3], NodeType::View);
+    ops.extend([children(1, &[2]), Op::AttachRoot { id: 1 }]);
+    ops.push(colour(1, "#123456", true));
+    let mut k = kernel(&ops);
+    let clear = |id| {
+        let mut patch = StyleProps::default();
+        patch.written = row;
+        Op::SetStyle {
+            id,
+            patch: Box::new(patch),
+        }
+    };
+    let initial = k.node(3).unwrap().text_color();
+    for id in [2, 3] {
+        let before = k.node(id).unwrap().text_color();
+        let receipt = k.apply(0, 2, &[clear(id)]).unwrap();
+        let node = k.node(id).unwrap();
+        assert!(!node.style.mask.has(color));
+        assert!(node.style.written.has(color));
+        assert_eq!(node.text_color(), before);
+        assert!(
+            receipt.touched.contains(&node.key),
+            "intent is observable even at the same color"
+        );
+        assert!(k.apply(0, 3, &[clear(id)]).unwrap().touched.is_empty());
+    }
+    k.apply(0, 3, &[tall(2, 40.0)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    k.apply(0, 4, &[colour(1, "#654321", true)]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 5, &[children(1, &[])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        initial,
+        "detaching does not freeze inherited ink"
+    );
+    k.apply(0, 6, &[children(1, &[2])]).unwrap();
+    assert_eq!(
+        k.node(2).unwrap().text_color(),
+        k.node(1).unwrap().text_color()
+    );
+    k.apply(0, 7, &[colour(2, "#654321", true)]).unwrap();
+    assert!(k.node(2).unwrap().style.mask.has(color));
+    k.apply(0, 8, &[clear(2)]).unwrap();
+    assert!(!k.node(2).unwrap().style.mask.has(color));
+    assert!(k.node(2).unwrap().style.written.has(color));
+    let removed = k
+        .apply(
+            0,
+            9,
+            &[Op::ClearStyle {
+                id: 2,
+                mask: row,
+                written: false,
+            }],
+        )
+        .unwrap();
+    assert!(removed.touched.contains(&k.node(2).unwrap().key));
+    assert!(!k.node(2).unwrap().style.written.has(color));
 }
 
 fn prop(id: u32, prop: PropId, value: &str) -> Op {

@@ -33,6 +33,7 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         out.extend(["block", "inline", "behavior"].map(named));
         if !element {
             out.push(named("row"));
+            out.push(named("offset"));
         }
         return out;
     }
@@ -388,7 +389,7 @@ pub(crate) fn compile(
             }
             asm.call(f);
             match (f, given.first(), given.get(1)) {
-                // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
+                // `first(T[])` is `option<T>` (LLP 1054.000 C4).
                 (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
                 // A list's own type, or text's (LLP 1088 §9.1).
                 (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
@@ -538,7 +539,7 @@ pub(crate) fn compile(
         Expr::Arrow { span, .. } => {
             return err(
                 "lower-arrow-position",
-                "an arrow function is only the second argument of `map` or `filter`",
+                "an arrow function is only the argument of `xs.map(…)` or `xs.filter(…)`",
                 *span,
             )
         }
@@ -618,7 +619,7 @@ fn callback_call(
     let Expr::Arrow { params, body, span } = callback else {
         return err(
             "lower-arrow-position",
-            format!("the second argument of `{}` is an arrow function", f.name()),
+            format!("the argument of `.{}(…)` is an arrow function", f.name()),
             callback.span(),
         );
     };

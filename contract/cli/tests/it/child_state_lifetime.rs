@@ -1,5 +1,5 @@
 //! A child component's state lives exactly as long as its instance (LLP
-//! 1017 P4c): created when the instance is — an `each` row, a `when` or
+//! 1017 P4c): created when the instance is — a `for` row, an `if` or
 //! `match` arm, or the root at the boot render — its initializer evaluated
 //! then, after settlement, in the use site's scope; dropped with it.
 
@@ -119,22 +119,22 @@ shape P
   n: number
 component App
   state picked = some(P(n=40))
-  resource items = items() as shape list<P>
-  derive total = length(items) * 10
+  resource items = items() as shape P[]
+  derive total = items.length * 10
   view
     column
-      Counter(start=length(items), id="top-resource")
+      Counter(start=items.length, id="top-resource")
       Counter(start=total, id="top-derive")
-      when total > 0
+      if total > 0
         Counter(start=total + 1, id="when-derive")
-        Counter(start=length(items) + 1, id="when-resource")
+        Counter(start=items.length + 1, id="when-resource")
       match picked
         case some(p)
           Counter(start=p.n, id="match-binding")
           Counter(start=p.n + total, id="match-both")
         case none
           text "none"
-      each p in items key=toString(p.n)
+      for p in items key=p.n.toString()
         Counter(start=p.n + total, id="each")
 {COUNTER}"#
     );
@@ -161,7 +161,7 @@ component App
     base = base + 100
   view
     column
-      when shown
+      if shown
         Counter(start=base, id="c")
       else
         Counter(start=base * 2, id="other")
@@ -240,7 +240,7 @@ component App
   view
     column
       text `${t}` testId="t"
-      when shown
+      if shown
         Counter(start=1, id="c")
 
 component Counter
@@ -286,11 +286,11 @@ fn an_initializer_reads_a_resource_that_has_not_answered_as_its_placeholder() {
 shape P
   n: number
 component App
-  resource later = wait() as shape list<P>
+  resource later = wait() as shape P[]
   view
     column
-      text `${{length(later)}}` testId="len"
-      Counter(start=length(later), id="c")
+      text `${{later.length}}` testId="len"
+      Counter(start=later.length, id="c")
 {COUNTER}"#
     );
     let mut r = boot(&src);
@@ -310,8 +310,8 @@ component App
     assert_eq!(text(&r, "c"), "0", "the answer does not run it again");
 }
 
-/// A slot component that shows its fill under a `when` of its own, twice,
-/// and once per row of an `each` over `items()` (two rows).
+/// A slot component that shows its fill under an `if` of its own, twice,
+/// and once per row of a `for` over `items()` (two rows).
 const SLOTS: &str = r#"
 component Hide
   slot
@@ -321,7 +321,7 @@ component Hide
   view
     column
       text "flip" press=flip testId="flip"
-      when open
+      if open
         children
 
 component Twice
@@ -333,11 +333,11 @@ component Twice
 
 component Rows
   props
-    items: list<P>
+    items: P[]
   slot
   view
     column
-      each p in items key=toString(p.n)
+      for p in items key=p.n.toString()
         children
 "#;
 
@@ -358,7 +358,7 @@ component App
     press(&mut r, "c").unwrap();
     press(&mut r, "c").unwrap();
     assert_eq!(text(&r, "c"), "2");
-    // The slot component's own `when` hides `children`: the fill's child
+    // The slot component's own `if` hides `children`: the fill's child
     // goes with it, though its use site never stopped rendering.
     press(&mut r, "flip").unwrap();
     assert!(texts(&r, "c").is_empty());
@@ -373,7 +373,7 @@ fn each_children_is_its_own_instance_twice_or_once_per_row() {
 shape P
   n: number
 component App
-  resource items = items() as shape list<P>
+  resource items = items() as shape P[]
   view
     column
       Twice()

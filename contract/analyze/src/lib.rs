@@ -170,6 +170,17 @@ pub fn check_routes_root(file: &File, root_file: bool) -> Result<(), AnalyzeErro
             );
         }
     }
+    // @ref LLP 1095 D4 — the theme is the app's, declared once at its root;
+    // a package's own tokens wait on LLP 1121 D11.
+    if let Some(theme) = &file.theme {
+        if !root_file {
+            return err(
+                "analyze-theme-not-root",
+                "`theme` belongs to the app's root file: a package's views use the app's names",
+                theme.span,
+            );
+        }
+    }
     Ok(())
 }
 
@@ -326,7 +337,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 65] = [
+pub const HANDLERS: [&str; 67] = [
     "press",
     "change",
     "input",
@@ -368,6 +379,7 @@ pub const HANDLERS: [&str; 65] = [
     // DOM's `beforeunload` (studio diary R17): the window closing or the app
     // quitting; an action calling `preventDefault()` keeps it open.
     "beforeunload",
+    "beforeinput",
     // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
     // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
     "wheel",
@@ -377,6 +389,9 @@ pub const HANDLERS: [&str; 65] = [
     "swiperight",
     "refresh",
     "scroll",
+    // DOM's `scrollend`: a scroll finished, its momentum or animation
+    // included; no payload.
+    "scrollend",
     "pan",
     // A pan that began ended (LLP 1057 §10.6 phase 2): release velocity.
     "panrelease",
@@ -613,7 +628,12 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let valid = handler_accepts(attr, given, params);
+        let checked_attr = if attr == "selectionchange" && control == Some("field") {
+            "beforeinput"
+        } else {
+            attr
+        };
+        let valid = handler_accepts(checked_attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);
             let params: Vec<(String, Ty)> = declared

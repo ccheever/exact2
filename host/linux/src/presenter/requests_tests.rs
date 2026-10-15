@@ -45,9 +45,9 @@ component App
     name = value
   view
     main navigationKey=`${top(nav).id}` width="100%" height="100%"
-      each e in stack(nav) key=e.id
+      for e in stack(nav) key=e.id
         column navigationKey=`${e.id}` position="absolute" inset=0 align-items="flex-start"
-          when e.name == "home"
+          if e.name == "home"
             button press=buzz testId="buzz" height=30
               text "Buzz"
             button press=purr testId="purr" height=30
@@ -74,13 +74,13 @@ component App
               text "Thump"
             input value=name input=rename testId="field" width=200 height=30
             textarea value=name input=rename testId="area" width=200 rows=2
-          when e.name == "detail"
+          if e.name == "detail"
             text "Detail" testId="detail"
 "#;
 
 fn boot() -> Presenter<Nothing> {
     let (p, error) = Presenter::boot_with(
-        &contract::compile(APP).unwrap().encode(),
+        &crate::test_plan(APP),
         Nothing,
         (400., 800.),
         1.,

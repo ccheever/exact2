@@ -7,6 +7,7 @@
 #endif
 #include <cstring>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 #include <unordered_set>
 #include <stdexcept>
@@ -15,6 +16,9 @@ extern "C" int ibex2_host_call(const void*, uint32_t, const Ibex2AbiValue*, size
 extern "C" void ibex2_host_release(Ibex2AbiValue*);
 extern "C" int ibex2_async_begin(const void*, const void*, uint32_t, const Ibex2AbiValue*, size_t, uint64_t);
 extern "C" int ibex2_take_task(const void*, int*, unsigned long long*, Ibex2AbiValue*, int*);
+extern "C" const void* ibex2_adapter_begin_drive(const void*);
+extern "C" void ibex2_adapter_end_drive(const void*);
+extern "C" int ibex2_adapter_admit_due_timers(const void*);
 extern "C" const void* ibex2_grants_retain(const void*);
 extern "C" void ibex2_grants_destroy(const void*);
 extern "C" const void* ibex2_bindings_state(const Ibex2Bindings*);
@@ -425,6 +429,12 @@ struct Adapter::State {
     std::vector<std::pair<std::string, jsi::Value>> identities;
   };
   struct Pending { jsi::Function resolve; jsi::Function reject; };
+  struct ImagePromiseOwner final : jsi::NativeState {
+    const uint64_t task_id;
+    const std::weak_ptr<State> owner;
+    ImagePromiseOwner(uint64_t id, const std::shared_ptr<State>& state)
+        : task_id(id), owner(state) {}
+  };
   struct EventSubscription {
     void* rust;
     jsi::Function callback;
@@ -443,6 +453,7 @@ struct Adapter::State {
   Groups groups = 0;
   uint32_t bytecode_version;
   std::shared_ptr<Lifetime> lifetime;
+  jsi::Value timer_dispatch;
   jsi::Value fetch_factory;
   jsi::Value websocket_factory;
   jsi::Value blob_helpers;
@@ -544,6 +555,7 @@ void Adapter::detach() {
   state_->subscriptions.clear();
   state_->lifetime->detach();
   state_->pending.clear();
+  state_->timer_dispatch = jsi::Value::undefined();
   state_->fetch_factory = jsi::Value::undefined();
   state_->websocket_factory = jsi::Value::undefined();
   state_->blob_helpers = jsi::Value::undefined();
@@ -1197,7 +1209,9 @@ constexpr const char* kFetchPrimitiveMembers[] = {
     "fetch", "responseField", "responseRead", "fetchControl",
     "textEncode", "textDecode", "textEncodeInto", "headersFree"};
 
-// Bounds the walk on a pathological graph; reaching it refuses (fails closed).
+// Bounds the production guard on a pathological graph; reaching it refuses
+// (fails closed). Tests use a much smaller object limit and an explicit edge
+// limit below so the privacy witness remains a fast regression.
 constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 
 // Walk what harden.js freezes and refuse if any recorded identity is in it.
@@ -1220,16 +1234,24 @@ constexpr size_t kMaxReachabilityObjects = size_t{1} << 20;
 // @ref LLP 0068#opt-in-abort-hooks-protocol — I4 applies the same reachability proof to the abort hooks
 void require_unreachable(
     jsi::Runtime& rt, const Reachability& walk,
-    const std::vector<std::pair<std::string, jsi::Value>>& identities) {
+    const std::vector<std::pair<std::string, jsi::Value>>& identities,
+    size_t max_objects = kMaxReachabilityObjects,
+    size_t max_edges = std::numeric_limits<size_t>::max()) {
   try {
     auto global = rt.global();
     auto seen = walk.set.callAsConstructor(rt).getObject(rt);
     std::vector<jsi::Value> pending;
+    size_t edges = 0;
     auto expand = [&](const jsi::Object& object) {
       for (const auto* list : {&walk.names, &walk.symbols}) {
         auto keys = list->call(rt, object).getObject(rt).getArray(rt);
         const size_t count = keys.size(rt);
         for (size_t i = 0; i < count; ++i) {
+          if (edges >= max_edges)
+            throw std::runtime_error(
+                "refusing to harden: the global object graph has too many "
+                "edges to prove trusted-bootstrap outputs unreachable");
+          ++edges;
           auto raw = walk.descriptor.call(rt, object, keys.getValueAtIndex(rt, i));
           if (!raw.isObject()) continue;
           auto descriptor = raw.getObject(rt);
@@ -1253,6 +1275,11 @@ void require_unreachable(
           }
         }
       }
+      if (edges >= max_edges)
+        throw std::runtime_error(
+            "refusing to harden: the global object graph has too many edges "
+            "to prove trusted-bootstrap outputs unreachable");
+      ++edges;
       pending.push_back(walk.prototype.call(rt, object));
     };
     walk.add.callWithThis(rt, seen, global);
@@ -1264,7 +1291,7 @@ void require_unreachable(
       if (!value.isObject()) continue;
       if (walk.has.callWithThis(rt, seen, value).getBool()) continue;
       walk.add.callWithThis(rt, seen, value);
-      if (++visited > kMaxReachabilityObjects)
+      if (++visited > max_objects)
         throw std::runtime_error(
             "refusing to harden: the global object graph is too large to "
             "prove trusted-bootstrap outputs unreachable");
@@ -1311,12 +1338,8 @@ void remove_global(jsi::Runtime& rt, const jsi::Object& global,
 }
 
 uint64_t websocket_handle(jsi::Runtime& rt, const jsi::Value& value) {
-  if (!value.isNumber()) throw jsi::JSError(rt, "invalid WebSocket handle");
-  double number = value.asNumber();
-  uint64_t handle = static_cast<uint64_t>(number);
-  if (number < 1 || number > 9007199254740991.0 || number != handle)
-    throw jsi::JSError(rt, "invalid WebSocket handle");
-  return handle;
+  return primitive_integer(
+      rt, value, 1.0, kMaxSafeInteger, "WebSocket handle");
 }
 
 void websocket_result(jsi::Runtime& rt, int status, char* error,
@@ -1464,7 +1487,8 @@ jsi::Object Adapter::websocket_hooks(const void* grants) {
         if (count != 3 || !args[2].isString())
           throw jsi::JSError(r, "WebSocket close needs its arguments");
         uint64_t handle = websocket_handle(r, args[0]);
-        int code = static_cast<int>(args[1].asNumber());
+        const int code = static_cast<int>(primitive_integer(
+            r, args[1], 0.0, 4999.0, "WebSocket close code"));
         std::string reason = args[2].getString(r).utf8(r);
         char* error = nullptr;
         int status = ibex2_websocket_close(
@@ -1649,6 +1673,13 @@ void Adapter::install_with(Groups groups, const Ibex2Bindings* bindings,
                                 state_->blob_helpers);
       auto buffer = std::make_shared<CompiledBytes>(script.bytes, script.len);
       auto value = rt.evaluateJavaScript(buffer, std::string(script.name) + ".js");
+      if (std::strcmp(script.name, "timers") == 0) {
+        if (!value.isObject() || !value.getObject(rt).isFunction(rt))
+          throw jsi::JSError(
+              rt, "timers binding did not return its private dispatcher");
+        state_->timer_dispatch = jsi::Value(rt, value);
+        continue;
+      }
       if (std::strcmp(script.name, "abort") == 0 && !abort_hooks.empty()) {
         auto hooks = rt.global().getProperty(rt, "__ibex2_abort");
         if (!hooks.isObject())
@@ -1978,15 +2009,41 @@ jsi::Function Adapter::async_binding(const char* name, uint32_t op, const void* 
                   args[0].getObject(r).getFunction(r), args[1].getObject(r).getFunction(r)});
               return jsi::Value::undefined();
             });
-        auto ctor = r.global().getPropertyAsFunction(r, "Promise");
-        auto promise = ctor.callAsConstructor(r, executor);
+        jsi::Value promise;
+        try {
+          auto ctor = r.global().getPropertyAsFunction(r, "Promise");
+          promise = ctor.callAsConstructor(r, executor);
+          if (op == 121) {
+            set_native_state_once(r, promise.getObject(r),
+                std::make_shared<State::ImagePromiseOwner>(id, state),
+                "Image operation Promise");
+          }
+          if (op == 113 || op == 116)
+            promise = filesystem_promise(r, std::move(promise), op);
+        } catch (...) {
+          // A constructor can invoke the executor and then throw. Finish every
+          // fallible Promise/brand step before accepting a worker, and release
+          // any callbacks it registered when preparation fails.
+          state->pending.erase(id);
+          throw;
+        }
         if (ibex2_async_begin(state->queue, authority.get(), op, abi.data(), abi.size(), id) != 0) {
           state->pending.erase(id);
           throw jsi::JSError(r, "could not start the async operation");
         }
-        if (op == 113 || op == 116) return filesystem_promise(r, std::move(promise), op);
         return promise;
       });
+}
+
+uint64_t Adapter::image_task_id(jsi::Runtime& rt, const jsi::Value& promise) const {
+  // Reject foreign runtimes before inspecting a runtime-owned JSI value.
+  if (!runtime_ || runtime_ != &rt || !state_->alive || !promise.isObject()) return 0;
+  auto object = promise.getObject(rt);
+  if (!object.hasNativeState<State::ImagePromiseOwner>(rt)) return 0;
+  auto brand = object.getNativeState<State::ImagePromiseOwner>(rt);
+  auto owner = brand->owner.lock();
+  if (owner != state_ || state_->pending.find(brand->task_id) == state_->pending.end()) return 0;
+  return brand->task_id;
 }
 
 jsi::Function Adapter::fetch(const void* grants) {
@@ -2045,8 +2102,7 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
   static const Method fs_methods[] = {
       {"readFile",110}, {"writeFile",111}, {"appendFile",112}, {"readdir",113},
       {"mkdir",114}, {"rm",115}, {"stat",116}, {"rename",117}, {"copyFile",118},
-      {"realpath",119}, {"atomicWriteFile",120},
-      {"compressImage",121}};  // Exact patch 9
+      {"realpath",119}, {"atomicWriteFile",120}, {"compressImage",121}};
   jsi::Object fs(rt);
   for (const auto& method : fs_methods)
     fs.setProperty(rt, method.name, async_binding(method.name, method.op, grants));
@@ -2069,12 +2125,14 @@ jsi::Object Adapter::storage(const void* grants, const jsi::Function& factory) {
       jsi::PropNameID::forAscii(rt, "sqliteOwn"), 3,
       [state](jsi::Runtime& r, const jsi::Value&, const jsi::Value* args, size_t count) {
         state->require(r);
-        if (count != 3 || !args[0].isNumber() || !args[1].isNumber() || !args[2].isObject())
+        if (count != 3 || !args[0].isNumber() || !args[2].isObject())
           throw jsi::JSError(r, "SQLite owner needs a handle, kind, and object");
+        const int kind = static_cast<int>(primitive_integer(
+            r, args[1], 0.0, 1.0, "SQLite owner kind"));
         set_native_state_once(r, args[2].getObject(r),
             std::make_shared<SqliteOwner>(ibex2_sqlite_owner_create(
                 state->queue, args[0].asNumber(),
-                static_cast<int>(args[1].asNumber()))),
+                kind)),
             "SQLite owner");
         return jsi::Value::undefined();
       });
@@ -2102,10 +2160,43 @@ void Adapter::settle(uint64_t id, Ibex2AbiValue& value, bool is_error) {
   auto& rt = *runtime_;
   auto payload = from_abi(rt, value);
   if (is_error) {
-    auto error = rt.global().getPropertyAsFunction(rt, "Error").callAsConstructor(rt, payload);
+    // The realm's Error -- its lookup and its construction, each JavaScript
+    // the embedder may have replaced -- may detach the adapter: no further
+    // JavaScript once it has (LLP 0071 D5).
+    auto make = rt.global().getPropertyAsFunction(rt, "Error");
+    if (!state_->alive || !runtime_) return;
+    auto error = make.callAsConstructor(rt, payload);
+    if (!state_->alive || !runtime_) return;
     promise.reject.call(rt, error);
   } else promise.resolve.call(rt, payload);
 }
+
+void Adapter::fire_timer(uint64_t id) {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  state_->require(rt);
+  if (!has(state_->groups, GROUP_TIMERS) ||
+      !state_->timer_dispatch.isObject() ||
+      !state_->timer_dispatch.getObject(rt).isFunction(rt))
+    throw std::logic_error("Ibex2 TIMERS group is not installed");
+  state_->timer_dispatch.getObject(rt).getFunction(rt).call(
+      rt, static_cast<double>(id));
+}
+
+#if defined(IBEX2_TEST_SUPPORT)
+void Adapter::assert_timer_dispatch_unreachable_for_test() const {
+  if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
+  auto& rt = *runtime_;
+  if (!state_->timer_dispatch.isObject() ||
+      !state_->timer_dispatch.getObject(rt).isFunction(rt))
+    throw std::logic_error("Ibex2 TIMERS group is not installed");
+  Reachability walk(rt);
+  std::vector<std::pair<std::string, jsi::Value>> identities;
+  identities.emplace_back(
+      "the private timer dispatcher", jsi::Value(rt, state_->timer_dispatch));
+  require_unreachable(rt, walk, identities, 4096, 65536);
+}
+#endif
 
 uint64_t Adapter::subscribe(jsi::Function callback) {
   if (!runtime_) throw std::logic_error("Ibex2 bindings are detached");
@@ -2247,28 +2338,109 @@ void Adapter::report_error(const char* message) {
   auto& rt = *runtime_;
   if (state_->event_reporter.isObject() &&
       state_->event_reporter.getObject(rt).isFunction(rt)) {
-    auto error = rt.global().getPropertyAsFunction(rt, "Error")
-        .callAsConstructor(rt, message == nullptr ? "uncaught error" : message);
+    // As in settle(): Error's lookup and its construction may each detach
+    // the adapter.
+    auto detached = [&] { return !state_->alive || !runtime_ || !state_->event_reporter.isObject(); };
+    auto make = rt.global().getPropertyAsFunction(rt, "Error");
+    if (detached()) {
+      ibex2_report_uncaught(message);
+      return;
+    }
+    auto error = make.callAsConstructor(rt, message == nullptr ? "uncaught error" : message);
+    if (detached()) {
+      ibex2_report_uncaught(message);
+      return;
+    }
     state_->event_reporter.getObject(rt).getFunction(rt).call(rt, error);
     return;
   }
   ibex2_report_uncaught(message);
 }
 
+namespace {
+// Holds the drive flag and a reference to the runtime state, releasing both
+// on every way out, a throw included (LLP 0071 D5).
+struct DriveHold {
+  const void* held;
+  explicit DriveHold(const void* queue) : held(ibex2_adapter_begin_drive(queue)) {}
+  ~DriveHold() { if (held) ibex2_adapter_end_drive(held); }
+  DriveHold(const DriveHold&) = delete;
+  DriveHold& operator=(const DriveHold&) = delete;
+  bool taken() const { return held != nullptr; }
+};
+}  // namespace
+
 bool Adapter::deliver_one() {
   if (!state_->alive) return false;
+  // @ref LLP 0071#d5--the-cycle-is-the-adapters-and-does-not-nest — one host task at a time: a delivery reached from inside another, a cycle, or an owning pump is refused before it takes anything
+  DriveHold drive(state_->queue);
+  if (!drive.taken())
+    throw std::logic_error(
+        "Ibex2 deliver_one: nested delivery (a delivery, a cycle or an owning "
+        "pump is already running on this runtime)");
+  return deliver_next();
+}
+
+// A microtask checkpoint that reports what it cannot finish, as the owning
+// pump's does (LLP 0058.000.000 §8): a job that throws out of the queue -- on
+// the ordinary paths only an engine-raised error can, though a raw
+// HermesInternal.enqueueJob job can too -- is reported and the drain resumes behind it,
+// the engine having retired the job before running it. Returns false when the
+// adapter was detached by the JavaScript it ran.
+bool Adapter::checkpoint() {
+  for (;;) {
+    if (!state_->alive || !runtime_) return false;
+    try {
+      runtime_->drainMicrotasks();
+      return state_->alive && runtime_;
+    } catch (const jsi::JSError& error) {
+      if (!state_->alive || !runtime_) return false;
+      try {
+        report_error(error.value());
+      } catch (...) {
+        ibex2_report_uncaught(error.getMessage().c_str());
+      }
+    } catch (const std::exception& error) {
+      if (!state_->alive || !runtime_) return false;
+      try {
+        report_error(error.what());
+      } catch (...) {
+        ibex2_report_uncaught(error.what());
+      }
+    }
+  }
+}
+
+Adapter::Cycle Adapter::cycle() {
+  if (!state_->alive) return Cycle::Idle;
+  // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — a drive requested while one runs records nothing and returns, as the owning pump does
+  DriveHold drive(state_->queue);
+  if (!drive.taken()) return Cycle::Nested;
+  const void* queue = state_->queue;
+  if (!checkpoint()) return Cycle::Idle;
+  ibex2_adapter_admit_due_timers(queue);
+  bool delivered = deliver_next();
+  // A callback that detached the adapter leaves no runtime to checkpoint.
+  checkpoint();
+  return delivered ? Cycle::Delivered : Cycle::Idle;
+}
+
+bool Adapter::deliver_next() {
   int kind = 0, is_error = 0;
   unsigned long long id = 0;
   Ibex2AbiValue value{IBEX2_TAG_UNDEFINED, 0, nullptr, 0};
   if (!ibex2_take_task(state_->queue, &kind, &id, &value, &is_error)) return false;
-  if (kind != 1 && kind != 3) {
+  if (kind != 1 && kind != 2 && kind != 3) {
     ibex2_host_release(&value);
-    throw jsi::JSError(*runtime_, "storage adapter received a non-settlement task");
+    throw jsi::JSError(*runtime_, "Ibex2 adapter received an unknown task kind");
   }
   // @ref LLP 0058.000.000#8-tasks-microtasks-timers-and-callbacks — borrowed-adapter task failures are reported like owning-pump failures
+  // @ref LLP 0071#d1--a-borrowed-adapter-delivers-timer-tasks — a due timer is delivered like an event, inside the same containment
   try {
     if (kind == 3)
       deliver_event(id, value);
+    else if (kind == 2)
+      fire_timer(id);
     else
       settle(id, value, is_error != 0);
   } catch (const jsi::JSError& error) {

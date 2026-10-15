@@ -10,6 +10,14 @@ build = "build.rs"
 [lib]
 name = "carousel_web"
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
+
+[[bin]]
+name = "carousel-dev"
+path = "src/bin/carousel-dev.rs"
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

@@ -231,10 +231,12 @@ final class ContextMenuHost: NSObject, UIContextMenuInteractionDelegate {
     func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
         guard let menus, let source = interaction.view as? NodeView, live(source),
               let name = source.props["contextPopover"], menus.eligible(source) else { return nil }
-        // A long press on selectable text inside the source selects: the
-        // menu declines, which is what lets the text's own gesture go on
-        // (LLP 1115.000 D11.6, measured against a table row's menu).
-        if source.selectableText(at: location) != nil { return nil }
+        // UIKit's row menu wins over text selection. An authored menu
+        // nearer the hit still belongs to that node (LLP 1115.000 D11.6).
+        let hit = source.hitTest(location, with: nil)
+        guard !source.hitsNativeEditor(hit) else { return nil }
+        if let hit = hit as? NodeView,
+           let nearest = hit.contextMenuSource, nearest !== source { return nil }
         guard let pop = popover(named: name) else { log("context menu \(name) refused: no popover has that id"); return nil }
         // A press released before its menu showed never reached `willEnd`.
         if let previous = open { restore(previous) }

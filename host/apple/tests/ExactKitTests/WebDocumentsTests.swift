@@ -4,26 +4,16 @@ import CoreGraphics
 @testable import ExactKit
 #if os(macOS)
 import AppKit
-#elseif os(iOS)
-import UIKit
 #endif
 
 #if os(macOS) || os(iOS)
 final class WebDocumentsTests: XCTestCase {
-    // component App
-    //   state loaded = 0
-    //   state failed = ""
-    //   action didLoad
-    //     loaded = loaded + 1
-    //   action didFail(message: string)
-    //     failed = message
-    //   view
-    //     iframe src="app:/data/doc.pdf" width=300 height=200 load=didLoad error=didFail testId="pdf"
-    private let plan = Data(base64Encoded: "RVhQTAUAAABQj6VlcW+hgV5C6bcypSPWGA1E2ggCJPIAAAAA//////////8KAAAABgAAAG51bWJlcgYAAABsb2FkZWQGAAAAc3RyaW5nBgAAAGZhaWxlZAcAAABkaWRMb2FkBwAAAG1lc3NhZ2UHAAAAZGlkRmFpbAAAAAARAAAAYXBwOi9kYXRhL2RvYy5wZGYDAAAAcGRmUAAAAAQoAAAAAAAAAAAAKAIHAAAAKAYAAAAAAAAAAAAAAPA/DyIAAAAAKAkAACIBAAAAKAIIAAAAKAAAAAAAAMByQCgAAAAAAAAAaUAoAgkAAAAoAAAAAAIAAAAA/////wAAAAAAAAAAAAAAAAL/////AAAAAAAAAAACAAAAAAAAAAAAAAAAAAAACAAAAAAAAAABAAAAAQAAAAEAAAACAAAAAQAAAAMAAAABAAAABAAAAAEAAAAFAAAAAQAAAAYAAAABAAAABwAAAAEAAAAIAAAAAf////8C/////wP/////BP////8F/////wb/////B/////8I/////wIAAAABAAAAAAAAAAIAAAAKAAAA/////wAAAwAAAAEAAAAMAAAABgAAAP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAAABAAAAAAAAAAAAAAAAAAAAAEAAAASAAAAFQAAAAYAAAAAAAAAAQAAAAEAAAABAAAAJwAAAAkAAAABAAAABQAAAAEAAAACAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAL//////////8AAAAAAAAAAAQAAAAAAAAAAgAAAP////8EAAAAACoAMAAAAAYAAAABAQAANgAAAAoAAAABAQEAQAAAAAoAAAABAAsASgAAAAYAAAABAgAAAAcAAAAAAAAAAAAAAAAgAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==")!
+    // scripts/fixtures/web-documents.contract: an iframe of an app file and its load and error actions.
+    private func plan() throws -> Data { try fixturePlan("WEB_DOCUMENTS") }
 
     func testAppTextFilePreservesMIMEAndLiteralMarkup() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared
@@ -36,7 +26,7 @@ final class WebDocumentsTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
         let literal = "<b>literal</b><script>window.executed = true</script>"
         try Data(literal.utf8).write(to: directory.appendingPathComponent("notes.txt"))
-        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 300, height: 200)).error)
+        XCTAssertNil(session.boot(plan: try plan(), size: CGSize(width: 300, height: 200)).error)
         AppFiles.learn(["roots": ["data": directory.path]])
         let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "pdf" })
         let loaded = expectation(description: "plain text document loaded")
@@ -63,7 +53,7 @@ final class WebDocumentsTests: XCTestCase {
 
     func testAppFilePDFPixelsAndMissingFileError() throws {
         guard let path = ProcessInfo.processInfo.environment["EXACT_TEST_WEB_MODULE"] else {
-            throw XCTSkip("name a built WebKit arm with EXACT_TEST_WEB_MODULE")
+            throw missing("module", "no WebKit arm: name a built one with EXACT_TEST_WEB_MODULE")
         }
         #if os(macOS)
         _ = NSApplication.shared
@@ -81,47 +71,34 @@ final class WebDocumentsTests: XCTestCase {
         pdf.setFillColor(CGColor(red: 1, green: 0, blue: 0, alpha: 1))
         pdf.fill(CGRect(x: 40, y: 40, width: 220, height: 120))
         pdf.endPDFPage(); pdf.closePDF()
-        XCTAssertNil(session.boot(plan: plan, size: bounds.size).error)
+        XCTAssertNil(session.boot(plan: try plan(), size: bounds.size).error)
         // Boot learns the runtime's roots. This test owns one file root.
         AppFiles.learn(["roots": ["data": directory.path]])
         let node = try XCTUnwrap(session.presenter.views.values.first { $0.props["testId"] == "pdf" })
         // The first read may already have started before this test supplied its root.
         node.props["src"] = "app:/data/doc.pdf#page=1"
         session.webviews.update(node)
-        let web = try XCTUnwrap(node.web as? WKWebView)
         #if os(macOS)
         let window = NSWindow(contentRect: bounds, styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = session.presenter.viewport
         window.orderFrontRegardless()
         defer { window.close() }
-        #else
-        let window = UIWindow(frame: bounds)
-        window.addSubview(session.presenter.viewport)
-        window.makeKeyAndVisible()
-        defer { window.isHidden = true }
         #endif
         let loaded = expectation(description: "the app file's PDF document")
         session.presenter.onLoad = { _ in loaded.fulfill() }
         wait(for: [loaded], timeout: 30)
+        // iOS runs in hostless XCTest, with no UIApplication/window scene; its PDF captures are black.
+        // The iOS app drive in issues/closed/20261009-app-file-iframe-loading.md qualifies pixels there.
+        #if os(macOS)
+        let web = try XCTUnwrap(node.web as? WKWebView)
         let snapshot = expectation(description: "PDF pixels")
         let config = WKSnapshotConfiguration()
         config.snapshotWidth = 300
         config.afterScreenUpdates = true
         web.takeSnapshot(with: config) { image, error in
             XCTAssertNil(error)
-            #if os(macOS)
             let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil)
-            #else
-            // Match AgentIOS.screenshot: flush WebKit, then capture its remote layer through UIKit.
-            let rendered = UIGraphicsImageRenderer(bounds: web.bounds).image { _ in
-                web.drawHierarchy(in: web.bounds, afterScreenUpdates: true)
-            }
-            let cg = rendered.cgImage
-            let attachment = XCTAttachment(image: rendered)
-            attachment.lifetime = .keepAlways
-            self.add(attachment)
-            #endif
             if let cg {
                 var pixels = [UInt8](repeating: 0, count: 100 * 100 * 4)
                 let red = pixels.withUnsafeMutableBytes { bytes -> Int in
@@ -135,6 +112,7 @@ final class WebDocumentsTests: XCTestCase {
             snapshot.fulfill()
         }
         wait(for: [snapshot], timeout: 30)
+        #endif
         let failed = expectation(description: "missing file settles")
         node.props["src"] = "app:/data/missing.pdf"
         session.presenter.onLoad = { _ in XCTFail("a missing app file must not load") }

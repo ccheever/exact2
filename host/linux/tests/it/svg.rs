@@ -1,14 +1,6 @@
 //! LLP 1055.000 D17: a press inside an `svg` goes to the element under it,
 //! by `pointer-events`, and bubbles as a box's press does.
 use exact_linux::{presenter::PainterChoice, Presenter};
-use exact_runner::{DataError, DataSource, Value};
-
-struct NoData;
-impl DataSource for NoData {
-    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-        Err(DataError::UnknownSource(source.into()))
-    }
-}
 
 const APP: &str = "component App\n  state picked = \"none\"\n  action pick(which: string)\n    picked = which\n  view\n    column\n      text picked testId=\"picked\"\n      svg testId=\"chart\" width=100 height=100 viewBox=\"0 0 100 100\"\n        rect width=100 height=100 fill=\"#eeeeee\" press=pick(\"back\")\n        g press=pick(\"bars\")\n          rect x=10 y=10 width=20 height=80 fill=\"#2563eb\"\n          rect x=40 y=40 width=20 height=50 fill=\"#2563eb\" pointer-events=\"none\"\n        polyline points=\"70,90 90,10\" fill=\"none\" stroke=\"#000000\" stroke-width=6 press=pick(\"line\")\n";
 
@@ -17,7 +9,7 @@ fn a_press_in_an_svg_reaches_the_element_under_it() {
     let plan = contract::compile(APP).unwrap_or_else(|e| panic!("{e}"));
     let (mut presenter, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (400., 400.),
         1.,
         std::env::temp_dir(),
@@ -35,7 +27,7 @@ fn a_press_in_an_svg_reaches_the_element_under_it() {
         .iter()
         .find(|b| b.id == chart)
         .expect("the svg's box");
-    let picked = |p: &mut Presenter<NoData>, x: f32, y: f32| {
+    let picked = |p: &mut Presenter<()>, x: f32, y: f32| {
         p.press_at(b.rect.0 + x, b.rect.1 + y, 0.0);
         let k = p.host().kernel();
         let text = k.node_by_key(k.find_by_test_id("picked")[0]).unwrap();
@@ -66,7 +58,7 @@ fn a_zero_length_subpath_paints_its_cap() {
     let plan = contract::compile(DOTS).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (100., 40.),
         1.,
         std::env::temp_dir(),
@@ -96,7 +88,7 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
     let plan = contract::compile(SYMBOLS).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (100., 48.),
         1.,
         std::env::temp_dir(),
@@ -104,7 +96,7 @@ fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let reds = |p: &mut Presenter<NoData>, id: &str| {
+    let reds = |p: &mut Presenter<()>, id: &str| {
         let k = p.host().kernel();
         let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id;
         let b = *p.boxes().iter().find(|b| b.id == node).unwrap();
@@ -148,7 +140,7 @@ fn every_symbol_role_draws_its_path() {
     let height = 24. * roles.len() as f32;
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (24., height),
         1.,
         std::env::temp_dir(),
@@ -183,7 +175,7 @@ fn a_transitioning_d_morphs_the_path() {
     let plan = contract::compile(MORPH).unwrap_or_else(|e| panic!("{e}"));
     let (mut p, error) = Presenter::boot_with(
         &plan.encode(),
-        NoData,
+        (),
         (200., 200.),
         1.,
         std::env::temp_dir(),
@@ -191,13 +183,13 @@ fn a_transitioning_d_morphs_the_path() {
     )
     .unwrap();
     assert!(error.is_none(), "{error:?}");
-    let id = |p: &Presenter<NoData>, name: &str| {
+    let id = |p: &Presenter<()>, name: &str| {
         let k = p.host().kernel();
         k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
     };
     let icon = id(&p, "icon");
     // The rows of the icon with ink in them: its height in points.
-    let ink = |p: &mut Presenter<NoData>| {
+    let ink = |p: &mut Presenter<()>| {
         let b = *p.boxes().iter().find(|b| b.id == icon).unwrap();
         let frame = p.frame();
         (0..96u32)

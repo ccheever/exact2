@@ -72,6 +72,8 @@ pub enum DecodeError {
     BadAnimationRange,
     /// Invalid `timeline-scope` (LLP 1057.003 D4).
     BadTimelineScope,
+    /// Invalid invoker-popover flip fallback list.
+    BadPositionTryFallbacks,
     /// Invalid SVG paint (LLP 1055 D2).
     BadPaint,
     /// Invalid SVG `stroke-dasharray` (LLP 1055 D2).
@@ -155,8 +157,6 @@ pub enum DecodeError {
     InvalidTransition(exact_motion::TransitionError),
     /// A style mask set bits above the last row.
     ReservedMaskBits,
-    /// A style patch marked a row written that it does not set.
-    WrittenUnsetRow,
     /// A child list exceeds the bound.
     TooManyChildren(u32),
     /// A string field is not UTF-8.
@@ -542,6 +542,10 @@ pub enum StyleValueError {
     },
     /// Not `none`, `all` or a list of `<dashed-ident>`s.
     BadTimelineScope {
+        style: StyleId,
+    },
+    /// Not none or a list of flip-block/flip-inline combinations.
+    BadPositionTryFallbacks {
         style: StyleId,
     },
     /// Not a CSS `rotate` (LLP 1077 D8).

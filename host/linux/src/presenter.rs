@@ -258,6 +258,7 @@ pub struct Presenter<D: DataSource> {
     commands: Vec<exact_runner::Command>,
     /// Range replacement selects wait until the action's commands finish.
     field_select_tasks: Vec<ViewId>,
+    field_change_tasks: std::collections::BTreeSet<ViewId>,
     /// Driven by the agent (`agent.rs`): a `share` is held, never refused
     /// (LLP 1069.003 D6).
     pub(crate) agent: bool,
@@ -497,6 +498,7 @@ impl<D: DataSource> Presenter<D> {
             updates: None,
             commands: Vec::new(),
             field_select_tasks: Vec::new(),
+            field_change_tasks: Default::default(),
             agent: false,
             booting: true,
             content_registration: region,

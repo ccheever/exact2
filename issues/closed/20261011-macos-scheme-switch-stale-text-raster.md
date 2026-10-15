@@ -151,15 +151,6 @@ text's computed colour is read with `getComputedStyle`.
 Each macOS scenario reproduced on its first drive. The same 13 texts stayed in every run: the two drives and the
 five launches behind the image's right half.
 
-![X82: after a live switch to dark, Exact web in Chrome and the macOS layers](https://raw.githubusercontent.com/ccheever/exact2/088311b3819b1fd8ece1b7a30c06e4806ae7988b/fw-issues-20261011l/x82-live-switch-web-macos.png)
-
-Record (the contract, the commands, every drive's table, and the code read):
-https://raw.githubusercontent.com/ccheever/exact2/088311b3819b1fd8ece1b7a30c06e4806ae7988b/fw-issues-20261011l/x82-record.txt
-(sources at the same commit: `x82-app.contract.txt`, `x82-mac-drive.mjs.txt`, `x82-mac-layer-image.mjs.txt`,
-`x82-chrome-scheme-probe.mjs.txt`, `x82-compose.py.txt`; also `x82-macos-layers-live-dark.png`,
-`x82-macos-agent-screenshot-live-dark.png` (the agent's plain screenshot, every text right), and
-`x82-web-js-*.png`).
-
 Not run:
 - A real system appearance change. On this Mac the only way is System Settings › Appearance, which is the user's
   setting. Read from the code, it reaches the same `viewDidChangeEffectiveAppearance` path as the agent's
