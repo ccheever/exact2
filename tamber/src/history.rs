@@ -257,8 +257,24 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                         name: edit.name.clone(),
                         value: before.clone(),
                     }),
-                    _ if current == edit.before => out.already.push(edit.clone()),
+                    (Some(_), Some(_)) if current == edit.before => out.already.push(edit.clone()),
                     (Some(_), Some(_)) => conflict(&mut out, current, "changed since"),
+                    (None, Some(_)) if current.is_none() => out.already.push(edit.clone()),
+                    // Removed by the commit and there again: as it was, or
+                    // with another declaration, which no operation changes.
+                    (Some(_), None)
+                        if current == edit.before
+                            && find(&now.dials, &edit.name, |d| &d.name.value).map(dial_shape)
+                                == find(&old.dials, &edit.name, |d| &d.name.value)
+                                    .map(dial_shape) =>
+                    {
+                        out.already.push(edit.clone())
+                    }
+                    (Some(_), None) if current.is_some() => conflict(
+                        &mut out,
+                        current,
+                        "a dial by that name is there again, with another declaration",
+                    ),
                     _ => conflict(&mut out, current, "no operation adds or removes a dial"),
                 }
             }
@@ -291,6 +307,17 @@ pub fn revert(old: &Design, new: &Design, now: &Design) -> Revert {
                     (Some(x), Some(y), Some(c))
                         if x.under_dark == y.under_dark && c.under_dark == y.under_dark =>
                     {
+                        // The values the commit left, in the order it left
+                        // them, or the file reordered them since (a later
+                        // default the revert would undo): refused.
+                        if !same_order(&y.values, &c.values) {
+                            conflict(
+                                &mut out,
+                                Some(axis_text(c)),
+                                "its values have moved since; reverting would leave them in another order",
+                            );
+                            continue;
+                        }
                         // Values the commit added go, where they still are;
                         // values it removed come back, before the next of
                         // the old ones the axis has now.
@@ -625,6 +652,11 @@ mod tests {
         assert!(revert(&d(&three), &d(&v2), &d(&moved)).conflicts[0]
             .why
             .contains("moved since"));
+        // The commit added a value, and a later edit made it the default:
+        // removing it would undo that.
+        let later = three.replace("black | dim | navy", "navy | black | dim");
+        let r = revert(&d(V1), &d(&three), &d(&later));
+        assert!(r.ops.is_empty() && r.conflicts[0].why.contains("moved since"));
     }
 
     #[test]
@@ -685,5 +717,14 @@ mod tests {
             &d(with),
         );
         assert!(r.conflicts.iter().any(|c| c.edit.what == What::Dial));
+        // A dial the commit removed, back with another declaration, is no
+        // "already".
+        let without = "tamber t\n\ntheme\n  ink = #111111\n";
+        let back = "tamber t\n\ndials\n  accent: color = #1083fe  label=\"Other\"\n\ntheme\n  ink = accent\n";
+        let r = revert(&d(with), &d(without), &d(back));
+        assert!(r
+            .conflicts
+            .iter()
+            .any(|c| c.edit.what == What::Dial && c.why.contains("another declaration")));
     }
 }

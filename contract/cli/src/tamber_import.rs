@@ -155,6 +155,10 @@ pub fn plan(request: &Value, current: &str) -> Result<Value, Value> {
             .collect::<Result<_, _>>()?,
         _ => return Err(bad("`sources` is a list of 1 to 256 {name, text}")),
     };
+    // By name, as the CLI reads a directory, so the order a person picked
+    // the files in decides nothing.
+    let mut files = files;
+    files.sort();
     let design = exact_tamber::parse(current).map_err(|all| {
         json!({"message": "the design does not parse", "diagnostics": all.iter().map(ToString::to_string).collect::<Vec<_>>()})
     })?;

@@ -446,10 +446,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const id = `prop-${epoch}-${++proposalCount}`;
     const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
+    // The digests of files it was planned on but does not edit (a revert's
+    // file that is already as before): moved, the plan is stale too.
+    const guards = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
-    proposals.set(id, { client, ops, base, expires, shown });
+    proposals.set(id, { client, ops, base, guards, expires, shown });
     // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
@@ -476,8 +479,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // it is planned again from the commit, never its old operations
     // replayed; refused where the files moved on its edits.
     const reverted = p.shown.review?.revert?.commit;
-    const replan = async () => {
-      const plan = await planRevert(reverted);
+    const replan = async (only = p.shown.review.revert.only) => {
+      const plan = await planRevert(reverted, only);
       if (!plan.ok) { send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' }); return plan; }
       return replaced(await hold(p.client, plan.ok.ops, plan.ok.files, id, plan.ok.review));
     };
@@ -494,9 +497,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         ...(old.tokens === undefined ? {} : { tokens: kept.filter(i => i < old.tokens).length }),
       };
       let fresh;
-      // Some of a revert's items: on the files it was planned on, or planned again.
-      try { fresh = await hold(p.client, ops, reverted ? p.base : undefined, id, review); } catch (e) { restore(id, p); throw e; }
-      if (reverted && fresh.error?.conflict) return replan();
+      // Some of a revert's items: on the files it was planned on, or that
+      // selection planned again.
+      if (reverted) {
+        const only = ops.map(revertKey);
+        if (await guardsMoved(p)) return replan(only);
+        review.revert = { ...review.revert, only };
+      }
+      try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review); } catch (e) { restore(id, p); throw e; }
+      if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
     };
     const some = items && new Set(items).size < p.ops.length;
@@ -504,6 +513,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const kept = [...new Set(items)].sort((a, b) => a - b);
       return recompute(kept.map(i => p.ops[i]), kept);
     }
+    if (reverted && await guardsMoved(p)) return replan();
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
     let waiting = true;
@@ -518,7 +528,18 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     return done;
   }
 
-  const designRel = () => relative(appDir, designPath(appDir) ?? resolve(appDir, design));
+  /** Whether a file `p` was planned on but does not edit has moved. */
+  async function guardsMoved(p) {
+    if (!Object.keys(p.guards).length) return false;
+    const now = await ask({ method: 'hello' });
+    return !now.ok || Object.entries(p.guards).some(([path, d]) => now.ok.files[path] !== d);
+  }
+  // The design as app.json names it, whether or not it is there now.
+  const designRel = () => {
+    let named = null;
+    try { named = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8')).tamber ?? null; } catch { /* no manifest */ }
+    return relative(appDir, resolve(appDir, typeof named === 'string' ? named : 'app.tamber'));
+  };
   /** The git log of the design's files, each commit's files as edits. */
   async function history(request) {
     const { limit = 20, skip = 0 } = request;
@@ -549,7 +570,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   /** A past commit's inverse planned on today's files: its operations, the
    * digests they were planned on, and the review; or refused, naming each
    * edit that cannot apply. */
-  async function planRevert(rev) {
+  async function planRevert(rev, only) {
     let c;
     try { c = designCommit(appDir, designRel(), rev); } catch (e) { return { status: 500, error: { message: `reading git: ${e.message}` } }; }
     if (!c.ok) return c;
@@ -558,8 +579,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // One file a request, each within the server's line.
     for (const { file, before, after } of c.ok.files) {
       const planned = await ask({ method: 'revert-plan', pairs: [{ file, before, after }] });
+      if (planned.status === 413) { conflicts.push({ file, edit: null, now: null, why: 'its versions are too large to compare (over 1 MiB)' }); continue; }
       if (!planned.ok) return planned;
-      ops.push(...planned.ok.ops); already.push(...planned.ok.already); conflicts.push(...planned.ok.conflicts); moved.push(...planned.ok.moved);
+      // Only the edits a person kept, when they kept some.
+      const kept = key => !only || only.includes(key);
+      ops.push(...planned.ok.ops.filter(o => kept(revertKey(o)))); already.push(...planned.ok.already);
+      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? kept(editKey(x.file, x.edit)) : only.some(k => k.startsWith(`${x.file}\0`))))); moved.push(...planned.ok.moved);
       if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
     }
     const short = c.ok.commit.slice(0, 12);
@@ -569,7 +594,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (!ops.length) return { status: 409, error: { message: `nothing to revert: the files have ${short}'s edits undone already`, already } };
     const subject = c.ok.message.split('\n')[0];
-    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already } } } };
+    return { ok: { ops, files, review: { revert: { commit: c.ok.commit, subject, moved, already, ...(only ? { only } : {}) } } } };
   }
   /** An import the tool started: planned by the server from the source's
    * text, held with its review. */
@@ -665,6 +690,17 @@ export async function op(argv) {
   console.log(await res.text());
   return res.ok ? 0 : 1;
 }
+
+/** What a revert's operation or edit is to: its file, the token, dial or
+ * axis, and the `when` (conditions in any order), so a selection of a
+ * revert's items is the same edits when it is planned again. */
+const whenKey = when => JSON.stringify([...(when ?? [])].map(c => `${c.axis}=${c.value}`).sort());
+const editKey = (file, e) => `${file}\0${e.what}\0${e.name}\0${whenKey(e.when)}`;
+const revertKey = o => editKey(o.file, {
+  what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
+  name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
+  when: ['set-token', 'unset-token-when'].includes(o.op) ? o.when : [],
+});
 
 /** An importer's proposal (`contract tamber import`'s JSON) as one held
  * proposal's operations: the tokens, then each role override as its own

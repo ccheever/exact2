@@ -623,3 +623,63 @@ test('history reads three design commits as token edits; a revert applies, is re
     rmSync(repo, { recursive: true, force: true });
   }
 }, 600_000);
+
+test("a held revert keeps its untouched files' digests and a person's selection when it is planned again", async () => {
+  const A1 = 'tamber t\n\ntheme\n  ink = #000000\n  edge = #101010\n';
+  const B1 = 'tamber b\n\ntheme\n  b.ink = #010101\n';
+  const repo = mkdtempSync(join(tmpdir(), 'exact-tamber-revert-'));
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'Ada', GIT_AUTHOR_EMAIL: 'ada@example.test', GIT_COMMITTER_NAME: 'Ada', GIT_COMMITTER_EMAIL: 'ada@example.test' };
+  const g = (...args) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env });
+  writeFileSync(join(repo, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  g('init', '-q');
+  for (const [a, b] of [[A1, B1], [A1.replace('#000000', '#222222').replace('#101010', '#202020'), B1.replace('#010101', '#020202')]]) {
+    writeFileSync(join(repo, 'app.tamber'), a); writeFileSync(join(repo, 'b.tamber'), b);
+    g('add', '.'); g('commit', '-q', '-m', 'design');
+  }
+  const commit = g('rev-parse', 'HEAD').stdout.trim();
+  const listener = createServer();
+  await new Promise(ok => listener.listen(0, '127.0.0.1', ok));
+  const port = listener.address().port;
+  const gate = developmentGate([{ origin: `http://127.0.0.1:${port}` }], port);
+  const wire = tamberServer({ appDir: repo, log: () => {}, settle: 250 });
+  listener.on('request', async (req, res) => {
+    if (!(await wire.handle(req, res, new URL(req.url, 'http://x'), gate.check(req)))) { res.writeHead(404); res.end(); }
+  });
+  try {
+    await wire.ready;
+    const at = `http://127.0.0.1:${port}`;
+    const { token } = await (await fetch(`${at}/__tamber/token`)).json();
+    const call = async request => {
+      const res = await fetch(`${at}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) });
+      return { status: res.status, ...(await res.json()) };
+    };
+    const digest = f => createHash('sha256').update(readFileSync(join(repo, f))).digest('hex');
+    const set = (file, name, value) => call({ method: 'transaction', client: 'agent', files: { [file]: digest(file) }, ops: [{ op: 'set-token', file, name, value }] });
+    // b.tamber already as before: no operation there, but its digest guards the plan.
+    await set('b.tamber', 'b.ink', '#010101');
+    const held = await call({ method: 'revert', client: 'ada', commit });
+    expect(held.ok.ops.map(o => o.op.file)).toEqual(['app.tamber', 'app.tamber']);
+    await set('b.tamber', 'b.ink', '#030303');
+    const stale = await call({ method: 'accept', client: 'ada', proposal: held.ok.proposal });
+    expect(stale.status, JSON.stringify(stale)).toBe(409);
+    expect(stale.error.refused[0]).toMatchObject({ file: 'b.tamber', edit: { name: 'b.ink' }, now: '#030303' });
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toContain('ink = #222222');
+    // Only `ink` kept; then the file moves on the item left out: planned
+    // again, it is still only `ink`.
+    await set('b.tamber', 'b.ink', '#010101');
+    const two = await call({ method: 'revert', client: 'ada', commit });
+    const inkAt = two.ok.ops.findIndex(o => o.op.name === 'ink');
+    const part = await call({ method: 'accept', client: 'ada', proposal: two.ok.proposal, items: [inkAt] });
+    expect(part.ok.ops.map(o => o.op.name)).toEqual(['ink']);
+    await set('app.tamber', 'edge', '#2b2b2b');
+    const again = await call({ method: 'accept', client: 'ada', proposal: part.ok.proposal });
+    expect(again.ok?.recomputed, JSON.stringify(again)).toBe(true);
+    expect(again.ok.ops.map(o => o.op.name)).toEqual(['ink']);
+    expect((await call({ method: 'accept', client: 'ada', proposal: again.ok.proposal })).status).toBe(200);
+    expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(A1.replace('#101010', '#2b2b2b'));
+  } finally {
+    await wire.close();
+    listener.close();
+    rmSync(repo, { recursive: true, force: true });
+  }
+}, 600_000);

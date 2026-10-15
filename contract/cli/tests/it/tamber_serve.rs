@@ -540,6 +540,13 @@ fn compare_revert_plan_and_import_plan() {
         json!({"source": 104, "mapped": 40, "reported": 64}),
         "{figma}"
     );
+    // A file name of any characters is no way to stop the server.
+    let (named, _) =
+        s.ask(json!({"method": "import-plan", "kind": "dtcg", "name": "日本語", "source": "{}"}));
+    assert!(
+        named.get("ok").is_some() || named.get("error").is_some(),
+        "{named}"
+    );
     let (astryx, _) = s.ask(json!({"method": "import-plan", "kind": "astryx", "source": "{}"}));
     assert!(astryx["error"]["message"]
         .as_str()
