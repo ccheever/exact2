@@ -65,7 +65,7 @@ component FontFamilyPicker
               text "No fonts found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding="0.5rem" color=pal.muted testId=`font-picker-${rowId}-empty` id=`font-picker-${rowId}-empty` data-paint="mutedForeground" data-pick="mutedForeground"
             for family in matches key=family.id
               button press=choose(family.value) hover=hoverRow(family.id) popovertarget=`font-picker-${rowId}` popovertargetaction="hide" role="option" aria-selected=family.selected id=`font-picker-${rowId}-option-${family.id}` testId=`font-picker-${rowId}-${family.id}` display="flex" flex-direction="row" align-items="center" justify-content="space-between" gap="0.5rem" width="100%" height="1.875rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" background-color=(highlight == family.id ? pal.highlight : "#00000000")
-                text family.label font-family=family.detail font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 min-width=0 flex=1 id=`paint-FontFamilyPicker-7-${rowId}-${family.id}` data-paint="text" data-pick="text"
+                text family.label font-family=family.detail font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 min-width=0 flex=1 text-align="left" id=`paint-FontFamilyPicker-7-${rowId}-${family.id}` data-paint="text" data-pick="text"
                 row gap="0.375rem" align-items="center" flex-shrink=0
                   if family.value == ""
                     text "default" font-size="0.625rem" line-height="0.875rem" color=pal.muted opacity=0.6 id=`paint-FontFamilyPicker-8-${rowId}-${family.id}` data-paint="mutedForeground" data-pick="mutedForeground"

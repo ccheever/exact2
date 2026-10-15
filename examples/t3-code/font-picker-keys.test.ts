@@ -30,6 +30,8 @@ describe('the font picker\'s search', () => {
     const source = await Bun.file(new URL('./settings-a-fonts.contract', import.meta.url)).text();
     const field = source.split('\n').find(line => line.includes('testId=`font-picker-${rowId}-search`'))!;
     expect(field).toContain('key=searchKey submit=pick autofocus=true role="combobox"');
+    // A ComboboxItem is a div: its family starts at the row's leading edge, not centred as a button's text is.
+    expect(source.split('\n').find(line => line.includes('text family.label'))).toContain('text-align="left"');
   });
 
   test('typing lights the first match; ↓/↑ walk the matches and loop through none', () => {
