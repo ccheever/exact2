@@ -238,7 +238,7 @@ fn strip_comments(css: &str) -> String {
                     if let Some(n) = chars.next() {
                         out.push(n);
                     }
-                } else if c == q {
+                } else if c == q || c == '\n' {
                     quote = None;
                 }
             }
@@ -268,23 +268,28 @@ fn strip_comments(css: &str) -> String {
 /// strings and parentheses.
 fn marks(text: &str) -> Vec<(usize, char)> {
     let mut out = Vec::new();
-    let (mut quote, mut parens, mut escaped) = (None, 0i32, false);
+    let (mut quote, mut nesting, mut escaped) = (None, 0i32, false);
     for (i, c) in text.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
         if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == q {
-                quote = None;
+            match c {
+                '\\' => escaped = true,
+                // A string a newline ends unescaped is a bad string, ended.
+                '\n' => quote = None,
+                c if c == q => quote = None,
+                _ => {}
             }
             continue;
         }
         match c {
+            '\\' => escaped = true,
             '"' | '\'' => quote = Some(c),
-            '(' => parens += 1,
-            ')' => parens -= 1,
-            '{' | '}' | ';' if parens <= 0 => out.push((i, c)),
+            '(' | '[' => nesting += 1,
+            ')' | ']' => nesting -= 1,
+            '{' | '}' | ';' if nesting <= 0 => out.push((i, c)),
             _ => {}
         }
     }
@@ -343,8 +348,9 @@ fn body(text: &str, context: &[String], out: &mut Vec<Block>) {
                 let end = matching(k);
                 // A custom property's value may hold braces: its declaration
                 // runs on to the `;` after them.
+                // Without its close, the brace is the value's own.
                 if prelude.starts_with("--") && prelude.contains(':') {
-                    k = end.map_or(marks.len(), |j| j + 1);
+                    k = end.map_or(k + 1, |j| j + 1);
                     continue;
                 }
                 // Unclosed: the rest is its body.

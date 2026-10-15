@@ -353,3 +353,58 @@ fn an_authored_when_on_another_axis_stays_and_a_role_offer_clears_its_own() {
         again.offers
     );
 }
+
+#[test]
+fn shadcn_references_fold_as_css_reads_them_and_restricted_rules_are_reported() {
+    let css = r#"
+:root { --a: red; --b: var(--a); --r: #ff0000; --background: white; &:hover { --background: red; } }
+.dark { --a: var(--b); --b: blue; --r: #0000ff; }
+.theme-blue { --r: #00ff00; }
+.dark .theme-blue { --ref: var(--r); }
+.card { --muted: #999999; }
+:root { --config: [a; --fake: red; ]; --after: #010101; --bad: "unclosed
+  ; --next: #020202; }
+:is(.theme-blue, .x) { --ignored: #030303; }
+"#;
+    let import = shadcn::import(css, "shadcn", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    let why = |name: &str| -> Vec<String> {
+        import
+            .unmapped
+            .iter()
+            .filter(|u| u.name == name)
+            .map(|u| u.why.clone())
+            .collect()
+    };
+    assert_eq!(
+        import.counted.mapped + import.counted.reported,
+        import.counted.source
+    );
+    assert!(why("--fake").is_empty() && import.unmapped.iter().all(|u| u.name != "--fake"));
+    assert!(why("--background")[0].contains("some elements only"));
+    assert!(why("--muted")[0].contains("some elements only"));
+    let text = accepted(EMPTY, &import);
+    assert_eq!(token_value(&text, "shadcn.background"), "white");
+    assert_eq!(token_value(&text, "shadcn.after"), "#010101");
+    assert_eq!(token_value(&text, "shadcn.next"), "#020202");
+    // A cycle of tokens is written as the colours it resolves to.
+    assert_eq!(token_value(&text, "shadcn.a"), "light-dark(red, blue)");
+    // Blue's dark side reads the theme's light --r, as CSS does: the
+    // token's blue line is that one colour, and --ref names it.
+    assert!(
+        text.contains("  shadcn.r = light-dark(#ff0000, #0000ff)\n    when theme=blue: #00ff00\n"),
+        "{text}"
+    );
+    assert_eq!(token_value(&text, "shadcn.ref"), "shadcn.r");
+}
+
+#[test]
+fn a_theme_axis_past_the_tuples_refuses_the_import() {
+    let values: Vec<String> = (0..32).map(|i| format!("d{i}")).collect();
+    let design = format!(
+        "tamber app\n\naxes\n  density = {}\n  theme = blue | green\n\ntheme\n  ink = #000000\n",
+        values.join(" | ")
+    );
+    let css = ".theme-blue { --background: #0000ff; }";
+    let refused = shadcn::import(css, "shadcn", &parse(&design).unwrap(), &vocab()).unwrap_err();
+    assert_eq!(refused[0].id, "tamber-import-tuples");
+}

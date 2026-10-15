@@ -297,7 +297,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // What the wire itself reads of a review: the offers' items, the tokens' count.
   const reviewShaped = r => typeof r === 'object' && r !== null && !Array.isArray(r)
     && (r.offers === undefined || Array.isArray(r.offers) && r.offers.every(o => typeof o === 'object' && o !== null && (o.items === undefined || Array.isArray(o.items) && o.items.every(Number.isInteger))))
-    && (r.tokens === undefined || Number.isInteger(r.tokens));
+    && (r.tokens === undefined || Number.isInteger(r.tokens) && r.tokens >= 0);
   const needsClient = request => typeof request.client === 'string' && request.client ? null : { status: 400, error: { message: `${request.method} names its \`client\`` } };
 
   /** One request: the server's, or one of the wire's own (`commit`, a held
