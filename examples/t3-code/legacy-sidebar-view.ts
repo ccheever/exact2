@@ -8,7 +8,8 @@
 import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { terminalFocused } from './terminal-focus';
-import { fleet, fleetThreads, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from './settings-b-fleet';
+import { focusedOnPrimary, isPrimaryEnvironment, primaryEnvironmentId } from './local-primary';
+import { fleet, fleetThreads, fleetThreadId, parseFleetThreadId, remoteThread, type EnvironmentFleet } from './settings-b-fleet';
 import { groupLabel, logicalKey } from './r6-polish-groups';
 import { projectGlyph } from './r3-sidebar-glyph';
 import type { ProjectGlyph } from './r3-sidebar-glyph';
@@ -72,7 +73,7 @@ export function previewCount(client: T3Client): number {
 
 const projectPath = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** `aliases`: the member's own id and the ids of the stale rows of the same checkout it won over (their threads join it). */
-export type LegacyGroupMember = LegacyMember & { project: Obj; aliases: string[] };
+export type LegacyGroupMember = LegacyMember & { project: Obj; aliases: string[]; onPrimary: boolean };
 export interface LegacyGroup { key: string; name: string; members: LegacyGroupMember[]; createdAt: unknown; updatedAt: unknown; remoteOnly: boolean; remoteLabels: string[] }
 /** projectGrouping.ts projectFreshnessTime / shouldReplacePhysicalProjectWinner: the newer row wins, then the larger id. */
 const freshness = (project: Obj): number => { const updated = Date.parse(str(project.updatedAt)); if (Number.isFinite(updated)) return updated; const created = Date.parse(str(project.createdAt)); return Number.isFinite(created) ? created : 0; };
@@ -87,16 +88,17 @@ export const replacesWinner = (existing: Obj, candidate: Obj): boolean => {
  * freshest identity among them (selectProjectIdentitySource), and the stale rows' threads join the winner.
  */
 export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet): LegacyGroup[] {
-  type Row = LegacyMember & { project: Obj; environmentId: string };
+  type Row = LegacyMember & { project: Obj; environmentId: string; onPrimary: boolean };
+  const focusOnPrimary = focusedOnPrimary(client);
   const rows: Row[] = client.shell.projects.map(project => ({
     id: str(project.id), physicalKey: `${client.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-    environmentLabel: str(obj(client.config.environment).label), remote: false, project, environmentId: client.environmentId }));
+    environmentLabel: str(obj(client.config.environment).label), remote: false, project, environmentId: client.environmentId, onPrimary: focusOnPrimary }));
   for (const entry of source.entries.values()) {
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
     const label = str(obj(entry.config.environment).label);
     for (const project of entry.shell.projects) rows.push({ id: `fleet:${entry.environmentId}:${str(project.id)}`,
       physicalKey: `${entry.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-      environmentLabel: label, remote: true, project, environmentId: entry.environmentId });
+      environmentLabel: label, remote: true, project, environmentId: entry.environmentId, onPrimary: isPrimaryEnvironment(entry.environmentId) });
   }
   const byPhysical = new Map<string, Row[]>();
   for (const row of rows) byPhysical.set(row.physicalKey, [...(byPhysical.get(row.physicalKey) ?? []), row]);
@@ -110,12 +112,15 @@ export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet)
     return { ...member, key, aliases: list.map(row => row.id) };
   });
   const ordered = orderItemsByPreferredIds({ items: members, preferredIds: sidebarPrefs(client).projectOrder, getId: member => member.physicalKey });
+  // environmentPresence (sidebarProjectGrouping.ts): remote is "not the primary's", whichever environment is focused;
+  // with no primary no project is remote.
+  const primaryKnown = primaryEnvironmentId() !== null;
   const groups = new Map<string, LegacyGroup>();
   for (const { key, ...member } of ordered) {
     const group = groups.get(key) ?? { key, name: '', members: [], createdAt: member.project.createdAt, updatedAt: member.project.updatedAt ?? member.project.createdAt, remoteOnly: true, remoteLabels: [] };
     group.members.push(member);
-    group.remoteOnly = group.remoteOnly && member.remote;
-    if (member.remote && member.environmentLabel && !group.remoteLabels.includes(member.environmentLabel)) group.remoteLabels.push(member.environmentLabel);
+    group.remoteOnly = primaryKnown && group.remoteOnly && !member.onPrimary;
+    if (primaryKnown && !member.onPrimary && member.environmentLabel && !group.remoteLabels.includes(member.environmentLabel)) group.remoteLabels.push(member.environmentLabel);
     groups.set(key, group);
   }
   return [...groups.values()].map(group => ({ ...group, name: groupLabel(group.members.map(member => member.project)) || group.members[0]!.title }));
@@ -180,7 +185,7 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
   const state = snapshot ? lifecycle(str(snapshot.state, 'open'), snapshot.isDraft === true) : '';
   const stateLabel = ({ open: 'Open', draft: 'Draft', closed: 'Closed', merged: 'Merged' } as Record<string, string>)[state] ?? '';
   const worktree = str(thread.worktreePath).trim(), branch = str(thread.branch);
-  const remote = str(thread.fleetMachine);
+  const remote = remoteThread(client, thread);
   return {
     id, dropKey: parseFleetThreadId(id) ? id : fleetThreadId(client.environmentId, id), title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
     terminalCount: terminalProcessCount(client, id),
@@ -193,7 +198,7 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
     } : fallbackPr(client, thread)), ...portLabels(rowPorts(client, id)),
     // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
     worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
-    remoteMachine: remote ? (remote === 'desktop' ? 'monitor' : remote) : '', remoteLabel: remote ? str(thread.fleetEnvironmentLabel, 'Remote') : '',
+    remoteMachine: remote ? (remote.machine === 'desktop' ? 'monitor' : remote.machine) : '', remoteLabel: remote ? remote.label || 'Remote' : '',
     age: relativeTimeLabel(thread.latestUserMessageAt ?? thread.updatedAt ?? thread.createdAt, now), jump,
   };
 }
@@ -265,7 +270,7 @@ export function legacySidebarSnapshot(client: T3Client, now: number, helpers: Pi
     const view = views[at]!;
     const status = resolveProjectStatusIndicator(threads.map(thread => statusOf(client, thread)));
     const hidden = pillFields(resolveProjectStatusIndicator(view.hidden.map(thread => statusOf(client, thread))));
-    const representative = group.members.find(member => !member.remote) ?? group.members[0]!;
+    const representative = group.members.find(member => member.onPrimary) ?? group.members[0]!;
     const glyph = projectGlyph(client, representative.project, helpers.projectIdentity);
     const shown = pillFields(view.expanded ? null : status);
     return {

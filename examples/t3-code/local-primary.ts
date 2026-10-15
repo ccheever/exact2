@@ -109,6 +109,8 @@ export class LocalPrimary {
 }
 export const primary = new LocalPrimary();
 
+/** usePrimaryEnvironmentId: the primary's environment id; null while there is none (switched off, or before its descriptor answered). */
+export const primaryEnvironmentId = (source: LocalPrimary = primary): string | null => source.target?.environmentId || null;
 /** Whether this environment id is the primary's. */
 export const isPrimaryEnvironment = (environmentId: string, source: LocalPrimary = primary) =>
   !!environmentId && !!source.target?.environmentId && source.target.environmentId === environmentId;
