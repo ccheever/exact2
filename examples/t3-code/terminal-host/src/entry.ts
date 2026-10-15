@@ -103,6 +103,7 @@ export function observeComposition(input: EventTarget, send: (composing: boolean
 }
 
 type KeyModifiers = Pick<KeyboardEvent, "metaKey" | "ctrlKey" | "altKey" | "shiftKey">;
+type MarkedKey = KeyModifiers & { readonly code: string };
 
 /** How long a mark waits for its keydown; WebKit sends it as soon as the input method answers. */
 const COMPOSITION_KEY_LIFETIME_MS = 1000;
@@ -114,22 +115,24 @@ const COMPOSITION_KEY_LIFETIME_MS = 1000;
  * WebKit sends the key's own code when the input method declines it, after any text the input method
  * committed for it, so the composition can be over by then: unmarked, ⌃C while ㅎ composes would
  * reach the shell as ^C.
- * A mark is taken by the next keydown with its modifiers; marks before it, and a mark whose keydown
- * never came (a menu took the key), lapse. */
+ * A mark is taken by the next keydown with its modifiers and physical key (`code`; WebKit's "Process"
+ * keydown, keyCode 229, matches any key); marks before it, and a mark whose keydown never came (a menu
+ * took the key), lapse, so a second ⌃C is never mistaken for the first. */
 export class CompositionKeys {
-  private marks: { readonly modifiers: KeyModifiers; readonly at: number }[] = [];
+  private marks: { readonly key: MarkedKey; readonly at: number }[] = [];
 
   constructor(private readonly now: () => number = () => performance.now()) {}
 
-  mark(modifiers: KeyModifiers): void {
-    this.marks.push({ modifiers, at: this.now() });
+  /** `code` is the key's `KeyboardEvent.code`, or "" when the native view has no name for it. */
+  mark(key: MarkedKey): void {
+    this.marks.push({ key, at: this.now() });
   }
 
-  take(event: KeyModifiers): boolean {
+  take(event: MarkedKey & Pick<KeyboardEvent, "keyCode">): boolean {
     const now = this.now();
     this.marks = this.marks.filter(({ at }) => now - at < COMPOSITION_KEY_LIFETIME_MS);
-    const index = this.marks.findIndex(({ modifiers }) => modifiers.metaKey === event.metaKey && modifiers.ctrlKey === event.ctrlKey &&
-      modifiers.altKey === event.altKey && modifiers.shiftKey === event.shiftKey);
+    const index = this.marks.findIndex(({ key }) => key.metaKey === event.metaKey && key.ctrlKey === event.ctrlKey &&
+      key.altKey === event.altKey && key.shiftKey === event.shiftKey && (key.code === "" || key.code === event.code || event.keyCode === 229));
     if (index < 0) return false;
     this.marks.splice(0, index + 1);
     return true;
@@ -386,7 +389,7 @@ class TerminalPage {
     }
     if (message.type === "compositionKey") {
       this.compositionKeys.mark({ metaKey: message.metaKey === true, ctrlKey: message.ctrlKey === true,
-        altKey: message.altKey === true, shiftKey: message.shiftKey === true });
+        altKey: message.altKey === true, shiftKey: message.shiftKey === true, code: typeof message.code === "string" ? message.code : "" });
       return null;
     }
     if (message.type === "keyPolicy") {
