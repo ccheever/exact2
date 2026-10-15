@@ -132,7 +132,7 @@ describe('A press on Settle or Snooze closes its tooltip at once', () => {
     const text = await source('sidebar-row.contract');
     const controls = [
       /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("settle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "settle"\)/,
-      /button cursor="pointer" id=`snooze-trigger-\$\{t\.id\}` press=hoverCard\("", false\) key=snoozeKey [^\n]*popovertarget=`snooze-\$\{t\.id\}` pointerdown=pressDown [^\n]*aria-label="Snooze thread"/,
+      /button cursor="pointer" id=`snooze-trigger-\$\{t\.id\}` press=snoozePress key=snoozeKey [^\n]*popovertarget=`snooze-\$\{t\.id\}` pointerdown=pressDown [^\n]*aria-label="Snooze thread"/,
       /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsnooze", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsnooze"\)/,
       /button cursor="pointer" id=`sweep-\$\{t\.id\}` press=run\("unsettle", t\.id, ""\) focus=hoverCard\("", false\) pointerdown=pressDown pan=sweep\(t\.id, "unsettle"\)/,
     ];

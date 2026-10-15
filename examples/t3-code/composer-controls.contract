@@ -9,7 +9,7 @@ use ProviderInstanceMark from "./icons.contract"
 use ComposerNotice from "./composer-shapes.contract"
 use ComposerQueued from "./composer-shapes.contract"
 use ComposerBranches from "./composer-shapes.contract"
-use KmItem, kmTarget from "./menu-keys.contract"
+use KmItem, kmTarget, kmReturn from "./menu-keys.contract"
 use Tip from "./shell-tip.contract"
 use TipBubble from "./shell-tip.contract"
 use RowTip from "./r8-pointer-tips.contract"
@@ -609,7 +609,16 @@ component ComposerMenus
   // focus (no focused row) moves from there.
   action move(origin: number, name: string, e: KeyboardEvent)
     if which == "workspace"
-      if not e.metaKey and not e.ctrlKey and not e.altKey
+      // Return presses the focused row (kmReturn), as its press does.
+      if kmReturn(name, e) and workspaceItems.map((item) => item.id).includes(workspaceCurrent)
+        preventDefault()
+        stopPropagation()
+        if not e.repeat
+          if workspaceCurrent.startsWith("run-on-")
+            command("environment-run-on", "", workspaceCurrent.slice(7), 0)
+          else
+            command("cclocal:env-mode", "", workspaceCurrent.slice(10), 0)
+      else if not e.metaKey and not e.ctrlKey and not e.altKey
         match kmTarget(workspaceItems, workspaceCurrent, name)
           case some(item)
             preventDefault()
