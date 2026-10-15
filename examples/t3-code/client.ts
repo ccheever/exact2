@@ -86,6 +86,12 @@ export class T3Client {
   presentation: Obj = {};
   projectId = '';
   threadId = '';
+  /**
+   * A thread openSelected found missing from the shell (NoActiveThreadState). Its detail is not fetched until the
+   * shell holds it: the server answers 404 for a thread it does not have, which would replace the empty state with
+   * an error banner on the next refresh.
+   */
+  absentThreadId = '';
   /** The launch lands on the index route until its draft's project is picked across every environment (home-landing.ts). */
   homePending = true;
   homeMove: HomeTarget | null = null;
@@ -464,6 +470,7 @@ export class T3Client {
   }
 
   async openThread(native: Native, id: string, resume = false): Promise<void> {
+    if (id === this.absentThreadId && !this.shell.threads.some(thread => thread.id === id)) return;
     const epoch = ++this.threadEpoch, generation = this.generation;
     this.threadLive = false; this.threadSubscription = '';
     delete this.subscriptions.thread;
@@ -755,7 +762,7 @@ export class T3Client {
   }
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
-    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // a missing thread shows NoActiveThreadState
+    if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = this.absentThreadId = id; return; } // a missing thread shows NoActiveThreadState
     this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
     this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     sidebarOpened(this, native);
