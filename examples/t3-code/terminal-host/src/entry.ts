@@ -3,7 +3,7 @@
 // copied unchanged apart from imports under ../vendor/ghostty) and joins it to the native view
 // with a JSON bridge:
 //
-// - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link,
+// - page → native (`webkit.messageHandlers.t3terminal`): ready, data, resize, selection, link, composition,
 //   contextmenu, chord, focus, error.
 // - native → page (`t3Terminal.receive(message)`): write, resetAndWrite, theme, font, visible,
 //   focus, chords, clearSelection, readSelection, paste, dispose; `t3Terminal.debug()` answers
@@ -77,6 +77,29 @@ export function terminalInputShortcutData(
   if (onlyMeta && names.includes("backspace")) return "\u0015";
   if ((onlyMeta && names.includes("k")) || (event.ctrlKey && !event.metaKey && !event.altKey && names.includes("l"))) return "\u000c";
   return null;
+}
+
+/** The composing state of the terminal's input, for the native view (`composition` messages): its key
+ * path runs before the input method and must leave a composing key to it (G1-1, G1-2).
+ * WebKit's own marked-text answer (`hasMarkedText`) waits on an editor state the page sends late, or,
+ * in a window that is not key, never. Updates in between change nothing: the input method's text stays
+ * in the input until it commits, and the surface sends what it commits (surface.ts onCompositionEnd). */
+export function observeComposition(input: EventTarget, send: (composing: boolean) => void): () => void {
+  let composing = false;
+  const set = (value: boolean) => () => {
+    if (value === composing) return;
+    composing = value;
+    send(value);
+  };
+  const start = set(true), end = set(false);
+  input.addEventListener("compositionstart", start);
+  input.addEventListener("compositionend", end);
+  input.addEventListener("blur", end);
+  return () => {
+    input.removeEventListener("compositionstart", start);
+    input.removeEventListener("compositionend", end);
+    input.removeEventListener("blur", end);
+  };
 }
 
 const LIGHT: GhosttyTheme = {
@@ -247,6 +270,8 @@ class TerminalPage {
       });
       surface.input.addEventListener("focus", () => post({ type: "focus", focused: true }));
       surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
+      // After the surface's own listeners, so a commit's data goes out before the state ends.
+      observeComposition(surface.input, (composing) => post({ type: "composition", composing }));
       for (const message of this.pending.splice(0)) this.receive(message);
       post({ type: "ready", cols: surface.cols, rows: surface.rows });
     } catch (error) {

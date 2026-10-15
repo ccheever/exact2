@@ -168,3 +168,20 @@ describe('D6: the table Copy menu is a window-level popup', () => {
     expect(tableMenuSnapshot(c).tableMenu[0]).toMatchObject({ triggerY: 150, y: 178 });
   });
 });
+
+// contract-keys-and-menu-bar KW-11b: the window's root removes the standard tab items through `-exact-menu-remove` (the host
+// already disallows tabbing for a one-window app; R8KeysMenus no longer removes them itself). The rest of the bar stays native,
+// item by item (T3Menus.swift, R8KeysMenus.swift; the menus and r8-keys AppKit suites): Check for Updates... among them, since an `-exact-menu` item is enabled only
+// while its window is key and has no sheet (ShortcutsMac validateMenuItem), and the reference's is always enabled.
+describe('KW-11b: the menu bar\'s Contract policy', () => {
+  // The compiled root carries the policy (macos/src/contract_keys_tests.rs reads its `menuRemove`).
+  test('the window\'s root names the standard tab items it removes, and only the accepted ids', async () => {
+    const window = await Bun.file(new URL('./app-window.contract', import.meta.url)).text();
+    const root = window.slice(window.indexOf('\n  view\n')).split('\n').find(line => line.trim().startsWith('main '))!;
+    const ids = /-exact-menu-remove="([^"]*)"/.exec(root)![1]!.split(' ');
+    expect(ids).toEqual(['show-tab-bar', 'show-all-tabs']);
+    const accepted = ['close-all', 'autofill', 'show-tab-bar', 'show-all-tabs', 'enter-full-screen', 'minimize', 'zoom', 'bring-all-to-front',
+      'show-previous-tab', 'show-next-tab', 'move-tab-to-new-window', 'merge-all-windows'];
+    expect(ids.every(id => accepted.includes(id))).toBe(true);
+  });
+});

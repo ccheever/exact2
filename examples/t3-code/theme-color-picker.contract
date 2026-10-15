@@ -54,16 +54,15 @@ component ThemeColorSwatch
     rem: number
   props
     row: EditorRow
+    select: action
     session: string
     pal: CorePalette
-    vh: number
     live: action
     // popover-escape-parity: the window's outside-press count (T3Window), which this control's own
     // pointer handlers take from it (the innermost pointer node hears a press).
     outsideDown: action
     outsideUp: action
   state touched = false
-  state above = false
   state h = 0
   state s = 0
   state v = 0
@@ -93,14 +92,11 @@ component ThemeColorSwatch
   derive hueRing = not mouse and focusPart == "hue"
   // The trigger: each opening starts from the row's current value. The popover's first stop
   // (saturation) takes the focus as it opens (Base UI's initial focus), with the ring only when the
-  // trigger was pressed from the keyboard. It opens below the swatch, 10 apart (side="bottom",
-  // sideOffset 10), or above it when the window has no room below, as Base UI's collision flip
-  // does: the host clamps a popover into the window but has no `position-try` flip and no
-  // end alignment (`span-left`) (exact2 #112), so the flip is computed here and the
-  // popover's left edge is the swatch's, pulled back into the window by the host's clamp.
+  // trigger was pressed from the keyboard. It opens below the swatch, 10 apart, its right edge
+  // at the swatch's (side="bottom" align="end" sideOffset 10), and flips above or to the start
+  // near the window's edge, as Base UI's collision avoidance does (`position-try-fallbacks`).
   action open
-    let at = frame(`theme-editor-swatch-${row.id}`)
-    above = at.y + at.height + 0.625 * rem + 19.5 * rem > vh - 0.3125 * rem and at.y > vh / 2
+    select()
     touched = false
     drag = ""
     hexEditing = false
@@ -254,7 +250,7 @@ component ThemeColorSwatch
       Tip(label=`Choose ${row.label} color`, side="top", align="center", offset=28)
         button press=open pointerdown=triggerDown pointerup=triggerUp key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}` title=""
           box width="1.25rem" height="1.25rem" border-radius="0.625rem" background-color=row.value
-      column id=`theme-color-${row.id}` popover="auto" key=popKey tabindex=-1 position="absolute" position-area=(above ? "top span-right" : "bottom span-right") margin-top=(above ? "0px" : "0.625rem") margin-bottom=(above ? "0.625rem" : "0px") user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
+      column id=`theme-color-${row.id}` popover="auto" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" key=popKey tabindex=-1 position="absolute" position-area="bottom span-left" margin-top="0.625rem" user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
         row align-items="center" justify-content="space-between" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider
           column flex=1 min-width=0
             text row.label font-size="0.75rem" font-weight=600 line-height="1rem" color=pal.text line-clamp=1
@@ -267,13 +263,13 @@ component ThemeColorSwatch
             box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to top, #000000, #00000000)"
             box position="absolute" left=0 top=0 width=(inFlight ? 2 : 1) height=1 opacity=0 pointer-events="none" inert=true aria-hidden=true resize=landed testId=`theme-color-${row.id}-landing`
             text "Use arrow keys to adjust the focused value. Hold Shift for larger steps. Use Home and End for the minimum and maximum. Press Tab to move between saturation and brightness." id=`theme-color-${row.id}-instructions` position="absolute" width=1 height=1 overflow="hidden" opacity=0 pointer-events="none"
-            box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cs * 100) aria-valuetext=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
-            box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=(cv * 100) aria-valuetext=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
-            when planeRing
+            box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cs * 100) aria-valuetext=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
+            box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-describedby=`theme-color-${row.id}-instructions` aria-valuemin=0 aria-valuemax=100 aria-valuenow=round(cv * 100) aria-valuetext=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
+            if planeRing
               text `${focusPart == "s" ? "Saturation" : "Brightness"} ${round((focusPart == "s" ? cs : cv) * 100)}%` position="absolute" left="0.5rem" bottom="0.5rem" z-index=10 padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color=pal.popover font-size="0.75rem" line-height="1rem" color=pal.text pointer-events="none" aria-hidden=true
             box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="0.375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${cs * 15.75 * rem}px ${(1 - cv) * 7.25 * rem}px` transition=(drag == "plane" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-plane-thumb`
           // ColorHueSlider: the hue bar and its thumb (a stop of its own).
-          box id=`theme-color-${row.id}-hue` tabindex=0 key=hueKey focus=focusOn("hue") blur=focusOff("hue") position="relative" width="16.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" border-radius="0.75rem" cursor="pointer" touch-action="none" pointerdown=hueDown pointermove=hueMove pointerup=hueUp box-shadow=(hueRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch) testId=`theme-color-${row.id}-hue`
+          box id=`theme-color-${row.id}-hue` tabindex=0 key=hueKey focus=focusOn("hue") blur=focusOff("hue") position="relative" width="16.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" border-radius="0.75rem" cursor="pointer" touch-action="none" pointerdown=hueDown pointermove=hueMove pointerup=hueUp box-shadow=(hueRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="slider" aria-label=`${row.label} hue` aria-valuemin=0 aria-valuemax=360 aria-valuenow=round(ch) aria-valuetext=`${round(ch)}` testId=`theme-color-${row.id}-hue`
             box width="100%" height="0.625rem" border-radius="0.3125rem" pointer-events="none" background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
             box position="absolute" left=0 top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${ch / 360 * 15.5 * rem}px 0px` transition=(drag == "hue" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-hue-thumb`
           row gap="0.5rem" width="16.5rem"

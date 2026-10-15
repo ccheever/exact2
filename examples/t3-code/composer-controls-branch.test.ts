@@ -82,3 +82,123 @@ describe('workspace strip details', () => {
     expect(toasts(client).at(-1)).toMatchObject({ kind: 'success', title: 'Branch name copied', description: 'main' });
   });
 });
+
+describe('G2-15: one Run on and Workspace keyboard order', () => {
+  const source = Bun.file(new URL('./composer-controls.contract', import.meta.url)).text();
+  const item = (id: string, label: string) => ({ id, label });
+  const primary = item('primary', 'This Mac'), remote = item('remote', 'Studio'), auto = item('auto', 'Auto balance');
+  const base = { envOptions: [primary, remote], gitless: false, forceWorktree: false, previous: true, envIcon: 'folder' };
+  const derive = async (name: string, scope: Record<string, unknown>) => {
+    const { value } = await import('./contract-action-fixture');
+    const expression = new RegExp(`^  derive ${name} = (.+)$`, 'm').exec(await source)?.[1];
+    if (!expression) throw new Error(`ComposerMenus is missing ${name}`);
+    return value(expression, scope);
+  };
+  const items = (branches: typeof base) => derive('workspaceItems', { branches, KmItem: (fields: { id: string; label: string }) => fields });
+
+  test('order includes Run on first, omits disabled checkout, and covers previous, auto-balance and gitless variants', async () => {
+    expect(await items(base)).toEqual([item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio'),
+      item('workspace-local', 'Current checkout'), item('workspace-worktree', 'New worktree'), item('workspace-previous', 'Previous worktree')]);
+    expect(await items({ ...base, forceWorktree: true })).toEqual([item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio'),
+      item('workspace-worktree', 'New worktree'), item('workspace-previous', 'Previous worktree')]);
+    expect(await items({ ...base, envOptions: [], previous: false, envIcon: 'folder-git-1' })).toEqual([
+      item('workspace-local', 'Current worktree'), item('workspace-worktree', 'New worktree')]);
+    expect(await items({ ...base, envOptions: [auto, primary, remote], gitless: true })).toEqual([
+      item('run-on-auto', 'Auto balance'), item('run-on-primary', 'This Mac'), item('run-on-remote', 'Studio')]);
+    expect(await items({ ...base, envOptions: [], gitless: true })).toEqual([]);
+  });
+
+  test('arrows wrap both ends, Home/End and typeahead follow hover, and a new session forgets the old row', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const { contractFn } = await import('./contract-fn-fixture');
+    const kmIndex = await contractFn('menu-keys.contract', 'kmIndex', ['items', 'current']);
+    const kmAfter = await contractFn('menu-keys.contract', 'kmAfter', ['items', 'current'], { kmIndex });
+    const kmLetter = await contractFn('menu-keys.contract', 'kmLetter', ['k']);
+    const kmTarget = await contractFn('menu-keys.contract', 'kmTarget', ['items', 'current', 'k'], { kmIndex, kmAfter, kmLetter, first: (rows: unknown[]) => rows[0], none: null });
+    const component = contractComponent('composer-controls.contract', 'ComposerMenus'), state = component.state();
+    let workspaceItems = await items(base);
+    const calls: unknown[][] = [];
+    let focused = 'composer-menu';
+    const scope = async () => ({ which: 'workspace', session: 7, workspaceItems, kmTarget,
+      workspaceCurrent: await derive('workspaceCurrent', { ...state, session: 7 }),
+      focus: (id: string) => { calls.push(['focus', id]); focused = id; },
+      preventDefault: () => calls.push(['prevent']), stopPropagation: () => calls.push(['stop']) });
+    const key = async (name: string, event = {}) => {
+      component.call('move', state, await scope(), [-1, name, event]);
+      component.call('menuEntered', state, await scope(), [{ target: focused }]);
+      return focused;
+    };
+    const order = ['run-on-primary', 'run-on-remote', 'workspace-local', 'workspace-worktree', 'workspace-previous'];
+    for (const id of [...order, order[0]]) expect(await key('ArrowDown')).toBe(id);
+    expect(await key('ArrowUp')).toBe('workspace-previous');
+    expect(await key('Home')).toBe('run-on-primary');
+    expect(await key('End')).toBe('workspace-previous');
+    component.call('workspaceHover', state, await scope(), ['run-on-remote', true]);
+    component.call('menuEntered', state, await scope(), [{ target: focused }]);
+    expect(await key('ArrowDown')).toBe('workspace-local');
+    expect(await key('s')).toBe('run-on-remote');
+    expect(calls.filter(call => call[0] === 'prevent')).toHaveLength(11);
+    expect(calls.filter(call => call[0] === 'stop')).toHaveLength(11);
+    for (const modifier of ['metaKey', 'ctrlKey', 'altKey']) {
+      const before = calls.length;
+      await key('ArrowDown', { [modifier]: true });
+      expect(calls).toHaveLength(before);
+    }
+    component.call('menuEntered', state, await scope(), [{ target: 'unrelated-descendant' }]);
+    expect(await derive('workspaceCurrent', { ...state, session: 7 })).toBe('run-on-remote');
+    expect(await derive('workspaceCurrent', { ...state, session: 8 })).toBe('');
+    const variants = [
+      { branches: { ...base, forceWorktree: true }, order: ['run-on-primary', 'run-on-remote', 'workspace-worktree', 'workspace-previous'] },
+      { branches: { ...base, envOptions: [], previous: false }, order: ['workspace-local', 'workspace-worktree'] },
+      { branches: { ...base, envOptions: [auto, primary, remote], gitless: true }, order: ['run-on-auto', 'run-on-primary', 'run-on-remote'] },
+      { branches: { ...base, envOptions: [], gitless: true }, order: [] },
+    ];
+    for (const variant of variants) {
+      workspaceItems = await items(variant.branches);
+      focused = 'composer-menu';
+      component.call('menuEntered', state, await scope(), [{ target: focused }]);
+      for (const id of variant.order) expect(await key('ArrowDown')).toBe(id);
+      expect(await key('ArrowDown')).toBe(variant.order[0] ?? 'composer-menu');
+      expect(await key('ArrowUp')).toBe(variant.order.at(-1) ?? 'composer-menu');
+    }
+  });
+
+  test('disabled and absent rows cannot be hovered or keyed, and branch focus still reaches its dialog owner', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const component = contractComponent('composer-controls.contract', 'ComposerMenus'), state = component.state(), calls: unknown[][] = [];
+    component.call('workspaceHover', state, { workspaceItems: await items({ ...base, forceWorktree: true }), workspaceCurrent: '',
+      focus: (id: string) => calls.push(['focus', id]) }, ['workspace-local', true]);
+    expect(calls).toEqual([]);
+    const event = { target: 'branch-search' };
+    component.call('menuEntered', state, { which: 'branch', dialogMenuEntered: (...args: unknown[]) => calls.push(args) }, [event]);
+    expect(calls).toEqual([['composer-menu', 'branch-selector', event]]);
+    const text = await source;
+    expect(text).toContain('data-dialog-return=(which == "branch" ? "menu" : "") focusin=menuEntered');
+    const workspace = text.split('          if which == "workspace"\n')[1]!.split('          if which == "branch"\n')[0]!;
+    expect(workspace).not.toMatch(/key=move|focus=mark|hover=hover|composer-menu-item-/);
+    for (const button of workspace.split('\n').filter(line => line.trimStart().startsWith('button '))) {
+      expect(button).toContain('role=(wideWorkspace ? "option" : "menuitemradio")');
+      expect(button).toContain('aria-selected=');
+    }
+  });
+
+  test('each row keeps one command binding and delegates selection, close and Message focus to its root owner', async () => {
+    const { value } = await import('./contract-action-fixture');
+    const text = await source;
+    const workspace = text.split('          if which == "workspace"\n')[1]!.split('          if which == "branch"\n')[0]!;
+    const buttons = workspace.split('\n').filter(line => line.trimStart().startsWith('button '));
+    expect(buttons).toHaveLength(4);
+    const calls: unknown[][] = [];
+    for (const line of buttons) {
+      const binding = /press=(command\([^)]*\))/.exec(line)?.[1];
+      if (!binding) throw new Error('Workspace row lost its command');
+      value(binding, { option: primary, command: (...args: unknown[]) => calls.push(args) });
+    }
+    expect(calls).toEqual([['environment-run-on', '', 'primary', 0], ['cclocal:env-mode', '', 'local', 0],
+      ['cclocal:env-mode', '', 'worktree', 0], ['cclocal:env-mode', '', 'previous', 0]]);
+    expect(workspace).not.toContain('focus(');
+    expect(workspace).not.toContain('close(');
+    const app = await Bun.file(new URL('./app.contract', import.meta.url)).text();
+    expect(app).toContain('action menuCommand(op: string, id: string, value: string, n: number)\n    optionsOpen = ""\n    focus("composer")\n    if not commandPending\n      commandPending = true\n      send changed = command(op, id, value, n)');
+  });
+});

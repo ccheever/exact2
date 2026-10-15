@@ -4,7 +4,7 @@ import Foundation
 import AppKit
 
 extension T3Module {
-    /// The thread menu, modifier reads and jump hints (T3Sidebar.swift); thread notifications (T3Notifications.swift).
+    /// The thread menu, the speed-mode read and jump hints (T3Sidebar.swift); thread notifications (T3Notifications.swift).
     func sidebarOps(_ request: [String: Any], reply: ExactReply, next: () -> Void) {
         if let op = request["op"] as? String, op.hasPrefix("sidebar") {
             // The thread menu pops up outside a main-queue block (T3MenuTurn, T3ContextMenu.swift).

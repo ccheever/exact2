@@ -247,3 +247,29 @@ describe('the device toolbar toggle and bounds (clone)', () => {
     expect(isValidViewport({ _tag: 'freeform', width: 800.5, height: 600 })).toBe(false);
   });
 });
+
+// Clone row, browser-panel-parity G4-16: BrowserStage hands the module the requested CSS size (`page-size`) beside the
+// fitted box, so the module sizes the page from the fields at its zoom, not from the box over its scale.
+describe('BrowserStage page size (clone)', () => {
+  it('passes the requested size, held or dragged, beside a fractional fit scale; fill passes none', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const { contractFn } = await import('./contract-fn-fixture');
+    const file = 'browser-stage.contract', math = { min: Math.min, max: Math.max, round: Math.round, floor: Math.floor, ceil: Math.ceil };
+    const bvEndRail = await contractFn(file, 'bvEndRail', ['start', 'd', 'avail']), bvStartRail = await contractFn(file, 'bvStartRail', ['start', 'd', 'avail']);
+    const fns = { ...math, bvRail: await contractFn(file, 'bvRail', ['size', 'z', 'd', 'avail', 'end', 'start'], { bvEndRail, bvStartRail }),
+      bvClamp: await contractFn(file, 'bvClamp', ['v'], math), bvLockedWidth: await contractFn(file, 'bvLockedWidth', ['w', 'ratio'], math),
+      bvLockedHeight: await contractFn(file, 'bvLockedHeight', ['h', 'ratio'], math) };
+    const stage = contractComponent(file, 'BrowserStage');
+    const view = { viewportMode: 'preset', zoomFactor: 1.25, viewportWidth: 390, viewportHeight: 844, aspectLocked: false, viewportKey: 'preset:390:844:iphone-12-pro', viewportSerial: 0 };
+    const derived = (state: Record<string, unknown>, v: Record<string, unknown>, pw = 620, ph = 560) => stage.derives(state, { ...fns, view: v, pw, ph, urlFocused: false });
+    const at125 = derived(stage.state(), view);
+    expect(at125.pageSize).toBe('390x844');
+    expect(Number.isInteger(at125.vw)).toBe(false); // the box: 390 × 1.25 × the fit scale
+    expect(at125.scale).toBeLessThan(1);
+    const dragging = { ...stage.state(), dragDir: 'east', dragX: 37, dragY: 0 };
+    expect(derived(dragging, view).pageSize).toBe(`${derived(dragging, view).liveW}x844`);
+    expect(derived(stage.state(), { ...view, viewportMode: 'fill' }).pageSize).toBe('');
+    const page = (await Bun.file(new URL(`./${file}`, import.meta.url)).text()).split('\n').find(line => line.trim().startsWith('t3-browser '))!;
+    expect(page).toContain('fit-scale=`${scale}` page-size=pageSize');
+  });
+});

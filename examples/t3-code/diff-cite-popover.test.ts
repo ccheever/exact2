@@ -131,7 +131,7 @@ describe('DC-1: the citation chip\'s comment popover', () => {
   test('the window settles the draft as Base UI\'s onOpenChange with resolveAssistantCitationCommentDismissal does', async () => {
     const window = await source('app-window.contract');
     // Untouched (the reference's null draft) or unchanged: close; changed: commit; too long: keep open.
-    expect(window).toContain('  action citeSettle\n    if citeShown and (citeDraftSeq != chip.seq or trim(citeDraft) == trim(chip.comment))\n      chipClose(false)\n    else if citeShown and length(citeDraft) <= 8000\n      chipClosed = chip.seq\n      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)');
+    expect(window).toContain('  action citeSettle\n    if citeShown and (citeDraftSeq != chip.seq or citeDraft.trim() == chip.comment.trim())\n      chipClose(false)\n    else if citeShown and citeDraft.length <= 8000\n      chipClosed = chip.seq\n      editorOp("chip-cite-commit", `${chip.seq}`, citeDraft)');
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: null, savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: ' a ', savedComment: 'a' })).toEqual({ kind: 'close' });
     expect(resolveAssistantCitationCommentDismissal({ reason: 'outside-press', draft: 'b', savedComment: 'a' })).toEqual({ kind: 'commit', comment: 'b' });
@@ -139,7 +139,7 @@ describe('DC-1: the citation chip\'s comment popover', () => {
     // Escape closes whatever the draft (in the textarea the editor's onCancel, elsewhere escape-key); an outside press here or
     // the textarea's blur settles.
     expect(resolveAssistantCitationCommentDismissal({ reason: 'escape-key', draft: 'x'.repeat(8001), savedComment: undefined })).toEqual({ kind: 'close' });
-    expect(window).toMatch(/if chip\.kind == "citation"\n {8}citeSettle\(\)\n {6}else\n {8}chipClose\(false\)/);
+    expect(window).toMatch(/if chip\.kind == "citation"\n {8}citeSettle\(\)\n {6}else\n {8}\/\/[^\n]*\n {8}chipClosed = chip\.seq\n {8}editorOp\("chip-close", `\$\{chip\.seq\}`, ""\)/);
     expect(window).toContain('CitationCommentLayer(chip=chip, draft=citeText, viewportWidth=viewport.width, viewportHeight=viewport.height, edit=citeEdit, save=citeSave, cancel=citeCancel, settle=citeSettle)');
     expect(window).toContain('derive citeText = citeDraftSeq == chip.seq ? citeDraft : chip.comment');
   });
@@ -182,12 +182,11 @@ describe('DC-1: the citation chip\'s comment popover', () => {
 
   test('the cited text is marked in its answer while the comment is open, as the reference\'s highlight', async () => {
     const md = await source('markdown.contract');
-    expect(md).toContain('derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (indexOf(source, `${citeMessage}"]`) >= 0 or source == citeMessage)');
-    expect(md).toContain('text slice(value, a, b) background-color="light-dark(#1b4ed873, #346bf173)"');
+    expect(md).toContain('derive citeMarked = source != "" and citeQuote != "" and citeMessage != "" and (source.indexOf(`${citeMessage}"]`) >= 0 or source == citeMessage)');
+    expect(md).toContain('text value.slice(a, b) background-color="light-dark(#1b4ed873, #346bf173)"');
     const window = await source('app-window.contract');
     expect(window).toContain('citeMessage = (citeShown ? chip.message : "")\n    citeQuote = (citeShown ? chip.quote : "")\n    citeAt = (citeShown ? chip.at : -1)');
-    const runAt = await contractFn('markdown.contract', 'runAt', ['runs', 'id'], { map: (xs: unknown[], f: (x: never) => unknown) => xs.map(f as never), join: (xs: string[], j: string) => xs.join(j),
-      length: (x: { length: number }) => x.length, indexOf: (xs: unknown[], x: unknown) => xs.indexOf(x), max: Math.max });
+    const runAt = await contractFn('markdown.contract', 'runAt', ['runs', 'id'], { max: Math.max });
     const marks = await contractFn('markdown.contract', 'citeMarks', ['ms', 'me', 'at', 'size']);
     const runs = [{ id: 'a', text: 'Cite ' }, { id: 'b', text: 'check: ' }, { id: 'c', text: 'parsePatch' }];
     expect([runAt(runs, 'a'), runAt(runs, 'b'), runAt(runs, 'c')]).toEqual([0, 5, 12]);
@@ -208,8 +207,7 @@ describe('DC-2: the rest of Cite', () => {
   // readAssistantText over the reference's DOM (CDP, the same answer): react-markdown's line breaks between blocks; TS has a file icon, so no language line.
   const reference = 'Cite check: the parser keeps parsePatch pure, so a quote across inline code reads as written. Select across this paragraph and press Cite to quote it into the composer.\n\n\nexport function parsePatch(text: string) {\n  return text.split(\'\\n\');\n}\n\n\n\nA closing paragraph after the code block, long enough to wrap onto a second line in the timeline lane so a selection can end on its last line.';
   const normal = (text: string) => text.replace(/\s+/g, ' ');
-  const std = { map: (xs: unknown[], f: (x: never) => unknown) => xs.map(f as never), join: (xs: string[], j: string) => xs.join(j), length: (x: { length: number }) => x.length,
-    indexOf: (xs: unknown[] | string, x: never) => xs.indexOf(x), max: Math.max };
+  const std = { max: Math.max };
   const fns = async (icon: string) => {
     const label = await contractFn('markdown.contract', 'citeCodeLabel', ['b', 'code'], std);
     const blockText = await contractFn('markdown.contract', 'citeBlockText', ['b', 'code'], { ...std, citeCodeLabel: label });
@@ -250,13 +248,10 @@ describe('DC-2: the rest of Cite', () => {
     expect(named.at('1', 'code') - named.at('1', '')).toBe('ts\n'.length);
   });
 
-  test('every word, code span and code block text reports its part; Cite sends the frame of the text holding the end', async () => {
+  test('every word, code span and code block text reports its part (Cite\'s place and frame: cite-selection-anchor.test.ts)', async () => {
     const md = await source('markdown.contract');
     expect(md.match(/selectionchange=cite\(blockId, run\.id\)/g)?.length).toBe(3);
     expect(md.match(/id=`cite-\$\{source\}-\$\{block\.id\}-code` selectionchange=cite\(block\.id, "code"\)/g)?.length).toBe(6);
     expect(md).toContain('  action selected(blockId: string, runId: string, s: Selection)\n    let key = runId == "" ? blockId : `${blockId}-${runId}`');
-    const cite = await source('diff-cite.contract');
-    expect(cite).toContain('let end = frame(`cite-${source}-${indexOf(last, "|") < 0 ? last : slice(last, 0, indexOf(last, "|"))}`)');
-    expect(cite).toContain('|${end.unavailable ? "" : `${end.x},${end.y},${end.width},${end.height}`}|${stream}`');
   });
 });

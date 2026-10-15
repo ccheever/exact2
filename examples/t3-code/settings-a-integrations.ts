@@ -6,16 +6,10 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { letGo } from './let-go';
 
+// The popover is end-aligned by `position-area="bottom span-left"` (settings-source-control.contract DeviceVersions),
+// so no estimated label width offsets it.
 export type DeviceTool = { kind: string; title: string; label: string; aria: string; known: boolean; running: string; required: string; installed: string;
-  update: string; inspect: boolean; offset: number; error: string };
-
-// SF Pro 16pt medium advance widths, rounded: enough to put the popup's end at the trigger's end.
-const WIDE = /[mwMW]/, NARROW = /[ilj.,:;'|! ]/, SLIM = /[tfr]/;
-export function labelWidth(text: string, size = 16): number {
-  let units = 0;
-  for (const char of text) units += WIDE.test(char) ? 0.82 : NARROW.test(char) ? 0.25 : SLIM.test(char) ? 0.33 : /[A-Z]/.test(char) ? 0.65 : /[0-9]/.test(char) ? 0.59 : 0.55;
-  return Math.round(units * size * 10) / 10;
-}
+  update: string; inspect: boolean; error: string };
 
 /** DeviceToolVersions for one kind ('hub' | 'agent') over the local host's tools. */
 export function deviceTool(kind: 'hub' | 'agent', state: Obj | null, error = ''): DeviceTool {
@@ -30,7 +24,7 @@ export function deviceTool(kind: 'hub' | 'agent', state: Obj | null, error = '')
   return { kind, title, label, aria: `${title}: ${version ? `version ${version}` : selected ? 'not installed' : 'version unknown'}. Show details`, known: Boolean(state),
     running: selected ? str(selected.runningVersion) || 'Not running' : '', required, installed: installed.join(', ') || 'None',
     update: state?.supportsToolUpdate === true && needsUpdate ? `Update to v${required}` : '', inspect: state?.supportsToolInspection === true,
-    offset: Math.max(0, labelWidth(label)) - 320, error };
+    error };
 }
 
 /** rest:device-tools — `action=check` re-inspects; `action=update&tool=hub|agent` installs the required version. */

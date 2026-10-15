@@ -2,12 +2,14 @@
 // and its delete confirmation, mounted at the window root so the overlay takes
 // hits above the settings scroll view.
 use ProjectsPage from "./settings-projects.contract"
+use FieldPlaceholder from "./field-placeholder.contract"
 use ProjectAction from "./settings-projects.contract"
 use CnScriptIcon from "./settings-b-kit.contract"
 use CnGlyph from "./settings-b-kit.contract"
 use FocusGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 use DialogFinalFocus from "./dialog-trap.contract"
+use KeyRecorder from "./key-recorder.contract"
 
 style AeLabel
   font-size="0.875rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
@@ -34,14 +36,17 @@ component ProjectActionDialog
     raw: action
     close: action
   view
-    when subject == ""
-      each blank in data.blankActions key=blank.id
+    if subject == ""
+      for blank in data.blankActions key=blank.id
         ProjectActionEditor(item=blank, scope=data.actionScope, editing=false, busy=busy, error=error, raw=raw, close=close)
-    each entry in data.actions key=entry.id
-      when entry.id == subject
+    for entry in data.actions key=entry.id
+      if entry.id == subject
         ProjectActionEditor(item=entry, scope=data.actionScope, editing=true, busy=busy, error=error, raw=raw, close=close)
 
 component ProjectActionEditor
+  inject
+    dialogEntered: action
+    dialogFallback: action
   props
     item: ProjectAction
     scope: string
@@ -68,13 +73,16 @@ component ProjectActionEditor
     previewUrl = value
   action chooseIcon(value: string)
     icon = value
+  // The recorder's `autofocus` does not take the focus from the Name field the dialog opened in (contract-keys-and-menu-bar
+  // drive), so the press that starts recording moves it there, as the native view took first responder.
   action record
     recording = true
-  action capture(value: string)
+    focus("action-keybinding-recorder")
+  action capture(value: string) // the recorder's binding; "escape" (Escape, or the focus leaving it) keeps the old one
     recording = false
     if value == "backspace" or value == "delete"
       keybinding = ""
-    if value != "backspace" and value != "delete" and value != "esc" and value != "tab"
+    if value != "backspace" and value != "delete" and value != "esc" and value != "escape" and value != "tab"
       keybinding = value
   action flipSetup
     setup = not setup
@@ -85,11 +93,13 @@ component ProjectActionEditor
   action askDelete(on: bool)
     confirming = on
   derive payload = `id=${encodeURIComponent(item.id)}&name=${encodeURIComponent(name)}&command=${encodeURIComponent(command)}&icon=${icon}&setup=${setup ? "true" : "false"}&wait=${wait ? "true" : "false"}&keybinding=${encodeURIComponent(keybinding)}&preview=${encodeURIComponent(previewUrl)}&auto=${autoOpen ? "true" : "false"}`
+  derive dialogTargets = [(busy ? "action-cancel" : "action-choose-icon"), "action-close"]
+  derive dialogTargets2 = ["action-delete-cancel", (busy ? "action-delete-cancel" : "action-delete-confirm")]
   view
     column class=AeOverlay testId="project-action-overlay"
-      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(editing ? "Edit Action" : "Add Action") testId="project-action-dialog"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(editing ? "Edit Action" : "Add Action") testId="project-action-dialog" id="project-action-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("project-action-dialog") key=dialogFallback("project-action-dialog", dialogTargets)
         // The focus trap (dialog-trap.contract): from Choose icon to the X (DialogPopup's last).
-        FocusGuard(guardId="project-action-guard-start", target="action-close")
+        FocusGuard(guardId="project-action-guard-start", targets=dialogTargets, popup="project-action-dialog")
         DialogOpenFocus(target="action-name")
         column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem"
           text (editing ? "Edit Action" : "Add Action") font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
@@ -99,9 +109,10 @@ component ProjectActionEditor
             text "Name" class=AeLabel
             row gap="0.5rem" align-items="center" position="relative"
               box position="relative"
-                button id="action-choose-icon" popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title=""
+                button id="action-choose-icon" popovertarget="action-icon-picker" aria-label="Choose icon" disabled=busy testId="action-choose-icon" class=AeOutline width="2.25rem" padding-left=0 padding-right=0 title="" data-focus-stop=(busy ? "" : "enabled")
                   CnScriptIcon(icon=icon, size=18, color="light-dark(#27272a, #f5f5f5)")
-                column id="action-icon-picker" popover="auto" position="absolute" margin-top="0.5rem" width="17rem"
+                // projectScriptEditor's PopoverPopup align="start" (sideOffset 4), flipping near an edge.
+                column id="action-icon-picker" popover="auto" position-area="bottom span-right" position-try-fallbacks="flip-block, flip-inline, flip-block flip-inline" position="absolute" margin-top="0.25rem" width="17rem"
                   row flex-wrap="wrap" gap="0.5rem" padding="1rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 16px 40px -18px #0000008c" testId="action-icon-grid"
                     ScriptIconChoice(id="play", label="Play", selected=(icon == "play"), choose=chooseIcon)
                     ScriptIconChoice(id="test", label="Test", selected=(icon == "test"), choose=chooseIcon)
@@ -109,12 +120,16 @@ component ProjectActionEditor
                     ScriptIconChoice(id="configure", label="Configure", selected=(icon == "configure"), choose=chooseIcon)
                     ScriptIconChoice(id="build", label="Build", selected=(icon == "build"), choose=chooseIcon)
                     ScriptIconChoice(id="debug", label="Debug", selected=(icon == "debug"), choose=chooseIcon)
-              input id="action-name" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name" autocorrect="off"
+              input id="action-name" value=name input=editName submit=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) placeholder="Test" aria-label="Name" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" flex=1 min-width=0 testId="action-name" autocorrect="off" data-focus-stop=(busy ? "" : "enabled")
+                // ui/input.tsx placeholder:text-placeholder (KW-1); AeField also styles the keybinding row and button.
+                ::placeholder
+                  color="light-dark(#71717b, #818181)"
           column gap="0.5rem"
             text "Keybinding" class=AeLabel
-            when recording
-              row class=AeField align-items="center" testId="action-keybinding-recording"
-                t3-key-recorder prompt="Press shortcut" change=capture aria-label="Keybinding" testId="action-keybinding-recorder" flex=1 min-width=0 height="1.5rem"
+            // While it records the row is the window's modal scope, as Settings' recorder is (no shortcut button outside it hears the chord).
+            if recording
+              row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"
+                KeyRecorder(prompt="Press shortcut", label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))
             else
               button press=record aria-label="Keybinding" disabled=busy class=AeField display="flex" flex-direction="row" align-items="center" testId="action-keybinding"
                 text (keybinding == "" ? "Press shortcut" : keybinding) font-size="0.875rem" line-height="1.25rem" line-clamp=1 color=(keybinding == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
@@ -125,45 +140,47 @@ component ProjectActionEditor
           column gap="0.5rem"
             text "Command" class=AeLabel
             // r6-polish: a shell command is typed verbatim: `autocorrect="off"` keeps every typed byte (exact2 #111).
-            textarea value=command input=editCommand placeholder="bun test" aria-label="Command" disabled=busy box-sizing="border-box" width="100%" height="4.5rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" testId="action-command"
+            textarea value=command input=editCommand placeholder="bun test" class=FieldPlaceholder aria-label="Command" disabled=busy box-sizing="border-box" width="100%" height="4.5rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false" testId="action-command"
           column gap="0.5rem"
             text "Preview URL (optional)" class=AeLabel
             input value=previewUrl input=editPreview placeholder="http://localhost:5173" aria-label="Preview URL (optional)" disabled=busy class=AeField padding-top="0.3125rem" padding-bottom="0.3125rem" autocorrect="off" spellcheck="false" testId="action-preview-url"
+              ::placeholder
+                color="light-dark(#71717b, #818181)"
             text "Open this URL in the in-app preview when this action runs." class=AeHint
           ActionSwitchRow(label="Run automatically on worktree creation", checked=setup, enabled=true, busy=busy, rowId="action-setup", flip=flipSetup)
           ActionSwitchRow(label="Wait for it to finish before the agent starts", checked=wait, enabled=setup, busy=busy, rowId="action-wait", flip=flipWait)
           ActionSwitchRow(label="Open preview automatically when this action runs", checked=autoOpen, enabled=(previewUrl != ""), busy=busy, rowId="action-auto-preview", flip=flipAuto)
-          when error != ""
+          if error != ""
             text error font-size="0.875rem" line-height="1.25rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="action-error"
         row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" align-items="center" justify-content="flex-end"
-          when editing
-            button id="action-delete" press=askDelete(true) disabled=busy class=AeOutline border-color="light-dark(#e7000b40, #ff646740)" testId="action-delete"
+          if editing
+            button id="action-delete" press=askDelete(true) disabled=busy class=AeOutline border-color="light-dark(#e7000b40, #ff646740)" testId="action-delete" data-focus-stop=(busy ? "" : "enabled")
               text "Delete" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#c10007, #ff6467)"
           box flex=1
-          button id="action-cancel" press=close aria-keyshortcuts="Escape" class=AeOutline testId="action-cancel"
+          button id="action-cancel" press=close aria-keyshortcuts="Escape" class=AeOutline testId="action-cancel" data-focus-stop="enabled"
             text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           button press=raw((editing ? "sb:action-save" : "sb:action-add"), scope, payload) disabled=busy display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" testId="action-save"
             text (busy ? "Saving…" : (editing ? "Save changes" : "Save action")) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
-        button id="action-close" press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close" title=""
+        button id="action-close" press=close class=AeOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="action-close" title="" data-focus-stop="enabled"
           CnGlyph(name="x", size=16, color="light-dark(#71717b, #818181)")
-        FocusGuard(guardId="project-action-guard-end", target=(busy ? "action-cancel" : "action-choose-icon"))
+        FocusGuard(guardId="project-action-guard-end", targets=dialogTargets, popup="project-action-dialog")
       // Cancel gives the focus back to Delete (dialog-trap.contract DialogFinalFocus).
-      DialogFinalFocus(open=confirming, target="action-delete")
-      when confirming
+      DialogFinalFocus(open=confirming, owner="action-delete-dialog")
+      if confirming
         column class=AeOverlay testId="action-delete-overlay"
-          column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Delete action "${name}"?` testId="action-delete-dialog"
+          column width="100%" max-width="28rem" box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" role="alertdialog" aria-label=`Delete action "${name}"?` testId="action-delete-dialog" id="action-delete-dialog" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("action-delete-dialog") key=dialogFallback("action-delete-dialog", dialogTargets2)
             // The focus trap (dialog-trap.contract).
-            FocusGuard(guardId="action-delete-guard-start", target=(busy ? "action-delete-cancel" : "action-delete-confirm"))
+            FocusGuard(guardId="action-delete-guard-start", targets=dialogTargets2, popup="action-delete-dialog")
             DialogOpenFocus(target="action-delete-cancel")
             column gap="0.5rem"
               text `Delete action "${name}"?` font-size="1.125rem" line-height="1.5rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
               text "This action cannot be undone." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             row gap="0.5rem" justify-content="flex-end"
-              button id="action-delete-cancel" press=askDelete(false) class=AeOutline aria-keyshortcuts="Escape" testId="action-delete-cancel"
+              button id="action-delete-cancel" press=askDelete(false) class=AeOutline aria-keyshortcuts="Escape" testId="action-delete-cancel" data-focus-stop="enabled"
                 text "Cancel" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-              button id="action-delete-confirm" press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#e7000b" testId="action-delete-confirm"
+              button id="action-delete-confirm" press=raw("sb:action-delete", scope, payload) disabled=busy display="flex" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=0 background-color="#e7000b" testId="action-delete-confirm" data-focus-stop=(busy ? "" : "enabled")
                 text "Delete action" font-size="0.875rem" font-weight=500 color="#ffffff"
-            FocusGuard(guardId="action-delete-guard-end", target="action-delete-cancel")
+            FocusGuard(guardId="action-delete-guard-end", targets=dialogTargets2, popup="action-delete-dialog")
 
 // One tile of the icon grid (popover grid-cols-3).
 component ScriptIconChoice

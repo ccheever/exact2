@@ -27,7 +27,9 @@ export type DispatchContext = { composerFocus: boolean; editableFocus: boolean; 
   /** The open picker's Settings row (settings-model-picker.ts); '' for the composer's. */
   modelTarget?: string;
   /** browser-surface part 2: the preview's chords, which the module answers while the preview has the focus. */
-  previewFocus?: boolean };
+  previewFocus?: boolean;
+  /** terminal-links-and-close G1-4: a terminal close confirm is open (the window's confirmOp is a terminal close). */
+  terminalClosePending?: boolean };
 type Rule = { command: string; chord: string; whenAst: unknown };
 
 const NAMED: Record<string, string> = { ' ': 'Space', space: 'Space', escape: 'Escape', esc: 'Escape', enter: 'Enter', tab: 'Tab', arrowup: 'ArrowUp', arrowdown: 'ArrowDown', arrowleft: 'ArrowLeft', arrowright: 'ArrowRight', backspace: 'Backspace', delete: 'Delete', pageup: 'PageUp', pagedown: 'PageDown', home: 'Home', end: 'End', '+': 'Plus' };
@@ -103,6 +105,7 @@ export function favoriteEditor(config: Obj, last = ''): string {
 export type Dispatch = { id: string; command: string; chord: string; kind: string; target: string; extra: string; label: string };
 /** The hidden dispatch buttons: one per command with a native counterpart and a winning chord. */
 export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvider: string, modelQuery: string, context: DispatchContext): Dispatch[] {
+  if (context.terminalClosePending) return refuseTerminalClose(client, keyboardDispatch(client, threads, browseProvider, modelQuery, { ...context, terminalClosePending: false }));
   context = { ...context, terminalFocus: terminalFocused(client), terminalOpen: terminalOpen(client) };
   const winners = chordWinners(arr(client.config.keybindings), context);
   const chords = (command: string) => [...winners].filter(([, winner]) => winner === command).map(([chord]) => chord).join(' ');
@@ -135,6 +138,20 @@ export function keyboardDispatch(client: T3Client, threads: Obj[], browseProvide
   overlays();
   for (const row of MAIN_ROWS) row(add, client, threads, browseProvider, modelQuery, context);
   return out;
+}
+
+/** The confirm ops of a terminal close (the drawer's and a panel terminal's, and a Terminal surface's tab). */
+export const TERMINAL_CLOSE_CONFIRMS = ['terminallocal:close', 'terminalpanellocal:close', 'shelllocal:surface-close-confirmed'];
+/** ChatView's window key handler while a terminal close confirm is pending (`isTerminalCloseConfirmPending() &&
+ *  preventTerminalCloseShortcut`): a chord `terminal.close` wins with a terminal focused runs nothing, whatever it would
+ *  run now (`rightPanel.close`, or the same close asked again). It stays a button ("refuse"), so the chord never falls
+ *  through to the window's Close (terminal-links-and-close G1-4). */
+function refuseTerminalClose(client: T3Client, rows: Dispatch[]): Dispatch[] {
+  const winners = chordWinners(arr(client.config.keybindings), { composerFocus: false, editableFocus: false, turnRunning: false, modelPickerOpen: false, draftThreadRoute: false,
+    modalOpen: false, settingsOpen: false, diffOpen: false, terminalFocus: true, terminalOpen: true });
+  const closing = [...winners].filter(([, command]) => command === 'terminal.close').map(([chord]) => chord);
+  return [...rows.filter(row => !closing.includes(row.chord)),
+    ...closing.map(chord => ({ id: `terminal.close:refused:${chord}`, command: 'terminal.close', chord, kind: 'refuse', target: '', extra: '', label: 'Close Terminal' }))];
 }
 
 /** `add` files one button per winning chord of a command (keyboardDispatch). */
@@ -247,5 +264,6 @@ function modelPickerRows(add: DispatchAdd, client: T3Client, threads: Obj[], bro
 export function keyboardDispatchSource(client: T3Client, args: unknown[]): Dispatch[] {
   return keyboardDispatch(client, Array.isArray(args[0]) ? args[0] as Obj[] : [], String(args[1] || ''), String(args[2] || ''), { composerFocus: args[3] === true, editableFocus: args[3] === true || args[7] === true,
     turnRunning: args[4] === true, modelPickerOpen: args[5] === true, draftThreadRoute: args[6] === true, modalOpen: args[7] === true, settingsOpen: args[8] === true, diffOpen: args[9] === true,
-    paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || '') });
+    paletteOpen: args[11] === true, paletteMode: String(args[12] || ''), prNumber: String(args[13] || ''), undoShown: args.length > 14 ? args[14] === true : undefined, settingsRoute: String(args[15] || ''), page: String(args[16] || ''), modelTarget: String(args[17] || ''),
+    terminalClosePending: TERMINAL_CLOSE_CONFIRMS.includes(String(args[18] || '')) });
 }

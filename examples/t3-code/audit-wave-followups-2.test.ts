@@ -57,7 +57,7 @@ const native = { available: true, watch: () => {}, later: async () => ({ ok: tru
 function wakingNative() {
   const wakes: string[] = [], watched: string[] = [];
   const module = { available: true, watch: (topic: string) => { watched.push(topic); },
-    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+    later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
   return { module, wakes, watched };
 }
 const KEY = 'new'; // a new task's dialog key, whatever its environment (scheduled-tasks-followups ST-1)
@@ -168,7 +168,7 @@ describe('FV-1, FV-2: the scheduled task\'s base-branch picker', () => {
     expect(contract).toContain('      lookupBase(taskPicker(draft.key, chosenProject, baseRef, value))');
     expect(contract).toContain('button press=openRefs popovertarget="task-branch-menu"');
     expect(contract).toContain('scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:task-refs"');
-    expect(contract).not.toContain('includes(ref.search, refSearch)');
+    expect(contract).not.toContain('ref.search.includes(refSearch)');
     const app = await source('app.contract');
     expect(app).toContain('settingsCheckout, taskBase, shellClock) as shape ScheduledPage');
     expect(app.match(/\n    taskBase = ""\n/g)?.length).toBe(2); // restOpen and restClose
@@ -207,7 +207,7 @@ describe('FV-3: a theme with one palette', () => {
       ready: true, environmentId: 'env1', revision: 0, config: { environment: { environmentId: 'env1', label: 'Studio' }, providers: [], settings: {} }, projectGroups: () => [] } as unknown as T3Client;
     expect([look(client).mode, windowAppearanceMode(client)]).toEqual(['dark', 'dark']);
     const wakes: string[] = [];
-    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, value: {} }; } } as unknown as Native;
+    const module = { available: true, watch: () => {}, later: async (request: Obj) => { if (request.op === 'r10Wake') wakes.push(String(request.topic)); return { ok: true, generation: 0, value: request.op === 'installedFonts' ? { fonts: [] } : {} }; } } as unknown as Native;
     const core = (kind: string) => settingsCore(client, module, '', '', '', '', 'appearance', '', true, kind, kind ? '#1' : '', 'embedded', false, look(client).mode);
     await core('');
     expect(wakes).toEqual([]);

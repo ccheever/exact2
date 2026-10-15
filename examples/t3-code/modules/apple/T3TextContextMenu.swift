@@ -12,7 +12,8 @@
 // - Selected page text: ExactKit would show the menu an NSTextView shows for read-only text (since main `6a7f16c6f`
 //   AppKit's own, from a text view holding the selection: Look Up, Translate, Search With, Copy, Share, Writing Tools,
 //   Speech, Services), so the monitor takes that click too and pops the shell's on the same text node: Copy (the node's
-//   `copy:`, its `copy` event first) and Select All (the node's `selectAll:`).
+//   `copy:`, its `copy` event first) and Select All (the node's `selectAll:`), with Services supplied by AppKit for the
+//   node's selection.
 // - Anywhere else on the page: the click goes on to ExactKit. A node with a `contextmenu` (or a context popover) answers
 //   it and ends it there, as `preventDefault` keeps Electron's event from firing; a click no node answers is passed up
 //   the responder chain to the window, and a responder placed after the window's content view (`T3ShellMenuTail`) pops
@@ -84,17 +85,18 @@ final class T3TextContextMenu: NSObject {
     }
     /// The ContextMenu key's virtual key (Carbon's kVK_ContextualMenu), which ExactKit names "ContextMenu" (KeyCodes.swift).
     static let contextMenuKeyCode: UInt16 = 0x6E
-    /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Without context-menu plug-ins:
-    /// `popUpContextMenu` appends Services for a view that answers `validRequestor`, and AutoFill for a text view, which
-    /// Electron's menu (`popUpMenuPositioningItem`, DesktopWindow's template) has neither of;
-    /// nor Writing Tools, which macOS 15.2 and later add to a text view's menu where Apple
-    /// Intelligence is on.
+    /// Pops the shell's menu (tracks until the menu closes); a test records it instead. Selected page text offers
+    /// Services through the node's read-only requestor. Text inputs keep the shell's editing
+    /// template without AutoFill or Services; Writing Tools stays suppressed.
     var present: (NSMenu, NSEvent, NSView) -> Void = { menu, event, view in
         T3TextContextMenu.withoutSystemItems(menu)
+        if !(view is NSTextView), view.validRequestor(forSendType: .string, returnType: nil) != nil {
+            menu.allowsContextMenuPlugIns = true
+        }
         NSMenu.popUpContextMenu(menu, with: event, for: view)
     }
 
-    /// The shell's menu holds only DesktopWindow's items: no Services, AutoFill or Writing Tools.
+    /// Start with DesktopWindow's items; `present` enables Services only for selected page text.
     static func withoutSystemItems(_ menu: NSMenu) {
         menu.allowsContextMenuPlugIns = false
         if #available(macOS 15.2, *) { menu.automaticallyInsertsWritingToolsItems = false }

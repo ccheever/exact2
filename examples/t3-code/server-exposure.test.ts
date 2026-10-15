@@ -60,6 +60,9 @@ describe('DesktopServerExposure', () => {
     expect(backendConfig.bindHost).toBe('0.0.0.0');
     expect(backendConfig.httpBaseUrl.href).toBe('http://127.0.0.1:4173/');
     expect(settings.get().serverExposureMode).toBe('network-accessible');
+    expect((await exposure.setMode('network-accessible')).requiresRelaunch).toBe(false);
+    expect((await exposure.setMode('local-only')).requiresRelaunch).toBe(true);
+    expect((await exposure.setMode('local-only')).requiresRelaunch).toBe(false);
   });
 
   it('persists tailscale serve preferences atomically and reports no-op updates', async () => {
@@ -72,6 +75,13 @@ describe('DesktopServerExposure', () => {
     const unchanged = await exposure.setTailscaleServeEnabled({ enabled: true, port: 8443 });
     expect(unchanged.requiresRelaunch).toBe(false);
     expect(settings.get()).toMatchObject({ tailscaleServeEnabled: true, tailscaleServePort: 8443 });
+    expect((await exposure.setTailscaleServeEnabled({ enabled: true, port: 443 })).requiresRelaunch).toBe(true);
+    expect((await exposure.setTailscaleServeEnabled({ enabled: false })).requiresRelaunch).toBe(true);
+    expect((await exposure.setTailscaleServeEnabled({ enabled: false, port: 443 })).requiresRelaunch).toBe(false);
+    expect(settings.get()).toMatchObject({ tailscaleServeEnabled: false, tailscaleServePort: 443 });
+    // DesktopAppSettings treats the port as a setting even while Serve is disabled.
+    expect((await exposure.setTailscaleServeEnabled({ enabled: false, port: 8443 })).requiresRelaunch).toBe(true);
+    expect((await exposure.setTailscaleServeEnabled({ enabled: false, port: 8443 })).requiresRelaunch).toBe(false);
   });
 
   it('preserves persistence request context and the settings failure chain', async () => {
@@ -80,6 +90,7 @@ describe('DesktopServerExposure', () => {
     const store: ExposureSettingsStore = { get: () => DEFAULT_EXPOSURE_SETTINGS, setServerExposureMode: async () => { throw settingsFailure; }, setTailscaleServe: async () => { throw settingsFailure; } };
     const { exposure } = harness(lanNetworkInterfaces, { store });
     await exposure.configureFromSettings({ port: 4173 });
+    const before = exposure.getState();
     const modeError = await exposure.setMode('network-accessible').then(() => null, caught => caught);
     expect(modeError).toBeInstanceOf(DesktopServerExposureModePersistenceError);
     expect(modeError.mode).toBe('network-accessible');
@@ -92,6 +103,7 @@ describe('DesktopServerExposure', () => {
     expect([tailscaleError.enabled, tailscaleError.port, tailscaleError.cause, tailscaleError.cause.cause]).toEqual([true, 8443, settingsFailure, diskFailure]);
     expect(tailscaleError.message).toBe('Failed to persist desktop Tailscale Serve settings (enabled: true, port: 8443).');
     expect(tailscaleError.message).not.toContain(diskFailure.message);
+    expect(exposure.getState()).toEqual(before);
   });
 
   it('keeps LAN and Tailscale endpoints distinct when Tailscale is enumerated first', async () => {

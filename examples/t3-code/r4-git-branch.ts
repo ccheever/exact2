@@ -18,11 +18,11 @@ import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lan
 import { peekVcsStatus } from './shell-vcs';
 
 type Refs = { cwd: string; query: string; refs: Obj[]; total: number; nextCursor: number | null; loaded: boolean; generation: number; stale: boolean; ends: number; loadingMore?: boolean };
-interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string; picked: boolean }
+interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string }
 const states = new WeakMap<T3Client, BranchState>();
 export function branchState(client: T3Client): BranchState {
   let state = states.get(client);
-  if (!state) { state = { open: '', query: '', refs: null, origin: new Map(), pendingBranch: '', picked: false }; states.set(client, state); }
+  if (!state) { state = { open: '', query: '', refs: null, origin: new Map(), pendingBranch: '' }; states.set(client, state); }
   return state;
 }
 
@@ -82,7 +82,7 @@ export function includeRef(name: string, query: string): boolean {
 
 export type CardBranch = Awaited<ReturnType<typeof cardBranchView>>;
 const hiddenView = { show: false, open: false, label: '', value: '', disabled: true, query: '', refs: [] as { name: string; badge: string; selected: boolean; index: number }[],
-  creatable: '', status: '', empty: '', enterOp: '', enterValue: '', originShown: false, originOn: false, count: 0, picked: false, checkout: [] as CheckoutItem[] };
+  creatable: '', status: '', empty: '', enterOp: '', enterValue: '', originShown: false, originOn: false, count: 0, checkout: [] as CheckoutItem[] };
 /** The branch row and its picker for the card's workspace (`cwd`). */
 export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {
   const state = branchState(client);
@@ -119,7 +119,7 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
     creatable, status: refsStatus(refs, loading),
     empty: !list.length && !creatable && !checkout.length ? (loading ? '' : 'No refs found.') : '',
     enterOp: checkout.length ? 'chatlocal:git-pr-open' : first ? 'shell:git-branch' : creatable ? 'shell:git-branch-create' : '', enterValue: checkout[0]?.reference ?? (first || creatable),
-    originShown: selectingBase, originOn: selectingBase && startFromOrigin(client), count: list.length + (creatable ? 1 : 0) + checkout.length, picked: state.picked, checkout,
+    originShown: selectingBase, originOn: selectingBase && startFromOrigin(client), count: list.length + (creatable ? 1 : 0) + checkout.length, checkout,
   };
 }
 
@@ -127,7 +127,7 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
 export function branchLocal(client: T3Client, op: string, id: string, value: string): string {
   const state = branchState(client);
   // The row and the chevron open their popovers (the host toggles them); the picker starts a fresh search.
-  if (op === 'open') { state.open = id; state.query = ''; state.picked = false; if (state.refs) state.refs.stale = true; return ''; }
+  if (op === 'open') { state.open = id; state.query = ''; if (state.refs) state.refs.stale = true; return ''; }
   if (op === 'query') { state.query = value.slice(0, 256); return ''; }
   if (op === 'origin') {
     if (client.threadId) { if (!toggleServerOrigin(client)) throw new ClientError('A started thread keeps its workspace.'); return ''; }
@@ -138,10 +138,10 @@ export function branchLocal(client: T3Client, op: string, id: string, value: str
 }
 
 /** `shell:git-branch|git-branch-create`: selectBranch / createRef from the card. */
-export async function branchCommand(client: T3Client, native: Native, storage: Files, op: string, name: string, keyboard = false): Promise<string> {
+export async function branchCommand(client: T3Client, native: Native, storage: Files, op: string, name: string): Promise<string> {
   const state = branchState(client);
-  // A pointer pick hides the popover itself (popovertargetaction); Return cannot, so the picker empties.
-  state.open = ''; state.query = ''; state.picked = keyboard;
+  // Both pointer and Return handlers close the actual popover before dispatching.
+  state.open = ''; state.query = '';
   const known = state.refs?.refs.find(ref => ref.name === name);
   const context = draftContext(client);
   // Picking the base of a new worktree only records it on the draft.

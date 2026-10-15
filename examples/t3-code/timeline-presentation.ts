@@ -15,7 +15,7 @@ import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle 
 import { treeRows } from './timeline-tree';
 import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './r5-composer-citation';
-import { jumpToTurn, minimapCurrent, minimapItems, nativeTurns, type MinimapRow } from './timeline-minimap';
+import { minimapItems, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
 import { setupView, threadWorktreeSetup, worktreeDetailsOpen, worktreeSetupAction } from './timeline-worktree';
 import { chippedAttachmentIds, markdownEnv, messageChips } from './r4-timeline-chips';
@@ -27,7 +27,7 @@ import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane 
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 import { letGo } from './let-go';
-import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
+import { pullRequestLinkPick } from './context-menu-actions'; // context-menu-gaps
 import { prCodeLocalFor, prLocalWrite, prUiLocal } from './pages-pr-detail'; // pr-writing-and-metadata, pr-header-actions-and-stacks, pr-code-tab
 import { stackLayerTarget } from './pages-pr-stack';
 import { openLinkFromUi } from './browser-links';
@@ -66,11 +66,13 @@ export function messageTime(value: unknown, now: number, format: string): string
 
 interface ViewState { open: Set<string>; copies: Map<string, { nonce: number; ok: boolean }>; nonce: number; codeCopy: { threadId: string; text: string; nonce: number };
   historyError: Map<string, string>; revert: { threadId: string; messageId: string; turnCount: number } | null;
-  treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] } }
+  treeAll: Set<string>; treeDirs: Map<string, boolean>; lastRows: { threadId: string; rows: MinimapRow[] };
+  /** A citation's View source is placing its answer (r5-composer-citation.ts): ChatColumn restores no remembered position meanwhile. */
+  citing: number }
 const views = new WeakMap<T3Client, ViewState>();
 export function timelineView(client: T3Client): ViewState {
   let view = views.get(client);
-  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] } }; views.set(client, view); }
+  if (!view) { view = { open: new Set(), copies: new Map(), nonce: 0, codeCopy: { threadId: '', text: '', nonce: 0 }, historyError: new Map(), revert: null, treeAll: new Set(), treeDirs: new Map(), lastRows: { threadId: '', rows: [] }, citing: 0 }; views.set(client, view); }
   return view;
 }
 const scoped = (client: T3Client, kind: string, id: string) => `${client.threadId}\u0000${kind}\u0000${id}`;
@@ -85,7 +87,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
   if (op === 'link-open') return openLinkFromUi(client, native, id, value); // browser-surface part 5: "Open links in" (browser-links.ts)
   if (op === 'link-menu') return chatExternalLinkMenu(client, native, storage, value, id === 'page'); // shell-context-menu: a reply's web link menu (external-link-menu.ts)
-  if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
+  if (op === 'pr-link-pick') { await pullRequestLinkPick(client, native, value); return ''; } // context-menu-gaps: the detail header's number's menu choice
   if (op === 'pr-preview') { notePreviewHover(client, id, value === '1'); return ''; } // pr-links-previews-and-routing: a pull request link's hover card
   if (op.startsWith('prw-')) return prLocalWrite(client, native, op.slice(4), id, value); // pr-writing-and-metadata: the composer's drafts (pages-pr-detail.ts)
   if (op === 'pr-ui-select') return surfaceLocal(client, native, 'r5-pr-open', stackLayerTarget(value), ''); // pr-header-actions-and-stacks: a stack layer beside a thread
@@ -106,7 +108,6 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op.startsWith('plan-')) return planAction(client, native, op, id, value);
   if (op === 'tree-all' || op === 'tree-dir') return toggleTree(client, view, op, id, value);
   if (op.startsWith('image-')) return imagePreviewAction(client, op, id, value);
-  if (op === 'jump') return jumpToTurn(client, native, id, value, view.lastRows.threadId === client.threadId ? view.lastRows.rows : []);
   if (op === 'revert') return askRevert(client, view, id, Number(value));
   if (op === 'revert-answer') return answerRevert(client, native, view, value, storage);
   if (op === 'diagram-retry') return retryMermaid(value);
@@ -121,7 +122,13 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
     return '';
   }
   // r5-composer: View source opens the cited thread and scrolls its answer into place (r5-composer-citation.ts).
-  if (op === 'chip-citation') return revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : []);
+  // timeline-and-window-hooks: a minimap jump (Contract's scrollIntoView) ends the citation's native placement and hold.
+  if (op === 'timeline-release') { await client.restAccess(native).call({ op: 'timelineRelease' }).catch(() => undefined); return ''; }
+  if (op === 'chip-citation') {
+    view.citing++;
+    try { return await revealCitation(client, native, id, value, () => view.lastRows.threadId === client.threadId ? view.lastRows.rows : []); }
+    finally { view.citing--; }
+  }
   if (op === 'chip-thread') {
     if (!id || !client.shell.threads.some(thread => thread.id === id)) throw new ClientError('Thread no longer available');
     await client.openSelected(native, id);
@@ -224,11 +231,10 @@ export async function settleRollback(client: T3Client, native: Native, storage: 
 /** Timeline state beside its rows: the history control's error and the Edit from here dialog. */
 export function timelineSnapshot(client: T3Client) {
   const view = timelineView(client);
-  const native = nativeTurns(client), rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
-  const minimap = minimapItems(rows, native.inView);
-  return { historyError: view.historyError.get(client.threadId) ?? '',
+  const rows = view.lastRows.threadId === client.threadId ? view.lastRows.rows : [];
+  return { historyError: view.historyError.get(client.threadId) ?? '', codeCopyNonce: view.codeCopy.threadId === client.threadId ? view.codeCopy.nonce : 0,
     revertPending: view.revert?.threadId === client.threadId ? view.revert.messageId : '', ...planSaveView(client),
-    minimap: minimap.map(({ row: _row, ...item }) => item), minimapCurrent: minimapCurrent(minimap, native.above), ...imagePreviewView(client), ...diagramPreviewView(client) };
+    minimap: minimapItems(rows), citing: view.citing > 0, ...imagePreviewView(client), ...diagramPreviewView(client) };
 }
 
 /** The working root that path labels are made relative to (filePathDisplay). */

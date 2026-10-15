@@ -7,8 +7,9 @@ import AppKit
 /// model picker's keyboard highlight and their dismissal.
 final class T3Composer {
     var sendShortcut = "enter"
-    /// Lane r8-keys: the surface launcher's letters come before type-to-focus (R8KeysLauncher.swift).
-    var launcher: R8KeysLauncher?
+    /// The surface launcher (hatch `t3-launcher`): its letters are its rows' `aria-keyshortcuts`, which Exact's key
+    /// route presses (shell-panels.contract SurfaceRow), so type-to-focus leaves them alone (`launcherLetter`).
+    private weak var launcher: ExactElement?
     private let changed: (String) -> Void
     private weak var composer: ExactElement?
     private weak var send: ExactElement?
@@ -50,6 +51,8 @@ final class T3Composer {
             measure()
         } else if element.hatch == .t3Send {
             send = element
+        } else if element.hatch == .t3Launcher {
+            launcher = element
         } else if element.hatch == .t3Composer {
             composer = element
             if keyMonitor == nil {
@@ -70,6 +73,7 @@ final class T3Composer {
         }
         if !ended.isEmpty { measure() }
         if send === element { send = nil }
+        if launcher === element { launcher = nil }
         if composer === element {
             composer = nil
             stopMonitoring()
@@ -83,6 +87,7 @@ final class T3Composer {
         anchors.removeAll()
         composer = nil
         send = nil
+        launcher = nil
     }
 
     /// Internal so tests can drive it after moving a trigger.
@@ -177,11 +182,11 @@ final class T3Composer {
             editor.pastingAsText = false
             return Routed(event: nil)
         }
-        // A launcher letter goes on to Exact's key route (never type-to-focus).
-        switch launcher?.route(event, typing: window.firstResponder is NSText || window.firstResponder is NSTextField) ?? .none {
-        case .pass: return Routed(event: event)
-        case .taken, .dropped: return Routed(event: nil)
-        case .none: break
+        // A launcher letter goes on to Exact's key route (never type-to-focus), where its
+        // row's shortcut takes it (AppKit runs local monitors in no fixed order).
+        if let launcher, let shown = launcher.view, Self.launcherLetter(event, letters: launcher.data[.surfaceLauncherKeys] ?? "",
+                                                                          live: launcher.isLive && shown.window === window && !shown.isHiddenOrHasHiddenAncestor) {
+            return Routed(event: event)
         }
         guard T3Composer.redirectable(window.firstResponder, in: window), T3Composer.interactive(composer) else { return nil }
         if flags == .command, key == "v" {
@@ -197,6 +202,15 @@ final class T3Composer {
         view.setSelectedRange(NSRange(location: (view.string as NSString).length, length: 0))
         view.insertText(characters, replacementRange: view.selectedRange())
         return Routed(event: nil)
+    }
+
+    /// A plain letter (no ⌘, ⌃ or ⌥) the live launcher lists (`data-surface-launcher-keys`, its available rows' letters).
+    static func launcherLetter(_ event: NSEvent, letters: String, live: Bool) -> Bool {
+        guard live, event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty,
+              let typed = event.charactersIgnoringModifiers, typed.count == 1 else { return false }
+        // A key that types no ASCII letter (Korean 2-Set's ㄹ) is its physical key's, as the shortcut matches it (ShortcutsMac).
+        let key = typed.unicodeScalars.allSatisfy(\.isASCII) ? typed : (R10Connect.physicalKeys[event.keyCode] ?? typed)
+        return letters.uppercased().contains(key.uppercased())
     }
 
     /// shouldRedirectInputToComposer: nothing editable or interactive holds

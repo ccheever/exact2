@@ -4,7 +4,9 @@
 import { describe, expect, test } from 'bun:test';
 import { connected, opened, running } from './composer-controls-fixture';
 import { snapshot } from './presentation';
-import { DEFAULT_SEND_RULES } from './composer-editor-intent';
+import { DEFAULT_SEND_RULES, pressGesture, sendIntent } from './composer-editor-intent';
+import { contractComponent } from './contract-action-fixture';
+import { contractFns } from './contract-fn-fixture';
 import { toasts } from './toast';
 
 describe('send gestures through the server keybindings', () => {
@@ -61,5 +63,51 @@ describe('send gestures through the server keybindings', () => {
     const { native, command } = await connected();
     await command('send', '', 'Look at [notes.md](t3-context://v1/file/file_x) please');
     expect(native.committed.at(-1)).toMatchObject({ method: 'orchestration.launchThread', title: 'Look at  please' });
+  });
+});
+
+// contract-keys-and-menu-bar KW-11a: a pointer press carries its own modifiers (its MouseEvent) to `send`, as
+// `pointer:meta+alt`; any other press (a plain click, Return, a Send chord, an assistive press) reads the module's newest
+// Return gesture, which a click retires (T3ComposerIntent, the intent AppKit suite).
+describe('a Send press carries its own pointer modifiers', () => {
+  test('pressGesture: modifiers make a pointer gesture of this press; none leaves it to the Return gesture', () => {
+    expect(pressGesture('')).toBeNull();
+    expect(pressGesture('pointer:')).toBeNull();
+    expect(pressGesture('pointer:meta')).toEqual({ modifiers: 'meta', source: 'pointer', ageMs: 0 });
+    expect(pressGesture('pointer:meta+alt+shift')).toEqual({ modifiers: 'meta+alt+shift', source: 'pointer', ageMs: 0 });
+    expect(pressGesture('pointer:control+bogus')).toEqual({ modifiers: 'control', source: 'pointer', ageMs: 0 });
+    // A ⌘-click while a turn runs is the alternate; a pointer never resolves a key chord (⌥⌘-click in a draft stays foreground).
+    expect(sendIntent({}, pressGesture('pointer:meta')!, true, false)).toBe('alternate');
+    expect(sendIntent({}, pressGesture('pointer:control')!, true, false)).toBe('alternate');
+    expect(sendIntent({ keybindings: DEFAULT_SEND_RULES }, pressGesture('pointer:meta+alt')!, false, true)).toBe('foreground');
+    expect(sendIntent({}, pressGesture('pointer:shift')!, true, false)).toBe('foreground');
+  });
+  test('the client takes a ⌘-click from the press and leaves the recorded Return alone', async () => {
+    const { client, native, command } = await opened();
+    running(client);
+    native.gesture = { modifiers: 'meta+alt', source: 'key', ageMs: 4 }; // a Return gesture that is not this click's
+    await command('send', 'pointer:meta', 'Steer by click');
+    expect(native.committed.at(-1)).toMatchObject({ deliveryIntent: 'steer', dispatchMode: { type: 'start_immediately' } });
+    expect(native.gesture).toEqual({ modifiers: 'meta+alt', source: 'key', ageMs: 4 }); // never asked for
+    expect(client.threadId).toBe('t1');
+  });
+  test('each Send button presses `sendPress`, which hands `send` its MouseEvent\'s modifiers', async () => {
+    const fns = contractFns('press-modifiers.contract');
+    const mouse = (mods: string) => ({ metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift') });
+    for (const name of ['PrimaryActions', 'ComposerFooter']) {
+      const component = contractComponent('composer-controls.contract', name);
+      for (const [mods, held] of [['', ''], ['meta', 'meta'], ['meta alt', 'meta+alt'], ['ctrl shift', 'control+shift'], ['meta ctrl alt shift', 'meta+control+alt+shift']]) {
+        const sent: string[] = [];
+        component.call('sendPress', {}, { ...fns, send: (value: string) => sent.push(value) }, [mouse(mods!)]);
+        expect([name, sent]).toEqual([name, [held]]);
+      }
+    }
+    const controls = await Bun.file(new URL('./composer-controls.contract', import.meta.url)).text();
+    expect(controls.split('button press=sendPress ').length - 1).toBe(3); // plan refine, Send, the resting Send
+    expect(controls).not.toContain('button press=send ');
+    const app = await Bun.file(new URL('./app.contract', import.meta.url)).text();
+    expect(app).toContain('  action send(held: string)');
+    expect(app).toContain('send changed = command("send", held == "" ? "" : `pointer:${held}`, composerText, 0)');
+    expect(app).toContain('    else\n      send("")\n'); // the annotation's send: no press
   });
 });

@@ -188,14 +188,14 @@ test('Set price closes the model dialog and opens Model prices with a row for th
 
 // dialog-initial-focus-and-model-prices MP-2: Custom model prices' X, its "Add model price" + and the Apply to chevron
 // take their colour from the appearance the window draws (light-dark(), as New task's X does), not from the scheme fact
-// alone: where the two disagree a fact-picked #f5f5f5 drew them white on the light dialog. Each glyph still mounts again
-// per scheme, as an SVG's light-dark() does not follow an appearance flip.
+// alone: where the two disagree a fact-picked #f5f5f5 drew them white on the light dialog. Each glyph stays mounted
+// while its light-dark() paint follows the appearance.
 test('Model prices draws its X, + and chevron in the drawn appearance\'s colour', async () => {
   const text = await Bun.file(new URL('./pages-usage-prices.contract', import.meta.url)).text();
   const lines = text.split('\n');
   const body = lines.slice(lines.indexOf('component UsageSchemeIcon'), lines.indexOf('component UsageSchemeIcon') + 14).map(line => line.trim());
-  expect(body.filter(line => line.startsWith('PgIcon('))).toEqual(Array(2).fill('PgIcon(name=name, size=size, color=`light-dark(${light}, ${dark})`)'));
-  expect(body).toContain('when scheme == "dark"');
+  expect(body.filter(line => line.startsWith('PgIcon('))).toEqual(['PgIcon(name=name, size=size, color=`light-dark(${light}, ${dark})`)']);
+  expect(body).not.toContain('if scheme == "dark"');
   const dialogs = await Bun.file(new URL('./pages-usage-dialogs.contract', import.meta.url)).text();
   expect(dialogs).toContain('UsageSchemeIcon(name="x", size=16, scheme=scheme, light="#27272a", dark="#f5f5f5")');
   expect(text.match(/UsageSchemeIcon\(name=(?:"chevron-down"|icon), size=14, scheme=scheme, light="#27272a", dark="#f5f5f5"\)/g)?.length).toBe(2);

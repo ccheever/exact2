@@ -272,15 +272,17 @@ while the server starts, the window shows the connecting state (the host opens t
 before the server is ready, exact2 #117). The window keeps its frame across launches
 (the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
-first and then stops or starts the embedded server in place (the reference relaunches the app,
-which exact2 cannot, #122), and the Version row. Under it (`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
+first, persists the setting and then relaunches the app through Contract's `relaunch()`, as the
+reference does, and the Version row. Under it (`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
 binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
 exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
 `tailscale status --json` only while network access or Serve is on, cached 60 s,
 `T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
 expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
 `pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
-(`auth-access.ts`). Each change restarts the embedded server in place with the new envelope.
+(`auth-access.ts`). A change that needs a relaunch is persisted before Contract calls `relaunch()`;
+the module's teardown stops the old embedded server. No drive has checked the relaunch of a
+normally launched app.
 The Local environment switch, Network access and Tailscale Serve (enabled, port) live where T3 Code
 keeps them, `<T3 home>/userdata/desktop-settings.json` (`T3DesktopSettings.swift`: read once at the
 first session, sparse compact writes through a temp file and a rename), so the clone and T3 Code
@@ -318,19 +320,27 @@ The clone follows the reference wherever exact2 allows it. Where it cannot, the 
 exact2 issue. The open ones are records under main's `issues/` (the GitHub issues the clone
 filed were moved there or closed). The gaps someone using this app runs into:
 
-- Popovers do not flip near a window edge ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
-  #112). The hover cards and the colour picker compute their own flip.
-- Data modules have no timers ([`issues/20261009-typescript-failure-parity.md`](../../issues/20261009-typescript-failure-parity.md), #124). Time
-  is an argument, and debounces and cooldowns are Contract tasks.
+- Popovers flip near a window edge only as far as main's first slice goes
+  ([`issues/20261009-popover-css-flip-fallbacks.md`](../../issues/20261009-popover-css-flip-fallbacks.md),
+  #112). The clone's popovers, hover cards and colour picker use its `position-try-fallbacks`;
+  the record stays open for the rest of the placement work.
+- Data modules have no timers ([`issues/closed/20261009-typescript-failure-parity.md`](../../issues/closed/20261009-typescript-failure-parity.md),
+  #124; closed with timers still deferred). Time is an argument, and debounces and cooldowns are
+  Contract tasks.
 - Data modules cannot send on a WebSocket ([`issues/20261009-runner-owned-bidirectional-streams.md`](../../issues/20261009-runner-owned-bidirectional-streams.md),
   #126), so the RPC transport lives in the Swift module.
-- A backdrop blur sees only its parent ([`issues/20261010-macos-backdrop-beyond-parent.md`](../../issues/20261010-macos-backdrop-beyond-parent.md)), so
-  the composer is opaque where the reference's glass shows the transcript through it.
-- No process relaunch ([`issues/20261009-native-process-relaunch.md`](../../issues/20261009-native-process-relaunch.md)). The Local environment
-  switch stops or starts the embedded server in place, where the reference relaunches the app.
+- A backdrop blur sees only its parent ([`issues/closed/20261010-macos-backdrop-beyond-parent.md`](../../issues/closed/20261010-macos-backdrop-beyond-parent.md);
+  main keeps the limit), so the composer is opaque where the reference's glass shows the
+  transcript through it.
 
-Main has since closed five records the clone was written around. Four of them need the clone
-to move to what main now has, which it has not done yet, so it still works the old way:
+Main has closed records the clone was written around. The clone now uses these: a process
+relaunch for the Local environment switch, Network access and Tailscale HTTPS (`relaunch()`,
+[`issues/closed/20261009-native-process-relaunch.md`](../../issues/closed/20261009-native-process-relaunch.md)),
+`border-style: dashed` ([`issues/closed/20261009-dotted-dashed-border-style.md`](../../issues/closed/20261009-dotted-dashed-border-style.md)),
+`focusin`/`focusout` ([`issues/closed/20261009-bubbling-focus-events.md`](../../issues/closed/20261009-bubbling-focus-events.md))
+and capture-phase key handlers for the keybinding recorder and the reply's Markdown
+(`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)).
+These it does not use yet, so it still works the old way:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
   Each dialog carries its own Tab trap (`dialog-trap.contract`), and closing a dialog whose
@@ -338,9 +348,9 @@ to move to what main now has, which it has not done yet, so it still works the o
 - `repeating-linear-gradient()` and length stops
   ([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)). Split view's empty side
   stripes every 10 pt, where the reference stripes every 8 px.
-- A capture-phase key handler and app-declared menu bar items
-  ([`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md), [`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  The menu bar and the chord re-issue are still the module's (`R8KeysMenus.swift`, `R10Connect.swift`).
+- App-declared menu bar items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
+  The window only removes two of the system's items (`-exact-menu-remove`); the menu bar and the
+  chord re-issue are still the module's (`R8KeysMenus.swift`, `R10Connect.swift`).
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown

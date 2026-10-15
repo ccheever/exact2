@@ -14,6 +14,7 @@ use PrChip from "./pages-prs.contract"
 use PrAvatar from "./pages-prs.contract"
 use PrMenuBox from "./pages-prs.contract"
 use PrPageBack from "./pages-prs.contract"
+use PrLinkMenu from "./pages-prs.contract"
 use PrSummaryView from "./pages-pr-summary.contract"
 use PrdSummary from "./pages-pr-summary.contract"
 use PrTimelineView from "./pages-pr-timeline.contract"
@@ -82,6 +83,7 @@ shape PrDetailView
   repository: string
   url: string
   linkMenu: string
+  linkOpenLabel: string // the number's menu's Open on <host> (context-menus.ts openOnHostLabel)
   state: string
   stateLabel: string
   conflict: string
@@ -100,9 +102,9 @@ shape PrDetailView
   deletions: string
   checksSummary: string
   checksTone: string
-  reviewers: list<PrPerson>
-  labels: list<PrChip>
-  bodies: list<PrBody>
+  reviewers: PrPerson[]
+  labels: PrChip[]
+  bodies: PrBody[]
   hasBody: bool
   bodyId: string
   commentCount: number
@@ -126,7 +128,7 @@ shape PrDetailView
   projectId: string
   host: string
   hostName: string
-  code: list<CodeHighlight>
+  code: CodeHighlight[]
   // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
   md: MarkdownEnv
   diffScheme: string
@@ -148,13 +150,13 @@ fn prdCheckTone(status: string): string = status == "failure" or status == "canc
 
 // Whether an editor field's hold on Escape (PrPanel) still stands where the data can tell: the code comment draft while
 // one is open, a reply while its thread has not taken a reply since it opened (`reply:<thread>:<serial>`).
-fn prdEscapeLive(field: string, code: PrCodeView): bool = field == "pr-code-draft" ? code.draftOpen : (startsWith(field, "reply:") ? length(filter(code.threads, (card) => `reply:${card.id}:${card.repliedSerial}` == field)) > 0 : true)
+fn prdEscapeLive(field: string, code: PrCodeView): bool = field == "pr-code-draft" ? code.draftOpen : (field.startsWith("reply:") ? code.threads.filter((card) => `reply:${card.id}:${card.repliedSerial}` == field).length > 0 : true)
 
 // RightPanelTabs (inline) around the detail: the pull request's tab, then the panel body.
 component PrPanel
   props
     detail: PrDetailView
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     scheme: string
     width: number
     tab: string
@@ -191,7 +193,7 @@ component PrPanel
           PrTabClose(detail=detail, close=close)
           text detail.numberLabel font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
       // Keyed by the pull request, as the reference keys its panel: another one starts with its header open.
-      each bodyRef in [detail.ref] key=bodyRef
+      for bodyRef in [detail.ref] key=bodyRef
         PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=panelLocal, still=still, select=select, compact=compact, narrow=(width < 560), scrollId="pr-page-scroll")
 
 // The panel's body, shared with the thread's pull request surface (r5-panels.contract): the
@@ -207,7 +209,7 @@ component PrPanel
 component PrdBody
   props
     detail: PrDetailView
-    documents: list<ChatDocument>
+    documents: ChatDocument[]
     scheme: string
     tab: string
     setTab: action
@@ -283,31 +285,31 @@ component PrdBody
     local("pr-code-scope", detail.ref, oid)
     setTab("code")
   view
-    when detail.phase == "ghost"
+    if detail.phase == "ghost"
       PrdGhost(ghost=detail.ghost, number=detail.number, checkout=detail.checkoutCommand, tab=tab, still=still, handoffs=detail.handoffs, surface=surface, narrow=narrow, scheme=scheme, act=act)
-    when detail.phase == "error"
+    if detail.phase == "error"
       PrUnavailable(detail=detail, reload=reload)
-    when detail.phase == "content"
+    if detail.phase == "content"
       PrdHeader(detail=detail, scheme=scheme, still=still, compact=compact, narrow=narrow, surface=surface, condensed=condensed, measureId=scrollId, reload=reload, act=act, copy=copy, local=local, select=select)
       row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap="0.5rem" flex-shrink=0 -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out") role="navigation" aria-label="Pull request tabs"
         row height="1.75rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
           PrdTab(label="Summary", active=(current == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")
           PrdTab(label="Timeline", active=(current == "timeline"), press=setTab("timeline"), testId="pull-request-tab-timeline")
-          when detail.codeTab.available
+          if detail.codeTab.available
             PrdTab(label="Code", active=(current == "code"), press=setTab("code"), testId="pull-request-tab-code")
         box flex=1 min-width=0
         // showsApproveWorkflows takes the checks summary's place.
-        when current == "summary" and detail.actions.approveWorkflows
+        if current == "summary" and detail.actions.approveWorkflows
           PrdApproveWorkflows(actions=detail.actions, ref=detail.ref, local=local)
-        when current == "summary" and detail.checksSummary != "" and not detail.actions.approveWorkflows
+        if current == "summary" and detail.checksSummary != "" and not detail.actions.approveWorkflows
           row align-items="center" gap="0.375rem" flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
-            when detail.checksTone != ""
+            if detail.checksTone != ""
               PgIcon(name=prdCheckIcon(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"), size=14, color=prdCheckTone(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"))
             text detail.checksSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
-        when current == "timeline"
+        if current == "timeline"
           PrdTimelineBar(timeline=detail.timeline, dim=(detail.activityPending or detail.activityError != ""), order=timelineOrder, flip=flipTimeline)
       column position="relative" flex=1 min-height=0 width="100%" -exact-layout-transition=(condensed or still ? "none" : "200ms ease-out")
-        each prKey in [detail.summary.key] key=prKey
+        for prKey in [detail.summary.key] key=prKey
           // A repeated anchor to the same offset still moves the box (the serial's sub-pixel nudge).
           scroll id=scrollId scroll=bodyScrolled scrollTop=(anchored + (anchorSerial % 2) * 0.01) position="absolute" left=0 top=0 width="100%" height="100%" visibility=(current == "summary" ? "visible" : "hidden") role="tabpanel" aria-label="Summary" testId="pull-request-scroll"
             column width="100%" padding-bottom="4rem" box-sizing="border-box"
@@ -316,14 +318,14 @@ component PrdBody
             column width="100%" padding-bottom="4rem" box-sizing="border-box"
               PrdTimeline(timeline=detail.timeline, order=timelineOrder, pending=detail.activityPending, error=detail.activityError, choices=detail.writes.reactionChoices, scope=scrollId, documents=documents, code=detail.code, env=detail.md, still=still, local=textLocal, act=act, retry=act("activity-retry", "timeline"), openCommit=openCommit)
           // pr-code-tab: mounted once opened, so its slices, offset and draft survive a visit to another tab.
-          when current == "code" or detail.codeTab.mounted
+          if current == "code" or detail.codeTab.mounted
             column position="absolute" left=0 top=0 width="100%" height="100%" visibility=(current == "code" ? "visible" : "hidden") role="tabpanel" aria-label="Code" testId="pull-request-code-panel"
               PrdCode(code=detail.codeTab, ref=detail.ref, listId=`${scrollId}-code`, surface=surface, scheme=detail.diffScheme, size=detail.md.codeSize, choices=detail.writes.reactionChoices, documents=documents, highlights=detail.code, env=detail.md, handoffs=detail.handoffs, still=still, local=local, act=act, scrolled=codeScrolled)
       // PullRequestComposer floats over the content at the bottom right (no footer is reserved), keyed by
       // the pull request: a zero-height row under the scroll box is its anchor.
-      when detail.writes.composer
+      if detail.writes.composer
         row position="relative" width="100%" height=0 flex-shrink=0
-          each composerKey in [detail.writes.key] key=composerKey
+          for composerKey in [detail.writes.key] key=composerKey
             column position="absolute" right="1rem" bottom="0.75rem" z-index=20
               PrdComposer(writes=detail.writes, selected=detail.ref, scope=scrollId, act=act, local=local)
 
@@ -337,7 +339,7 @@ component PrTabClose
     over = value
   view
     button press=close hover=hover aria-label=`Close ${detail.numberLabel}` testId="pull-request-close" width="1rem" height="1rem" padding=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#27272a14, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" title=""
-      when over
+      if over
         PgIcon(name="x", size=12, color="light-dark(#27272a, #f5f5f5)")
       else
         PgIcon(name=prdIcon(detail.state), size=12, color=prdTone(detail.state))
@@ -375,7 +377,7 @@ component PrUnavailable
         text detail.error margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)" testId="pull-request-error-text"
       row flex-wrap="wrap" justify-content="center" gap="0.5rem" flex-shrink=0
         PrdOutline(icon="refresh-cw", label="Retry", press=reload, testId="pull-request-retry")
-        when detail.githubUrl != ""
+        if detail.githubUrl != ""
           link cursor="pointer" href=detail.githubUrl testId="pull-request-open-github" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
             PgIcon(name="external-link", size=14, color="light-dark(#71717b, #818181)")
             text "Open on GitHub" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
@@ -435,11 +437,12 @@ component PrdHeader
     column width="100%" box-sizing="border-box" position="relative" z-index=2 flex-shrink=0
       row height="1.75rem" width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box" align-items="center" gap="0.25rem"
         row min-width=0 flex=1 align-items="center" gap="0.25rem"
-          when detail.links.backShown
+          if detail.links.backShown
             PrdBackArrow(local=local)
           text detail.repository font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host>.
-          link cursor="pointer" href=detail.url contextmenu=local("pr-link-menu", "", detail.linkMenu) aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
+          // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host> (pages-prs.contract PrLinkMenu).
+          PrLinkMenu(menuId="pr-detail-link-menu", link=detail.linkMenu, openLabel=detail.linkOpenLabel, pick=local("pr-link-pick", ""))
+          link cursor="pointer" href=detail.url contextPopover="pr-detail-link-menu" aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
             text detail.numberLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
         PrdHeaderActions(actions=detail.actions, handoffs=detail.handoffs, links=detail.links, actOn=detail.actOn.items, surface=surface, narrow=narrow, ref=detail.ref, url=detail.url, hostName=detail.hostName, numberLabel=detail.numberLabel, scheme=scheme, still=still, compact=compact, reload=reload, act=act, copy=copy, local=local, select=select)
@@ -452,7 +455,7 @@ component PrdHeader
           box width=1 height="0.75rem" flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff0b)" aria-hidden=true
           row flex=1 min-width=0 align-items="center" gap="0.375rem"
             row min-width=0 max-width="40%" flex-shrink=0 align-items="center" gap="0.25rem"
-              when detail.actions.stacked
+              if detail.actions.stacked
                 box width="0.75rem" height="0.75rem" aria-label="Stacked pull request" flex-shrink=0
                   PgIcon(name="layers", size=12, color="light-dark(#71717ba6, #828282a6)")
               text detail.baseBranch font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717ba6, #828282a6)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
@@ -476,7 +479,7 @@ component PrdHeader
             text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
             text detail.updated font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
             box flex=1 min-width=0
-            when detail.checkoutCommand != ""
+            if detail.checkoutCommand != ""
               PrdCopy(text=detail.checkoutCommand, ariaLabel="Copy checkout command", copied=detail.copiedCheckout, tone="light-dark(#71717b, #818181)", copy=copy, testId="pull-request-copy-checkout")
           row width="100%" min-height="1.25rem" margin-top="1rem" align-items="center" gap="0.5rem"
             row flex=1 min-width=0 align-items="center" gap="0.375rem"
@@ -508,6 +511,6 @@ component PrdCopy
   view
     button press=copy("", text) hover=hover aria-label=ariaLabel testId=testId height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1 position="relative" text-align="left"
       text text font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=tone line-clamp=1 min-width=0 animation=(copied == 0 ? "none" : (copied % 2 == 0 ? "prdHiddenA 1.6s linear forwards" : "prdHiddenB 1.6s linear forwards"))
-      when copied > 0
+      if copied > 0
         row position="absolute" left="0.25rem" right="0.25rem" top="0.125rem" bottom="0.125rem" justify-content="center" align-items="center" animation=(copied % 2 == 0 ? "prdShownA 1.6s linear forwards" : "prdShownB 1.6s linear forwards") aria-hidden=true testId=`${testId}-copied`
           text "Copied" font-family=(testId == "pull-request-copy-checkout" ? "ui-monospace" : "system-ui") font-size="0.75rem" line-height="1rem" color=tone white-space="nowrap"

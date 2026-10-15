@@ -26,3 +26,18 @@ exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
 
 #[cfg(test)]
 mod title_snooze_tests;
+
+#[cfg(test)]
+mod composer_accessibility_tests;
+
+#[cfg(test)]
+mod legacy_sidebar_tests;
+
+#[cfg(test)]
+mod connections_settings_tests;
+
+#[cfg(test)]
+mod timeline_hooks_tests;
+
+#[cfg(test)]
+mod contract_keys_tests;

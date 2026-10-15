@@ -6,11 +6,19 @@ import UniformTypeIdentifiers
 /// the host's: Edit gains Paste as Text (⇧⌘V; the host files a paste variant after Paste and
 /// gives Edit its Speech since exact2 #226, but an app item is a Contract button's press, and
 /// this one is the responder chain's `pasteAsPlainText:` as the reference's pasteAndMatchStyle
-/// is: an app-declared role item waits on #141), View gains Actual Size, Zoom In
+/// is: `-exact-menu` gives a press, not a responder-chain role), View gains Actual Size, Zoom In
 /// and Zoom Out (the main window's zoom, Electron's 0.5-level steps). Settings… (⌘,) is the
 /// host's placement of the app's Meta+, command. ⌘Q from the keyboard goes through the
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
 /// Updates... sits under About and in Help, as the reference's darwin template places it.
+///
+/// contract-keys-and-menu-bar (KW-11b) kept these native, each for a reason the adopted API
+/// leaves open: an `-exact-menu` button's item is enabled only while its window is key and has
+/// no sheet (ShortcutsMac `validateMenuItem`), where the reference's Check for Updates... is
+/// always enabled (it reopens the main window); no Contract API zooms the main window, an app
+/// chord is heard only inside a shown modal while one is up (Shortcuts.swift `shortcutModal`),
+/// and the host files app View items ahead of Reload; the host offers no order policy for the
+/// app menu, and `-exact-menu-remove` names none of the Edit, Help or Go/Develop items hidden.
 final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     private weak var window: NSWindow?
     private var monitor: Any?

@@ -15,7 +15,7 @@ const skills: Obj[] = [{ name: 'imagegen', displayName: 'Image Gen', description
 describe('a skill chip\'s details popover (S1-12)', () => {
   test('the composer\'s chip: its label, the skill\'s description and its instructions file, at the chip', () => {
     expect(chipPopover(press(), skills)).toEqual({ seq: 3, open: true, surface: 'composer', label: 'Frontend Design', title: 'Skill Frontend Design', description: 'Design web pages.',
-      path: '/Users/me/.codex/skills/frontend-design/SKILL.md', x: 120, y: 640, width: 128, height: 19.5, kind: 'skill', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1 });
+      path: '/Users/me/.codex/skills/frontend-design/SKILL.md', x: 120, y: 640, width: 128, height: 19.5, kind: 'skill', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0 });
   });
 
   test('the Settings sample and a skill the provider does not list: no description, no View instructions', () => {
@@ -88,7 +88,7 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
   });
   test('a press outside the popover closes it; View instructions closes it with the file', async () => {
     const window = await source('app-window.contract');
-    expect(window).toContain('when chipShown and chip.kind != "citation"\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
+    expect(window).toContain('if chipShown and chip.kind != "citation"\n          ChipPopoverLayer(chip=chip, viewportWidth=viewport.width, viewportHeight=viewport.height, instructions=chipClose(true))');
     expect(window).toMatch(/if chipShown and e\.buttons == 1 and not \(e\.clientX >= frame\("chip-popover"\)\.x/);
     expect(window).toContain('editorOp(instructions ? "chip-instructions" : "chip-close", `${chip.seq}`, instructions ? chip.path : "")');
   });
@@ -109,7 +109,8 @@ describe('the popover\'s Contract (composer-chip-popover.contract, app-window.co
     expect(window).toContain('  action chipEscape\n    if chip.kind == "citation"\n      editorOp("chip-cite-escape", `${chip.seq}`, "")\n    else\n      chipClose(false)');
     expect(window).not.toContain('dismiss=chipClose(false), escape=');
     const settings = await source('app-settings.contract');
-    expect(settings).toContain('derive escapeOwned = settingsMenu != "" or modelsOpen or paletteOpen or chipOpen or ');
+    const escapeOwners = (settings.match(/derive escapeOwned = ([^\n]+)/)?.[1] ?? '').split(' or ');
+    for (const owner of ['settingsMenu != ""', 'modelsOpen', 'paletteOpen', 'chipOpen', 'routeKeyboard.phase != ""']) expect(escapeOwners).toContain(owner);
     expect(await source('app-window.contract')).toContain('paletteOpen=paletteOpen, chipOpen=chipShown, ');
   });
   test('Settings or a page over the composer\'s chip hides it at once and closes the native press; the palette does not', async () => {

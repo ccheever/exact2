@@ -132,8 +132,7 @@ describe('PA-6: the comparison target', () => {
       const body = found[2]!.replace(/\band\b/g, '&&').replace(/\bor\b/g, '||').replace(/\bnot\b/g, '!');
       return `function ${name}(${params.join(', ')}) { return ${body}; }`;
     });
-    const stdlib = 'const length = x => x.length, indexOf = (x, y) => x.indexOf(y), slice = (x, a, b) => x.slice(a, b), join = (x, s) => x.join(s), concat = (x, y) => x.concat(y), trim = s => s.trim();';
-    return new Function(`${stdlib}\n${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
+    return new Function(`${decls.join('\n')}\nreturn { ${names.join(', ')} };`)() as {
       dbKeys: (refIds: string[], query: string) => string[];
       dbMove: (keys: string[], current: string, down: boolean, query: string) => string;
       dbReturn: (keys: string[], current: string, query: string) => string;
@@ -173,11 +172,40 @@ describe('PA-6: the comparison target', () => {
     expect(await drive([main, feature, release], '', '↓ ↓ ↓ ↓', 'automatic')).toEqual([main, feature, release, '-']);
     // The picker's search uses them: its keys are dbKeys of the rows, ↓/↑ dbMove, and Return acts only when not "stay".
     const picker = (await Bun.file(new URL('./diff.contract', import.meta.url)).text()).split('\ncomponent DiffBasePicker\n')[1]!.split('\ncomponent ')[0]!;
-    expect(picker).toContain('derive keys = dbKeys(map(data.diffBaseRefs, (r) => r.id), query)');
+    expect(picker).toContain('derive keys = dbKeys(data.diffBaseRefs.map((r) => r.id), query)');
     expect(picker).toContain('let next = dbMove(keys, highlight, k == "ArrowDown", query)');
-    expect(picker).toContain('let outcome = dbReturn(keys, highlight, query)\n    if outcome != "stay"\n      pickedAt = session');
+    expect(picker).toContain('let outcome = dbReturn(keys, highlight, query)\n    if outcome != "stay"\n      hidePopover("diff-base-menu")');
     expect(picker).toContain('if outcome == "pick" and pickValue != ""\n        command("diff-base", "", pickValue, 0)');
   });
+
+  test('Return hides pick and close outcomes, keeps queried Automatic open, and leaves rows mounted for reopen', async () => {
+    const { contractComponent } = await import('./contract-action-fixture');
+    const picker = contractComponent('diff.contract', 'DiffBasePicker');
+    const { dbKeys, dbReturn } = await keyFns();
+    const refs = [{ id: main, selected: true, value: 'main' }, { id: feature, selected: false, value: 'origin/feature/audit' }];
+    const cases = [
+      { query: '', cursor: main, refs, expected: [['hide', 'diff-base-menu'], ['focus', 'diff-base'], ['command', 'diff-base', '', 'main', 0]] },
+      { query: '', cursor: 'automatic', refs, expected: [['hide', 'diff-base-menu'], ['focus', 'diff-base'], ['command', 'diff-base', '', '__automatic_base_ref__', 0]] },
+      { query: '', cursor: '-', refs, expected: [['hide', 'diff-base-menu'], ['focus', 'diff-base']] },
+      { query: 'main', cursor: 'automatic', refs: refs.slice(0, 1), expected: [] },
+      { query: 'zzz', cursor: '-', refs: [], expected: [['hide', 'diff-base-menu'], ['focus', 'diff-base']] },
+    ];
+    for (const row of cases) {
+      const state = { ...picker.state(), cursor: row.cursor, cursorAt: 4 }, calls: unknown[][] = [];
+      const scope = { data: { diffBaseAutomatic: false, diffBaseRefs: row.refs }, query: row.query, session: 4,
+        dbKeys, dbReturn, hidePopover: (id: string) => calls.push(['hide', id]), focus: (id: string) => calls.push(['focus', id]),
+        command: (...args: unknown[]) => calls.push(['command', ...args]) };
+      picker.call('pick', state, { ...scope, ...picker.derives(state, scope) }, []);
+      expect(calls).toEqual(row.expected);
+      expect(picker.drawn('testId="diff-base-picker"', state, scope)).toBe(true);
+      expect(picker.derives(state, { ...scope, query: '', session: 5 }).highlight).toBe(row.refs.length ? main : '');
+    }
+    const compare = contractComponent('diff.contract', 'DiffCompare'), state = compare.state(), calls: unknown[][] = [];
+    compare.call('open', state, { command: (...args: unknown[]) => calls.push(args) }, []);
+    expect(state).toMatchObject({ query: '', opened: 1 });
+    expect(calls).toEqual([['diffbase', 'open', '', 0]]);
+  });
+
 });
 
 describe('PA-7: the scope menu', () => {
@@ -190,6 +218,81 @@ describe('PA-7: the scope menu', () => {
     const view = snapshot(client);
     expect(view).toMatchObject({ diffMenu: '', diffScope: 'branch', diffError: '', diffTurns: [] });
     expect(previews()).toHaveLength(asked);
+  });
+
+  // menu-keys repair round 2 (AFTER drive 15-scope-up-closed, 16-scope-*): reopened from its focused trigger, the
+  // menu mounted but no row took the focus (macOS skipped the reopened popup's autofocus). The opening action now
+  // shows the menu for the turn the data module takes and focuses the real entry itself, on every opening.
+  test('KW-5: ↓ and ↑ on the focused trigger open the menu at its first or last row every time, also after Escape', async () => {
+    const { contractComponent, value } = await import('./contract-action-fixture');
+    const { contractFn } = await import('./contract-fn-fixture');
+    const keys = 'menu-keys.contract';
+    const kmOpenKey = await contractFn(keys, 'kmOpenKey', ['k']);
+    const kmKeyEnd = await contractFn(keys, 'kmKeyEnd', ['k'], { kmOpenKey });
+    const kmArrow = await contractFn(keys, 'kmArrow', ['k']);
+    const kmOpenTarget = await contractFn(keys, 'kmOpenTarget', ['menuId', 'end']);
+    const source = await Bun.file(new URL('./diff.contract', import.meta.url)).text();
+    const shownExpr = source.match(/^  derive scopeShown = (.+)$/m)![1]!;
+    const panel = contractComponent('diff.contract', 'DiffPanelBody'), toolbar = contractComponent('diff.contract', 'DiffToolbar');
+    const state = panel.state(), calls: unknown[][] = [];
+    const record = (name: string) => (...args: unknown[]) => calls.push([name, ...args]);
+    let data = { revision: 7, diffMenu: '' };
+    const shown = () => Boolean(value(shownExpr, { data, ...state }));
+    const panelScope = () => ({ data, kmOpenTarget, command: record('command'), focus: record('focus') });
+    const press = (k: string, extra = {}) => {
+      calls.length = 0;
+      const e = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false, ...extra };
+      toolbar.call('scopeKey', {}, { data, kmKeyEnd, kmArrow, preventDefault: record('preventDefault'), blur: record('blur'),
+        scopeEnd: (end: string) => panel.call('setScopeEnd', state, panelScope(), [end]),
+        scopeOpen: (end: string) => panel.call('openScope', state, panelScope(), [end]), scopeShown: shown(), end: state.scopeEnd }, [k, e]);
+    };
+    for (const [round, k, target] of [[1, 'ArrowDown', 'diff-scope-keys-first'], [2, 'ArrowUp', 'diff-scope-keys-last'], [3, 'ArrowDown', 'diff-scope-keys-first']] as const) {
+      // The trigger holds the focus (Escape returned it): its focus cleared the end, nothing is open.
+      panel.call('setScopeEnd', state, panelScope(), ['']);
+      expect(shown()).toBe(false);
+      press(k);
+      expect(calls).toEqual([['preventDefault'], ['command', 'diff-view', 'menu', 'scope', 0], ['focus', target]]);
+      // Drawn before the data module answers, then held by its answer (the next revision).
+      expect(shown()).toBe(true);
+      data = { revision: data.revision + 1, diffMenu: 'scope' };
+      expect(shown()).toBe(true);
+      // A second arrow while it shows opens nothing again (the menu's keys own it).
+      press(k);
+      expect(calls).toEqual([]);
+      // Escape (closeMenus → closeScope): the focus goes back to the trigger, the panel's own opening ends,
+      // and the data module's answer closes the menu.
+      calls.length = 0;
+      panel.call('closeScope', state, panelScope(), []);
+      expect(calls).toEqual([['command', 'diff-view', 'menu', '', 0], ['focus', 'diff-scope']]);
+      expect(state.scopeOpenedAt).toBe(-1);
+      data = { revision: data.revision + 1, diffMenu: '' };
+      expect(shown()).toBe(false);
+      expect(round).toBeGreaterThan(0);
+    }
+    // The entry boxes hand the focus on to the real first and last rows (KeyMenu).
+    const menu = contractComponent('menu-keys.contract', 'KeyMenu'), focused: unknown[] = [];
+    const rows = [{ id: 'diff-scope-branch', label: 'Changes' }, { id: 'diff-scope-turns', label: 'Turn' }];
+    const menuScope = { items: rows, first: (list: unknown[]) => list[0], focus: (id: string) => focused.push(id) };
+    menu.call('enteredFirst', menu.state(), menuScope, []);
+    menu.call('enteredLast', menu.state(), menuScope, []);
+    expect(focused).toEqual(['diff-scope-branch', 'diff-scope-turns']);
+    // Modified arrows stay the window's; a pointer press focuses the popup itself.
+    for (const modifier of ['metaKey', 'ctrlKey', 'altKey']) {
+      press('ArrowDown', { [modifier]: true });
+      expect(calls.filter(call => call[0] !== 'focus')).toEqual([]);
+    }
+    panel.call('setScopeEnd', state, panelScope(), ['']);
+    calls.length = 0;
+    toolbar.call('openScope', {}, { scopeOpen: (end: string) => panel.call('openScope', state, panelScope(), [end]), end: '' }, []);
+    expect(calls).toEqual([['command', 'diff-view', 'menu', 'scope', 0], ['focus', 'diff-scope-keys']]);
+    // The menu and its backdrop follow scopeShown; the data module's answer is a new revision.
+    expect(source).toContain('      if scopeShown\n        box position="absolute" left="-187.5rem"');
+    const { client, command } = harness();
+    await command('diff');
+    const before = snapshot(client).revision;
+    await command('diff-view', 'menu', 'scope');
+    expect(snapshot(client)).toMatchObject({ diffMenu: 'scope' });
+    expect(snapshot(client).revision).toBeGreaterThan(before);
   });
 });
 

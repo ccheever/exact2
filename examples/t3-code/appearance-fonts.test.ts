@@ -6,7 +6,7 @@ import { describe, expect, it } from "bun:test";
 import { clampCodeFontSize, clampInterfaceFontSize, clampPromptFontSize } from "./appearance-fonts";
 import { chatLaneMetrics } from "./chat-canvas-layout";
 // The look first: importing r5-composer-menus on its own enters an import cycle at r6-polish-measure.
-import { chatMaxWidth } from "./settings-appearance-look";
+import { chatMaxWidth, look } from "./settings-appearance-look";
 import { atRootFontSize } from "./r5-composer-menus";
 
 describe("font size clamping", () => {
@@ -59,5 +59,71 @@ describe("the root font size app.contract sets", () => {
     const writers = await Promise.all([...new Bun.Glob("*.contract").scanSync(import.meta.dir)].map(async file =>
       ((await Bun.file(`${import.meta.dir}/${file}`).text()).match(/setRootFontSize\(/g) ?? []).map(() => file)));
     expect(writers.flat()).toEqual(["app.contract"]);
+  });
+});
+
+
+// The native catalog is the source for every picker; monospace restrictions apply on commit.
+import { installedFonts } from './appearance-fonts';
+import { fontFamilies, fontStack } from './settings-appearance';
+import { applyCoreSetting } from './settings-core';
+import { T3Client } from './client';
+import type { Native } from './protocol';
+import { toasts } from './toast';
+
+describe('installed font selection', () => {
+  const catalog = [{ family: 'Arial', monospace: false }, { family: 'Menlo', monospace: true }, { family: 'Avenir Next', monospace: false }];
+  function nativeCatalog(onRead = () => {}): Native {
+    return { available: true, watch() {}, later: async () => { onRead(); return { ok: true, generation: 0, value: { fonts: catalog } }; } };
+  }
+  it('loads the actual native list once per client and exposes proportional families in the monospace picker', async () => {
+    const client = new T3Client(); let reads = 0;
+    const native = nativeCatalog(() => reads++);
+    const first = await installedFonts(client, native);
+    expect(await installedFonts(client, native)).toEqual(catalog);
+    expect(reads).toBe(1);
+    expect(fontFamilies('', true, 'SF Mono', first).map(font => font.label)).toEqual(['SF Mono', 'Arial', 'Menlo', 'Avenir Next']);
+    expect(fontFamilies('', false, 'Arial', first)[0]!.detail).toBe('"Arial", system-ui');
+    expect(await installedFonts(new T3Client(), { ...native, available: false })).toEqual([]);
+  });
+  it('keeps installed family names in the runtime CSS stack', () => {
+    expect(fontStack('Arial', false)).toBe('"Arial", system-ui');
+    expect(fontStack('Menlo', true)).toBe('"Menlo", ui-monospace');
+    expect(fontStack('Avenir Next', false)).toBe('"Avenir Next", system-ui');
+    expect(fontStack('SF Mono', true)).toBe('ui-monospace');
+  });
+  it('retains code and terminal fonts and posts the reference toast after a proportional choice', async () => {
+    const client = new T3Client(), native = nativeCatalog();
+    await applyCoreSetting(client, native, 'code-font:fontFamilyCode|||', 'Menlo');
+    await applyCoreSetting(client, native, 'terminal-font:fontFamilyTerminal|||', 'Menlo');
+    await applyCoreSetting(client, native, 'code-font:fontFamilyCode|||', 'Arial');
+    await applyCoreSetting(client, native, 'terminal-font:fontFamilyTerminal|||', 'Avenir Next');
+    const prefs = client.local as unknown as { clientSettings: { fontFamilyCode: string; fontFamilyTerminal: string; fontFamilySans: string } };
+    expect(prefs.clientSettings.fontFamilyCode).toBe('Menlo');
+    expect(prefs.clientSettings.fontFamilyTerminal).toBe('Menlo');
+    expect(toasts(client).map(toast => [toast.title, toast.description, toast.stacked])).toEqual([
+      ["\"Arial\" isn't monospace", 'Code and terminal need a fixed-width font, so the current font was kept.', true],
+      ["\"Avenir Next\" isn't monospace", 'Code and terminal need a fixed-width font, so the current font was kept.', true],
+    ]);
+    await applyCoreSetting(client, native, 'interface-font:fontFamilySans|||', 'Arial');
+    expect(prefs.clientSettings.fontFamilySans).toBe('Arial');
+  });
+  it('preserves an explicit Prompt family while Terminal switches between shared and advanced families', async () => {
+    const client = new T3Client(), native = nativeCatalog();
+    await applyCoreSetting(client, native, 'interface-font:fontFamilySans|||', 'Arial');
+    await applyCoreSetting(client, native, 'code-font:fontFamilyCode|||', 'Menlo');
+    expect(look(client).promptFont).toBe('"Arial", system-ui');
+    await applyCoreSetting(client, native, 'prompt-font:fontFamilyComposer|||', 'Avenir Next');
+    expect(look(client).promptFont).toBe('"Avenir Next", system-ui');
+    expect(look(client).codeFont).toBe('\"Menlo\", ui-monospace');
+    expect(look(client).terminalFont).toBe('Menlo');
+    await applyCoreSetting(client, native, 'typography-advanced:typographyAdvanced|||', 'true');
+    expect(look(client).promptFont).toBe('\"Avenir Next\", system-ui');
+    expect(look(client).terminalFont).toBe('');
+  });
+  it('rejects a malformed native catalog without caching it', async () => {
+    const client = new T3Client(), malformed: Native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: { fonts: [{ family: 42 }] } }) };
+    await expect(installedFonts(client, malformed)).rejects.toThrow('The installed font catalog could not be read.');
+    expect(await installedFonts(client, nativeCatalog())).toEqual(catalog);
   });
 });

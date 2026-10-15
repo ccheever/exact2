@@ -34,7 +34,7 @@ shape R6PrExtra
   method: string
   checksTitle: string
   checksSummary: string
-  checksList: list<R6Check>
+  checksList: R6Check[]
   collapsible: bool
   expanded: bool
   card: R6PrCard

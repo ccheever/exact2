@@ -52,7 +52,7 @@ describe('relaunch persistence (the preference file the reference keeps in local
     await shellView(relaunched, null, files, NOW + 2000, '', false);
     expect(toasts(relaunched).some(toast => toast.title === NIGHTLY_NOTICE.title)).toBe(false);
   });
-  test('the Usage tab and period, a draft and the sidebar survive a relaunch', async () => {
+  test('Usage preferences and drafts survive a relaunch while navigation starts at Home', async () => {
     const { files } = disk();
     const first = new T3Client();
     await load(first, files);
@@ -64,7 +64,8 @@ describe('relaunch persistence (the preference file the reference keeps in local
     const relaunched = new T3Client();
     await load(relaunched, files);
     expect(usagePrefs(relaunched)).toEqual({ metric: 'tokens', windowDays: 7 });
-    expect(relaunched.local.selections.env1).toEqual({ projectId: 'p1', threadId: 't1' });
+    expect(relaunched.local.selections.env1).toBeUndefined();
+    expect(relaunched.threadId).toBe('');
     expect(relaunched.local.drafts['env1:t1']).toBe('kept draft');
   });
 });

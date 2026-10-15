@@ -19,7 +19,7 @@ import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './com
 import { feedbackCommandFor, feedbackInFlight, sendFeedback } from './composer-feedback'; // usage-reset-and-feedback
 import { withMessageContext } from './composer-editor';
 import { annotationAttachedToDraft, annotationSendMarked, takeAnnotationSend } from './browser-annotation'; // browser-surface part 3: an annotation's send
-import { sendIntent } from './composer-editor-intent';
+import { pressGesture, sendIntent } from './composer-editor-intent';
 import { launchTitle } from './composer-editor-title';
 import { promptLengthMessage } from './composer-editor-menu';
 import { composerFileAttachments } from './composer-editor-files';
@@ -72,7 +72,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this) && annotationSendMarked(this)) resultMessage = annotationAttachedToDraft(this); // onSend: a direct annotation never answers a question
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
+    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value, id)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value, n === 1); // n 1: the picker's Shift+click or Shift+Return
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
@@ -89,7 +89,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
     return true;
   } finally { Object.assign(out, { message: resultMessage, id, value }); }
 }
-async function send(this: T3Client, native: Native, storage: Files, value: string): Promise<string | void> {
+async function send(this: T3Client, native: Native, storage: Files, value: string, pressed = ''): Promise<string | void> {
   const selection = { generation: this.generation, environmentId: this.environmentId, origin: this.origin, projectId: this.projectId, threadId: this.threadId, providerId: this.providerId, modelId: this.modelId, options: JSON.stringify(this.modelOptions), runtimeMode: this.runtimeMode, interactionMode: this.interactionMode };
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
@@ -115,7 +115,9 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!this.projectId) throw new ClientError('Choose or add a project first.');
   if (projectCloneBlock(this)) throw new ClientError(`${projectCloneBlock(this)}. Send once the repository is cloned.`); // project-clones-live.ts
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
-  const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
+  // A pointer press names its own modifiers (`pointer:meta+alt`, app.contract `send`); any other press reads the Return
+  // gesture the module recorded (T3ComposerIntent: a key press, or none once a click has retired it).
+  const gesture = pressGesture(pressed) ?? await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
   // browser-surface part 3: an annotation's ⌘↩ sends in the foreground, "auto" (PreviewView onSendAnnotation).
   const intent = annotationSend ? 'foreground' : sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));

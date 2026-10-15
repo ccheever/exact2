@@ -123,57 +123,25 @@ final class T3SidebarTests: XCTestCase {
         }
     }
 
-    func testModifiersAndNotifyRequests() {
+    /// The delayed notification the provider pill and snooze refresh ask for; the click-modifier read is gone (a row
+    /// press carries its own MouseEvent since contract-keys-and-menu-bar: sidebar.test.ts "a row press carries its own
+    /// click modifiers" holds the r8-pointer D8 cases this suite had).
+    func testNotifyRequestsAndNoModifierRead() {
         var changes = 0
         let sidebar = T3Sidebar(agent: true) { _ in changes += 1 }
-        let modifiers = expectation(description: "modifiers")
-        sidebar.perform(["op": "sidebarModifiers", "generation": 1]) { response in
-            let value = response["value"] as? [String: Any] ?? [:]
-            XCTAssertEqual(Set(value.keys), ["command", "shift", "option", "control"])
-            modifiers.fulfill()
-        }
         let notify = expectation(description: "notify")
         sidebar.perform(["op": "sidebarNotify", "delay": 50.0, "generation": 1]) { response in
             XCTAssertEqual(response["ok"] as? Bool, true)
             notify.fulfill()
         }
-        wait(for: [modifiers, notify], timeout: 1)
+        wait(for: [notify], timeout: 1)
         RunLoop.main.run(until: Date().addingTimeInterval(0.15))
         XCTAssertEqual(changes, 1)
-        let unknown = expectation(description: "unknown")
-        sidebar.perform(["op": "sidebarNope"]) { response in XCTAssertEqual(response["ok"] as? Bool, false); unknown.fulfill() }
-        wait(for: [unknown], timeout: 1)
-    }
-
-    /// r8-pointer D8: a row press reads the modifiers its click carried, even
-    /// after ⌘/⇧ is released; the click is read once and expires after 2 s.
-    func testRowPressReadsTheClickEventsModifiers() {
-        _ = NSApplication.shared
-        let sidebar = T3Sidebar(agent: false) { _ in }
-        func click(_ type: NSEvent.EventType, _ flags: NSEvent.ModifierFlags) -> NSEvent {
-            NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        for op in ["sidebarNope", "sidebarModifiers"] {
+            let unknown = expectation(description: op)
+            sidebar.perform(["op": op]) { response in XCTAssertEqual(response["ok"] as? Bool, false); unknown.fulfill() }
+            wait(for: [unknown], timeout: 1)
         }
-        func read() -> [String: Bool] {
-            var value: [String: Bool] = [:]
-            let done = expectation(description: "modifiers")
-            sidebar.perform(["op": "sidebarModifiers", "generation": 1]) { response in
-                value = (response["value"] as? [String: Any] ?? [:]).compactMapValues { $0 as? Bool }; done.fulfill()
-            }
-            wait(for: [done], timeout: 1)
-            return value
-        }
-        sidebar.record(click(.leftMouseDown, [.command]))
-        sidebar.record(click(.leftMouseUp, [.command]))
-        XCTAssertEqual(read()["command"], true, "⌘-click toggles though ⌘ is up by the time the client asks")
-        XCTAssertEqual(read()["command"], false, "the click is read once; no key is held now")
-        sidebar.record(click(.leftMouseDown, [.shift, .capsLock]))
-        sidebar.record(click(.leftMouseUp, [.shift, .capsLock]))
-        let shifted = read()
-        XCTAssertEqual(shifted["shift"], true)
-        XCTAssertEqual(shifted["command"], false)
-        sidebar.record(click(.leftMouseUp, [.command]), at: ProcessInfo.processInfo.systemUptime - 3)
-        XCTAssertEqual(read()["command"], false, "a click older than 2 s is not this press's")
-        XCTAssertEqual(sidebar.pressModifiers(at: 0).contains(.command), false)
     }
 }
 

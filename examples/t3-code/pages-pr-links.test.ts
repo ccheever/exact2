@@ -9,6 +9,7 @@ import { toasts } from './toast';
 import { prCommand, pullRequestDetail } from './pages-pr-detail';
 import { linkedThreadItems, notePreviewHover, openLink, readPreview, threadPickerView } from './pages-pr-links';
 import { paletteView } from './palette-view';
+import { contractComponent } from './contract-action-fixture';
 
 type Reply = (payload: Obj) => unknown;
 const URL7 = 'https://github.com/lane/sandbox/pull/7';
@@ -110,6 +111,23 @@ describe('the linked threads (PullRequestThreadLinks display="count")', () => {
 });
 
 describe('Link to thread (PullRequestThreadLinks display="menu-item" and the picker)', () => {
+  test('Enter chooses an enabled thread and does nothing for linked-only or empty query results', async () => {
+    const { client } = fakeClient(defaults());
+    await open(client, { page: true, linkTick: 1 });
+    await prCommand(client, native, 'links', selected, 'picker', storage);
+    const picker = contractComponent('palette.contract', 'PaletteThreadPicker');
+    for (const [query, expected] of [
+      ['Release notes', ['', '', '']],
+      ['nothing like it', ['', '', '']],
+      ['changelog', ['flow', 'pr-link-thread', 't1']],
+      ['', ['flow', 'pr-link-thread', 't1']],
+    ] as const) {
+      const view = threadPickerView(client, query, false);
+      const { tOp, tArg, tArg2 } = picker.derives({}, { view, highlight: -1, scheme: 'light', viewport: { width: 1280 }, min: Math.min });
+      expect([query, [tOp, tArg, tArg2]]).toEqual([query, expected]);
+    }
+  });
+
   test('on the page there is no thread: "Link to thread" opens the picker, which marks a linked thread and leaves archived ones out', async () => {
     const { client } = fakeClient(defaults());
     const view = await open(client, { page: true, linkTick: 1 });
@@ -205,10 +223,19 @@ describe('pull request text (remarkPullRequestAutolinks, PullRequestLinkPreview)
     expect(await openLink(client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe(`pr-select:${target}`);
     expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101`, surface)).toBe('');
     expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101']);
-    gestures.push({ modifiers: 'meta', source: 'pointer' });
+    // The click's own modifiers, a fourth line (markdown.contract PrLinkRun `open`); a recorded gesture is not this click's.
+    gestures.push({ modifiers: 'meta', source: 'key' });
     opened.length = 0;
-    expect(await openLink(client, native, true, `\n${target}\nhttps://github.com/lane/sandbox/pull/101`, surface)).toBe('');
-    expect(opened).toEqual(['https://github.com/lane/sandbox/pull/101']);
+    expect(await openLink(client, native, false, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n`, surface)).toBe('');
+    expect(opened).toEqual([]);
+    expect(surfaces).toEqual(['https://github.com/lane/sandbox/pull/101', 'https://github.com/lane/sandbox/pull/101']);
+    for (const held of ['meta', 'shift', 'alt', 'control+alt']) {
+      opened.length = 0;
+      expect(await openLink(client, native, true, `\n${target}\nhttps://github.com/lane/sandbox/pull/101\n${held}`, surface)).toBe('');
+      expect(opened).toEqual(['https://github.com/lane/sandbox/pull/101']);
+    }
+    expect(gestures).toHaveLength(1); // never asked for
+    gestures.length = 0;
     const issue = fakeClient(defaults({ 'pullRequests.preview': () => { throw new Error('not a pull request'); } }));
     opened.length = 0;
     expect(await openLink(issue.client, native, true, `reference\n${target}\nhttps://github.com/lane/sandbox/issues/101`, surface)).toBe('');

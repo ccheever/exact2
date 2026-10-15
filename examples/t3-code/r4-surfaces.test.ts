@@ -16,6 +16,7 @@ import { surfaces } from './shell';
 import { decodeClientPrefs } from './settings-core';
 import { diagramPreviewAction, diagramPreviewView } from './timeline-mermaid';
 import type { Native } from './protocol';
+import { value } from './contract-action-fixture';
 
 const panel = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
 type Call = { method: string; payload: Record<string, unknown>; write: boolean };
@@ -366,23 +367,40 @@ describe('the surface launcher keyboard', () => {
     expect(await component('SurfacePanel')).toContain('SurfaceLauncher(surfaces=shell.surfaces, ui=ui, profiles=shell.panel.browser.profiles, local=local)'); // part 4: the Browser row's profile chevron
     const launcher = await component('SurfaceLauncher');
     expect(launcher).toContain('state highlight = -1');
-    expect(launcher).toContain('derive ids = map(filter(surfaces, (entry) => entry.available), (entry) => entry.id)');
-    expect(launcher).toContain('derive lit = length(ids) == 0 ? -1 : min(highlight, length(ids) - 1)');
-    expect(launcher).toContain('if e.metaKey or e.ctrlKey or e.altKey or length(ids) == 0\n      ui("key", k)');
-    expect(launcher).toContain('else if k == "ArrowDown" or k == "ArrowRight"\n      preventDefault()\n      highlight = (lit + 1) % length(ids)');
-    expect(launcher).toContain('else if k == "ArrowUp" or k == "ArrowLeft"\n      preventDefault()\n      highlight = lit == -1 ? length(ids) - 1 : (lit - 1 + length(ids)) % length(ids)');
-    expect(launcher).toContain('else if k == "Enter" and lit >= 0\n      preventDefault()\n      match at(ids, lit)\n        case some(id)\n          ui("choose", id)');
+    expect(launcher).toContain('derive ids = surfaces.filter((entry) => entry.available).map((entry) => entry.id)');
+    expect(launcher).toContain('derive lit = ids.length == 0 ? -1 : min(highlight, ids.length - 1)');
+    expect(launcher).toContain('if e.metaKey or e.ctrlKey or e.altKey or ids.length == 0\n      ui("key", k)');
+    expect(launcher).toContain('else if k == "ArrowDown" or k == "ArrowRight"\n      preventDefault()\n      highlight = (lit + 1) % ids.length');
+    expect(launcher).toContain('else if k == "ArrowUp" or k == "ArrowLeft"\n      preventDefault()\n      highlight = lit == -1 ? ids.length - 1 : (lit - 1 + ids.length) % ids.length');
+    expect(launcher).toContain('else if k == "Enter" and lit >= 0\n      preventDefault()\n      match ids.at(lit)\n        case some(id)\n          ui("choose", id)');
     expect(launcher).toContain('    else\n      ui("key", k)');
     // A letter of an available row, either case, is the launcher's alone (the reference's
     // capture listener prevents and stops it), so a real key handed on by the window's monitor goes nowhere else.
-    expect(launcher).toContain('derive letters = concat(map(filter(surfaces, (entry) => entry.available), (entry) => entry.shortcut), map(filter(surfaces, (entry) => entry.available), (entry) => entry.letter))');
-    expect(launcher).toContain('else if includes(letters, k)\n      preventDefault()\n      stopPropagation()\n      ui("key", k)\n    else\n      ui("key", k)');
+    expect(launcher).toContain('derive letters = surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).concat(surfaces.filter((entry) => entry.available).map((entry) => entry.letter))');
+    expect(launcher).toContain('else if letters.includes(k)\n      preventDefault()\n      stopPropagation()\n      ui("key", k)\n    else\n      ui("key", k)');
     // A pointer over an available row moves the same highlight; leaving that row clears it.
-    expect(launcher).toContain('highlight = over ? indexOf(ids, id) : (highlight == indexOf(ids, id) ? -1 : highlight)');
-    expect(launcher).toContain('id="surface-chooser" key=keys hatch="t3-launcher"');
-    expect(launcher).toContain('highlighted=(surface.available and lit >= 0 and indexOf(ids, surface.id) == lit), tipped=(hovered == surface.id)');
+    expect(launcher).toContain('highlight = over ? ids.indexOf(id) : (highlight == ids.indexOf(id) ? -1 : highlight)');
+    expect(launcher).toContain('id="surface-chooser" autofocus key=keys hatch="t3-launcher"');
+    expect(launcher).toContain('highlighted=(surface.available and lit >= 0 and ids.indexOf(surface.id) == lit), tipped=(hovered == surface.id)');
     // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
     expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
+  });
+  // contract-keys-and-menu-bar KW-11a: the native R8KeysLauncher is gone. The launcher focuses itself as it mounts
+  // (`autofocus`, focusOnMount), and each available row declares its letter, either case, as `aria-keyshortcuts`: the host
+  // presses it before any key handler wherever the focus is but an input context (Shortcut.permits), behind no modal and
+  // not while the launcher is inert, once per press, by the physical key under a non-Latin layout. An unavailable row has
+  // no button, so no shortcut. Type-to-focus leaves the letters to it (r8-keys AppKit suite).
+  test('each available row is its letter\'s shortcut, in either case', async () => {
+    const row = await component('SurfaceRow');
+    const button = row.split('\n').find(line => line.includes('button press=choose(surface.id)'))!;
+    const chord = /aria-keyshortcuts=(`[^`]*`)/.exec(button)![1]!;
+    for (const shortcut of ['B', 'T', 'F', 'D', 'M', 'L', 'P']) {
+      expect(value(chord, { surface: { letter: shortcut.toLowerCase(), shortcut } })).toBe(`${shortcut.toLowerCase()} Shift+${shortcut}`);
+    }
+    // Only the available branch draws the button; `data-surface-launcher-keys` names the same letters for type-to-focus.
+    expect(row.indexOf('if surface.available')).toBeLessThan(row.indexOf('aria-keyshortcuts='));
+    expect(row.indexOf('aria-keyshortcuts=')).toBeLessThan(row.indexOf('    else\n'));
+    expect(await component('SurfaceLauncher')).toContain('data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("")');
   });
   // browser-surface part 4: the Browser row's profile chevron by keys (its Enter, ↑ and its list's Enter stay out of the
   // launcher) is browser-launcher-chevron.test.contract, run against the app (`agent.mjs macos --test`).

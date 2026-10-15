@@ -10,7 +10,7 @@ import { checkoutConfirm, checkoutLocal } from './r9-connect-checkout'; // lane 
 /** `shell:git-<op>`: branch checkout or creation, else a Git action. */
 export async function gitShellCommand(client: T3Client, native: Native, storage: Files, op: string, id: string, value: string): Promise<string> {
   branchState(client).open = '';
-  if (op === 'branch' || op === 'branch-create') return branchCommand(client, native, storage, op, value, id === 'enter');
+  if (op === 'branch' || op === 'branch-create') return branchCommand(client, native, storage, op, value);
   if (op === 'pr-checkout') return checkoutConfirm(client, native, id, value);
   // The card's older quick-action op.
   return gitCommand(client, native, op === 'action' ? 'quick' : op, id, value);

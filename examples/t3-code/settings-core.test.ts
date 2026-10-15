@@ -16,6 +16,8 @@ afterEach(() => { fleet.entries.clear(); fleet.saved = []; });
 import { appearanceSections, mix, modeTiles, palette, themeCards, themeRoles } from './settings-appearance';
 import { breadcrumbLabel, commandLabel, scopeAvailable, searchSettings, settingsNavigation } from './settings-search';
 import { settingsCore } from './settings-core-view';
+import { contractComponent } from './contract-action-fixture';
+import { contractFn } from './contract-fn-fixture';
 
 const provider = { instanceId: 'fixture', driver: 'codex', displayName: 'Exact fixture', enabled: true, installed: true, auth: { status: 'authenticated' }, status: 'ready',
   models: [{ slug: 'luna', name: 'GPT-5.6-Luna', isDefault: true, capabilities: { optionDescriptors: [{ id: 'reasoningEffort', type: 'select', options: [{ id: 'low', label: 'Low' }, { id: 'medium', label: 'Medium', isDefault: true }, { id: 'high', label: 'High' }] }] } },
@@ -41,7 +43,7 @@ function fake(settings: Obj = {}, ready = true): Fake {
   };
   return client;
 }
-const native = { available: true } as unknown as Native;
+const native: Native = { available: true, watch() {}, later: async () => ({ ok: true, generation: 0, value: { fonts: [] } }) };
 const as = (client: Fake) => client as unknown as T3Client;
 
 describe('device settings', () => {
@@ -416,4 +418,65 @@ describe('custom themes', () => {
     await applyCoreSetting(as(client), native, 'theme-remove:|||', 'grove-copy');
     expect([(client.local.clientSettings as Obj).themeLight, (client.local.customThemes as Obj[]).length]).toEqual(['t3-code', 1]);
   });
+});
+
+
+describe('Settings menu keyboard rows', () => {
+  test('shares eligible select and trait rows with its trigger, excluding disabled choices and section labels', () => {
+    const KmItem = (item: unknown) => item;
+    const options = [
+      { id: 'low', label: 'Low', disabled: false },
+      { id: 'unavailable', label: 'Unavailable', disabled: true },
+      { id: 'high', label: 'High', disabled: false },
+    ];
+    const select = contractComponent('settings-rows.contract', 'CoreSelect');
+    expect(select.derives({}, { rowId: 'reasoning', options, KmItem }).keyItems).toEqual([
+      { id: 'setting-reasoning-menu-low', label: 'Low' }, { id: 'setting-reasoning-menu-high', label: 'High' },
+    ]);
+    expect(select.derives({}, { rowId: 'reasoning', options: options.filter(option => option.disabled), KmItem }).keyItems).toEqual([]);
+    const traits = contractComponent('settings-rows.contract', 'CoreRowView');
+    expect(traits.derives({}, { row: { id: 'model', options2: [
+      { id: 'reasoning', label: 'Reasoning', icon: 'section' }, { id: 'low', label: 'Low', icon: '' },
+      { id: 'tier', label: 'Service Tier', icon: 'section-rule' }, { id: 'fast', label: 'Fast', icon: '' },
+    ] }, KmItem }).traitsItems).toEqual([
+      { id: 'setting-model-effort-menu-low', label: 'Low' }, { id: 'setting-model-effort-menu-fast', label: 'Fast' },
+    ]);
+  });
+
+  test('pointer focus uses the actual enabled row and leaves a highlighted row at its menu', () => {
+    const menu = contractComponent('settings-rows.contract', 'CoreMenu');
+    const state = menu.state(), focused: string[] = [];
+    const scope = { menuId: 'select-general-reasoning', focus: (id: string) => focused.push(id) };
+    menu.call('hover', state, scope, ['high', 'setting-reasoning-menu-high', false, true]);
+    expect(focused).toEqual(['setting-reasoning-menu-high']);
+    menu.call('focused', state, scope, ['high', true]);
+    menu.call('hover', state, scope, ['high', 'setting-reasoning-menu-high', false, false]);
+    expect(focused).toEqual(['setting-reasoning-menu-high', 'select-general-reasoning-keys']);
+    focused.length = 0;
+    menu.call('hover', state, scope, ['unavailable', 'setting-reasoning-menu-unavailable', true, true]);
+    expect(focused).toEqual([]);
+  });
+});
+
+
+test('scheduled-task opening keeps its environment-qualified invoker and existing command target', async () => {
+  const row = contractComponent('settings-scheduled.contract', 'TaskRow');
+  const kmOpenKey = await contractFn('menu-keys.contract', 'kmOpenKey', ['k']);
+  const kmArrow = await contractFn('menu-keys.contract', 'kmArrow', ['k']);
+  const kmTriggerKey = await contractFn('menu-keys.contract', 'kmTriggerKey', ['k'], { kmOpenKey, kmArrow });
+  const kmTriggerTarget = await contractFn('menu-keys.contract', 'kmTriggerTarget', ['items', 'k']);
+  const calls: unknown[][] = [];
+  const scope = {
+    item: { id: 'daily', environmentId: 'remote' }, KmItem: (item: unknown) => item, encodeURIComponent,
+    kmTriggerKey, kmTriggerTarget,
+    preventDefault: () => calls.push(['preventDefault']), stopPropagation: () => calls.push(['stopPropagation']),
+    showPopover: (...args: unknown[]) => calls.push(['showPopover', ...args]), focus: (id: string) => calls.push(['focus', id]),
+  };
+  const derived = row.derives({}, scope);
+  expect(derived.target).toBe('id=daily&environmentId=remote');
+  row.call('triggerKey', {}, { ...scope, ...derived }, ['ArrowUp', { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, repeat: false }]);
+  expect(calls).toEqual([
+    ['preventDefault'], ['stopPropagation'], ['showPopover', 'task-menu-daily', { source: 'task-actions-remote|daily' }],
+    ['focus', 'task-delete-daily'],
+  ]);
 });

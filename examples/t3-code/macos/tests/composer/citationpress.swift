@@ -172,7 +172,7 @@ final class ComposerCitationTests: XCTestCase {
         XCTAssertEqual(fixture.base.editor.string, "Before " + link(commentHref) + " ")
         XCTAssertEqual(fixture.base.editor.selectedRange().location, ("Before " + link(commentHref) as NSString).length)
         XCTAssertEqual(fixture.styler.chips[0].label, "Check the pure claim")
-        XCTAssertEqual(fixture.press.accessibilityElements.map { $0.accessibilityLabel() ?? "" }, ["Edit citation comment"])
+        XCTAssertEqual(fixture.press.accessibilityElements.map { $0.accessibilityLabel() ?? "" }, ["View cited assistant text: Check the pure claim", "Edit citation comment"])
         // An outside press's commit (no focus asked) in the prompt's text keeps the reader's caret, moved with the text after the chip.
         _ = fixture.press.openCitation(href: commentHref, source: [])
         let tail = (fixture.base.editor.string as NSString).length
@@ -288,9 +288,12 @@ final class ComposerCitationTests: XCTestCase {
 
     func testTheCommentButtonIsAnAccessibilityButton() {
         let fixture = CitationFixture("See " + link(quoteHref) + " and " + link(commentHref) + " ")
-        let elements = fixture.press.accessibilityElements
-        XCTAssertEqual(elements.map { $0.accessibilityLabel() ?? "" }, ["Add comment to citation", "Edit citation comment"])
-        XCTAssertEqual(elements.first?.accessibilityRole(), .button)
+        // composer-chips-accessibility DCP-Gv: each citation is AssistantCitationChip's source link and its comment trigger.
+        let all = fixture.press.accessibilityElements
+        XCTAssertEqual(all.map { $0.accessibilityLabel() ?? "" }, ["View cited assistant text: parser keeps parsePatch pure, so a quote", "Add comment to citation",
+                                                                   "View cited assistant text: Check the pure claim", "Edit citation comment"])
+        XCTAssertEqual(all.map { $0.accessibilityRole() }, [.link, .popUpButton, .link, .popUpButton])
+        let elements = all.filter { $0 is T3ComposerChipPopupElement }
         let frame = elements[0].accessibilityFrame(), window = fixture.base.window
         let expected = window.convertToScreen(fixture.base.editor.convert(fixture.styler.citationActionRect(fixture.styler.chips[0])!, to: nil))
         XCTAssertEqual(frame.midX, expected.midX, accuracy: 0.5)

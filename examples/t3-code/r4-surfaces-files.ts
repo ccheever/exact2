@@ -472,7 +472,7 @@ async function renderedMarkdown(client: T3Client, native: Native, path: string, 
   const diagrams = await filesMermaid(client, native, text);
   return {
     markdownSource: [{ id: `file:${path}`, kind: editable ? 'file' : 'assistant', title: '', body: text }],
-    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], '', scope) },
+    md: { ...markdownEnv(client), chips: messageChips({ text }, folder, [], `files:${absolute}`, scope) }, // G4-05: the owner names the document
     code: messageCodeBlocks(text), diagrams, mdUrls: urls.map(entry => ({ ...entry, fill: '', hover: '', border: '', ink: '' })),
     codeCopied: copied ? copy.text : '', codeCopyNonce: copied ? copy.nonce : 0,
   };

@@ -4,7 +4,7 @@
 // (LLP 1116.003 D6) finds an action reading a slot its start branch has just reset; sidebar-sweep.test.ts and
 // queued-drag.test.ts run the bodies that had it. Statements: `let`, a slot write, `if` / `else if` / `else`, and a
 // call (an action prop such as ThreadSection's `hoverCard`, an injected action, a host command such as `preventDefault()`),
-// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `when` / `else when` /
+// made with the reads as they stand at its line. `drawn` says whether a view line is drawn: the `if` / `else if` /
 // `else` arms around it hold (legacy-sidebar-full.test.ts runs the legacy rows' hover and focus through it, as the host
 // delivers them).
 import { readFileSync } from 'node:fs';
@@ -43,7 +43,60 @@ function js(s: string, i = 0, untilBrace = false): [string, number] {
 
 export function value(expr: string, env: Env): unknown {
   const names = Object.keys(env);
-  return new Function(...names, `return (${js(expr)[0]});`)(...names.map(name => env[name]));
+  return new Function(...names, `return (${namedCalls(js(expr)[0])});`)(...names.map(name => env[name]));
+}
+
+/** Named call arguments become a trailing object: showPopover(id, { source }), KmItem({ id, label }). */
+function namedCalls(source: string): string {
+  const quotedEnd = (start: number): number => {
+    const quote = source[start];
+    for (let i = start + 1; i < source.length; i++) {
+      if (source[i] === '\\') { i++; continue; }
+      if (source[i] === quote) return i + 1;
+    }
+    throw new Error('unterminated string in Contract expression');
+  };
+  const group = (start: number): { text: string; end: number } => {
+    const args: string[] = [];
+    let part = '', depth = 0;
+    for (let i = start; i < source.length; i++) {
+      const c = source[i]!;
+      if (c === '"' || c === "'" || c === '`') {
+        const end = quotedEnd(i); part += source.slice(i, end); i = end - 1;
+      } else if (c === '(') {
+        const inner = group(i + 1); part += `(${inner.text})`; i = inner.end;
+      } else if (c === ')' && depth === 0) {
+        args.push(part);
+        const positional: string[] = [], named: string[] = [];
+        for (const arg of args) {
+          const field = /^\s*(\w+)\s*=(?!=|>)([\s\S]*)$/.exec(arg);
+          if (field) named.push(`${field[1]}: ${field[2]}`);
+          else {
+            if (named.length) throw new Error('positional argument after named Contract argument');
+            positional.push(arg);
+          }
+        }
+        return { text: named.length ? [...positional, `{ ${named.join(', ')} }`].join(', ') : args.join(','), end: i };
+      } else if (c === ',' && depth === 0) {
+        args.push(part); part = '';
+      } else {
+        if (c === '[' || c === '{') depth++;
+        if (c === ']' || c === '}') depth--;
+        part += c;
+      }
+    }
+    throw new Error('unterminated call in Contract expression');
+  };
+  let out = '';
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i]!;
+    if (c === '"' || c === "'" || c === '`') {
+      const end = quotedEnd(i); out += source.slice(i, end); i = end - 1;
+    } else if (c === '(') {
+      const inner = group(i + 1); out += `(${inner.text})`; i = inner.end;
+    } else out += c;
+  }
+  return out;
 }
 
 /** Runs statements: reads see `env` (the state from before the action, the props, the locals so far); writes go to `writes`. */
@@ -61,6 +114,19 @@ function run(nodes: Node[], outer: Env, slots: Set<string>, writes: Env, owner: 
       }
       const taken = arms.find(arm => arm.cond === null || Boolean(value(arm.cond, env)));
       if (taken) run(taken.body, env, slots, writes, owner);
+    } else if (line.startsWith('match ')) {
+      // Option values use a value for some and null/undefined for none in the supplied scope.
+      const result = value(line.slice(6), env);
+      const present = result !== null && result !== undefined;
+      for (const arm of body) {
+        const some = /^case some\((\w+)\)$/.exec(arm.line);
+        if (!some && arm.line !== 'case none') throw new Error(`unsupported match arm: ${arm.line}`);
+        if (present && some) {
+          run(arm.body, { ...env, [some[1]!]: result }, slots, writes, owner);
+          break;
+        }
+        if (!present && arm.line === 'case none') { run(arm.body, env, slots, writes, owner); break; }
+      }
     } else if ((m = /^let (\w+) = (.+)$/.exec(line))) {
       if (m[1]! in env) throw new Error(`a local cannot shadow ${m[1]}`);
       env[m[1]!] = value(m[2]!, env);
@@ -120,12 +186,12 @@ export function contractComponent(file: string, name: string) {
   };
 
   return {
-    /** The slots at mount: each `state x = …` evaluated alone. */
-    state(): Env {
+    /** The slots at mount: each untyped `state x = …` evaluated alone (`scope`: a shape's constructor it calls). */
+    state(scope: Env = {}): Env {
       const state: Env = {};
       for (const line of lines) {
         const m = /^  state (\w+) = (.+)$/.exec(line);
-        if (m) state[m[1]!] = value(m[2]!, {});
+        if (m) state[m[1]!] = value(m[2]!, scope);
       }
       return state;
     },
@@ -137,8 +203,8 @@ export function contractComponent(file: string, name: string) {
       Object.assign(state, writes);
     },
     /**
-     * Whether the first view line containing `marker` is drawn: each `when`, `else when` and `else` arm around it holds,
-     * read over `state`, `scope` and the derives (an `each` around it counts as drawn).
+     * Whether the first view line containing `marker` is drawn: each `if`, `else if` and `else` arm around it holds,
+     * read over `state`, `scope` and the derives (a `for` around it counts as drawn).
      */
     drawn(marker: string, state: Env, scope: Env): boolean {
       const env: Env = { ...scope, ...state, ...derives(state, scope) };
@@ -152,8 +218,8 @@ export function contractComponent(file: string, name: string) {
         while (open.length && open[open.length - 1]!.indent >= indent) open.pop();
         const prior = () => (arms.get(indent) ?? []).map(arm => `!(${js(arm)[0]})`);
         let cond: string | null = null, m: RegExpExecArray | null;
-        if ((m = /^when (.+)$/.exec(text))) { arms.set(indent, [m[1]!]); cond = js(m[1]!)[0]; }
-        else if ((m = /^else when (.+)$/.exec(text))) { cond = [...prior(), `(${js(m[1]!)[0]})`].join(' && '); arms.get(indent)!.push(m[1]!); }
+        if ((m = /^if (.+)$/.exec(text))) { arms.set(indent, [m[1]!]); cond = js(m[1]!)[0]; }
+        else if ((m = /^else if (.+)$/.exec(text))) { cond = [...prior(), `(${js(m[1]!)[0]})`].join(' && '); arms.get(indent)!.push(m[1]!); }
         else if (text === 'else') cond = prior().join(' && ');
         open.push({ indent, cond });
         if (text.includes(marker)) {

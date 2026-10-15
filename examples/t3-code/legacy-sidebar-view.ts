@@ -8,7 +8,7 @@
 import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { terminalFocused } from './terminal-focus';
-import { fleet, fleetThreads, type EnvironmentFleet } from './settings-b-fleet';
+import { fleet, fleetThreads, fleetThreadId, parseFleetThreadId, type EnvironmentFleet } from './settings-b-fleet';
 import { groupLabel, logicalKey } from './r6-polish-groups';
 import { projectGlyph } from './r3-sidebar-glyph';
 import type { ProjectGlyph } from './r3-sidebar-glyph';
@@ -18,13 +18,14 @@ import { sidebarPrefs, sidebarSession } from './sidebar-state';
 import { terminalProcessCount, shortcutLabel, type SidebarHelpers } from './sidebar-view';
 import { currentPullRequestLink } from './shell-pr';
 import { lifecycle, lifecycleIcon, shortName, providerOfUrl } from './r5-panels-pr';
+import { branchPrTooltip, branchPullRequest } from './sidebar-branch-pr'; // sidebar-hover-archive-and-glyph B12
 import { portLabels, rowPorts } from './legacy-sidebar-ports';
 import { formatWorktreePathForDisplay } from './worktree-cleanup';
 import { DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT, orderItemsByPreferredIds, relativeTimeLabel, resolveProjectExpanded, resolveProjectStatusIndicator,
   resolveAdjacentThreadId, resolveThreadStatusPill, sortProjectsForSidebar, sortThreads, type LegacyMember, type ProjectSortOrder, type StatusPill, type ThreadSortOrder } from './legacy-sidebar-model';
 
 export interface LegacyThreadRow {
-  id: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
+  id: string; dropKey: string; title: string; label: string; active: boolean; selected: boolean; renaming: boolean; running: boolean;
   terminalCount: number;
   statusLabel: string; statusColor: string; statusDot: string; statusPulse: boolean;
   prIcon: string; prState: string; prTooltip: string; prPending: boolean; portLabel: string; portTip: string;
@@ -89,7 +90,7 @@ export function legacyGroups(client: T3Client, source: EnvironmentFleet = fleet)
   type Row = LegacyMember & { project: Obj; environmentId: string };
   const rows: Row[] = client.shell.projects.map(project => ({
     id: str(project.id), physicalKey: `${client.environmentId}:${projectPath(project.workspaceRoot)}`, title: str(project.title), workspaceRoot: str(project.workspaceRoot),
-    environmentLabel: '', remote: false, project, environmentId: client.environmentId }));
+    environmentLabel: str(obj(client.config.environment).label), remote: false, project, environmentId: client.environmentId }));
   for (const entry of source.entries.values()) {
     if (entry.phase !== 'connected' || entry.synchronized !== entry.generation || entry.environmentId === client.environmentId) continue;
     const label = str(obj(entry.config.environment).label);
@@ -164,6 +165,14 @@ export function legacyProjectOrder(client: T3Client, threadId: string): string[]
 
 const blank = { label: '', color: '', dot: '', pulse: false };
 const pillFields = (status: StatusPill | null) => status ?? blank;
+/** LegacySidebar.tsx's glyph for a thread with no current link: useLinkedThreadPullRequest's pull request (its branch's,
+ * read by its summary; sidebar-branch-pr.ts, sidebar-hover-archive-and-glyph B12), none until the summary arrives. */
+function fallbackPr(client: T3Client, thread: Obj): { prIcon: string; prState: string; prTooltip: string; prPending: boolean } {
+  const pr = branchPullRequest(client, thread);
+  if (!pr) return { prIcon: '', prState: '', prTooltip: '', prPending: false };
+  const state = lifecycle(pr.state, pr.isDraft);
+  return { prIcon: lifecycleIcon(state), prState: state, prTooltip: branchPrTooltip(pr), prPending: false };
+}
 function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Omit<LegacyThreadRow, 'enter'> {
   const id = str(thread.id), title = str(thread.title, 'Untitled thread'), session = sidebarSession(client);
   const status = pillFields(statusOf(client, thread));
@@ -173,13 +182,15 @@ function threadRow(client: T3Client, thread: Obj, now: number, jump: string): Om
   const worktree = str(thread.worktreePath).trim(), branch = str(thread.branch);
   const remote = str(thread.fleetMachine);
   return {
-    id, title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
+    id, dropKey: parseFleetThreadId(id) ? id : fleetThreadId(client.environmentId, id), title, label: [title, status.label].filter(Boolean).join(', '), active: id === client.threadId, selected: session.selection.includes(id),
     terminalCount: terminalProcessCount(client, id),
     renaming: session.renameId === id, running: !canArchive(thread),
     statusLabel: status.label, statusColor: status.color, statusDot: status.dot, statusPulse: status.pulse,
-    prIcon: link ? (snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow') : '', prState: state,
-    prTooltip: link ? (snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`) : '',
-    prPending: !!link && !snapshot, ...portLabels(rowPorts(client, id)),
+    ...(link ? {
+      prIcon: snapshot ? lifecycleIcon(state) : 'git-pull-request-arrow', prState: state,
+      prTooltip: snapshot ? `${shortName(providerOfUrl(str(link.url)))} #${Number(link.number) || 0} - ${stateLabel}: ${str(snapshot.title)}` : `PR #${Number(link.number) || 0}, status pending`,
+      prPending: !snapshot,
+    } : fallbackPr(client, thread)), ...portLabels(rowPorts(client, id)),
     // ThreadWorktreeIndicator: the worktree's display name (its last segment), then the branch.
     worktree: worktree !== '', worktreeLabel: worktree ? (branch ? `Worktree: ${formatWorktreePathForDisplay(worktree)} (${branch})` : `Worktree: ${formatWorktreePathForDisplay(worktree)}`) : '',
     remoteMachine: remote ? (remote === 'desktop' ? 'monitor' : remote) : '', remoteLabel: remote ? str(thread.fleetEnvironmentLabel, 'Remote') : '',

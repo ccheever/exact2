@@ -16,6 +16,7 @@ import { listRelist, overrideListEntries, settleListOverrides } from './pages-pr
 import { emptyChecksPopover, emptyStackPopover, quickPopovers, quickRow, readSpeedMode } from './pages-pr-quick'; // pr-handoffs-and-quick-actions
 import { pullRequestEntryKey, pullRequestEntryViewer } from './pages-pr-routing'; // pr-links-previews-and-routing: several servers' rows
 import { environmentQueries, filterKeyOf, foldAnswers, listTargets, loadMore, noteAnswer, noteShowing, orderAnswer, pagingFooter, refreshPaging, statsBatches, type ListTarget } from './pages-pr-paging';
+import { openOnHostLabel } from './context-menus'; // contract-keys-and-menu-bar: the number's menu label
 
 export const SORTS = [
   { value: 'ready', label: 'Merge readiness' }, { value: 'blocked', label: 'Blocked on me' }, { value: 'updated', label: 'Recently updated' },
@@ -235,7 +236,7 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
     // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
-    linkMenu: `${str(entry.provider)} ${str(entry.url)}`,
+    linkMenu: `${str(entry.provider)} ${str(entry.url)}`, linkOpenLabel: openOnHostLabel(str(entry.provider)), // its menu's Open on <host> (PrLinkMenu)
     // pr-handoffs-and-quick-actions: the Shift quick actions and the stack trigger (pages-pr-quick.ts quickRow).
     ...quickRow({}, entry),
   };
@@ -356,6 +357,14 @@ async function readList(client: T3Client, native: Native, input: PrInput, round:
   live.due = false;
   return lists.get(client) ?? cached;
 }
+/**
+ * The list last drawn, per client, with the server it was drawn for. pr-list-place-and-thread-picker PLS-1: while the
+ * focused connection resynchronizes on the same server (a return to the app resubscribes its shell and thread streams,
+ * T3Transport.applicationActive, and `ready` waits for the shell's completion marker), the page keeps these rows, as the
+ * reference's list keeps its data (`answered ?? carried`); an empty "loading" view there emptied the list for a moment
+ * and brought it back at its top on every refocus.
+ */
+const lastDrawn = new WeakMap<object, { environmentId: string; view: PrListView }>();
 export async function pullRequestsPage(client: T3Client, native: Native | null | undefined, input: PrInput & { visible?: boolean; returns?: number }) {
   const prefs = prPrefs(client);
   const query = input.typed ? input.query : prefs.q;
@@ -369,6 +378,8 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   });
   if (!input.open) listLiveAsk(client, input);
   if (!input.open && native?.available && client.ready) await holdPullRequestRefreshes(client, native, 'list', false);
+  const carried = lastDrawn.get(client);
+  if (input.open && native?.available && !client.ready && client.environmentId && carried?.environmentId === client.environmentId) return carried.view;
   if (!input.open || !native?.available || !client.ready) { view.loading = input.open && client.ready; return view; }
   if (!view.available) { view.empty = 'Pull requests unavailable'; view.emptyDetail = 'Update your T3 Code servers to browse pull requests.'; return view; }
   if (!view.hasProjects) { view.empty = 'No projects in this workspace'; view.emptyDetail = 'Add a project, and the pull requests from its repository appear here.'; view.emptyAction = 'add-project'; return view; }
@@ -425,6 +436,7 @@ export async function pullRequestsPage(client: T3Client, native: Native | null |
   native.watch?.('t3.pr');
   presented.speedMode = await readSpeedMode(client, native);
   Object.assign(presented, await quickPopovers(client, native, arr(answered?.entries), input.now).then(({ checks, stack }) => ({ checksPopover: checks, stackPopover: stack })));
+  lastDrawn.set(client, { environmentId: client.environmentId, view: presented });
   return presented;
 }
 
@@ -454,7 +466,7 @@ export function emptyList(prefs: PrPrefs, query: string) {
     authorLabel: prefs.author || 'Anyone', labelsLabel: labels.length ? `${labels.length} selected` : 'Any',
     stateIcon: STATE_ICONS[prefs.state] ?? 'layers', involvementIcon: INVOLVEMENT_ICONS[prefs.involvement] ?? 'layers',
     draftIcon: DRAFT_ICONS[prefs.draft || 'all'] ?? 'layers', reviewIcon: REVIEW_ICONS[prefs.review || 'all'] ?? 'layers', checksIcon: CHECKS_ICONS[prefs.checks || 'all'] ?? 'layers',
-    filterBadge: filterCount > 0 ? String(filterCount) : '', filtersWidth: 85.8 + (filterCount > 0 ? 18 + 7 * String(filterCount).length : 0), providerIconOnly: !!prefs.host,
+    filterBadge: filterCount > 0 ? String(filterCount) : '', providerIconOnly: !!prefs.host,
     // pr-handoffs-and-quick-actions: Shift alone held (the rows' quick actions show), and the open row popovers.
     speedMode: false, checksPopover: emptyChecksPopover(), stackPopover: emptyStackPopover(),
     // pr-links-previews-and-routing: the list footer ("more", "loading", "narrow") and a failed read over the rows shown.
