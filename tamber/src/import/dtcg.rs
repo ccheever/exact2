@@ -540,6 +540,25 @@ fn studio(
             .iter()
             .map(|t| t["name"].as_str().unwrap_or("").to_string())
             .collect();
+        // Each theme of a group of several is a mode: one with no name, or
+        // two with one name, would fold into one mode unseen.
+        let shown = if group.is_empty() {
+            "the ungrouped themes".to_string()
+        } else {
+            format!("the theme group `{group}`")
+        };
+        if members.len() > 1 {
+            if names.iter().any(|n| n.trim().is_empty()) {
+                return Err(format!("{shown} has a theme with no name"));
+            }
+            if let Some(n) = names
+                .iter()
+                .enumerate()
+                .find_map(|(i, n)| names[..i].contains(n).then_some(n))
+            {
+                return Err(format!("{shown} names two themes `{n}`"));
+            }
+        }
         for (t, theme) in members.iter().zip(&names) {
             let scope = match (members.len(), scheme(&names)) {
                 (1, _) => Scope::Base,

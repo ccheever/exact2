@@ -858,6 +858,41 @@ fn dtcg_files(list: &[(&str, &str)]) -> Vec<(String, String)> {
         .collect()
 }
 
+/// Each theme of a Tokens Studio group of several is a mode: one with no
+/// name, or two with one name, refuse the import rather than fold unseen.
+#[test]
+fn dtcg_refuses_a_theme_group_with_a_nameless_or_repeated_theme() {
+    use exact_tamber::import::dtcg;
+    let doc = |themes: &str| {
+        format!(
+            r##"{{ "s": {{ "c": {{ "a": {{ "value": "#010101", "type": "color" }} }} }}, "$themes": [{themes}] }}"##
+        )
+    };
+    let refused = |themes: &str| {
+        dtcg::import(
+            &dtcg_files(&[("t.json", &doc(themes))]),
+            "ts",
+            &parse(EMPTY).unwrap(),
+        )
+        .err()
+        .map(|d| d[0].message.clone())
+    };
+    let theme = |name: &str, group: &str| {
+        format!(
+            r#"{{ "name": "{name}", "group": "{group}", "selectedTokenSets": {{ "s": "enabled" }} }}"#
+        )
+    };
+    assert!(refused(&[theme("", "g"), theme("", "g")].join(","))
+        .unwrap()
+        .contains("has a theme with no name"));
+    assert!(refused(&[theme("A", ""), theme("A", "")].join(","))
+        .unwrap()
+        .contains("the ungrouped themes names two themes `A`"));
+    // One theme alone is the base, named or not; distinct names are modes.
+    assert_eq!(refused(&theme("", "g")), None);
+    assert_eq!(refused(&[theme("A", "g"), theme("B", "g")].join(",")), None);
+}
+
 #[test]
 fn dtcg_resolves_each_mode_tuple_in_order() {
     use exact_tamber::import::dtcg;
