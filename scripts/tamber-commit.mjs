@@ -43,22 +43,57 @@ export function designSession(dir) {
   const top = () => tryGit(appDir, ['rev-parse', '--show-toplevel']);
 
   /** Before a write that may touch `paths`: the git facts of each the
-   * session has not written yet, as they are now. */
+   * session has not written yet, as they are now, read in three git
+   * processes however many paths. A path already prepared for a write
+   * still in flight keeps its facts (that write may be on disk already);
+   * each prepare is ended by `wrote` or `release`. The paths it holds. */
   function prepare(paths) {
-    const root = top();
-    const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
-    for (const path of paths) {
-      if (files.has(path)) continue;
-      const repoPath = root && relative(root, resolve(appDir, path));
-      let dirty = null, atHead = null;
-      if (!head) dirty = 'the repository has no commit to start from';
-      else if (tryGit(root, ['diff', '--cached', '--quiet', 'HEAD', '--', repoPath]) === null) dirty = 'it was staged when the session first wrote it';
-      else if (tryGit(root, ['diff', '--quiet', 'HEAD', '--', repoPath]) === null) dirty = 'it differed from HEAD when the session first wrote it';
-      else {
-        const shown = spawnSync('git', ['show', `HEAD:${repoPath}`], { cwd: root });
-        atHead = shown.status === 0 ? sha(shown.stdout) : null;
+    const fresh = [...new Set(paths)].filter(path => !files.has(path) && !pending.has(path));
+    const held = [...new Set(paths)].filter(path => !files.has(path));
+    for (const path of held) if (pending.has(path)) pending.get(path).holds++;
+    if (fresh.length) {
+      const root = top();
+      const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
+      const repoPaths = fresh.map(path => root ? relative(root, resolve(appDir, path)) : path);
+      // XY per path: X the index against HEAD, Y the working tree against the index.
+      const status = new Map();
+      if (head) {
+        const out = spawnSync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--', ...repoPaths], { cwd: root, encoding: 'utf8' }).stdout ?? '';
+        for (const record of out.split('\0').filter(Boolean)) status.set(record.slice(3), record.slice(0, 2));
       }
-      pending.set(path, { head, dirty, atHead });
+      // HEAD's text of each clean path, by one cat-file.
+      const atHead = new Map();
+      const clean = head ? repoPaths.filter(r => !status.has(r)) : [];
+      if (clean.length) {
+        const out = spawnSync('git', ['cat-file', '--batch'], { cwd: root, input: clean.map(r => `HEAD:${r}\n`).join('') }).stdout ?? Buffer.alloc(0);
+        let at = 0;
+        for (const r of clean) {
+          const nl = out.indexOf(10, at);
+          const header = out.subarray(at, nl).toString();
+          const size = Number(header.split(' ')[2]);
+          if (header.endsWith('missing') || !Number.isInteger(size)) { at = nl + 1; continue; }
+          atHead.set(r, sha(out.subarray(nl + 1, nl + 1 + size)));
+          at = nl + 1 + size + 1;
+        }
+      }
+      fresh.forEach((path, i) => {
+        const r = repoPaths[i], xy = status.get(r);
+        const dirty = !head ? 'the repository has no commit to start from'
+          : xy && xy[0] !== ' ' && xy[0] !== '?' ? 'it was staged when the session first wrote it'
+          : xy ? 'it differed from HEAD when the session first wrote it'
+          : null;
+        pending.set(path, { head, dirty, atHead: atHead.get(r) ?? null, holds: 1 });
+      });
+    }
+    return held;
+  }
+
+  /** A prepared write that wrote nothing to `paths`: its hold on their
+   * facts ends, and the last hold's end forgets them. */
+  function release(paths) {
+    for (const path of paths) {
+      const facts = pending.get(path);
+      if (facts && --facts.holds <= 0) pending.delete(path);
     }
   }
 
@@ -73,7 +108,7 @@ export function designSession(dir) {
       f = { head: facts.head, dirty, foreign: false, last: before, edits: [] };
       files.set(path, f);
     }
-    pending.delete(path);
+    release([path]);
     // A write that read other bytes than the last one left: a change
     // between them that was not the server's.
     if (f.last !== before) f.foreign = true;
@@ -130,13 +165,18 @@ export function designSession(dir) {
       // The real index first: those paths' entries, and no other, all in
       // one update (it fails whole, with HEAD unmoved).
       const saved = git(root, ['ls-files', '-s', '-z', '--', ...blobs.map(b => b.repoPath)]);
-      git(root, ['update-index', '--add', '--index-info'], { input: blobs.map(b => `${b.mode} ${b.blob}\t${b.repoPath}\n`).join('') });
+      // NUL-separated: a path may hold any byte but NUL.
+      git(root, ['update-index', '-z', '--add', '--index-info'], { input: blobs.map(b => `${b.mode} ${b.blob}\t${b.repoPath}\0`).join('') });
       // HEAD moves only from the HEAD the guard checked; if it cannot, the
-      // index entries go back as they were.
+      // index entries go back as they were (an entry not there before is
+      // removed: mode 0 and a zero name as long as the repository's).
       try { git(root, ['update-ref', '-m', 'tamber commit', 'HEAD', made, head]); } catch (e) {
-        const back = saved.split('\0').filter(Boolean).map(line => `${line}\n`).join('');
-        const absent = blobs.filter(b => !saved.includes(`\t${b.repoPath}\0`)).map(b => `0 ${'0'.repeat(40)}\t${b.repoPath}\n`).join('');
-        try { git(root, ['update-index', '--index-info'], { input: back + absent }); } catch { /* said below */ }
+        const records = saved.split('\0').filter(Boolean);
+        const before = new Set(records.map(r => r.slice(r.indexOf('\t') + 1)));
+        const absent = blobs.filter(b => !before.has(b.repoPath)).map(b => `0 ${'0'.repeat(b.blob.length)}\t${b.repoPath}\0`);
+        try { git(root, ['update-index', '-z', '--index-info'], { input: records.map(r => `${r}\0`).join('') + absent.join('') }); } catch (back) {
+          throw new Error(`${e.message}; and the index could not be put back (${back.message}): those paths stay staged at the session's text`);
+        }
         throw e;
       }
       // A new session begins for them at the new HEAD.
@@ -154,5 +194,5 @@ export function designSession(dir) {
     return Object.fromEntries([...files].map(([path, f]) => [path, { edits: f.edits.length, dirty: f.dirty, foreign: f.foreign }]));
   }
 
-  return { prepare, wrote, seen, commit, state };
+  return { prepare, release, wrote, seen, commit, state };
 }
