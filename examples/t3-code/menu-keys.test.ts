@@ -343,12 +343,12 @@ describe('#298 bug 4: Custom snooze from the sidebar row by the real pointer and
     expect(value(shown, { ...state, hovering: false })).toBe(false);
     expect(value(shown, { ...state, hovering: true })).toBe(true);
     const item = await component('sidebar-row.contract', 'SnoozeMenuItem');
-    expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
+    expect(item).toContain('button id=itemId cursor="pointer" press=press popovertarget=popId popovertargetaction="hide" key=rowKey hover=hover focus=focused(true) blur=focused(false) role="menuitem"');
     expect(item).toContain('background-color=(lit ?');
     expect(item).not.toMatch(/\b(inside|pointer): action|\b(inside|pointer)=/);
     const actions = await component('sidebar-row.contract', 'SidebarCardActions');
     expect(actions).toContain('id=`snooze-trigger-${t.id}`');
-    expect(actions).toContain('press=hoverCard("", false) key=snoozeKey popovertarget=`snooze-${t.id}`');
+    expect(actions).toContain('press=snoozePress key=snoozeKey popovertarget=`snooze-${t.id}`');
   });
 });
 
@@ -385,7 +385,7 @@ describe('Escape from the snooze menu with the pointer outside', () => {
     const actions = await component('sidebar-row.contract', 'SidebarCardActions');
     expect(actions).toContain('    row align-items="stretch" focusin=focusIn focusout=focusOut\n');
     expect(actions).toContain('button cursor="pointer" id=`discard-trigger-${t.id}` press=run("discard-draft", t.id, "")');
-    expect(row.split('snoozeKey=snoozeKey, focusIn=actionsIn, focusOut=actionsOut)').length - 1).toBe(2);
+    expect(row.split('snoozeKey=snoozeKey, snoozePress=snoozePress, focusIn=actionsIn, focusOut=actionsOut)').length - 1).toBe(2);
   });
 });
 

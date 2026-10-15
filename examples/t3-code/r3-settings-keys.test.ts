@@ -76,9 +76,9 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
   });
   test('its capture handler takes every key: Escape cancels, a chord is reported once, a modifier alone waits', () => {
     const recorder = contractComponent('key-recorder.contract', 'KeyRecorder');
-    const run = (key: string, code: string, mods = '') => {
+    const run = (key: string, code: string, mods = '', recording = true) => {
       const calls: string[] = [];
-      const scope = { ...fns, capture: (value: string) => calls.push(`capture:${value}`), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') };
+      const scope = { ...fns, recording, capture: (value: string) => calls.push(`capture:${value}`), preventDefault: () => calls.push('prevent'), stopPropagation: () => calls.push('stop') };
       const event = { key, code, metaKey: mods.includes('meta'), ctrlKey: mods.includes('ctrl'), altKey: mods.includes('alt'), shiftKey: mods.includes('shift'), repeat: false };
       recorder.call('keys', {}, scope, [key, event]);
       return calls;
@@ -90,12 +90,17 @@ describe('the keybinding recorder (key-recorder.contract)', () => {
     expect(run('Tab', 'Tab')).toEqual(['prevent', 'stop', 'capture:tab']);
     expect(run('q', 'KeyQ', 'meta')).toEqual(['prevent', 'stop', 'capture:mod+q']);
     expect(run('Meta', 'MetaLeft', 'meta')).toEqual(['prevent', 'stop']);
+    // After a chord the field still has the focus but no longer records: Tab moves the focus on (the reference's
+    // captureKeybinding returns before preventDefault), while Escape and any other chord are still the field's.
+    expect(run('Tab', 'Tab', '', false)).toEqual([]);
+    expect(run('Escape', 'Escape', '', false)).toEqual(['prevent', 'stop', 'capture:escape']);
+    expect(run('j', 'KeyJ', 'meta', false)).toEqual(['prevent', 'stop', 'capture:mod+j']);
   });
   test('both recorders mount it in their modal row; the action editor\'s Escape and blur keep the old binding', async () => {
     const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
     const settings = await source('settings-keybindings.contract'), actions = await source('settings-b-actions.contract');
-    expect(settings).toContain('KeyRecorder(prompt="Press shortcut", label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=capture(original), cancel=capture(original, "blur"))');
-    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
+    expect(settings).toContain('KeyRecorder(prompt=(recording ? "Press shortcut" : "Unassigned"), value=(recording ? "" : value), recording=recording, label=`Keybinding for ${label}`, testId="keybinding-recorder", capture=took, cancel=took("blur"))');
+    expect(actions).toContain('KeyRecorder(prompt="Press shortcut", value="", recording=true, label="Keybinding", testId="action-keybinding-recorder", capture=capture, cancel=capture("escape"))');
     expect(actions).toContain('row class=AeField align-items="center" aria-modal=true testId="action-keybinding-recording"');
     const view = await source('key-recorder.contract');
     expect(view).toContain('box id=testId tabindex=0 autofocus keycapture=keys blur=cancel aria-label=label testId=testId');

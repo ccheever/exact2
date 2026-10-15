@@ -278,29 +278,32 @@ fn the_keybinding_recorder_captures_a_chord_by_its_physical_key_and_escape_resto
         runner.slot("keybindingRecording"),
         Some(&Value::Bool(false))
     );
-    assert!(
-        node(runner, "keybinding-recorder").is_none(),
-        "recording ended"
+    names(runner);
+    // Recording ends, but the field keeps the focus and goes on taking keys (KeybindingsSettings.tsx's Input stays
+    // mounted and focused): the same recorder shows the draft.
+    assert_eq!(
+        node(runner, "keybinding-recorder"),
+        Some(recorder),
+        "the recorder keeps the focus after a chord"
     );
-    // Recording again, Escape gives the row its binding back (the new row's is none).
-    runner
-        .act(
-            "recordKeybinding",
-            vec![
-                Value::str("new"),
-                Value::str("chat.new"),
-                Value::str("mod+shift+b"),
-                Value::str(""),
-            ],
-        )
-        .unwrap();
-    let recorder = node(runner, "keybinding-recorder").expect("the recorder is up again");
+    // Escape on it gives the row its binding back (the new row's is none) and is the recorder's alone: Settings stays.
     runner
         .dispatch(recorder, keydown("Escape", "Escape", ""))
         .unwrap();
+    assert_eq!(
+        names(runner),
+        ["preventDefault", "stopPropagation"],
+        "no ancestor hears that Escape"
+    );
     assert_eq!(runner.slot("keybindingKey"), Some(&Value::str("")));
     assert_eq!(
         runner.slot("keybindingRecording"),
         Some(&Value::Bool(false))
     );
+    assert_eq!(runner.slot("settingsOpen"), Some(&Value::Bool(true)));
+    // Leaving the field ends it.
+    let recorder = node(runner, "keybinding-recorder")
+        .expect("the unassigned row's field still has the focus");
+    runner.dispatch(recorder, Event::Blur).unwrap();
+    assert!(node(runner, "keybinding-recorder").is_none(), "left");
 }

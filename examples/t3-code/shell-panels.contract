@@ -121,6 +121,14 @@ component SurfaceLauncher
   derive ids = surfaces.filter((entry) => entry.available).map((entry) => entry.id)
   derive lit = ids.length == 0 ? -1 : min(highlight, ids.length - 1)
   derive letters = surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).concat(surfaces.filter((entry) => entry.available).map((entry) => entry.letter))
+  // focusOnMount calls `node.focus()` as the launcher mounts, whatever held the focus. `autofocus` alone takes it
+  // only when nothing does, and on macOS a launcher mounted again may not get it at all
+  // (issues/20261014-macos-a-reinserted-autofocus-node-is.md): its first layout focuses it here, every mount.
+  state placed = false
+  action laidOut(width: number, height: number)
+    if not placed and width > 0 and height > 0
+      placed = true
+      focus("surface-chooser")
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
     if ids.indexOf(id) >= 0
@@ -147,7 +155,7 @@ component SurfaceLauncher
     else
       ui("key", k)
   view
-    column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" autofocus key=keys hatch="t3-launcher" data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("") aria-label="Open a surface" testId="surface-chooser" data-dialog-return="menu" focusin=dialogMenuEntered("surface-chooser", "surface-chooser")
+    column flex=1 min-height=0 align-items="center" justify-content="center" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="3.25rem" box-sizing="border-box" id="surface-chooser" autofocus resize=laidOut key=keys hatch="t3-launcher" data-surface-launcher-keys=surfaces.filter((entry) => entry.available).map((entry) => entry.shortcut).join("") aria-label="Open a surface" testId="surface-chooser" data-dialog-return="menu" focusin=dialogMenuEntered("surface-chooser", "surface-chooser")
       column width="100%" max-width="20rem" padding-top="1.5rem" padding-bottom="1.5rem" box-sizing="border-box"
         text "Open a surface" margin-bottom="0.75rem" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
         column width="100%" gap="0.125rem"
@@ -164,9 +172,14 @@ component SurfaceRow
     profiles: BrowserProfileChoice[] // the Browser row's profile chevron
     local: action
   // Enter on a focused row is the row's own press: the launcher hears Enter only on itself (`event.target !== event.currentTarget`).
-  action rowKey(k: string)
+  // The Mac host leaves Return to a dialog's default button (LLP 1115.000 D7.3), so the row presses itself here.
+  action rowKey(k: string, e: KeyboardEvent)
     if k == "Enter"
       stopPropagation()
+      if not e.metaKey and not e.ctrlKey and not e.altKey and not e.shiftKey
+        preventDefault()
+        if not e.repeat
+          choose(surface.id)
   view
     box position="relative" width="100%" hover=hover(surface.id)
       if surface.available
