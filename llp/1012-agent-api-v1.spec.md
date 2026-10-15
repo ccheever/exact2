@@ -35,6 +35,21 @@ No listener opens on the phone. This is a trusted-LAN developer carrier, not TLS
 or an internet control API; allow local networking and keep the app foregrounded.
 Agent startup disables UIKit's idle timer for that test process only, since
 agent input does not reset the user-idle timer; normal launches are unchanged.
+Physical startup now waits for the application to be active and retries transient
+socket connection refusals under one 15-second monotonic deadline, including time
+spent inactive. UIKit lifecycle state is observed on the main thread; socket
+waiting runs on a worker. Every failed attempt closes its descriptor, and the
+successful descriptor returns to blocking mode before the token announcement.
+The existing driver's 20-second startup bound has room for a native terminal
+diagnostic. Cancellation and socket handoff have one order: cancellation before
+handoff closes the attempt; afterward the established carrier owns the socket.
+Retries end before authentication. They never reconnect an authenticated carrier
+or replay an agent command or app HTTP request. Loopback witnesses cover a real
+delayed listener, inactive admission, cancellation and a bounded refusal; the
+driver still refuses a wrong per-launch token before accepting the right one.
+This addresses the previous single-attempt startup gap. Earlier physical first
+launches reported `No route to host` and later launches connected, but their cause
+was not established; a current-source iPad baseline connected on its first try.
 Host-local plan/assets paths refuse: use embedded artifacts or `--url`.
 Only explicit launch environment crosses to the phone. Screenshots are written
 in the app's temporary directory and copied back with its app-container file

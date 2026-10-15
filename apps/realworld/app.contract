@@ -248,12 +248,13 @@ component RealWorld
       color="#373a3c"
       background-color="#ffffff"
       head title="Conduit" description="A place to share your knowledge."
-      Header(me=me, current=current, go=go)
       // `/` and `/tag/:tag` are one page, outside the stack's rows, as React
       // keeps one <Home> mounted: going to a tag changes the feed and the
       // tabs, not the page.
       if current.name == "home" or current.name == "tag"
         column navigationKey=`${current.id}` flex=1 testId=`page-${current.name}`
+          // @ref LLP 1123#d2-content-owners-and-their-host-blocks — native routes own their content.
+          Header(me=me, current=current, go=go)
           head title="Home — Conduit"
           HomePage(
             me=me,
@@ -269,6 +270,7 @@ component RealWorld
             favs=favs,
             favorite=favorite
           )
+          Footer(go=go)
       // Every entry of the stack stays mounted, as a native stack keeps the
       // screens under its top: the navigation root shows the one whose key
       // is `current.id` and hides the rest and makes them inert. So each
@@ -277,6 +279,7 @@ component RealWorld
       for e in stack(nav) key = e.id
         if e.name != "home" and e.name != "tag"
           column navigationKey=`${e.id}` flex=1 testId=`page-${e.name}`
+            Header(me=me, current=e, go=go)
             if e.name == "login"
               head title="Sign in — Conduit"
               AuthPage(signup=false, auth=auth, go=go, login=login, register=register)
@@ -337,7 +340,7 @@ component RealWorld
               head title="Not found — Conduit" status=404
               column class=Container padding-top=24
                 text "This page doesn't exist." font-size=24
-      Footer(go=go)
+            Footer(go=go)
 
 component Header
   props

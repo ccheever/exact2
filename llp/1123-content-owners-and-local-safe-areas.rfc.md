@@ -256,6 +256,15 @@ Popovers and other anchored boxes (`popovertarget`, `position-area`, menus, choo
 
 The session root is not an owner. Ordinary boxes are never owners.
 
+**RealWorld route content (2026-10-15).** Conduit's shared `Header` and `Footer`
+belong inside each route owner. Its previous global header was a sibling before
+the native stack: the full-root article owner correctly painted above it and
+took a tap at Home's old position. A physical iPad baseline at `06d9155a4`
+confirmed the article banner at `y=0` over the header's `y=0..56` allocation.
+`apps/realworld/app.contract` now composes those shared components inside each
+route, keeping their authored styles and normal hit testing. This corrects the
+app's ownership, without a native stacking exception or extra clearance.
+
 **Nested owners clear once.** Owners nest: a route inside a tab, a sheet over either. Only an owner whose content is authored clears. A container whose whole content is another owner, such as a tab panel holding a navigation stack, contributes no clearance of its own. UIKit already includes the outer chrome (the tab bar) in the inner owner's `safeAreaInsets`, so the inner owner clears it, once. A tab panel whose content is authored directly is itself the owner that clears.
 
 **An owner is a host block.** LLP 1115.002 D8.2 gives the kernel one way to lay a subtree out in a box that is not the window: the host gives the subtree's root a **containing block**, a width and a height, each the size or a maximum. The root is then out of its parent's layout and laid out as a root is, in the block; its frames are in the block's own space; the block's used size is published with the layout that changed it; viewport units, `env()` and `rem` stay the window's. A pane on the Mac (LLP 1115.002 D4) and a sheet on the Mac use it. An owner's root is given a block the same way, on every host with native containers:
