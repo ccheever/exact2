@@ -319,6 +319,13 @@ extension NodeView {
 }
 
 extension NodeView {
+    /// A dialog or alert dialog says AppKit's "dialog", the role description
+    /// of a dialog window and an alert's, where AppKit would derive "group"
+    /// from the subrole and WebKit says "web dialog".
+    package override func accessibilityRoleDescription() -> String? {
+        guard let subrole = accessibilitySubrole()?.rawValue, ["AXApplicationDialog", "AXApplicationAlertDialog"].contains(subrole) else { return super.accessibilityRoleDescription() }
+        return NSAccessibility.Role.window.description(with: .dialog)
+    }
     /// VoiceOver's show menu (AXShowMenu, VO-⇧-M) is the ContextMenu key's
     /// request at this node (X84), as Chrome sends both through Blink's
     /// `ShowNonLocatedContextMenu`: the `contextmenu`, then the
@@ -338,6 +345,14 @@ extension NodeView {
         guard let presenter, presenter.views[id] === self, !disabled, !inert, field == nil, textArea == nil,
               let target = presenter.contextTarget(self), !target.disabled, !target.inert else { return nil }
         return target
+    }
+    /// The host's own record of the flag, for code that serves an
+    /// accessibility request: AppKit drops its reply to another process
+    /// (VoiceOver) when the code serving it calls `isAccessibilityHidden()`,
+    /// and the client is told the attribute is unsupported.
+    package override func setAccessibilityHidden(_ hidden: Bool) {
+        accessibilityHiddenWritten = hidden
+        super.setAccessibilityHidden(hidden)
     }
 }
 
@@ -535,10 +550,12 @@ extension Presenter {
             #endif
         }
         #if os(macOS)
-        let modal = macAccessibilityModal.map(ObjectIdentifier.init)
-        if modal != announcedModal {
-            announcedModal = modal
-            NSAccessibility.post(element: viewport, notification: .layoutChanged)
+        let modal = macAccessibilityModal
+        if modal.map(ObjectIdentifier.init) != announcedModal {
+            announcedModal = modal.map(ObjectIdentifier.init)
+            // With the modal as the changed element VoiceOver moves into it
+            // and reads its name and role, as it does for a web dialog.
+            NSAccessibility.post(element: viewport, notification: .layoutChanged, userInfo: modal.map { [.uiElements: [$0]] })
         }
         #else
         syncModal()
@@ -554,9 +571,12 @@ extension Presenter {
     /// The frontmost exposed authored modal, or the dialog in HTML's top
     /// layer. The viewport serves it directly so AppKit cannot flatten a
     /// scroll or a native control beside it into the accessible page.
+    /// It serves AppKit's requests, so it reads the host's own state and
+    /// never AppKit's accessibility getters (`setAccessibilityHidden`).
     var macAccessibilityModal: NodeView? {
+        func hidden(_ view: NSView) -> Bool { (view as? NodeView)?.accessibilityHiddenWritten == true }
         if let active = dialogs.active, active.accessibilityVisible,
-           active.props["accessibilityElementsHidden"] != "true", !active.isAccessibilityHidden(),
+           active.props["accessibilityElementsHidden"] != "true", !hidden(active),
            leaving[active.id] == nil { return active }
         func path(_ view: NSView) -> [NSView] {
             Array(sequence(first: view, next: \.superview).prefix { $0 !== viewport }.reversed())
@@ -573,13 +593,13 @@ extension Presenter {
         }
         func exposed(_ node: NodeView) -> Bool {
             guard node.props["accessibilityModal"] == "true", node.accessibilityVisible,
-                  !node.isAccessibilityHidden(), leaving[node.id] == nil else { return false }
+                  !hidden(node), leaving[node.id] == nil else { return false }
             for view in sequence(first: node as NSView, next: \.superview) {
-                if view.isAccessibilityHidden() { return false }
+                if hidden(view) { return false }
                 guard let parent = view.superview else { break }
                 if parent.subviews.contains(where: { sibling in
                     guard sibling !== view, let cover = sibling as? NodeView,
-                          !cover.cssVisibilityHidden, !cover.isHidden, !cover.isAccessibilityHidden(),
+                          !cover.cssVisibilityHidden, !cover.isHidden, !hidden(cover),
                           !isLeaving(cover), cover.alphaValue == 1, let layer = cover.layer,
                           layer.opacity == 1, layer.backgroundColor?.alpha == 1,
                           layer.cornerRadius == 0, layer.mask == nil, CATransform3DIsIdentity(layer.transform)

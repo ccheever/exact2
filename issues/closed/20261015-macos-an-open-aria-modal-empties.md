@@ -1,6 +1,7 @@
 # macOS: an open aria-modal empties the window's accessibility tree for VoiceOver
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: the modal projection reads the host's own accessibility-hidden flag, never AppKit's getter, so another process reads the viewport's modal; a dialog says AppKit's "dialog" and the layout change names it
 **Systems:** host/apple macOS, accessibility
 **Author:** Daehyeon Mun
 **Date:** 2026-10-15

@@ -521,8 +521,13 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(dialog.accessibilityRole(), .group)
         XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationDialog")
         XCTAssertEqual(dialog.accessibilityLabel(), "Rename")
+        let word = NSAccessibility.Role.window.description(with: .dialog)
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "VoiceOver says dialog, as for a dialog window, not group")
         dialog.applyProps(set: ["accessibilityRole": "alertdialog"], clear: [])
         XCTAssertEqual(dialog.accessibilitySubrole()?.rawValue, "AXApplicationAlertDialog")
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), word, "an alert's window is a dialog too")
+        dialog.applyProps(set: ["accessibilityRole": "status"], clear: [])
+        XCTAssertEqual(dialog.accessibilityRoleDescription(), NSAccessibility.Role.group.description(with: .init(rawValue: "AXApplicationStatus")))
         withExtendedLifetime(w) {}
     }
     /// A role removed or changed at runtime leaves no trace of it: a box
@@ -545,6 +550,7 @@ final class AccessibilityTests: XCTestCase {
             XCTAssertFalse(box.isAccessibilityElement(), "\(set) removed")
             XCTAssertTrue([nil, fresh.accessibilityRole()].contains(box.accessibilityRole()), "\(set) removed: AppKit's default role, or none")
             XCTAssertNil(box.accessibilitySubrole(), "\(set) removed")
+            XCTAssertTrue([nil, fresh.accessibilityRoleDescription()].contains(box.accessibilityRoleDescription()), "\(set) removed: no dialog's")
             XCTAssertNil(box.accessibilityValue(), "\(set) removed")
             XCTAssertNil(box.accessibilityValueDescription(), "\(set) removed")
             XCTAssertNil(box.liveText, "\(set) removed")
