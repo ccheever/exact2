@@ -1,6 +1,7 @@
 # macOS: a clicked button with a tabindex takes the focus
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed: on the Mac a click focuses no button, radio or toggle whatever its tabindex (custom and native); a tabindex box still takes the click's focus
 **Systems:** host/apple macOS, focus, pointer
 **Author:** Daehyeon Mun
 **Date:** 2026-10-15
