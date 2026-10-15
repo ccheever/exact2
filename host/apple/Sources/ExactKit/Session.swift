@@ -418,7 +418,8 @@ public final class ExactSession {
     // frame's tick, a timer, a reply, an intrinsic size, a report) waits on
     // main instead, and runs after the slice lands, in order.
     private(set) var fillInFlight = false
-    private var afterFill: [(generation: Int?, work: () -> Void)] = []
+    private var afterFill: [(views: Int?, work: () -> Void)] = []
+    private var viewsEpoch = 0 // the presenter's views, renewed after each reset: what `bound` work is about
     private let published = NSLock()
     /// What the owner committed without main waiting.
     private enum Published { case fill(UInt32), tick, canvas }
@@ -567,9 +568,10 @@ public final class ExactSession {
     /// Run `work` now, or after the slice in flight lands (LLP 1072 §3),
     /// even a slice from before a commit: a wake's pump must run, as the
     /// executor wakes again only after one. `bound` work is the presenter's
-    /// news about its views, dropped if a generation commits first.
-    func whenIdle(bound: Bool = false, _ work: @escaping () -> Void) {
-        if fillInFlight { afterFill.append((bound ? generation : nil, work)) } else { work() }
+    /// news about its views, dropped once a reset replaces them.
+    func whenIdle(bound: Bool = false, _ work: @escaping () -> Void) { idle((bound ? viewsEpoch : nil, work)) }
+    private func idle(_ item: (views: Int?, work: () -> Void)) {
+        if fillInFlight { afterFill.append(item) } else if item.views ?? viewsEpoch == viewsEpoch { item.work() }
     }
 
     /// Send a build-only slice to the owner; its batch comes back published.
@@ -657,12 +659,12 @@ public final class ExactSession {
     /// slice can land inside the commit's own batch, before its views are:
     /// that work waits for the next turn.
     private func landedFill(_ view: UInt32, stale: Bool = false) {
-        let waiting = afterFill.filter { $0.generation == nil || $0.generation == generation }.map(\.work)
+        let waiting = afterFill
         afterFill.removeAll()
         guard state != .destroyed else { return }
         presenter.collections.landed(view, at: ProcessInfo.processInfo.systemUptime)
-        guard stale else { return waiting.forEach { $0() } }
-        DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { for work in waiting { whenIdle(work) } } }
+        guard stale else { for item in waiting where item.views ?? viewsEpoch == viewsEpoch { item.work() }; return }
+        DispatchQueue.main.async { [weak self] in if let self, state != .destroyed { for item in waiting { idle(item) } } }
     }
 
     /// Land every session's slice in flight.
@@ -828,7 +830,7 @@ public final class ExactSession {
             // A fresh boot over a running app (the dev menu's reload from the baked plan) starts the views over; the library already replaced its host.
             routerOp = nil
             generation += 1
-            if booted { awaitingTree = true; presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
+            if booted { awaitingTree = true; presenter.reset(); viewsEpoch += 1; forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
             appFileRoots = AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -916,7 +918,7 @@ public final class ExactSession {
         let restart = booted, kept = keptFocus
         keptFocus = nil
         awaitingTree = true // the tint a reset gives back is reported with the new tree
-        presenter.reset()
+        presenter.reset(); viewsEpoch += 1 // after: what the reset reports is about the old views
         forgetAppearances()
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
@@ -1008,7 +1010,7 @@ public final class ExactSession {
     func publishTickForTests(_ batch: Batch) { tickInFlight = true; publish(.tick, batch, generation) }
     /// Tests: a list's slice in flight, published as of `generation`.
     func publishFillForTests(_ view: UInt32, _ batch: Batch, generation: Int) { fillInFlight = true; publish(.fill(view), batch, generation) }
-    func holdFillForTests() { fillInFlight = true }; func commitForTests() { generation += 1 }
+    func holdFillForTests() { fillInFlight = true }; func commitForTests() { generation += 1; viewsEpoch += 1 }
     func oweColorsForTests() { colorsOwed = true }
     #endif
 

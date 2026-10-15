@@ -88,11 +88,11 @@ final class IdleTickTests: XCTestCase {
     /// a commit (in the next turn, after the commit's batch): a wake's pump
     /// dropped there left every later reply in the executor, whose wake
     /// re-arms only on a pump. Work bound to the presenter's views is
-    /// dropped once a generation commits.
+    /// dropped once a reset replaces them.
     func testWorkWaitingForAStaleSliceStillRuns() throws {
         let session = ExactApp.shared.makeSession(label: "stale-slice")
         defer { session.destroy() }
-        var free = 0, bound = 0
+        var free = 0, bound = 0, renewed = 0
         session.holdFillForTests()
         session.whenIdle { free += 1 }
         session.whenIdle(bound: true) { bound += 1 }
@@ -102,6 +102,8 @@ final class IdleTickTests: XCTestCase {
         let stale = wireBatch([["op": "props", "id": 1, "set": ["testId": "x"]]])
         session.publishFillForTests(1, stale, generation: session.generation)
         session.commitForTests()
+        // The new tree's news, while the old slice is still in flight.
+        session.whenIdle(bound: true) { renewed += 1 }
         session.drainFill()
         XCTAssertFalse(session.fillInFlight)
         XCTAssertEqual(session.appliedBatches, before, "the stale slice applies nothing")
@@ -110,6 +112,7 @@ final class IdleTickTests: XCTestCase {
         while free == 0, Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
         XCTAssertEqual(free, 1, "the pump still runs")
         XCTAssertEqual(bound, 0, "the old views' news does not")
+        XCTAssertEqual(renewed, 1, "the new views' does")
         // A slice of this generation runs both.
         session.holdFillForTests()
         session.whenIdle { free += 1 }
