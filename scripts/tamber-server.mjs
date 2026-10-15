@@ -415,10 +415,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const refused = needsClient(request);
       if (refused) return refused;
       if (request.message !== undefined && typeof request.message !== 'string') return { status: 400, error: { message: '`message` is a string' } };
+      if (request.dry !== undefined && typeof request.dry !== 'boolean') return { status: 400, error: { message: '`dry` is true or false' } };
       // A write in flight would land beside the commit's reading of the files.
       if (writing) return { status: 409, error: { message: 'a write is in flight; commit again once it lands' } };
-      const done = session.commit({ client: request.client, message: request.message });
-      if (done.ok) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
+      const done = session.commit({ client: request.client, message: request.message, dry: request.dry === true });
+      if (done.ok && !request.dry) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
       return done;
     }
     if (request.method === 'propose' && request.hold !== undefined) {
@@ -433,8 +434,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     // Which app this server is, and which run of it, so `tamber tool` can
     // tell its own from another's and a client can tell a restart.
     // `live`: a dev loop serves it, whose running builds take a value-only
-    // edit in place, no reload (LLP 1121 stage 4's live table).
-    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list() } } : r));
+    // edit in place, no reload (LLP 1121 stage 4's live table); `design`:
+    // the file an operation with no `file` edits.
+    if (request.method === 'hello') return ask(request).then(r => (r.ok ? { ok: { ...r.ok, app: appDir, epoch, live: typeof live === 'function' ? live() : live, builds: channel.list(), design: relative(appDir, designPath(appDir) ?? resolve(appDir, design)) } } : r));
     if (request.method === 'pin' || request.method === 'preview') return needsClient(request) ?? pin(request);
     if (request.method === 'revert') return needsClient(request) ?? revert(request);
     if (request.method === 'import') return needsClient(request) ?? importHeld(request);

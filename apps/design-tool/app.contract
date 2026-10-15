@@ -183,6 +183,8 @@ shape Changeset
   ok: bool
   error: string
   entries: ChangeEntry[]
+  // Writes not yet committed (a hand edit is no write of the session's).
+  open: number
 
 shape Refusal
   file: string
@@ -438,6 +440,8 @@ component DesignTool
     historyShown = not historyShown
   action moreHistory
     historyPages = historyPages + 1
+  action newerHistory
+    historyPages = historyPages > 1 ? historyPages - 1 : 1
   action revert(commit: string)
     if not pending(reverted)
       send reverted = revertCommit(client, commit)
@@ -665,7 +669,7 @@ component DesignTool
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"
-                button press=commit disabled=(pending(committed) or changeset.entries.length == 0) buttonStyle="bordered" testId="commit"
+                button press=commit disabled=(pending(committed) or changeset.open == 0) buttonStyle="bordered" testId="commit"
                   text "Commit"
                 text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
               match committed
@@ -701,9 +705,13 @@ component DesignTool
                         text f.refused color="-exact-system-orange" font="-exact-caption1"
                       for t in f.edits key=t
                         text t font="-exact-caption1" testId=`edit-${c.short}`
-                if history.more
-                  button press=moreHistory testId="more-history"
-                    text "Older"
+                row gap=8
+                  if historyPages > 1
+                    button press=newerHistory testId="newer-history"
+                      text "Newer"
+                  if history.more
+                    button press=moreHistory testId="more-history"
+                      text "Older"
                 match reverted
                   case some(r)
                     if r.ok

@@ -262,6 +262,36 @@ test "history reads as edits, and revert holds a proposal"
   tap "revert-beef01234567"
   clock data
   expect text "reverted" == "Held for review as prop-stub-1: the revert of beef01234567."
+  // Ten a page: Older reads past them, Newer back.
+  tap "more-history"
+  clock data
+  expect text "subject-feed01234567" == "design: the first"
+  expect tree missing "subject-beef01234567"
+  expect tree missing "more-history"
+  tap "newer-history"
+  clock data
+  expect tree has "subject-beef01234567"
+
+test "a restarted server starts the changeset again"
+  request POST "/__stub/restart" {} as ada
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  clock +1
+  clock data
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "entry-1"
+  request POST "/__stub/restart" {} as ada
+  clock +1
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-changes"
+  expect disabled "commit"
 
 test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
   type "name" "Ada"

@@ -141,9 +141,11 @@ export function designSession(dir) {
     }
   }
 
-  /** Commit what the session wrote. `{ commit, files }`, or a refusal
-   * naming each file and why. */
-  function commit({ client, message }) {
+  /** Commit what the session wrote. `{ commit, files, edits }`, or a
+   * refusal naming each file and why. `dry`: the same checks and what it
+   * would take (`{ files, edits }`), with nothing written, so a client can
+   * compose the message from the commit's own scope. */
+  function commit({ client, message, dry = false }) {
     const root = top();
     if (!root) return { error: { message: 'the app is in no git repository' } };
     const head = tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
@@ -162,6 +164,8 @@ export function designSession(dir) {
     }
     if (refused.length) return { error: { message: `commit refused: ${refused.map(r => `${r.file}: ${r.why}`).join('; ')}`, refused } };
     if (!chosen.length) return { error: { message: 'the session has written nothing to commit' } };
+    const edits = chosen.flatMap(({ path, f }) => f.edits.map(e => ({ file: path, client: e.client, tokens: e.tokens ?? [] })));
+    if (dry) return { ok: { files: chosen.map(c => c.path), edits } };
     const scratch = mkdtempSync(join(tmpdir(), 'exact-tamber-index-'));
     const env = { GIT_INDEX_FILE: join(scratch, 'index') };
     try {
@@ -197,7 +201,7 @@ export function designSession(dir) {
       }
       // A new session begins for them at the new HEAD.
       for (const { path } of chosen) files.delete(path);
-      return { ok: { commit: made, files: chosen.map(c => c.path) } };
+      return { ok: { commit: made, files: chosen.map(c => c.path), edits } };
     } catch (e) {
       return { error: { message: `commit: ${e.message}` } };
     } finally {

@@ -397,7 +397,10 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
   spawnSync('git', ['init', '-q', '--bare', remote]);
   git('remote', 'add', 'origin', remote); git('push', '-q', 'origin', 'HEAD:main');
   const pushed = spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout;
-  const tool = await proxied(app);
+  // A hand edit, just before history is read: its row says what moved.
+  const tool = await proxied(app, request => {
+    if (request.method === 'history') writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+  });
   try {
     const replies = await drive(tool.url, `design-tool-commit-${process.pid}`, [
       'type name Ada', 'tap save-name', 'clock data',
@@ -405,7 +408,7 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
       'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
       'tap commit', 'clock data', 'state',
       'tap toggle-history', 'clock data', 'state',
-      `tap revert-${past.slice(0, 12)}`, 'clock data', 'state',
+      `tap revert-${past.slice(0, 12)}`, 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
     ]);
     const states = replies.filter(r => r.resources);
     const entry = states[0].resources.changeset.entries[0];
@@ -420,11 +423,17 @@ test('commit takes the session\'s writes, leaves other staging and never pushes;
     expect(spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout).toBe(pushed);
     expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [entry.text] });
     expect(states[1].resources.changeset.entries[0].committed).toBe(true);
+    // Nothing left to commit: Commit is off.
+    expect(states[1].resources.changeset.open).toBe(0);
     const history = states[2].resources.history;
     expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
     expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);
     expect(states[3].slots.reverted).toMatchObject({ ok: true, commit: past });
-    expect(states[3].slots.reverted.proposal).toMatch(/^prop-/);
+    // Held, not written: in the inbox, the file as it was.
+    expect(states[3].resources.changes.held.map(h => h.proposal)).toContain(states[3].slots.reverted.proposal);
+    expect(readFileSync(join(app, 'app.tamber'), 'utf8')).toContain('surface.inset = light-dark(#f8f9fb, #101214)');
+    const hand = states[3].resources.changeset.entries.find(e => e.who === 'changed on disk');
+    expect(hand.text).toBe('app.tamber: tone.warm oklch(0.7 0.1 20) → oklch(0.71 0.1 20) · changed on disk');
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });

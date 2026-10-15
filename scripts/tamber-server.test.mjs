@@ -381,9 +381,15 @@ test("commit takes the session's files only, keeps other staging, and never push
   const before = head();
   const done = await post({ method: 'transaction', client: 'agent', files: { 'app.tamber': disk('app.tamber') }, ops: [{ op: 'set-token', name: 'edge', value: '#171717' }] });
   expect(done.status).toBe(200);
+  // A dry run: what the commit would take, and nothing written.
+  const dry = await post({ method: 'commit', client: 'person', dry: true });
+  expect(dry.status, JSON.stringify(dry)).toBe(200);
+  expect(dry.ok).toEqual({ files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent', tokens: ['edge'] }] });
+  expect(head()).toBe(before);
   const committed = await post({ method: 'commit', client: 'person', message: 'design: a darker edge' });
   expect(committed.status, JSON.stringify(committed)).toBe(200);
   expect(committed.ok.files).toEqual(['app.tamber']);
+  expect(committed.ok.edits).toEqual(dry.ok.edits);
   expect(gitIn('rev-parse', 'HEAD~1').stdout.trim()).toBe(before);
   const message = gitIn('log', '-1', '--format=%B').stdout;
   expect(message).toContain('design: a darker edge');

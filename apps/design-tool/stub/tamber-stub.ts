@@ -57,8 +57,10 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
       if (request.method === 'commit') return refuseCommit
         ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
-        : send({ ok: { commit: 'c0ffee0123456789abcdef0123456789abcdef01', files: ['app.tamber'] } });
-      if (request.method === 'history') return send({ ok: { more: false, commits: [{ commit: 'beef0123456789abcdef0123456789abcdef0123', parent: null, author: 'Ada', email: 'ada@example.test', date: '2026-10-15T12:00:00Z', message: 'design: a warmer card\n\n- design-tool:Ada', files: [
+        : send({ ok: { ...(request.dry ? {} : { commit: 'c0ffee0123456789abcdef0123456789abcdef01' }), files: ['app.tamber'], edits: [{ file: 'app.tamber', client: 'agent:codex', tokens: ['surface.card'] }] } });
+      // Two pages: the second, past `skip`, one older commit.
+      if (request.method === 'history' && request.skip) return send({ ok: { more: false, commits: [{ commit: 'feed0123456789abcdef0123456789abcdef0123', parent: null, author: 'Grace', email: 'grace@example.test', date: '2026-10-01T12:00:00Z', message: 'design: the first', files: [] }] } });
+      if (request.method === 'history') return send({ ok: { more: true, commits: [{ commit: 'beef0123456789abcdef0123456789abcdef0123', parent: null, author: 'Ada', email: 'ada@example.test', date: '2026-10-15T12:00:00Z', message: 'design: a warmer card\n\n- design-tool:Ada', files: [
         { file: 'app.tamber', status: 'M', repoPath: 'app.tamber', edits: [{ what: 'token', name: 'surface.card', when: [], before: 'light-dark(#f1f3f5, #16181c)', after: 'light-dark(#f3f1ef, #16181c)' }, { what: 'dial', name: 'hue', when: [], before: '200', after: '210' }] },
       ] }] } });
       if (request.method === 'revert') return send({ ok: { proposal: 'prop-stub-1', client: request.client, diff: '', changed: [], class: 'live', ops: [] } });
