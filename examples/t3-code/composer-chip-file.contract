@@ -3,11 +3,14 @@
 // centred in DialogViewport's p-4 over the blurred backdrop, its sr-only DialogTitle the file's name, holding
 // AttachmentFilePreview (r5-panels.contract R5AttachmentBody: the subheader's dialog form, 40pt over a hairline) with
 // origin "Draft", Remove from draft and Close. Escape and a press on the backdrop close it (onOpenChange). The first
-// header action takes the focus as it opens, and Tab wraps between the first header action and Close (Base UI's trap).
+// header action takes the focus as it opens. With Keyboard Navigation on, Tab and Shift-Tab wrap through the header's
+// controls (Base UI's trap); off, they pass over them as over a sheet's buttons (dialog-trap.contract ControlGuard).
+// A press on the backdrop leaves the focus where it was (`retainFocus`), so closing gives it back to
+// the prompt as Base UI's finalFocus does; a clicked `tabindex` box takes the focus on the Mac.
 use ComposerFilePreview from "./r5-panels-shapes.contract"
 use R5AttachmentBody from "./r5-panels.contract"
 use ChatDocument from "./markdown.contract"
-use FocusGuard from "./dialog-trap.contract"
+use ControlGuard from "./dialog-trap.contract"
 use DialogOpenFocus from "./dialog-trap.contract"
 
 component ComposerFileDialog
@@ -34,9 +37,9 @@ component ComposerFileDialog
       chatLocal(op, id, value)
   view
     column position="absolute" left=0 right=0 top=0 bottom=0 z-index=80 align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="chip-file-preview-overlay"
-      button press=command("editorlocal:chip-file", "close", att.id, 0) aria-label="Close file preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-file-preview-backdrop" title=""
+      button press=command("editorlocal:chip-file", "close", att.id, 0) aria-label="Close file preview" aria-keyshortcuts="Escape" tabindex=-1 retainFocus=true position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-file-preview-backdrop" title=""
       column width="100%" max-width="56rem" height=min(windowHeight * 0.85, 52 * rem) max-height="100%" position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label=att.name testId="chip-file-preview" id="chip-file-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-file-preview") key=dialogFallback("chip-file-preview", dialogTargets)
-        FocusGuard(guardId="chip-file-preview-guard-start", targets=dialogTargets, popup="chip-file-preview")
+        ControlGuard(guardId="chip-file-preview-guard-start", targets=dialogTargets, popup="chip-file-preview")
         DialogOpenFocus(target=first)
         R5AttachmentBody(att=att, documents=documents, scheme=scheme, sheet=true, local=local, actionIds="chip-file-preview")
-        FocusGuard(guardId="chip-file-preview-guard-end", targets=dialogTargets, popup="chip-file-preview")
+        ControlGuard(guardId="chip-file-preview-guard-end", targets=dialogTargets, popup="chip-file-preview")
