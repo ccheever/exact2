@@ -198,6 +198,14 @@ impl<D: DataSource> Runner<D> {
         token: ReorderToken,
         geometry: ReorderGeometry,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.arrived(|r| r.drop_reorder_now(token, geometry))
+    }
+
+    fn drop_reorder_now(
+        &mut self,
+        token: ReorderToken,
+        geometry: ReorderGeometry,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if self.is_grouped(token) {
             return self.drop_group(token, geometry);
         }

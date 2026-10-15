@@ -382,6 +382,7 @@ pub struct Runner<D: DataSource> {
     timers: Vec<Timer>,
     /// The host presents frames: frame tasks fire only at `frame` (LLP 1073 D4).
     presenting: bool,
+    clock: advance::Clock,
     batch: u64,
     commands: Vec<Command>,
     /// `scrollIntoView` commands an action stated, run after its update.
@@ -832,6 +833,7 @@ impl<D: DataSource> Runner<D> {
             now_ms,
             timers: Vec::new(),
             presenting: false,
+            clock: Default::default(),
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),

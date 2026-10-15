@@ -147,7 +147,7 @@ impl<D: DataSource> Runner<D> {
                     .front()
                     .is_some_and(|w| exact_plan::runner_owned_source(&w.source));
             if self.queues.waits(m) && self.idle(m) && ready {
-                self.queues.next_due[m] = self.now_ms;
+                self.queues.next_due[m] = self.armed_at();
             }
         }
     }
