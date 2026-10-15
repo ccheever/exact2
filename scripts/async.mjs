@@ -127,8 +127,8 @@ export function checks(sha, since, selection = {}) {
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
-    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
-    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
+    ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
+    ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--js-from', resolve(STATE_DIR, 'conform'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
