@@ -742,3 +742,27 @@ fn a_plan_counts_its_hunk_names_each_change_by_file_and_skips_a_file_left_alone(
         exact_tamber::plan(&files, &[set("app.tamber", "#000000")], &vocab(), false).unwrap();
     assert!(same.files.is_empty() && same.diff.is_empty());
 }
+
+#[test]
+fn an_axis_goes_after_the_axes_there_are_or_in_a_new_block_after_the_header() {
+    let with = "tamber t\n\naxes\n  density = default | compact\n\ntheme\n  ink = #000000\n";
+    let add = Op::AddAxis {
+        name: "theme".into(),
+        values: vec!["default".into(), "blue".into()],
+        under_dark: false,
+    };
+    let done = apply(with, &add, &vocab()).unwrap();
+    assert_eq!(done.text, "tamber t\n\naxes\n  density = default | compact\n  theme = default | blue\n\ntheme\n  ink = #000000\n");
+    assert_eq!(
+        undo(&done.text, &done.inverse, &vocab()).unwrap().text,
+        with
+    );
+    let without = "tamber t\n\ntheme\n  ink = #000000\n";
+    let done = apply(without, &add, &vocab()).unwrap();
+    assert_eq!(
+        done.text,
+        "tamber t\n\naxes\n  theme = default | blue\n\ntheme\n  ink = #000000\n"
+    );
+    assert_eq!(format(&done.text).unwrap(), done.text);
+    assert!(apply(&done.text, &add, &vocab()).is_err());
+}

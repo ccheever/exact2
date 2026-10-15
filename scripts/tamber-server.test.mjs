@@ -416,3 +416,38 @@ test('commit refuses a file staged at its baseline, and one whose HEAD moved; a 
   expect(gitIn('status', '--porcelain', 'app.tamber').stdout).toBe('');
   stream.close();
 }, 30_000);
+
+test("an import is held as proposals: the tokens as one, each role override apart; again, it proposes nothing", async () => {
+  const { importTheme } = await import('./tamber-server.mjs');
+  gitIn('checkout', '--', 'app.tamber');
+  const stream = await subscribe();
+  await stream.until(e => e[0]?.event === 'subscribed');
+  const css = resolve(ROOT, 'tamber/tests/import/shadcn-neutral.css');
+  const log = console.log;
+  const said = [];
+  console.log = line => said.push(line);
+  try {
+    expect(await importTheme(['shadcn', css, origin, '--app', dir])).toBe(0);
+  } finally { console.log = log; }
+  expect(said[0]).toBe('shadcn: 47 source values, 46 mapped, 1 reported');
+  await stream.until(e => e.some(x => x.event === 'proposal' && x.client === 'import:shadcn'));
+  const held = stream.events.find(x => x.event === 'proposal' && x.client === 'import:shadcn');
+  expect(held.ops.length).toBe(27);
+  expect(held.review.tokens).toBe(23);
+  expect(held.review.offers.map(o => [o.role, o.items])).toEqual([['-exact-background', [23]], ['-exact-label', [24]], ['-exact-secondary-background', [25]], ['-exact-separator', [26]], ['accent-color', []]]);
+  expect(held.review.unmapped.map(u => u.name)).toContain('--radius');
+  // The overrides left off: the tokens alone, recomputed, then accepted.
+  const part = await post({ method: 'accept', client: 'person', proposal: held.proposal, items: [...Array(23).keys()] });
+  expect(part.ok.recomputed).toBe(true);
+  expect((await post({ method: 'accept', client: 'person', proposal: part.ok.proposal })).status).toBe(200);
+  const text = readFileSync(join(dir, 'app.tamber'), 'utf8');
+  expect(text).toContain('shadcn.background = light-dark(oklch(1 0 0), oklch(0.145 0 0))');
+  expect(text).not.toContain('-exact-background');
+  said.length = 0;
+  console.log = line => said.push(line);
+  try {
+    expect(await importTheme(['shadcn', css, origin, '--app', dir])).toBe(0);
+  } finally { console.log = log; }
+  expect(said).toContain('nothing to propose: the design has every mapped value already');
+  stream.close();
+}, 120_000);

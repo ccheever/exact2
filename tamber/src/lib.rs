@@ -14,6 +14,7 @@ mod css;
 mod edit;
 mod fmt;
 mod fold;
+pub mod import;
 mod ir;
 mod lex;
 mod session;

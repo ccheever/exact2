@@ -1114,6 +1114,24 @@ fn parse_ops(ops: &Value, design: &str) -> Result<Vec<(String, Op)>, Value> {
                 value: s(v, "value")?,
                 before: opt(v, "before")?,
             },
+            Some("add-axis") => Op::AddAxis {
+                name: s(v, "name")?,
+                values: list(v, "values")?
+                    .iter()
+                    .map(|x| {
+                        x.as_str()
+                            .map(str::to_string)
+                            .ok_or_else(|| bad("each of `values` is a string".into()))
+                    })
+                    .collect::<Result<_, _>>()?,
+                under_dark: match opt(v, "under")?.as_deref() {
+                    None => false,
+                    Some("scheme=dark") => true,
+                    Some(other) => {
+                        return Err(bad(format!("`under` is `scheme=dark`, not `{other}`")))
+                    }
+                },
+            },
             Some("remove-axis-value") => Op::RemoveAxisValue {
                 axis: s(v, "axis")?,
                 value: s(v, "value")?,

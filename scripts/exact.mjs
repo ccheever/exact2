@@ -602,6 +602,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                its IR, tamber.json (ir -o <file>), or its layout (fmt)
   exact tamber serve <app>     the design server alone (development only): /__tamber
   exact tamber op <url> <request JSON>|subscribe  its scripted client
+  exact tamber import shadcn <source> <url> --app <app>  a theme as held proposals
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -889,6 +890,7 @@ function main(argv) {
   if (verb === 'tamber' && (argv.includes('--help') || argv.includes('-h'))) return console.log(helpText('tamber'));
   // The design server's wire and its scripted client (LLP 1121 D13): development only.
   if (verb === 'tamber' && name === 'serve') return import('./tamber-server.mjs').then(m => m.serveAlone(rest)).then(code => process.exit(code));
+  if (verb === 'tamber' && name === 'import') return import('./tamber-server.mjs').then(m => m.importTheme(rest)).then(code => process.exit(code));
   if (verb === 'tamber' && name === 'op') return import('./tamber-server.mjs').then(m => m.op(rest)).then(code => process.exit(code));
   if (verb === 'tamber') return process.exit(contract(['tamber', ...argv.slice(1)]));
   if (verb === 'hatch') return hatch(guardFlags('hatch', argv.slice(1)));

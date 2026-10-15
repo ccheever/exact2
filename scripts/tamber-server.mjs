@@ -29,7 +29,8 @@
 //     it was planned with; a file moved since, or only some items,
 //     recomputes it as a new proposal for a fresh accept. `drop` `{proposal,
 //     client}` forgets it. The ones held now come with `subscribed` and
-//     each long poll's answer.
+//     each long poll's answer. A `review` object rides along for the tool
+//     (an import's offers by item, its unmapped report and count).
 //   - A conflict names who last changed each file that moved (`by`: a
 //     client, or "changed on disk").
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
@@ -39,7 +40,7 @@
 // `bun exact.mjs tamber op <url> <request>` is its scripted client. Never in a
 // release build or a bake. D13 names WebSocket; the dev loops serve
 // server-sent events and no WebSocket, so stage 3 streams a POST's response.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
@@ -311,7 +312,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'propose' && request.hold !== undefined) {
       if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
-      return needsClient(request) ?? hold(request.client, request.ops, request.files);
+      if (request.review !== undefined && (typeof request.review !== 'object' || request.review === null || Array.isArray(request.review))) return { status: 400, error: { message: '`review` is an object' } };
+      return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'drop') {
@@ -379,7 +381,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   };
   /** The proposals held now, as a reconnecting client reads them. */
   const held = () => [...proposals].map(([id, p]) => p.shown);
-  async function hold(client, ops, files, replaces) {
+  async function hold(client, ops, files, replaces, review) {
     expire();
     const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }) });
     if (!planned.ok) return planned;
@@ -388,7 +390,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}) };
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
     proposals.set(id, { client, ops, base, expires, shown });
     // At most 64 held: the oldest goes.
     while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
@@ -512,4 +514,47 @@ export async function op(argv) {
   const res = await fetch(`${origin}/__tamber`, { method: 'POST', headers, body: what, redirect: 'error' });
   console.log(await res.text());
   return res.ok ? 0 : 1;
+}
+
+/** `bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>]
+ * [--prefix <p>]`: another system's theme (LLP 1121 D14) as held proposals
+ * on the design server: its transaction as one, each role override it
+ * offers as its own, for a person to accept or decline. Prints the count
+ * and the unmapped report. */
+export async function importTheme(argv) {
+  const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : argv[i + 1]; };
+  const words = argv.filter((a, i) => !a.startsWith('-') && !['--app', '--prefix'].includes(argv[i - 1]));
+  const [kind, source, base] = words;
+  if (!kind || !source || !base) { console.error('usage: bun exact.mjs tamber import <kind> <source> <server url> [--app <dir>] [--prefix <prefix>]'); return 2; }
+  const args = ['run', '-q', '-p', 'contract', '--', 'tamber', 'import', kind, resolve(source), '--app', resolve(at('--app') ?? '.'), ...(at('--prefix') ? ['--prefix', at('--prefix')] : [])];
+  const r = spawnSync('cargo', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 });
+  if (r.status !== 0) { process.stderr.write(r.stderr); return r.status ?? 1; }
+  const imported = JSON.parse(r.stdout);
+  const origin = new URL(base).origin;
+  const got = await fetch(`${origin}/__tamber/token`, { redirect: 'error' });
+  if (!got.ok) { console.error(`tamber import: ${origin} gave no token (${got.status}); it answers this machine's loopback only`); return 1; }
+  const { token } = await got.json();
+  const client = `import:${kind}`;
+  const { source: n, mapped, reported } = imported.counted;
+  console.log(`${kind}: ${n} source values, ${mapped} mapped, ${reported} reported`);
+  for (const u of imported.unmapped) console.log(`  unmapped ${u.block} ${u.name}: ${u.value || '(empty)'} (${u.why}${u.token ? `; would be ${u.token}` : ''})`);
+  // One proposal: the tokens, then each role override as its own items, for
+  // the review to leave off until ticked (accepting some items recomputes).
+  const ops = [...imported.ops];
+  const offers = imported.offers.map(o => {
+    const items = o.ops.map((op, k) => ops.length + k);
+    ops.push(...o.ops);
+    return { role: o.role, token: o.token, items, note: o.note };
+  });
+  const offered = offers.flatMap(o => o.items);
+  for (const o of offers) console.log(`  offer ${o.role} → ${o.token}${o.items.length ? `: items ${o.items.join(', ')}` : `: ${o.note}`}`);
+  // The source as the design has it already: nothing to propose; a role
+  // override declined before is not offered again on its own.
+  if (!imported.ops.length) { console.log('nothing to propose: the design has every mapped value already'); return 0; }
+  const review = { importer: kind, counted: imported.counted, unmapped: imported.unmapped, offers, tokens: imported.ops.length };
+  const res = await fetch(`${origin}/__tamber`, { method: 'POST', redirect: 'error', headers: { 'content-type': 'application/json', 'x-exact-tamber-token': token }, body: JSON.stringify({ method: 'propose', hold: true, client, ops, review }) });
+  const held = await res.json();
+  if (!held.ok) { console.error(`tamber import: ${held.error?.message}`); return 1; }
+  console.log(`proposal ${held.ok.proposal}: ${ops.length} operations (${imported.ops.length} tokens and axes, ${offered.length} offered), held for review`);
+  return 0;
 }

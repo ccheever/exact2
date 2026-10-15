@@ -13,11 +13,15 @@ const USAGE: &str = "usage:
   contract tamber ir <app dir | app.contract | file.tamber> [-o <tamber.json>]
   contract tamber fmt <app dir | app.contract | file.tamber> [--check]
   contract tamber serve --stdio <app dir>   (the design's one writer, tamber/1 over JSON lines)
+  contract tamber import shadcn <globals.css> [--app <app dir>] [--prefix <prefix>]   (a proposal, as JSON)
   (a flag may come before the path or after it)";
 
 pub fn run(args: &[String]) -> ExitCode {
     if args.first().is_some_and(|a| a == "serve") {
         return crate::tamber_serve::run(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "import") {
+        return crate::tamber_import::run(&args[1..]);
     }
     if matches!(args, [] | [_]) || args.iter().any(|a| a == "--help" || a == "-h") {
         let help = args.iter().any(|a| a == "--help" || a == "-h");
@@ -199,7 +203,7 @@ fn admission(src: &str) -> Result<Vec<(u32, u32, String, String)>, String> {
 
 /// The design `input` names: a `.tamber` file, or an app's (its directory or
 /// its `app.contract`), where the compiler finds it.
-fn design(input: &Path) -> Option<PathBuf> {
+pub(crate) fn design(input: &Path) -> Option<PathBuf> {
     if input.extension().is_some_and(|e| e == "tamber") {
         return Some(input.to_path_buf());
     }
