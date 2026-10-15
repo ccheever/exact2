@@ -46,6 +46,7 @@ import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view';
 import { adoptTerminalContexts } from './terminal-integrations';
 import { adoptPreviewAnnotations } from './browser-annotation'; // Annotate's drafts
+import { adoptReviewComments } from './composer-editor'; // review comments and pull requests behind the drafts' chips
 import { providerSetupEvent } from './provider-setup'; // the auth and install streams
 import { composerReplyEvent, settleLostReplies, settleStaleReplies } from './composer-replies'; // detached requests' replies
 import { codexHandoffEvent } from './codex-handoff-events'; // the handoff stream when this connection is the primary
@@ -204,7 +205,7 @@ export class T3Client {
       next.customThemes = decodeCustomThemes(saved.customThemes);
       adoptModelPrefs(next, saved); // model visibility/order (settings-b-models.ts)
       next.composerControls = decodeComposerControls(saved.composerControls);
-      adoptTerminalContexts(next, saved); adoptPreviewAnnotations(next, saved);
+      adoptTerminalContexts(next, saved); adoptPreviewAnnotations(next, saved); adoptReviewComments(next, saved);
       adoptStash(next, saved); // the prompt stash (composer-editor-stash.ts)
       adoptComposerFiles(next, saved); // folded pastes (composer-editor-files.ts)
       adoptPagesPrefs(next, saved); adoptPrSnapshots(next, saved); // page preferences and the first-run flag (pages-prefs.ts); the kept pull request details (pages-pr-refresh.ts)
