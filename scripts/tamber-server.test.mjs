@@ -250,7 +250,7 @@ test("the dev loop mounts the wire, and the theme fixture's server answers hello
     if (dev.exitCode === null && dev.signalCode === null) {
       const exit = new Promise(ok => dev.once('exit', ok));
       dev.kill('SIGTERM');
-      if (!(await Promise.race([exit.then(() => true), Bun.sleep(30_000).then(() => false)]))) dev.kill('SIGKILL');
+      if (!(await Promise.race([exit.then(() => true), new Promise(ok => setTimeout(() => ok(false), 30_000).unref())]))) dev.kill('SIGKILL');
     }
     rmSync(dist, { recursive: true, force: true });
   }

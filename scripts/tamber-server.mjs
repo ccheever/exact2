@@ -15,10 +15,11 @@
 //   the server's own writes are known by digest and announced once.
 //   - `POST /__tamber/subscribe`: a streamed response, one `data:` line an
 //     event.
-//   - `POST /__tamber/events` `{"after": n}`: the events after `n` (the last
-//     256 kept), answered once there is one or after 25 s with none: for a
-//     client whose `fetch` reads a body whole, as a JS-target data module's
-//     does.
+//   - `POST /__tamber/events` `{"after": n, "epoch": e}`: the events after
+//     `n` (the last 256 kept), answered once there is one or after 25 s with
+//     none: for a client whose `fetch` reads a body whole, as a JS-target
+//     data module's does. A number this run did not give, or one older than
+//     the events kept, is `missed`: no events, and the files to start from.
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
 //
 // Mounted by both dev loops (host/web/dev.mjs, host/web-js/dev.mjs) when the
@@ -28,9 +29,9 @@
 // server-sent events and no WebSocket, so stage 3 streams a POST's response.
 import { spawn } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
-import { existsSync, readFileSync, watch } from 'node:fs';
+import { existsSync, readFileSync, statSync, watch } from 'node:fs';
 import { createServer } from 'node:http';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, relative, resolve, sep } from 'node:path';
 import { developmentGate, installBrowserOrigins } from './install-page.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
@@ -68,6 +69,8 @@ function spawnContract(appDir) {
  * resolves once it has let go of the design's lock. */
 export function tamberServer({ appDir, spawnServe = spawnContract, log = console.log, settle = 50 }) {
   const token = randomBytes(32).toString('hex');
+  // This run's name on every event: a number from another run means nothing.
+  const epoch = randomBytes(8).toString('hex');
   const waiting = new Map(), subscribers = new Set(), polls = new Set(), watchers = new Map(), events = [];
   // Each file's digest as last announced: what a later change is told from.
   const known = new Map();
@@ -88,7 +91,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     for (const [path, d] of Object.entries(files)) known.set(path, d);
     for (const path of gone) known.delete(path);
     edited.push(...gone);
-    if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, ...rest, files: Object.fromEntries(known), edited });
+    if (edited.length || rest.client) send({ event: 'changed', seq: ++seq, epoch, ...rest, files: Object.fromEntries(known), edited });
   };
 
   // The server gone (never started, the lock another's, exited): every
@@ -99,7 +102,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     log(`tamber: ${message}`);
     for (const reply of waiting.values()) reply({ error: { message } });
     waiting.clear();
-    send({ event: 'down', seq: ++seq, message });
+    send({ event: 'down', seq: ++seq, epoch, message });
     for (const res of subscribers) res.end();
     subscribers.clear();
   };
@@ -127,13 +130,16 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
   });
 
-  const ask = request => new Promise(reply => {
-    if (down) return reply({ error: { message: down } });
+  /** One request's reply. `done`, when given, sees the server's own reply
+   * even after the client was told it timed out (`wait` ms; none for the
+   * first read, which may wait on a cold build of the compiler). */
+  const ask = (request, { wait = ANSWER_MS, done = () => {} } = {}) => new Promise(reply => {
+    if (down) { done(null); return reply({ error: { message: down } }); }
     const line = JSON.stringify({ ...request, id: ++next });
-    if (Buffer.byteLength(line) >= LINE_LIMIT) return reply({ status: 413, error: { message: 'a request is at most 1 MiB' } });
+    if (Buffer.byteLength(line) >= LINE_LIMIT) { done(null); return reply({ status: 413, error: { message: 'a request is at most 1 MiB' } }); }
     const id = next;
-    const late = setTimeout(() => { waiting.delete(id); reply({ status: 504, error: { message: 'the design server did not answer' } }); }, ANSWER_MS);
-    waiting.set(id, v => { clearTimeout(late); reply(v); });
+    const late = wait && setTimeout(() => reply({ status: 504, error: { message: 'the design server did not answer' } }), wait);
+    waiting.set(id, v => { clearTimeout(late); done(v); reply(v); });
     child.stdin.write(`${line}\n`);
   });
 
@@ -141,31 +147,45 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // digest moved, and every directory holding one watched. A file that
   // appears (a new design, a checkout) is found by asking again.
   const refresh = async () => {
-    const reply = await ask({ method: 'hello' });
-    const baseline = first;
-    first = false;
-    // A failed read is said, and the next change reads again.
-    if (!reply.ok) { log(`tamber: ${reply.error?.message}`); return; }
+    const reply = await ask({ method: 'hello' }, { wait: first ? 0 : ANSWER_MS });
+    // A failed read is said, and read again at the next change; until the
+    // first succeeds, every 2 s too.
+    if (!reply.ok) {
+      log(`tamber: ${reply.error?.message}`);
+      if (first && !down) setTimeout(rescan, 2000).unref?.();
+      return;
+    }
     // The first read is the baseline, not a change.
-    if (baseline) for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d);
+    if (first) { first = false; for (const [path, d] of Object.entries(reply.ok.files)) known.set(path, d); }
     else publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files)));
     watchAll(Object.keys(reply.ok.files));
   };
   // The app's directory (where a new design beside it appears) and the
   // design's, whatever the first read gave, and any other holding a file.
+  // A directory removed and made again is watched again (by its inode).
   const watchAll = paths => {
     for (const dir of new Set([appDir, dirname(designPath(appDir) ?? resolve(appDir, design)), ...paths.map(path => dirname(resolve(appDir, path)))])) {
-      if (watchers.has(dir)) continue;
+      let ino = null;
+      try { ino = statSync(dir).ino; } catch { /* not there now */ }
+      const held = watchers.get(dir);
+      if (held && held.ino === ino) continue;
+      held?.watcher.close();
+      watchers.delete(dir);
+      if (ino === null) continue;
       try {
-        watchers.set(dir, watch(dir, (_, name) => {
+        watchers.set(dir, { ino, watcher: watch(dir, (_, name) => {
           // A design file, or one that may be: `.tamber`, the design's own
-          // name (app.json may name any), or a name the platform did not give.
-          if (name && !String(name).endsWith('.tamber') && basename(String(name)) !== design) return;
+          // name (app.json may name any), a directory a design is in, or a
+          // name the platform did not give.
+          const n = name && basename(String(name));
+          if (n && !n.endsWith('.tamber') && n !== design && !holders.has(n)) return;
           clearTimeout(timer); timer = setTimeout(rescan, settle);
-        }));
+        }) });
       } catch (e) { log(`tamber: cannot watch ${dir}: ${e.message}`); }
     }
   };
+  // The directories between the app's and each design file's, by name.
+  const holders = new Set(relative(appDir, dirname(designPath(appDir) ?? resolve(appDir, design))).split(sep).filter(Boolean));
   // While a write is in flight its own renames are not a hand edit.
   const rescan = () => {
     timer = null;
@@ -213,7 +233,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, files: Object.fromEntries(known) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known) })}\n\n`);
       subscribers.add(res);
       res.on('close', () => subscribers.delete(res));
       return true;
@@ -228,10 +248,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         const since = events.filter(e => e.seq > after);
         // Fewer kept than asked for, or a number from before this server
         // started: the client missed some, and reads again.
-        const missed = after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
-        json(res, 200, { events: after > seq ? events : since, seq, missed, files: Object.fromEntries(known) });
+        const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
+        // Missed: no events to apply, the files to start again from.
+        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known) });
       };
-      if (events.some(e => e.seq > after) || after > seq || down) { answer(); return true; }
+      if (events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch) || down) { answer(); return true; }
       await new Promise(ok => {
         const poll = () => { polls.delete(poll); clearTimeout(wait); ok(); };
         const wait = setTimeout(poll, POLL_MS);
@@ -251,22 +272,22 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       return true;
     }
     delete request.id;
-    if (write) writing++;
-    let reply;
-    try {
-      reply = await ask(request);
-      if (write && typeof reply.ok?.inverse === 'string') {
+    // A write is announced from the server's reply, even one that comes
+    // after the client was told it timed out; the watcher waits for it.
+    const announce = v => {
+      if (typeof v?.ok?.inverse === 'string') {
         // What moved by hand since the last announcement, as the write read
-        // it (the files it did not write, and the ones it did as they were
-        // before it), is a hand edit, said first and apart.
-        const written = new Set(reply.ok.written ?? []);
-        const others = Object.fromEntries(Object.entries(reply.ok.files).filter(([path]) => !written.has(path)));
-        publish({ ...others, ...reply.ok.before }, { changed: null, client: null });
-        publish(reply.ok.files, { changed: reply.ok.changed, client: reply.ok.client });
+        // it (the files it did not write, the ones it did as they were
+        // before it, and any gone), is a hand edit, said first and apart.
+        const written = new Set(v.ok.written ?? []);
+        const others = Object.fromEntries(Object.entries(v.ok.files).filter(([path]) => !written.has(path)));
+        publish({ ...others, ...v.ok.before }, { changed: null, client: null }, [...known.keys()].filter(path => !(path in v.ok.files)));
+        publish(v.ok.files, { changed: v.ok.changed, client: v.ok.client });
       }
-    } finally {
-      if (write && --writing === 0 && again) { again = false; rescan(); }
-    }
+      if (--writing === 0 && again) { again = false; rescan(); }
+    };
+    if (write) writing++;
+    const reply = await ask(request, write ? { done: announce } : {});
     const status = reply.ok !== undefined ? 200 : reply.status ?? (down ? 503 : reply.error?.conflict ? 409 : 400);
     json(res, status, reply.ok !== undefined ? { ok: reply.ok } : { error: reply.error });
     return true;
@@ -274,14 +295,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
 
   function close() {
     clearTimeout(timer);
-    for (const w of watchers.values()) w.close();
+    for (const w of watchers.values()) w.watcher.close();
     for (const res of subscribers) res.end();
     subscribers.clear();
     for (const poll of polls) poll();
     if (child.exitCode !== null || child.signalCode !== null || down) return Promise.resolve();
     const exited = new Promise(ok => child.once('exit', () => ok(true)));
     const signal = name => { try { process.kill(-child.pid, name); } catch { child.kill?.(name); } };
-    const within = ms => Promise.race([exited, new Promise(ok => setTimeout(() => ok(false), ms))]);
+    const within = ms => Promise.race([exited, new Promise(ok => setTimeout(() => ok(false), ms).unref?.())]);
     child.stdin.end();
     signal('SIGTERM');
     // Not gone in 5 s: killed, and said if even that does not end it.
