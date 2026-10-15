@@ -161,8 +161,8 @@ struct Server {
     /// The lock file held, by device and inode: a `.exact` put in place of
     /// the one it is in is refused.
     lock_id: (u64, u64),
-    /// The design's files, by path from the app's directory.
-    files: Vec<String>,
+    /// The app's design, by path from the app's directory.
+    design: String,
     /// Held while the server runs: the one writer.
     _lock: File,
     vocab: exact_tamber::Vocab,
@@ -284,20 +284,6 @@ impl Server {
                 dir.display()
             ));
         }
-        // The app's design first, then any other design beside it (a
-        // transaction may edit several, committed as one set).
-        let mut files = vec![rel.clone()];
-        let mut others: Vec<String> = std::fs::read_dir(&dir)
-            .map_err(|e| format!("{}: {e}", dir.display()))?
-            .filter_map(|e| {
-                let e = e.ok()?;
-                e.file_type().ok()?.is_file().then_some(())?;
-                e.file_name().into_string().ok()
-            })
-            .filter(|n| n.ends_with(".tamber") && *n != rel)
-            .collect();
-        others.sort();
-        files.extend(others);
         let started = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
@@ -308,7 +294,7 @@ impl Server {
         let server = Server {
             lock_id,
             dir,
-            files,
+            design: rel,
             _lock: lock,
             vocab: contract_lower::tamber_vocab(),
             issued: HashMap::new(),
@@ -433,7 +419,7 @@ impl Server {
             if !temp_name(&r.tmp) {
                 return Err(format!("`{}` is no temporary file of this server", r.tmp));
             }
-            if !self.files.contains(&r.file) {
+            if !self.files().contains(&r.file) {
                 return Err(format!("`{}` is no file of this design", r.file));
             }
             out.push(r);
@@ -468,10 +454,28 @@ impl Server {
         Ok(())
     }
 
+    /// The design's files: the app's design first, then any other design
+    /// beside it, as the directory has them now (a transaction may edit
+    /// several, committed as one set).
+    fn files(&self) -> Vec<String> {
+        let mut others: Vec<String> = std::fs::read_dir(&self.dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| {
+                let e = e.ok()?;
+                e.file_type().ok()?.is_file().then_some(())?;
+                e.file_name().into_string().ok()
+            })
+            .filter(|n| n.ends_with(".tamber") && *n != self.design)
+            .collect();
+        others.sort();
+        std::iter::once(self.design.clone()).chain(others).collect()
+    }
+
     /// Every design file, read once: the text a plan edits is the text its
     /// digest is of.
     fn snapshot(&self) -> Result<Snapshot, Value> {
-        self.files
+        self.files()
             .iter()
             .map(|f| {
                 let bytes = read_plain(&self.dir.join(f))
@@ -519,12 +523,10 @@ impl Server {
         if let Some(c) = optional(request, "client")? {
             self.client = Some(c);
         }
-        // The design's files and digests, whether or not they check: a
-        // client's (and the wire's watcher's) baseline.
-        let files = self
-            .snapshot()
-            .map(|s| files_json(&s))
-            .unwrap_or(Value::Null);
+        // The design's files and digests, whether or not they check (an
+        // unreadable one is an error): a client's (and the wire's watcher's)
+        // baseline.
+        let files = files_json(&self.snapshot()?);
         Ok(
             json!({"protocol": PROTOCOL, "format": exact_tamber::FORMAT, "builds": [], "files": files}),
         )
@@ -562,8 +564,8 @@ impl Server {
 
     /// The file a read names (`file`), the app's design when unsaid.
     fn read_file(&self, request: &Value) -> Result<String, Value> {
-        let file = optional(request, "file")?.unwrap_or_else(|| self.files[0].clone());
-        match self.files.contains(&file) {
+        let file = optional(request, "file")?.unwrap_or_else(|| self.design.clone());
+        match self.files().contains(&file) {
             true => Ok(file),
             false => Err(json!({"message": format!("`{file}` is no file of this design")})),
         }
@@ -669,7 +671,7 @@ impl Server {
     /// must carry the digest the client saw (a `propose` checks the ones it
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
-        let ops = parse_ops(&request["ops"], &self.files[0])?;
+        let ops = parse_ops(&request["ops"], &self.design)?;
         let seen = seen_files(request)?;
         let client = match write {
             true => Some(self.writer(request)?),
@@ -742,6 +744,8 @@ impl Server {
             return Ok(out);
         };
         out["client"] = json!(client);
+        // The files this write wrote; the rest of `files` is as it read them.
+        out["written"] = json!(planned.files.iter().map(|(p, _, _)| p).collect::<Vec<_>>());
         if planned.files.is_empty() {
             out["inverse"] = Value::Null;
             return Ok(out);
