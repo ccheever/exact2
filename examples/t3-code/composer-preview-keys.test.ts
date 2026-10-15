@@ -152,6 +152,24 @@ describe('the image preview\'s zoomable image', () => {
     expect(state.seenLeft).toBeCloseTo(Math.min(((right + viewWidth / 2) / 8) * (8 / 1.5) - viewWidth / 2, ciSpan(1000, 8 / 1.5, viewWidth)));
   });
 
+  // The reference's drag sets scrollLeft to the press's offset less the pointer's travel (onPointerMove), which the
+  // browser clamps; its origin stays the press. Dragged past an edge and back, the image moves only once the pointer is
+  // back where the edge was hit (Chrome for Testing 154 over ZoomableImage.tsx: 0 until then, then 50 and 150).
+  test('a drag past an edge keeps its press as origin: the image moves back once the pointer passes where the edge was hit', () => {
+    const { state, act } = rig(1000, 600);
+    act('zoomKey', 'Enter', keys());
+    expect(state).toMatchObject({ zoom: 2, seenLeft: 500, seenTop: 300 });
+    act('down', { clientX: 600, clientY: 300, buttons: 1, pointerType: 'mouse' });
+    act('move', { clientX: 1100, clientY: 300, buttons: 1 });
+    expect(state.seenLeft).toBe(0);
+    act('move', { clientX: 1300, clientY: 300, buttons: 1 });
+    act('move', { clientX: 1200, clientY: 300, buttons: 1 });
+    expect(state.seenLeft).toBe(0);
+    act('move', { clientX: 1050, clientY: 300, buttons: 1 });
+    expect(state.seenLeft).toBe(50);
+    act('up', { clientX: 1050, clientY: 300, buttons: 0 });
+  });
+
   test('a resize fits the image again, and a zoom after it starts from the fitted view', () => {
     const { state, scope, derived, act } = rig(1000, 600);
     act('zoomKey', 'Enter', keys());
