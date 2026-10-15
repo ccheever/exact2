@@ -339,18 +339,25 @@ relaunch for the Local environment switch, Network access and Tailscale HTTPS (`
 `border-style: dashed` ([`issues/closed/20261009-dotted-dashed-border-style.md`](../../issues/closed/20261009-dotted-dashed-border-style.md)),
 `focusin`/`focusout` ([`issues/closed/20261009-bubbling-focus-events.md`](../../issues/closed/20261009-bubbling-focus-events.md))
 and capture-phase key handlers for the keybinding recorder and the reply's Markdown
-(`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)).
-These it does not use yet, so it still works the old way:
+(`keycapture`, [`issues/closed/20261009-capture-phase-key-events.md`](../../issues/closed/20261009-capture-phase-key-events.md)),
+and `repeating-linear-gradient()` with length stops for the usage bars and the diff's deletion bars
+([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)).
+These it does not use, because on macOS they do not do what the reference does:
 
 - `showModal(id)` / `close(id)` ([`issues/closed/20261009-gui-dialog-action-commands.md`](../../issues/closed/20261009-gui-dialog-action-commands.md), #282).
-  Each dialog carries its own Tab trap (`dialog-trap.contract`), and closing a dialog whose
-  opener the view cannot name leaves the focus nowhere (Base UI gives it back).
-- `repeating-linear-gradient()` and length stops
-  ([`issues/closed/20261011-repeating-hatch-across-list-rows.md`](../../issues/closed/20261011-repeating-hatch-across-list-rows.md)). Split view's empty side
-  stripes every 10 pt, where the reference stripes every 8 px.
+  A modal `dialog` is an AppKit sheet and an `alertdialog` is an `NSAlert`, not the reference's
+  in-page popup; with Keyboard Navigation off its Tab stops only at fields; and a dialog opened
+  by a click gives the focus back to nothing. So each dialog keeps its own Tab trap
+  (`dialog-trap.contract` says why), and closing a dialog whose opener the view cannot name
+  still leaves the focus nowhere (Base UI gives it back).
 - App-declared menu bar items ([`issues/closed/20261009-contract-menu-bar-extensions.md`](../../issues/closed/20261009-contract-menu-bar-extensions.md)).
-  The window only removes two of the system's items (`-exact-menu-remove`); the menu bar and the
-  chord re-issue are still the module's (`R8KeysMenus.swift`, `R10Connect.swift`).
+  An `-exact-menu` item is enabled only while its window is key and has no sheet, app-menu items
+  are filed after About's separator, and `-exact-menu-remove` names none of the items the app
+  hides, so the menu bar stays the module's (`T3Menus.swift`, `R8KeysMenus.swift`, `R10Connect.swift`).
+- The notification click ([`issues/closed/20261009-notification-default-click-design.md`](../../issues/closed/20261009-notification-default-click-design.md)).
+  Main's click needs a Contract `showNotification(navigate=)`, which always plays the system
+  sound (the reference's notification is silent), cannot be posted from the data module, and
+  is delivered to a navigation root the app does not have. The click stays in `T3Notifications.swift`.
 - An inline link run as a Tab stop on macOS
   ([`issues/closed/20261012-macos-inline-link-run-tab-stop.md`](../../issues/closed/20261012-macos-inline-link-run-tab-stop.md)). This fix is the host's, so the
   clone gets it on main with no change of its own. No drive has tabbed to a link in a Markdown
@@ -367,6 +374,13 @@ Differences that belong to the app:
   paint as plain text. Every other grammar is loaded at launch, so a fresh window colours
   an embedded language straight away, where the reference does so only after its first use.
 - An ⌥-click on a reply's `#fragment` link opens nothing. Chromium downloads the page instead.
+- Split view's empty side stripes every 10 pt, where the reference stripes every 8 px: each row
+  of the virtualized list paints its own gradient, and main keeps `background-attachment: local`
+  deferred, so a shorter period would break at every row edge.
+- An image inside a link's text has no tooltip and no keyboard menu key.
+- In the composer, a review comment's popover shows its comment and diff as plain text (the
+  reference renders Markdown and a highlighted diff); the image preview's close button sits at
+  the corner of the largest box the image may take; a sent pull request chip has no hover card.
 
 Some checks need a person: physical modifier chords, right-click menus, real pointer drags
 and hovers, macOS notification and screen-capture grants, provider installs and logins, and
@@ -378,31 +392,23 @@ could not, the comment at the fix says what happened and why the code is so.
 As of 2026-10-15. Each item says what is wrong or missing; the open framework issues that
 someone using the app runs into are in the section above.
 
-**Fails with real keys and pointer:**
+**Fails:**
 
-- In Settings › Keybindings, one Escape after a recorded chord ends the recording and also
-  closes Settings. The reference ends only the recording.
-- After Snooze is closed with Escape while the pointer is outside it, no element has the focus
-  and no ring shows.
-- Return on a row of the sidebar's + menu does nothing (Space works).
-- The surface launcher's letter shortcut stops working after the launcher is mounted again.
+- Return on a focused row does nothing in most painted menus (the pull request pages, Usage,
+  the Files crumbs, the Browser's own menus, the snapshot sounds and others). The Mac host gives
+  Return to a dialog's default button only (`host/apple/Sources/ExactKit/Mac/NativeButtonsMac.swift`,
+  LLP 1115.000 D7.3), so each row must take Return itself. The surface launcher and its + menu,
+  Snooze, the Settings and Connections row kits, and the composer's Run on and Workspace menus
+  do. A host change for a focused `menuitem` or `option` in an open popover would cover every
+  menu; no issue is filed yet.
 
 **Not built:**
 
-- Most presses on composer chips: the mention preview, attachments, threads, a citation's
-  source link, pull requests, review comments and annotations open no popover.
-- Home picks the most recent project in the focused environment only; the reference compares
-  every environment.
-- Settings › Projects gives the wrong focus to a project that only a background environment has.
-- In a reply, an image in a table cell or inside a link's text draws its alt text.
-- After Cite, a code block's selection is not cleared.
-- In full screen, an accessibility press on "Toggle thread details panel" does nothing (cause
-  not looked for).
+- A file chip's press in the composer: the reference previews a draft's file
+  (AttachmentFilePreview); the app previews only sent attachments.
 
-**Main has it, the clone does not use it yet** (besides the ones listed above): the click of a
-thread notification (`issues/closed/20261009-notification-default-click-design.md`) is still
-the module's, and its comment still says the click is refused. The resize cursors of the device
-player's eight edges came with main's fix and have not been checked.
+**To compare with the reference:** with the legacy sidebar on and only a background
+environment's projects, the sidebar footer says "No projects yet".
 
 **Fixed, not checked with real input or VoiceOver.** The fixes of 2026-10-14 and 2026-10-15
 passed in-process and agent-drive checks only. VoiceOver was last turned on before them; it
@@ -410,23 +416,36 @@ then misread the theme editor's sliders and the accent picker as percentages, di
 composer's skill chip, and its show menu (VO-⇧-M) opened nothing on a reply link, a thread row
 or chat media. To check with real input, VoiceOver, or both:
 
+- Settings › Keybindings: one Escape after a recorded chord restores the binding and leaves
+  Settings open; a second Escape closes Settings.
+- Snooze closed with Escape while the pointer is elsewhere: the focus returns to its trigger.
+- Return on a row of the + menu, a Settings select and a Connections machine menu.
+- The surface launcher's letter after the launcher is mounted again (⌘⌥B twice, then a letter).
+- Composer chips: each press and its popover, by pointer and by VoiceOver; a video chip.
+- In full screen, one accessibility press on "Toggle thread details panel" (an agent's press
+  toggled it twice; `issues/20261013-macos-axpress-on-a-button-whose.md` may be why).
 - Terminal: Korean 2-Set composition, middle-click paste, link opening, closing a terminal.
-- Composer chips and the context popover under VoiceOver.
-- Chat: Cite by double-click, Tab and drag; Markdown media and code.
+- The composer's context popover under VoiceOver.
+- Chat: Cite by double-click, Tab and drag; Markdown media and code; a linked image's menu.
 - Sidebar: hover, archive and its undo, the branch's PR glyph; the legacy sidebar's drop into a
-  second environment and its tip row.
-- Device player: every pointer gesture.
+  second environment and its background rows.
+- Device player: every pointer gesture, and the cursor of each of its eight edge zones.
+- Split view: the empty side's stripes while scrolling.
 - Pull Requests: refocus, the scheme switch, the thread picker.
 - Dialogs: focus return and Tab traps of every dialog.
 - Connections: route order kept across launches, a physical drag of the grip.
-- Menus: Enter on the rows of Settings › Connections' machine menus (needs a machines list),
-  the Browser's Appearance submenu by hover.
+- Menus: the Browser's Appearance submenu by hover.
 - Settings › Appearance: font faces, bold and italic, Files and PR typography, persistence.
 - Timeline: trackpad and wheel settling, reduced motion.
 - The permission helper: a real grant, and Finder coming to the front.
 
-**Needs a fixture:** a second environment, a tailnet, a machines list for Settings ›
-Connections, and an ACP agent stand-in.
+**Checked by tests only:** Home's choice of the most recent project across environments, and
+Settings › Projects for a project only a background environment has. Both can be driven with
+`tools/second-environment`.
+
+**Fixtures.** `tools/second-environment`, `tools/machines` and `tools/acp-standin` give a second
+environment, a machines list and an ACP agent stand-in (each has its README). Still missing: a
+tailnet, and a server older than the client for the machines-update popover's busy states.
 
 **Framework issues opened by this app that block nothing but change behaviour on macOS:**
 `issues/20261013-macos-axpress-on-a-button-whose.md`,
