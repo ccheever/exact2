@@ -14,6 +14,8 @@ const DB = process.env.DB ?? '.exact/tamber-stub.json';
 // A run's token: a restart issues another, as the server does.
 let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
+// The next commit's answer: refused, naming why, when a test asks.
+let refuseCommit = '';
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
@@ -51,6 +53,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
       // tool's own flow (its edits are tested on a real server).
       if (request.method === 'propose') return send({ ok: { files: FILES, class: 'live', changed: request.ops.map((o: { name?: string; from?: string }) => ({ file: 'app.tamber', token: o.name ?? o.from })), diff: `--- app.tamber\n+++ app.tamber\n+  ${JSON.stringify(request.ops[0])}\n` } });
       if (request.method === 'transaction') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      if (request.method === 'commit') return refuseCommit
+        ? send({ error: { message: `commit refused: app.tamber: ${refuseCommit}`, refused: [{ file: 'app.tamber', why: refuseCommit }] } }, 409)
+        : send({ ok: { commit: 'c0ffee0123456789abcdef0123456789abcdef01', files: ['app.tamber'] } });
+      if (request.method === 'history') return send({ ok: { more: false, commits: [{ commit: 'beef0123456789abcdef0123456789abcdef0123', parent: null, author: 'Ada', email: 'ada@example.test', date: '2026-10-15T12:00:00Z', message: 'design: a warmer card\n\n- design-tool:Ada', files: [
+        { file: 'app.tamber', status: 'M', repoPath: 'app.tamber', edits: [{ what: 'token', name: 'surface.card', when: [], before: 'light-dark(#f1f3f5, #16181c)', after: 'light-dark(#f3f1ef, #16181c)' }, { what: 'dial', name: 'hue', when: [], before: '200', after: '210' }] },
+      ] }] } });
+      if (request.method === 'revert') return send({ ok: { proposal: 'prop-stub-1', client: request.client, diff: '', changed: [], class: 'live', ops: [] } });
       if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
@@ -73,6 +82,13 @@ Bun.serve({ hostname, port: Number(port), routes: {
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
       save();
+      return send({ ok: true });
+    },
+  },
+  '/__stub/refuse-commit': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      refuseCommit = String((await req.json().catch(() => ({}))).why ?? '');
       return send({ ok: true });
     },
   },

@@ -142,6 +142,63 @@ shape Written
   key: string
   session: number
 
+// The session changeset (LLP 1122 D9): each write since the tool opened,
+// in plain words, with the diff under the tool's own.
+shape ChangeEntry
+  seq: number
+  who: string
+  mine: bool
+  text: string
+  diff: string
+  committed: bool
+
+shape Changeset
+  ok: bool
+  error: string
+  entries: ChangeEntry[]
+
+shape Refusal
+  file: string
+  why: string
+
+// A `commit`: its sha and files and the edits it took, or each file it
+// refused and why.
+shape Committed
+  ok: bool
+  error: string
+  commit: string
+  files: string[]
+  refused: Refusal[]
+  edits: string[]
+
+// The design files' git log, read as edits.
+shape HistoryFile
+  file: string
+  refused: string
+  edits: string[]
+
+shape HistoryCommit
+  commit: string
+  short: string
+  author: string
+  date: string
+  subject: string
+  files: HistoryFile[]
+
+shape History
+  ok: bool
+  error: string
+  commits: HistoryCommit[]
+  more: bool
+
+// A past commit's inverse, held for review, or why it cannot apply.
+shape Reverted
+  ok: bool
+  error: string
+  commit: string
+  proposal: string
+  refused: string[]
+
 shape Ratio
   column: string
   label: string
@@ -192,6 +249,14 @@ component DesignTool
   state renameTo = ""
   resource branch = loadBranch(file, selToken, selColumn, design.answer) as shape Branch else empty(ok=true)
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
+  // The changeset follows the long poll and each design read (which
+  // measures what changed); history is read when shown.
+  resource changeset = loadChangeset(since, design.answer) as shape Changeset else empty(ok=true)
+  state historyShown = false
+  state historyPages = 1
+  resource history = loadHistory(historyShown, historyPages, since) as shape History else empty(ok=true)
+  mutation committed as shape Committed refreshes changeset
+  mutation reverted as shape Reverted
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
   // The stacks as the last write left them, unless a new run of the
@@ -319,6 +384,16 @@ component DesignTool
       send written = redoLast(client)
   action reloadDesign
     refresh design
+  action commit
+    if not pending(committed)
+      send committed = commitSession(client)
+  action toggleHistory
+    historyShown = not historyShown
+  action moreHistory
+    historyPages = historyPages + 1
+  action revert(commit: string)
+    if not pending(reverted)
+      send reverted = revertCommit(client, commit)
   action toggleMore(group: string)
     opened = opened.includes(group) ? opened.filter(g => g != group) : opened.concat([group])
   action chooseFile(f: string)
@@ -506,6 +581,66 @@ component DesignTool
                   row gap=12
                     text r.label width=160
                     text r.ratio testId=`ratio-${r.column}`
+            column gap=8 testId="changeset"
+              text "Changes" role="heading" aria-level=2
+              if changeset.entries.length == 0
+                text "Nothing has changed since the tool opened." color="-exact-secondary-label" testId="no-changes"
+              for e in changeset.entries key=`${e.seq}`
+                column gap=2 testId=`entry-${e.seq}`
+                  text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") testId=`entry-text-${e.seq}`
+                  if e.mine and e.diff != ""
+                    text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
+              row gap=8 align-items="center"
+                button press=commit disabled=(pending(committed) or changeset.entries.length == 0) buttonStyle="bordered" testId="commit"
+                  text "Commit"
+                text "Commits what this session wrote, never pushes." color="-exact-secondary-label" font="-exact-footnote"
+              match committed
+                case some(c)
+                  if c.ok
+                    column gap=2 testId="committed"
+                      text `Committed ${c.commit}: ${c.files.join(", ")}` testId="committed-summary"
+                      for t in c.edits key=t
+                        text t color="-exact-secondary-label" font="-exact-footnote"
+                  else
+                    column gap=2 testId="commit-refused"
+                      text c.error color="-exact-system-red" white-space="pre-wrap" testId="commit-error"
+                      for r in c.refused key=r.file
+                        text `${r.file}: ${r.why}` color="-exact-system-red" testId=`refused-${r.file}`
+                case none
+                  text "" display="none"
+            column gap=8 testId="history"
+              button press=toggleHistory testId="toggle-history"
+                text (historyShown ? "Hide history" : "History")
+              if historyShown
+                if not history.ok
+                  text history.error color="-exact-system-red" testId="history-error"
+                for c in history.commits key=c.commit
+                  column gap=2 padding=8 border-radius=8 background-color="-exact-secondary-background" testId=`commit-${c.short}`
+                    row gap=8 align-items="center"
+                      text `${c.short} · ${c.author} · ${c.date}` font="-exact-footnote" color="-exact-secondary-label" flex=1
+                      button press=revert(c.commit) disabled=pending(reverted) testId=`revert-${c.short}`
+                        text "Revert"
+                    text c.subject testId=`subject-${c.short}`
+                    for f in c.files key=f.file
+                      text f.file font="-exact-footnote"
+                      if f.refused != ""
+                        text f.refused color="-exact-system-orange" font="-exact-caption1"
+                      for t in f.edits key=t
+                        text t font="-exact-caption1" testId=`edit-${c.short}`
+                if history.more
+                  button press=moreHistory testId="more-history"
+                    text "Older"
+                match reverted
+                  case some(r)
+                    if r.ok
+                      text `Held for review as ${r.proposal}: the revert of ${r.commit.slice(0, 12)}.` testId="reverted"
+                    else
+                      column gap=2 testId="revert-refused"
+                        text r.error color="-exact-system-red" white-space="pre-wrap"
+                        for t in r.refused key=t
+                          text t color="-exact-system-red" font="-exact-footnote"
+                  case none
+                    text "" display="none"
             column gap=4 testId="following"
               text (changes.ok ? `Following changes · ${changes.seq}` : changes.error) color="-exact-secondary-label" font="-exact-footnote" testId="follow-state"
               for c in changes.recent key=`${c.seq}`

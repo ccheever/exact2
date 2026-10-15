@@ -18,6 +18,16 @@ whose design the port serves.
   once, every request a `POST /__tamber`, and changes followed by the long
   poll, `POST /__tamber/events`. Its grants name the tool's one origin.
 - Every write is `design-tool:<person>`, the person asked once and kept.
+- The dials panel and the token grid are drawn from `describe` and
+  `resolve`; a cell edits the branch it shows, and every edit is proposed
+  (its diff and "live" or "rebuilds") before Apply writes it. Undo and redo
+  are this run of the server's inverses: a new run starts them again.
+- Changes lists every write since the tool opened, the tool's own and
+  others' (agents, hand edits), with the token values before and after.
+  Commit commits what the session wrote, with a message naming each change
+  and who made it; the server refuses a file that was not only the
+  session's, and never pushes. History reads the design files' git log as
+  token edits; Revert holds a past commit's inverse for review.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
   server on a copy of `apps/theme-fixture`.

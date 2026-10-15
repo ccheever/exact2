@@ -231,17 +231,34 @@ test "another design file is read when chosen, and a refused one shows its error
   expect tree missing "design-error"
   expect tree has "dial-accent-color"
 
-test "an undo goes only to the server run that issued it: after a restart it is refused, and undo and redo start again"
+test "the changeset lists each write since the tool opened, and commit reports what it took or why not"
   type "name" "Ada"
   tap "save-name"
   clock data
-  type "dial-hue-stepper" "210"
+  expect tree has "no-changes"
+  request POST "/__stub/event" {"client": "agent:codex", "edited": ["app.tamber"], "changed": [{"file": "app.tamber", "token": "surface.card"}]} as ada
+  clock +1
   clock data
-  tap "apply"
+  clock +1
   clock data
-  expect text "undo" == "Undo (1)"
-  request POST "/__stub/restart" {} as ada
-  tap "undo"
+  expect text "entry-text-1" == "app.tamber: surface.card · agent:codex"
+  request POST "/__stub/refuse-commit" {"why": "it differed from HEAD when the session first wrote it"} as ada
+  tap "commit"
   clock data
-  expect text "write-error" == "The design server restarted (or another took its port) since this session began: nothing was written, and undo and redo start again."
-  expect text "undo" == "Undo (0)"
+  expect text "refused-app.tamber" == "app.tamber: it differed from HEAD when the session first wrote it"
+  request POST "/__stub/refuse-commit" {"why": ""} as ada
+  tap "commit"
+  clock data
+  expect text "committed-summary" == "Committed c0ffee012345: app.tamber"
+
+test "history reads as edits, and revert holds a proposal"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  tap "toggle-history"
+  clock data
+  expect text "subject-beef01234567" == "design: a warmer card"
+  expect tree has "edit-beef01234567"
+  tap "revert-beef01234567"
+  clock data
+  expect text "reverted" == "Held for review as prop-stub-1: the revert of beef01234567."

@@ -321,8 +321,8 @@ export function inputsOf(value: string, names: string[], dials: string[]): { tok
 // A read that a newer one has overtaken is never shown (the runner drops
 // its answer), so it keeps nothing; the shown one is the newest kept, and
 // what follows it (a cell's branch, contrast) names it.
-type Stored = { css: string; srgb: string; residual: boolean; note: string };
-type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }>; digests: string };
+type Stored = { css: string; srgb: string; residual: boolean; note: string; value: string };
+type Snapshot = { file: string; axes: Axis[]; columns: Column[]; stored: Map<string, Stored[][]>; dials: Map<string, { group: string; more: boolean }> };
 const snapshots = new Map<number, Snapshot>();
 let issued = 0;
 // Whether running apps take a value edit with no reload: a server says so
@@ -405,6 +405,68 @@ const byWhom = (reply: Reply) => {
 };
 const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | undefined)?.conflict === true;
 
+
+// The session changeset (LLP 1122 D9): every write since the tool opened,
+// its own and others', newest first. Each says its files, who, and the
+// token values before and after, read off the design reads either side of
+// it; under the tool's own, the diff its proposal showed. `mine` queues the
+// tool's own writes (an undo and a redo among them) in the order they were
+// sent, which is the order their events come.
+type Noted = { seq: number; who: string; files: string[]; tokens: string[]; mine: boolean; diff: string; values: string[] | null; committed: boolean };
+let changeset: Noted[] = [];
+const mine: { client: string; diff: string }[] = [];
+// The stored values of the last design read, by file, that the next read's
+// changes are measured from.
+const measured = new Map<string, { since: number; stored: Map<string, Stored[][]> }>();
+
+/** An event as the changeset keeps it. */
+function noted(e: any) {
+  if (e.event === 'committed') {
+    for (const n of changeset) if (n.files.some(f => (e.files ?? []).includes(f))) n.committed = true;
+    return;
+  }
+  if (e.event !== 'changed') return;
+  const who = typeof e.client === 'string' ? e.client : 'changed on disk';
+  const own = mine.length > 0 && mine[0].client === e.client ? mine.shift()! : null;
+  changeset.unshift({ seq: e.seq, who, files: e.edited ?? [], tokens: [...new Set<string>((e.changed ?? []).map((c: { token: string }) => c.token))], mine: !!own, diff: own?.diff ?? '', values: null, committed: false });
+  changeset = changeset.slice(0, 200);
+}
+
+/** A token's value change between two reads, in plain words: its first
+ * tuple that moved (its modes named when not the first), or added or
+ * removed. */
+function moved(token: string, before: Stored[][] | undefined, after: Stored[][] | undefined, columns: Column[]): string | null {
+  if (!before && !after) return null;
+  if (!before) return `added ${token} = ${after![0]?.[0]?.value ?? ''}`;
+  if (!after) return `removed ${token} (was ${before[0]?.[0]?.value ?? ''})`;
+  const i = after.findIndex((t, k) => t[0]?.value !== before[k]?.[0]?.value);
+  if (i < 0) return null;
+  const col = columns.find(c => c.tuple === i && c.dark) ?? columns.find(c => c.tuple === i);
+  const where = i === 0 ? '' : ` (${col?.label.replace(/^Dark · /, '') ?? `tuple ${i}`})`;
+  return `${token} ${before[i]?.[0]?.value ?? ''} → ${after[i][0]?.value ?? ''}${where}`;
+}
+
+/** After a design read of `file` that saw the events up to `since`, the
+ * value changes of each changeset entry it is the first read after. */
+function valuesFor(file: string, since: number, columns: Column[], stored: Map<string, Stored[][]>) {
+  const last = measured.get(file);
+  // A read again at the same place (after the tool's own write, before its
+  // event) may hold changes not yet announced: the place's first read stays
+  // what they are measured from.
+  if (last && since <= last.since) return;
+  if (last) {
+    for (const n of changeset) {
+      if (n.values !== null || n.seq > since || n.seq <= last.since) continue;
+      const said = n.tokens.map(t => moved(t, last.stored.get(t), stored.get(t), columns)).filter((v): v is string => v !== null);
+      // A token of another file than the one read stays unmeasured.
+      if (said.length || n.tokens.every(t => last.stored.has(t) || stored.has(t))) n.values = said;
+    }
+  }
+  measured.set(file, { since, stored });
+}
+/** An entry in plain words: its files, what moved, who. */
+const plain = (n: Noted) => `${n.files.join(', ') || 'the design'}: ${n.values?.length ? n.values.join('; ') : n.tokens.join(', ') || 'edited'} · ${n.who}`;
+
 const sources: Sources = {
   loadHello: async () => {
     const { error, reply } = await call('/__tamber', { method: 'hello' });
@@ -413,7 +475,7 @@ const sources: Sources = {
     liveTable = ok.live === true;
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
   },
-  loadDesign: async ([file]) => {
+  loadDesign: async ([file, since]) => {
     const number = ++issued;
     try {
       const read = await readDesign(file);
@@ -428,13 +490,13 @@ const sources: Sources = {
         const tuples = (resolved[i].tuples ?? []) as any[];
         const sides = tuples.map(r => [false, true].map(dark => {
           const side = dark ? 'dark' : 'light';
-          if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: r.value };
-          return { css: r[side], srgb: r.srgb?.[side] ?? r[side], residual: false, note: '' };
+          if (r.residual) return { css: r.value, srgb: r.fallback?.[side] ?? '', residual: true, note: r.value, value: r.value };
+          return { css: r[side], srgb: r.srgb?.[side] ?? r[side], residual: false, note: '', value: r.value };
         }));
         stored.set(t.name, sides);
         const cells = columns.map(c => {
-          const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '' };
-          return { column: c.id, label: `${t.name}, ${c.label}, ${v.residual ? `${v.note}, fallback ${v.srgb}` : v.css}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
+          const v = sides[c.tuple]?.[c.dark ? 1 : 0] ?? { css: '', srgb: '', residual: false, note: '', value: '' };
+          return { column: c.id, label: `${t.name}, ${c.label}${v.residual ? ', fallback' : ''}`, css: v.css, swatch: v.residual ? v.srgb : v.css, residual: v.residual, note: v.note };
         });
         return { name: t.name, kind: t.kind, follows: (t.dials ?? []).join(', '), cells };
       });
@@ -456,6 +518,7 @@ const sources: Sources = {
       if (number === issued) {
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
+        valuesFor(file, since, columns, stored);
       }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel,
@@ -500,14 +563,13 @@ const sources: Sources = {
     if (error) return { ...idle, ok: false, error };
     const ok = reply.ok as { diff: string; class: string; files: Record<string, string>; changed: { token: string }[] };
     // What Apply writes: this edit, against the digests this proposal read,
-    // to the server run that read them (its token), carried on the proposal
-    // itself, so what is shown is what is written, and where.
-    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff, token: used }) };
+    // carried on the proposal itself, so what is shown is what is written.
+    return { ok: true, error: '', active: true, chip: ok.class === 'live' && liveTable ? 'live' : 'rebuild', diff: ok.diff, tokens: ok.changed.map(c => c.token), key, review: JSON.stringify({ key, files: ok.files, diff: ok.diff }) };
   },
   writeEdit: async ([file, kind, target, when, value, client, review]) => {
     const at = session;
     const key = keyOf(file, kind, target, when, value);
-    let read: { key?: string; files?: Record<string, string>; diff?: string; token?: string } = {};
+    let read: { key?: string; files?: Record<string, string>; diff?: string } = {};
     try { read = JSON.parse(review || '{}'); } catch { /* none */ }
     if (read.key !== key || !read.files || !read.token) return stacks(false, 'Review the change before applying it.', '');
     const op = opOf(file, kind, target, when, value);
@@ -519,7 +581,7 @@ const sources: Sources = {
     if (error) return stacks(false, byWhom(reply) ? `Not written: ${byWhom(reply)} since you reviewed it.` : error, '');
     const inverse = (reply.ok as { inverse: string | null }).inverse;
     // A write that changed no byte has no inverse, and leaves redo be.
-    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value), token: read.token }); redoStack.length = 0; }
+    if (inverse) { undoStack.push({ inverse, ops: [op], label: label(kind, target, when, value) }); redoStack.length = 0; mine.push({ client, diff: read.diff ?? '' }); }
     return stacks(true, '', kind.split('-')[0], key);
   },
   undoLast: async ([client]) => {
@@ -545,6 +607,7 @@ const sources: Sources = {
     }
     undoStack.pop();
     redoStack.push(top);
+    mine.push({ client, diff: '' });
     return stacks(true, '', 'undo');
   },
   redoLast: async ([client]) => {
@@ -566,7 +629,7 @@ const sources: Sources = {
     }
     redoStack.pop();
     const inverse = (reply.ok as { inverse: string | null }).inverse;
-    if (inverse) undoStack.push({ ...top, inverse });
+    if (inverse) { undoStack.push({ ...top, inverse }); mine.push({ client, diff: '' }); }
     return stacks(true, '', 'redo');
   },
   loadContrast: async ([a, b, answer]) => {
@@ -593,12 +656,59 @@ const sources: Sources = {
     // missed than it keeps: its sequence numbers start again, or the list
     // has a gap, so the list starts again. Another run has none of this
     // session's inverses: undo and redo start again too.
-    if (place.epoch && r.epoch !== place.epoch) forget();
+    if (place.epoch && r.epoch !== place.epoch) { undoStack.length = 0; redoStack.length = 0; mine.length = 0; session += 1; }
     if ((place.epoch && r.epoch !== place.epoch) || r.missed) recent = [];
+    // The session's changeset: every write since the tool opened (not the
+    // backlog the first answer carries).
+    if (epoch) for (const e of (r.events ?? []) as any[]) noted(e);
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
     return { ok: true, error: '', missed: r.missed === true, ...state() };
+  },
+  loadChangeset: async () => ({
+    ok: true, error: '',
+    entries: changeset.map(n => ({ seq: n.seq, who: n.who, mine: n.mine, text: plain(n), diff: n.diff, committed: n.committed })),
+  }),
+  commitSession: async ([client]) => {
+    // The message: what the session changed and who, in plain words; the
+    // server adds each edit's author and file, and never pushes.
+    const open = changeset.filter(n => !n.committed).reverse();
+    const authors = [...new Set(open.map(n => n.who))];
+    const message = `design: ${open.length} change${open.length === 1 ? '' : 's'}${authors.length ? ` by ${authors.join(', ')}` : ''}\n\n${open.map(n => `- ${plain(n)}`).join('\n')}`;
+    const { error, reply } = await call('/__tamber', { method: 'commit', client, message });
+    const refused = ((reply.error as { refused?: { file: string; why: string }[] } | undefined)?.refused ?? []).map(r => ({ file: String(r.file), why: String(r.why) }));
+    if (error) return { ok: false, error: refused.length ? 'Not committed: these files are not only the session\'s. Commit them by hand.' : error, commit: '', files: [], refused, edits: [] };
+    const ok = reply.ok as { commit: string; files: string[] };
+    for (const n of changeset) if (n.files.some(f => ok.files.includes(f))) n.committed = true;
+    return { ok: true, error: '', commit: ok.commit.slice(0, 12), files: ok.files, refused: [], edits: open.filter(n => n.files.some(f => ok.files.includes(f))).map(plain) };
+  },
+  loadHistory: async ([shown, pages]) => {
+    const none = { ok: true, error: '', commits: [], more: false };
+    if (!shown) return none;
+    const { error, reply } = await call('/__tamber', { method: 'history', limit: Math.min(100, 10 * Math.max(1, pages)) }, 30000);
+    if (error) return { ...none, ok: false, error };
+    const ok = reply.ok as { commits: any[]; more: boolean };
+    const when = (w: When[]) => (w?.length ? ` when ${whenText(w)}` : '');
+    const edit = (e: { what: string; name: string; when: When[]; before: string | null; after: string | null }) =>
+      e.before === null ? `added ${e.what} ${e.name}${when(e.when)} = ${e.after}`
+      : e.after === null ? `removed ${e.what} ${e.name}${when(e.when)} (was ${e.before})`
+      : `${e.name}${when(e.when)} ${e.before} → ${e.after}`;
+    return {
+      ok: true, error: '', more: ok.more === true,
+      commits: ok.commits.map(c => ({
+        commit: String(c.commit), short: String(c.commit).slice(0, 12), author: String(c.author ?? ''), date: String(c.date ?? '').slice(0, 10),
+        subject: String(c.message ?? '').split('\n')[0],
+        files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: (f.edits ?? []).map(edit) })),
+      })),
+    };
+  },
+  revertCommit: async ([client, commit]) => {
+    // Held, never written: reviewed and accepted like any held proposal.
+    const { error, reply } = await call('/__tamber', { method: 'revert', client, commit }, 30000);
+    const refused = ((reply.error as { refused?: any[] } | undefined)?.refused ?? []).map(r => `${r.file}: ${r.edit ? `${r.edit.name} ${r.edit.before ?? '(absent)'} → ${r.edit.after ?? '(absent)'}` : 'the file'}, ${r.why}${r.now != null ? ` (now ${r.now})` : ''}`);
+    if (error) return { ok: false, error, commit, proposal: '', refused };
+    return { ok: true, error: '', commit, proposal: String((reply.ok as { proposal: string }).proposal), refused: [] };
   },
 };
 export const answer: Answer = (source, args, store, storage, native) => sources[source](args, store, storage, native);

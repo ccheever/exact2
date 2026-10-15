@@ -204,7 +204,7 @@ async function drive(url, storage, ops) {
   child.stderr.on('data', d => { said = (said + d).slice(-4000); });
   const out = lines(child);
   const code = await new Promise(ok => child.once('close', ok));
-  if (code !== 0) throw new Error(`the drive failed: ${said}`);
+  if (code !== 0) throw new Error(`the drive failed: ${said}\n${out.seen.slice(-3).join('\n').slice(0, 3000)}`);
   return out.seen.filter(l => l.startsWith('{')).map(l => JSON.parse(l));
 }
 
@@ -367,6 +367,102 @@ test('expressions are kept unless pinned, "only this mode" adds a when, redo wri
   } finally {
     await tool.close();
     rmSync(app, { recursive: true, force: true });
+  }
+}, 900_000);
+
+/** An app with the fixture design in a git repository of its own: `app`,
+ * and git in it. */
+function repo(name) {
+  const app = mkdtempSync(join(tmpdir(), `exact-design-tool-${name}-`));
+  writeFileSync(join(app, 'app.tamber'), readFileSync(resolve(ROOT, 'apps/design-tool/stub/dials.tamber'), 'utf8'));
+  writeFileSync(join(app, 'app.contract'), 'component App\n  view\n    text "a"\n');
+  const git = (...args) => spawnSync('git', ['-c', 'user.email=t@example.test', '-c', 'user.name=t', ...args], { cwd: app, encoding: 'utf8' });
+  git('init', '-q'); git('add', '.'); git('commit', '-q', '-m', 'design');
+  // Who the server's commit is by, here, whatever this machine's git says.
+  git('config', 'user.email', 't@example.test'); git('config', 'user.name', 't');
+  return { app, git };
+}
+
+test('commit takes the session\'s writes, leaves other staging and never pushes; history reads it as edits, and revert holds a past commit\'s inverse', async () => {
+  const { app, git } = repo('commit');
+  // A past design commit to revert, other staging to leave alone, and a
+  // remote that must not move.
+  writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('surface.inset = light-dark(#f8f9fa, #101214)', 'surface.inset = light-dark(#f8f9fb, #101214)'));
+  git('commit', '-q', '-am', 'a warmer inset');
+  const past = git('rev-parse', 'HEAD').stdout.trim();
+  writeFileSync(join(app, 'notes.txt'), 'one\n'); git('add', 'notes.txt'); git('commit', '-q', '-m', 'notes');
+  writeFileSync(join(app, 'notes.txt'), 'two\n'); git('add', 'notes.txt');
+  const staged = git('ls-files', '-s', 'notes.txt').stdout;
+  const remote = mkdtempSync(join(tmpdir(), 'exact-design-tool-remote-'));
+  spawnSync('git', ['init', '-q', '--bare', remote]);
+  git('remote', 'add', 'origin', remote); git('push', '-q', 'origin', 'HEAD:main');
+  const pushed = spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout;
+  const tool = await proxied(app);
+  try {
+    const replies = await drive(tool.url, `design-tool-commit-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data',
+      'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      'tap commit', 'clock data', 'state',
+      'tap toggle-history', 'clock data', 'state',
+      `tap revert-${past.slice(0, 12)}`, 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const entry = states[0].resources.changeset.entries[0];
+    expect(entry).toMatchObject({ who: 'design-tool:Ada', mine: true, committed: false });
+    expect(entry.text).toMatch(/^app\.tamber: tone\.base oklch\(.+\) → oklch\(.+\) · design-tool:Ada$/);
+    expect(entry.diff).toContain('+  hue: number = 210');
+    const made = git('log', '-1', '--format=%H%n%B').stdout;
+    expect(made).toContain('design: 1 change by design-tool:Ada');
+    expect(made).toContain(entry.text);
+    expect(git('show', '--name-only', '--format=', 'HEAD').stdout.trim()).toBe('app.tamber');
+    expect(git('ls-files', '-s', 'notes.txt').stdout).toBe(staged);
+    expect(spawnSync('git', ['ls-remote', remote], { encoding: 'utf8' }).stdout).toBe(pushed);
+    expect(states[1].slots.committed).toEqual({ ok: true, error: '', commit: made.slice(0, 12), files: ['app.tamber'], refused: [], edits: [entry.text] });
+    expect(states[1].resources.changeset.entries[0].committed).toBe(true);
+    const history = states[2].resources.history;
+    expect(history.commits[0]).toMatchObject({ subject: 'design: 1 change by design-tool:Ada', files: [{ file: 'app.tamber', refused: '', edits: ['hue 200 → 210'] }] });
+    expect(history.commits.find(c => c.commit === past).files[0].edits).toEqual(['surface.inset light-dark(#f8f9fa, #101214) → light-dark(#f8f9fb, #101214)']);
+    expect(states[3].slots.reverted).toMatchObject({ ok: true, commit: past });
+    expect(states[3].slots.reverted.proposal).toMatch(/^prop-/);
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
+    rmSync(remote, { recursive: true, force: true });
+  }
+}, 900_000);
+
+test('commit refuses a file dirty or staged at its baseline, or edited by hand between two writes, saying why', async () => {
+  const cases = [
+    ['dirty', ({ app }) => writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')), 'it differed from HEAD when the session first wrote it'],
+    ['staged', ({ app, git }) => { writeFileSync(join(app, 'app.tamber'), readFileSync(join(app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)')); git('add', 'app.tamber'); }, 'it was staged when the session first wrote it'],
+    ['hand', () => {}, 'it was changed by someone other than this server'],
+  ];
+  for (const [name, before, why] of cases) {
+    const r = repo(name);
+    before(r);
+    // Between the two writes, a hand edit: just before the tool reads the
+    // cell it then edits.
+    let explains = 0;
+    const tool = await proxied(r.app, request => {
+      if (name === 'hand' && request.method === 'explain' && ++explains === 1) writeFileSync(join(r.app, 'app.tamber'), readFileSync(join(r.app, 'app.tamber'), 'utf8').replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+    });
+    try {
+      const head = r.git('rev-parse', 'HEAD').stdout;
+      const replies = await drive(tool.url, `design-tool-refuse-${name}-${process.pid}`, [
+        'type name Ada', 'tap save-name', 'clock data',
+        'type dial-hue-stepper 210', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
+        'tap cell-surface.page-2-dark', 'clock data', 'type branch-value light-dark(#ffffff, #101820)', 'type branch-value key Enter', 'clock data', 'tap apply', 'clock data', 'clock +1', 'clock data',
+        'tap commit', 'clock data', 'tree commit-refused', 'state',
+      ]);
+      expect(tool.writes.map(w => [w.method, w.ok]), name).toEqual([['transaction', true], ['transaction', true]]);
+      expect(replies.at(-1).slots.committed, name).toMatchObject({ ok: false, refused: [{ file: 'app.tamber', why }] });
+      expect(JSON.stringify(replies.at(-2)), name).toContain(`app.tamber: ${why}`);
+      expect(r.git('rev-parse', 'HEAD').stdout, name).toBe(head);
+    } finally {
+      await tool.close();
+      rmSync(r.app, { recursive: true, force: true });
+    }
   }
 }, 900_000);
 
