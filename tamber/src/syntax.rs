@@ -286,7 +286,12 @@ fn axis(l: &Line, errors: &mut Vec<Diagnostic>) -> Option<Axis> {
         return None;
     };
     let name = name.trim();
-    let (values, under_dark) = match rest.split_once(" under ") {
+    // The clause follows the values: an `under` with no `|` after it (a
+    // value may be called `under`).
+    let clause = rest
+        .rsplit_once(" under ")
+        .filter(|(_, after)| !after.trim().is_empty() && !after.contains('|'));
+    let (values, under_dark) = match clause {
         Some((values, under)) if lex::tight_equals(under.trim()) == "scheme=dark" => (values, true),
         Some((_, under)) => {
             errors.push(syntax(
@@ -444,7 +449,8 @@ fn tokens(body: &[Line], out: &mut Vec<Token>, errors: &mut Vec<Diagnostic>) {
             ));
             continue;
         }
-        if l.text.starts_with("when ") {
+        // `when = …` is a token called `when`; `when axis=value: …` a when.
+        if l.text.starts_with("when ") && !l.text[4..].trim_start().starts_with('=') {
             errors.push(syntax(l, "a `when` is indented under its token"));
             continue;
         }

@@ -2808,7 +2808,8 @@ agent's `prefer mode dark-style=dim` sets it from a drive (the app's own
 `setMode` still wins after it: an app that restores a kept mode at launch
 overrides an earlier `prefer`, so prefer after `clock data`), `layout <id>` shows
 the token beside each row's value, and `bun exact.mjs tamber check | eval --mode
-… | ir` checks the design, prints its tokens in a mode, or writes its IR. The
+… | ir | fmt` checks the design, prints its tokens in a mode, writes its IR, or
+puts it in its one layout (`fmt --check` changes nothing). The
 rule: a role if the platform has one, a token if it is the brand. A token one
 colour in every scheme by design (white ink on a brand fill, a black ground
 under media) says so with `scheme=fixed` after its value (`white_100 = #ffffff

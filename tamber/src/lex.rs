@@ -47,18 +47,39 @@ pub(crate) fn lines(src: &str) -> (Vec<Line>, Vec<Diagnostic>) {
     (out, errors)
 }
 
-/// The line up to a `//` outside a string and outside parentheses (so a
-/// URL in `icon(svg "…")` or `url(…)` keeps its slashes).
+/// Whether a `'` after `before` opens a string: at the start of a token
+/// (after a space, `=`, `(`, `,` or `:`), not inside a word (`People's`).
+fn opens_quote(before: &str) -> bool {
+    before
+        .chars()
+        .next_back()
+        .is_none_or(|c| c.is_whitespace() || matches!(c, '=' | '(' | ',' | ':'))
+}
+
+/// A raw line's code and its comment (from `//`, as written), split where
+/// [`strip_comment`] cuts it.
+pub(crate) fn split_comment(raw: &str) -> (&str, Option<&str>) {
+    let body = strip_comment(raw);
+    (body, (body.len() < raw.len()).then(|| &raw[body.len()..]))
+}
+
+/// The line up to a `//` outside a string (either quote) and outside
+/// parentheses (so a URL in `icon(svg "…")` or `url(…)` keeps its slashes).
 fn strip_comment(raw: &str) -> &str {
     let bytes = raw.as_bytes();
-    let (mut depth, mut quoted, mut escaped) = (0usize, false, false);
+    let (mut depth, mut quote, mut escaped) = (0usize, None, false);
     for i in 0..bytes.len() {
         if std::mem::take(&mut escaped) {
             continue;
         }
+        let quoted = quote.is_some();
         match bytes[i] {
             b'\\' if quoted => escaped = true,
-            b'"' => quoted = !quoted,
+            q @ (b'"' | b'\'')
+                if quote == Some(q) || !quoted && (q == b'"' || opens_quote(&raw[..i])) =>
+            {
+                quote = if quoted { None } else { Some(q) };
+            }
             b'(' if !quoted => depth += 1,
             b')' if !quoted => depth = depth.saturating_sub(1),
             b'/' if !quoted && depth == 0 && bytes.get(i + 1) == Some(&b'/') => {
@@ -96,14 +117,20 @@ pub(crate) fn split_top(text: &str, sep: char) -> Option<(&str, &str)> {
 /// spaces outside parentheses and strings).
 pub(crate) fn words(text: &str) -> Vec<(usize, &str)> {
     let mut out = Vec::new();
-    let (mut depth, mut quoted, mut start, mut escaped) = (0usize, false, None, false);
+    let (mut depth, mut quote, mut start, mut escaped) = (0usize, None, None, false);
     for (i, c) in text.char_indices() {
         if std::mem::take(&mut escaped) {
             continue;
         }
+        let quoted = quote.is_some();
         match c {
             '\\' if quoted => escaped = true,
-            '"' => quoted = !quoted,
+            // Either quote opens a string, which only its own closes.
+            q @ ('"' | '\'')
+                if quote == Some(q) || !quoted && (q == '"' || opens_quote(&text[..i])) =>
+            {
+                quote = if quoted { None } else { Some(q) };
+            }
             '(' if !quoted => depth += 1,
             ')' if !quoted => depth = depth.saturating_sub(1),
             ' ' if !quoted && depth == 0 => {

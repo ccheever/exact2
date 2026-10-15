@@ -11,12 +11,16 @@
 mod check;
 mod color_fn;
 mod css;
+mod edit;
+mod fmt;
 mod fold;
 mod ir;
 mod lex;
 mod syntax;
 
 pub use check::{Checked, MAX_TUPLES};
+pub use edit::{apply, apply_all, undo, Edited, Op, WhenLine};
+pub use fmt::format;
 pub use fold::{Folded, Half, Host};
 pub use ir::FORMAT;
 pub use syntax::{parse, At, Axis, Design, Dial, DialKind, Token, When};
