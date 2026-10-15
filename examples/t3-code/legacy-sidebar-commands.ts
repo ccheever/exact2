@@ -18,7 +18,7 @@ import { buildMultiSelectThreadContextMenuItems, clampSidebarThreadPreviewCount,
 import { emptyDialog, expansionKeys, legacyGroups, legacySession, previewCount, sortedGroups, type LegacyGroup } from './legacy-sidebar-view';
 import { openBranchDraft, openRowPullRequest, rowThread } from './legacy-sidebar-links';
 import { openRowPort } from './legacy-sidebar-ports';
-import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, focusBackground, forgetBackgroundDrafts, isBackground, markUnreadBackground,
+import { archiveBackground, backgroundProjectThreads, backgroundRef, backgroundThreadPath, forgetBackgroundDrafts, isBackground, markUnreadBackground,
   openBackgroundDraft, renameBackground, writeBackgroundProject } from './legacy-sidebar-fleet';
 import { letGo } from './let-go';
 
@@ -196,7 +196,7 @@ async function threadMenu(client: T3Client, native: Native, storage: Files, id: 
       await copy(client, native, path, 'Path copied'); return '';
     }
     case 'copy-thread-id': await copy(client, native, background?.id ?? id, 'Thread ID copied'); return '';
-    case 'project-settings': return projectSettings(client, native, background ? `fleet:${background.environmentId}:${str(thread.projectId)}` : str(thread.projectId));
+    case 'project-settings': return projectSettings(background ? `fleet:${background.environmentId}:${str(thread.projectId)}` : str(thread.projectId));
     case 'delete':
       if (settings?.confirmThreadDelete !== false) { selection.dialog = { kind: 'delete', threadIds: [id], title: str(thread.title) }; return ''; }
       await deleteThreads(client, native, storage, [id], false); return '';
@@ -210,7 +210,7 @@ async function projectMenu(client: T3Client, native: Native, key: string): Promi
   if (!group) return '';
   const choice = await showMenu(client, native, legacyProjectMenuItems(group.members));
   if (!choice) return '';
-  if (choice === 'project-settings') return projectSettings(client, native, (group.members.find(candidate => !candidate.remote) ?? group.members[0]!).id);
+  if (choice === 'project-settings') return projectSettings((group.members.find(candidate => !candidate.remote) ?? group.members[0]!).id);
   const split = choice.indexOf(':'), action = choice.slice(0, split), physical = choice.slice(split + 1);
   const member = group.members.find(candidate => candidate.physicalKey === physical);
   if (!member) return '';
@@ -270,15 +270,10 @@ async function markUnreadRow(client: T3Client, native: Native, id: string): Prom
   catch (error) { if (letGo(error)) throw error; }
 }
 /**
- * "Project settings" (/projects/$projectKey → Settings › Projects scoped to the project): a background member's
- * environment becomes the focus first, as Settings › Projects lists the focused environment's projects (a declared
- * difference: the reference's page spans every environment's project groups, and this page reads the focused one's).
+ * "Project settings" (/projects/$projectKey → Settings › Projects scoped to the logical project): the focused
+ * environment stays; a background member is named by its `fleet:` id, which Settings › Projects finds among every
+ * environment's project groups (projects-fleet.ts).
  */
-async function projectSettings(client: T3Client, native: Native, memberId: string): Promise<string> {
-  const background = backgroundRef(client, memberId);
-  if (background) {
-    try { await focusBackground(client, native, background.environmentId); }
-    catch (error) { toast(client, 'Could not open project settings', error); return ''; }
-  }
-  return `sidebar:project-settings:${background?.id ?? memberId}`;
+function projectSettings(memberId: string): string {
+  return `sidebar:project-settings:${memberId}`;
 }

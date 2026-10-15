@@ -483,13 +483,15 @@ describe('a background environment\'s rows act on that environment', () => {
     expect(fleetRequests(ops).slice(-4).map(request => [request.method, request.payload.type ?? request.payload.path ?? ''])).toEqual([
       ['terminal.close', ''], ['orchestration.dispatchCommand', 'thread.delete'], ['vcs.removeWorktree', '/srv/.t3/wt-9'], ['vcs.refreshStatus', '']]);
   });
-  test('dblclick renames a background row; Project settings on a background project focuses its environment first', async () => {
+  test('dblclick renames a background row; Project settings on a background project keeps the focused environment', async () => {
     const { client, native, ops } = rig({ picks: ['project-settings'] });
     background([thread('t9', { projectId: 'r1' })]);
     await sidebarLocal(client, native, 'legacy-rename-start', 'fleet:env-remote:t9', '');
     expect(sidebarSession(client)).toMatchObject({ renameId: 'fleet:env-remote:t9', renameTitle: 'Thread t9' });
-    expect(await sidebarCommand(client, native, files, 'legacy-project-menu', 'env-remote:/srv/solo', '')).toBe('sidebar:project-settings:r1');
-    expect(opsOf(ops, 'connect')).toHaveLength(1);
+    // The reference navigates to /projects/$projectKey: Settings › Projects finds the member among every environment's groups.
+    expect(await sidebarCommand(client, native, files, 'legacy-project-menu', 'env-remote:/srv/solo', '')).toBe('sidebar:project-settings:fleet:env-remote:r1');
+    expect(opsOf(ops, 'connect')).toHaveLength(0);
+    expect(opsOf(ops, 'fleetStop')).toHaveLength(0);
     void sidebarPrefs;
   });
 });
@@ -984,7 +986,7 @@ describe('project identity is included in local and remote dialog copy', () => {
       const root = readFileSync(new URL('./app.contract', import.meta.url), 'utf8');
       const branch = root.split('\n').find(line => line.includes('if result.message') && (line.includes('sidebar:navigate') || line.includes('sidebar:project-settings:')))!.trim().slice(3);
       expect(value(branch, { result: { message }, data: { sidebar: { navigateKind: '', navigateProject: 'old-project' } } })).toBe(true);
-      expect(message).toBe(`sidebar:project-settings:${remote ? 'r1' : 'p1'}`);
+      expect(message).toBe(`sidebar:project-settings:${remote ? 'fleet:env-remote:r1' : 'p1'}`);
     }
   });
   test('rename and removal show the focused environment label, and grouping uses the requested ellipsis', async () => {
