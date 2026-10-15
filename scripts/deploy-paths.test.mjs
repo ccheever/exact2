@@ -121,7 +121,7 @@ test('async game step checks the separate workspace with its lockfile', () => {
 });
 
 test('async glue runs the capture fixtures', () => {
-  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app.test.mjs');
+  expect(glueTests(resolve(import.meta.dir, '..'))).toContain('./scripts/app-workspace.test.mjs');
 });
 
 const parent = realpathSync.native(tmpdir());
