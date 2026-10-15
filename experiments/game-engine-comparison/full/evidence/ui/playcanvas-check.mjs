@@ -1,10 +1,11 @@
+import { homedir as browserHome } from 'node:os';
 import { chromium } from "/tmp/exact-engine-comparison-20260917/browser2d/node_modules/playwright/index.mjs";
 import { mkdirSync, writeFileSync } from "node:fs";
 
 const output = process.env.LANTERNS_UI_OUT || "/tmp/playcanvas-ui-evidence";
 mkdirSync(output, { recursive: true });
 const browser = await chromium.launch({
-  executablePath: "/home/ccheever/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome",
+  executablePath: (process.env.CHROME || browserHome() + "/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome"),
   headless: true,
   args: ["--no-sandbox", "--enable-unsafe-swiftshader"]
 });
