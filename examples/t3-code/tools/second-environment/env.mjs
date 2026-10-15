@@ -13,7 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, recorded, seed, shellOf, startServer, stopServer } from "./lib.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, offlineEnv, checkPort, checkout, envDir, example, fixturePaths, forgetKeychain, localHome, pairingUrl, welcomeWait, recorded, seed, shellOf, startServer, stopServer } from "./lib.mjs";
 
 const paths = fixturePaths();
 const nameArg = (index = 3) => {
@@ -65,7 +65,7 @@ export function drive(argv) {
   else { delete env.T3_LOCAL_HOME; delete env.T3_LOCAL_PORT; }
   const driverFlags = ["--size", flag(options, "--size") ?? "1280x840", "--storage", flag(options, "--storage") ?? "t3-fixtures", ...(options.includes("--json") ? ["--json"] : [])];
   // The tokens go to the driver's argv only: a drive prints each op's reply, never the op.
-  const pairing = pair.length || local ? ["clock +5000 real", ...pair.flatMap((name, index) => pairOps(pairingUrl(paths, name, "Fixture drive"), index)),
+  const pairing = pair.length || local ? [`clock +${local ? welcomeWait(join(paths.local, "t3home")) : 5000} real`, ...pair.flatMap((name, index) => pairOps(pairingUrl(paths, name, "Fixture drive"), index)),
     ...(options.includes("--keep-welcome") ? [] : FINISH_WELCOME)] : [];
   const result = spawnSync(process.execPath, [join(checkout, "scripts/agent.mjs"), "macos", ...driverFlags, ...pairing, ...ops], { env, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8", maxBuffer: 64 << 20 });
   process.stdout.write(redact(result.stdout ?? ""));

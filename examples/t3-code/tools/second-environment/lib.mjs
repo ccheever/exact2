@@ -303,6 +303,16 @@ export function forgetKeychain(origin, environmentId) {
   return result.status === 0;
 }
 
+/**
+ * How long a drive waits for the welcome wizard before its first op (real ms). At its first start on a
+ * home the app unpacks the pinned runtime into `<t3 home>/runtime/versions/<version>` (T3LocalRuntime.swift)
+ * before "This machine" answers, which took longer than 5 s; with the runtime there 5 s is enough.
+ */
+export function welcomeWait(t3home) {
+  const { version } = JSON.parse(readFileSync(join(example, "server-runtime/runtime-pin.json"), "utf8"));
+  return existsSync(join(t3home, "runtime/versions", version)) ? 5000 : 20000;
+}
+
 /** "This machine"'s home for a drive with `--local`: providers pinned as in a lane environment. */
 export function localHome(paths) {
   const t3home = join(paths.local, "t3home");

@@ -2,12 +2,12 @@
 // the pinned providers, the label shim, the offline proxy's refusal and the drive's ops. No T3
 // server starts here.
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
-import { ENVIRONMENTS, LOCAL_PORT, SEEDS, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment } from "./lib.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, SEEDS, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -83,5 +83,15 @@ describe("a drive", () => {
   });
   test("prints no pairing token", () => {
     expect(redact('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=LEY3T64Y3TVC"')).toBe('typed #448 "welcome-pairing-link" · value="http://127.0.0.1:16510/pair#token=<redacted>"');
+  });
+});
+
+describe("the wait for the welcome wizard", () => {
+  test("20 s until the local home holds the pinned runtime, 5 s after", () => {
+    const home = join(root, "wait-home");
+    expect(welcomeWait(home)).toBe(20000);
+    const { version } = JSON.parse(readFileSync(join(import.meta.dir, "../../server-runtime/runtime-pin.json"), "utf8"));
+    mkdirSync(join(home, "runtime/versions", version), { recursive: true });
+    expect(welcomeWait(home)).toBe(5000);
   });
 });

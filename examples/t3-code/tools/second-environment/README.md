@@ -49,12 +49,13 @@ environment there (a fresh single-use token each; the driver's echo of it is red
 finishes the wizard with "Do not import projects", and runs your ops. `--local` also starts
 "This machine" on the fixture's local home and port, with that home's provider directories and
 the offline proxy, so its wizard offers no history of this Mac. `--keep-welcome` stops before
-finishing the wizard. Agent runs keep pairings and credentials in memory, so every drive pairs
+finishing the wizard. A drive waits 5 s for the wizard, 20 s while the local home has not unpacked
+the pinned runtime yet (its first start). Agent runs keep pairings and credentials in memory, so every drive pairs
 again and nothing reaches the Keychain. A background row's thread is
 `thread-fleet:<environment id>:<thread id>` (ids from `status`).
 
 What an agent drive cannot do here: choose an item of a native context menu (under the agent it
-answers dismissed and logs its items), or drop a file on a sidebar row (the row takes drops
+answers dismissed: nothing is chosen and its items are not logged), or drop a file on a sidebar row (the row takes drops
 through a native hatch, not a Contract `drop`). Those rows need real input.
 
 ## Real input (a normal launch)
