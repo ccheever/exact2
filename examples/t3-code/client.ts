@@ -29,6 +29,7 @@ import { type RequestDraft } from './requests';
 import { DiffState, DIFF_LOCAL_OPS } from './diff';
 import { TELEMETRY_KEY, telemetryEvent } from './settings-a-telemetry';
 import { mostRecentProjectId } from './pages-home';
+import { landHome, settleHome, type HomeTarget } from './home-landing';
 import { adoptPagesPrefs } from './pages-prefs';
 import { adoptShellPrefs } from './shell-prefs';
 import { adoptFilesPrefs } from './r5-panels-prefs';
@@ -84,6 +85,9 @@ export class T3Client {
   presentation: Obj = {};
   projectId = '';
   threadId = '';
+  /** The launch lands on the index route until its draft's project is picked across every environment (home-landing.ts). */
+  homePending = true;
+  homeMove: HomeTarget | null = null;
   query = '';
   providerId = '';
   modelId = '';
@@ -348,6 +352,7 @@ export class T3Client {
         await this.synchronize(native);
         await this.drain(native);
       }
+      if (await settleHome(this, native)) this.changed(); // the launch's landing, once every environment's shell is in
       if (this.reconcilePending()) await this.save(storage);
       await sidebarRefreshed(this, native); // sidebar-commands.ts: a timed provider pill's repaint, new projects' favicons
       if (await takeRowDrops(this, native)) await this.save(storage); // legacy-sidebar-drop.ts: files dropped on the open thread's sidebar row
@@ -424,7 +429,7 @@ export class T3Client {
   ensureSelection(): void {
     const selected = this.shell.threads.find(thread => thread.id === this.threadId);
     if (selected) this.projectId = str(selected.projectId);
-    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = mostRecentProjectId(this.shell);
+    if (!this.shell.projects.some(project => project.id === this.projectId)) this.projectId = landHome(this, () => mostRecentProjectId(this.shell));
   }
   chooseDefaults(): void {
     const project = this.shell.projects.find(project => project.id === this.projectId);
