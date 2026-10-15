@@ -10,6 +10,13 @@ use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
+/// The alert shape (LLP 1115 D6), the kernel's rule
+/// (`exact_kernel::confirmation`), for the presenter's Swift
+/// (`ConfirmationShape.isAlert`): lowering, this host and the Linux one read one rule.
+pub fn confirmation_is_alert(texts: u32, actions: u32, cancels: u32) -> bool {
+    exact_kernel::confirmation::is_alert(texts as usize, actions as usize, cancels as usize)
+}
+
 impl<D: DataSource> Bridge<D> {
     /// Register the presenter's inline geometry, kept across plan replacements.
     pub fn set_inline_geometry(
@@ -91,6 +98,8 @@ impl<D: DataSource> Bridge<D> {
             host.set_canvas_text(f, hooks.ctx);
         }
         host.set_canvas_deferred(self.canvas_deferred);
+        host.runner_mut()
+            .set_live_clock(self.live_clock.map(super::preferences::sampler));
     }
 
     /// Canvas draws in a turn of their own from now on, or in every turn

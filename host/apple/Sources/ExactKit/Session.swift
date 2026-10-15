@@ -390,7 +390,7 @@ public final class ExactSession {
     /// on the wall clock. Taking it over ends the first-frame rule (LLP
     /// 1003.001 D7): what waits for a frame starts there.
     public var clock: Double? {
-        didSet { if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
+        didSet { runtime.liveClock(clock == nil); if oldValue == nil, let at = clock { apply(runtime.startOnFrame(false, at: at)) } }
     }
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?

@@ -555,6 +555,14 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.present_frames(on != 0); 0 }, |n| n)
         }
 
+        /// The presenter's clock owns time (`wall`, in the runner's
+        /// milliseconds), or the agent's seekable one does (null): a live
+        /// clock fires a repeat that missed beats once (the timers RFC, D1).
+        #[no_mangle]
+        pub extern "C" fn exact_set_live_clock(rt: u32, wall: Option<$crate::abi::LiveClockFn>) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| { b.set_live_clock(wall); 0 }, |n| n)
+        }
+
         /// Publish or clear a named surface record; returns the batch length.
         #[no_mangle]
         pub extern "C" fn exact_surface_record(rt: u32, len: usize) -> u32 {
