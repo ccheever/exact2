@@ -53,6 +53,10 @@ final class T3TerminalView: ExactNativeInstance {
             return super.performKeyEquivalent(with: event)
         }
         var offeringKey: ((NSEvent) -> Void)?
+        /// Whether `event` is one the terminal leaves to its input method's composition (a ⌃ chord or
+        /// ⌥Return while text composes). WKWebView's `hasMarkedText()` answers false until the page has
+        /// sent its editor state, so a reader of the window's keys asks this instead.
+        var composesKey: ((NSEvent) -> Bool)?
         override func keyDown(with event: NSEvent) {
             guard routeKey?(event) != true else { return }
             offeringKey?(event)
@@ -171,6 +175,10 @@ final class T3TerminalView: ExactNativeInstance {
         web.mounted = { [weak self] in self?.windowChanged() }
         web.routeKey = { [weak self] event in self?.routeTerminalKey(event) ?? false }
         web.offeringKey = { [weak self] event in self?.offerKey(event) }
+        web.composesKey = { [weak self] event in
+            guard let self, !self.disposed, self.ownsNativeFocus, self.composing else { return false }
+            return T3TerminalKeys.composing(event) == .compositionKey
+        }
         web.middlePressed = { [weak self] in self?.focusTerminal() }
         web.setAccessibilityLabel("Terminal")
         // Under the agent the window is often behind others or on another Space; WebKit then

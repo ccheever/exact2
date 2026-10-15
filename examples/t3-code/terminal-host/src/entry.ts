@@ -79,6 +79,18 @@ export function terminalInputShortcutData(
   return null;
 }
 
+/** terminalInputShortcutData for a keydown, `composed` when it began while an input method composed.
+ * That key matches by `KeyboardEvent.key` alone, as the reference's drawer reads it on the "Process" key
+ * (keybindings.ts isTerminalClearShortcut): under Korean 2-Set ⌃L is "ㅣ", which ends the composition
+ * and does not clear the screen. */
+export function terminalKeyShortcutData(
+  event: Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">,
+  composed: boolean,
+): string | null {
+  return terminalInputShortcutData(composed ? { key: event.key, code: "", metaKey: event.metaKey, ctrlKey: event.ctrlKey,
+    altKey: event.altKey, shiftKey: event.shiftKey } : event);
+}
+
 /** The composing state of the terminal's input, for the native view (`composition` messages): its key
  * path runs before the input method and must leave a composing key to it.
  * WebKit's own marked-text answer (`hasMarkedText`) waits on an editor state the page sends late, or,
@@ -329,8 +341,8 @@ class TerminalPage {
     // The input method's key: its shortcuts below still run, as on the reference's "Process" key, and
     // the surface never encodes it. One the input method declined does nothing else: no keyboard
     // layout command (⌥Return's line break) and no resend to the app. Chromium's input method ends a
-    // composition on a key it declines; when WebKit's keeps composing (the Korean one on ⌃C), the
-    // native view commits it as it stands.
+    // composition on a key it declines; when one keeps composing, the native view commits it as it
+    // stands.
     const composed = this.compositionKeys.take(event);
     if (composed && event.keyCode !== 229) {
       event.preventDefault();
@@ -354,7 +366,7 @@ class TerminalPage {
       post({ type: "chord", key: event.key, code: event.code, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, shiftKey: event.shiftKey });
       return false;
     }
-    const data = terminalInputShortcutData(event);
+    const data = terminalKeyShortcutData(event, composed);
     if (data !== null) {
       event.preventDefault();
       event.stopPropagation();
