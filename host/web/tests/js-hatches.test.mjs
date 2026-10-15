@@ -18,7 +18,9 @@ const rt = globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, vi
 globalThis.requestAnimationFrame = f => setTimeout(f);
 // A development page: its plan's digest is there (web-js/build.mjs).
 globalThis.exact = { plan: 'digest' };
-const turn = () => new Promise(done => setTimeout(done, 2));
+// Turns of the event loop until what the hatches started has settled: their page module calls count in flight
+// (`inflight.n`) until a task after they ran
+const turn = async () => { do await new Promise(done => setTimeout(done)); while (rt.inflight.n > 0); };
 
 let ids = 0;
 const node = (word, site) => ({

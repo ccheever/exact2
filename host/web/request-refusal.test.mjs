@@ -577,7 +577,7 @@ chromeTest('a built TypeScript source refuses fetch and storage without grants',
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     await call('Page.navigate', { url: page.url.href });
-    const result = await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<120;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
+    const result = await call('Runtime.evaluate', { expression: `(async()=>{for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
     expect(result.exceptionDetails).toBeUndefined();
     expect(result.result.value).toBe('FetchError:Refused|Unavailable:denied|Unavailable:denied');
     expect(existsSync(resolve(dist, 'storage-fs.js'))).toBe(false);
@@ -739,7 +739,7 @@ export const answer: Answer = (source, args, store, storage, native) => sources[
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
-    const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    const result = async () => (await call('Runtime.evaluate', { expression: `(async()=>{for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true })).result.value;
     await call('Page.navigate', { url: page.url.href });
     const first = (await result()).split('|');
     expect(first[0]).toBe('typed 200 got 300000');
@@ -789,7 +789,7 @@ chromeTest('an app:/data image shows from the page\'s store, after a reload too'
     const call = (method, params = {}) => cdp.send(method, params, sessionId);
     await call('Page.enable');
     // Each image's `src` (an object URL, never `app:`) once both have decoded, and what the source did.
-    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(const end=performance.now()+20000;performance.now()<end;){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
     await call('Page.navigate', { url: page.url.href });
     expect(await shown()).toEqual(['written', 'blob:', 'blob:', 1]);
     await call('Page.reload');
@@ -1186,7 +1186,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
     const results = [];
     const first = storage.capability.fs.writeFile('app:/data/a', 'one').then(() => results.push('first'));
     const second = storage.capability.fs.writeFile('app:/data/b', 'two').then(() => results.push('second'));
-    for (let i = 0; i < 20 && globalThis.landWrite.length < 2; i++) await new Promise(r => setTimeout(r, 1));
+    for (const end = Date.now() + 10_000; globalThis.landWrite.length < 2 && Date.now() < end;) await new Promise(r => setTimeout(r, 1));
     globalThis.landWrite.shift()(); // the first lands while the answer is current: queued for it
     await new Promise(r => setTimeout(r, 1));
     // The answer replies: its owner's storage becomes the background's.
@@ -1202,7 +1202,7 @@ test('storage re-homes an answer\'s writes to the background before retiring it'
     delete globalThis.landWrite;
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 30_000); // hang bound: the import is waited for up to 10 s
 
 // A read queued behind a write the answer did not await is issued later, in
 // the background round that delivers the write (LLP 1097 D7). The cell has
@@ -1215,7 +1215,7 @@ test('a read queued behind a background write stays the answer\'s', async () => 
   writeFileSync(workerPath, `
 import { readFileSync } from 'node:fs';
 import * as api from './storage.js';
-const realSetTimeout = setTimeout;
+const realSetTimeout = setTimeout, realNow = Date.now; // the prelude refuses both to data sources
 self.land = [];
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
@@ -1223,9 +1223,8 @@ const checkpoint = () => new Promise(resolve => {
   channel.port2.postMessage(null);
 });
 const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
-async function until(pred) {
-  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
-}
+async function until(pred) { for (const end = realNow() + 10_000; !pred() && realNow() < end;) await wait(10); }
+const stuck = async () => { for (let i = 0; i < 20; i++) await checkpoint(); return 'stuck'; }; // twenty turns: nothing outside is left to wait on
 let context = null;
 const backgroundOwner = {};
 self.__exact_host = op => {
@@ -1275,7 +1274,7 @@ try {
   if (self.land.length) {
     self.land.shift()();
     await checkpoint();
-    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
   }
   postMessage(verdict);
 } catch (error) {
@@ -1291,7 +1290,7 @@ try {
   const worker = new Worker(pathToFileURL(workerPath), { type: 'module' });
   try {
     const verdict = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      const timer = setTimeout(() => reject(new Error('worker hung')), 25_000);
       worker.on('message', value => { clearTimeout(timer); resolve(value); });
       worker.on('error', error => { clearTimeout(timer); reject(error); });
     });
@@ -1300,7 +1299,7 @@ try {
     await worker.terminate();
     rmSync(dir, { recursive: true, force: true });
   }
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 // A realm worker with the real prelude and a filesystem that lands when the
 // test says. `body` posts one verdict.
@@ -1311,16 +1310,15 @@ async function realmVerdict(body) {
 import { readFileSync } from 'node:fs';
 import * as api from './storage.js';
 
-const realSetTimeout = setTimeout;
+const realSetTimeout = setTimeout, realNow = Date.now; // the prelude refuses both to data sources
 const checkpoint = () => new Promise(resolve => {
   const channel = new MessageChannel();
   channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
   channel.port2.postMessage(null);
 });
 const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
-async function until(pred) {
-  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
-}
+async function until(pred) { for (const end = realNow() + 10_000; !pred() && realNow() < end;) await wait(10); }
+const stuck = async () => { for (let i = 0; i < 20; i++) await checkpoint(); return 'stuck'; }; // twenty turns: nothing outside is left to wait on
 self.land = [];
 self.writes = 0;
 let context = null;
@@ -1349,7 +1347,7 @@ ${body}
   const worker = new Worker(pathToFileURL(resolve(dir, 'worker.mjs')), { type: 'module' });
   try {
     return await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      const timer = setTimeout(() => reject(new Error('worker hung')), 25_000);
       worker.on('message', value => { clearTimeout(timer); resolve(value); });
       worker.on('error', error => { clearTimeout(timer); reject(error); });
     });
@@ -1405,7 +1403,7 @@ try {
     self.land.shift()();
     await checkpoint();
     const settled = JSON.parse(self.__exact_settle(String(read.call)));
-    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
     verdict = settled.tag === 0 && delivered === 'answer' ? 'answer' : 'stuck:' + JSON.stringify(settled) + ':' + delivered;
   }
   postMessage(verdict + ':' + self.writes);
@@ -1414,7 +1412,7 @@ try {
 }
 `);
   expect(verdict).toBe('answer:2');
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 // Retire can still race a completion already in flight. That completion has
 // to reject the promise the prelude is waiting on, so the head clears and
@@ -1443,7 +1441,7 @@ try {
   const pending = storage.deliver(context.owner);
   self.land.shift()();
   await checkpoint();
-  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), stuck()]);
   const settled = JSON.parse(self.__exact_settle(String(read.call)));
   postMessage(delivered === 'answer' && settled.tag === 0 ? 'advanced' : 'stuck:' + delivered + ':' + JSON.stringify(settled));
 } catch (error) {
@@ -1451,7 +1449,7 @@ try {
 }
 `);
   expect(verdict).toBe('advanced');
-});
+}, 30_000); // hang bound: the worker's own is 25 s
 
 test('a request deadline cancels a server that never answers, on the wasm and TypeScript paths', async () => {
   const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Promise(() => {}) });
@@ -1482,11 +1480,11 @@ test('the web build\'s deadline covers a stalled body, and keeps the caller\'s o
       const done = await fetchWith(normalized(`net.fetch ${empty.url.origin}`), empty.url.href, { exactTimeout: 2000 });
       expect([done.status, done.url, await done.text()]).toEqual([204, empty.url.href, '']);
     } finally { empty.stop(true); }
-    // A body that arrived in time stays readable after the deadline.
-    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') });
+    // A body that arrived in time stays readable after the deadline, which is 1 s so that the local fetch arrives first.
+    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') }), grants = normalized(`net.fetch ${quick.url.origin}`);
     try {
-      const arrived = await fetchWith(normalized(`net.fetch ${quick.url.origin}`), quick.url.href, { exactTimeout: 100 });
-      await new Promise(r => setTimeout(r, 250));
+      const asked = performance.now(), arrived = await fetchWith(grants, quick.url.href, { exactTimeout: 1000 });
+      await new Promise(r => setTimeout(r, asked + 1200 - performance.now())); // past the deadline `fetchWith` set as it began
       expect(await arrived.text()).toBe('in time');
     } finally { quick.stop(true); }
     const aborted = new AbortController(); aborted.abort();

@@ -65,9 +65,9 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     const phase = async id => (await phases(id))[0];
 
     await evaluate(`add('lock', 'pulse 800ms ease-in-out infinite alternate')`);
-    await Bun.sleep(300);
-    await evaluate(`add('engine', 'pulse 800ms ease-in-out infinite alternate')`);
-    await evaluate(`add('free', 'pulse 800ms ease-in-out infinite alternate', '')`);
+    // A joiner and a free one added together once the clock's phase is 400 to 1200 ms into its cycle, so that one starting
+    // its own cycle is well apart from it however long the machine takes (a fixed wait could land a whole cycle on)
+    await evaluate(`new Promise(ok => { const at = () => { const p = anim('lock').currentTime % 1600; if (p >= 400 && p <= 1200) { add('engine', 'pulse 800ms ease-in-out infinite alternate'); add('free', 'pulse 800ms ease-in-out infinite alternate', ''); ok(); } else requestAnimationFrame(at); }; at(); })`);
     const [[lock], [engine], [free]] = await phases('lock', 'engine', 'free');
     expect(apart(lock, engine)).toBeLessThan(1);
     expect(apart(lock, free)).toBeGreaterThan(200); // no clock: CSS's own start

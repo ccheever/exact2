@@ -366,3 +366,55 @@ test('a queued dialog close cannot act after its conditional scope ends', async 
     }
   } finally { await browser.close(); server.stop(true); }
 }, 60000);
+
+test('autofocus is deferred and consumed per mounted control, preserving other UI focus', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(new URL('../navigation.js', import.meta.url), 'utf8');
+  const start = source.indexOf('export function focusController');
+  const fn = source.slice(start, source.indexOf('\n}\n', start) + 2).replace('export ', '');
+  const element = () => ({exactAutofocus:true, getClientRects:()=>[{}], matches:()=>false,
+    setAttribute() {}, focus() { document.activeElement = this; }});
+  const document = {body:{}, activeElement:null};
+  const first = element(), other = element();
+  const views = new Map([[1,first]]);
+  const context = {document, views, root:{querySelectorAll:()=>[...views.values()]}, inputReady:true,
+    inertAncestor:()=>false, getComputedStyle:()=>({visibility:'visible'})};
+  const focus = runInNewContext(fn+';focusController({ready:()=>inputReady,elements:()=>views.values(),inert:inertAncestor}).autofocus', context);
+  document.activeElement = other;
+  focus();
+  expect(document.activeElement, 'existing focus must win').toBe(other);
+  document.activeElement = document.body;
+  focus();
+  expect(document.activeElement, 'a refused mounted control stays consumed').toBe(document.body);
+  const later = element();
+  views.set(1, later);
+  context.inputReady = false;
+  focus();
+  expect(document.activeElement, 'input readiness gates autofocus').toBe(document.body);
+  context.inputReady = true;
+  focus();
+  expect(document.activeElement, 'a later mount takes absent focus').toBe(later);
+  const victory = element();
+  const canvas = {matches:selector=>selector === '[data-gpu-input]', contains:el=>el===victory};
+  document.activeElement = canvas;
+  views.set(2, victory);
+  focus();
+  expect(document.activeElement, 'a canvas yields raw input focus to its new UI control').toBe(victory);
+});
+
+test('applying autofocus props cannot trigger browser focus during a batch', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { runInNewContext } = await import('node:vm');
+  const source = readFileSync(new URL('../glue.js', import.meta.url), 'utf8');
+  const fn = source.slice(source.indexOf('function applyProps('), source.indexOf('function ensureMessageListener('));
+  class Element {}
+  const apply = runInNewContext(fn+';applyProps', {syncMedia:()=>{}, syncMarkup:()=>{}, settleValue:()=>{}, inputReady:true, HTMLIFrameElement:Element, HTMLImageElement:Element, HTMLVideoElement:Element});
+  const attrs = new Map();
+  const el = {setAttribute:(k,v)=>attrs.set(k,v), removeAttribute:k=>attrs.delete(k)};
+  apply(el, {autofocus:'true'}, []);
+  expect(attrs.has('autofocus')).toBe(false);
+  expect(el.exactAutofocus).toBe(true);
+  apply(el, {}, ['autofocus']);
+  expect(el.exactAutofocus).toBe(false);
+});
