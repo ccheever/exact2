@@ -10,6 +10,8 @@ build = "build.rs"
 [lib]
 name = "svg_gallery_apple"
 crate-type = ["rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

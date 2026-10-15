@@ -66,7 +66,7 @@ For all prose: comments, commit messages, guides, LLPs, issues and PR text.
 - Every source file ≤ 1,500 lines. Stage (`git add -A`) and run `bun scripts/caps.mjs`.
 - Writing or changing a test: read `docs/testing.md` (waits, isolation, coverage, measuring).
 - The six checks: `cargo build --all-targets --keep-going` ·
-  `cargo test --lib --bins --tests --no-fail-fast` · `cargo clippy --all-targets
+  `cargo test --tests --no-fail-fast` · `cargo clippy --all-targets
   --keep-going -- -D warnings` and `cargo fmt --all -- --check` (run both) ·
   `bun scripts/caps.mjs` · `bun scripts/boot.mjs` · `cargo check --workspace
   --all-targets --keep-going`. The flags keep Cargo from

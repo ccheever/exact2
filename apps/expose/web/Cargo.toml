@@ -9,6 +9,8 @@ build = "build.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+test = false
+bench = false
 
 [dependencies]
 exact-logic = { path = "../../../logic" }

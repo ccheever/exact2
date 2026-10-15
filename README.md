@@ -717,7 +717,7 @@ also read [`AGENTS.md`](AGENTS.md). In short:
 
   ```sh
   cargo build --all-targets --keep-going
-  cargo test --lib --bins --tests --no-fail-fast
+  cargo test --tests --no-fail-fast
   cargo clippy --all-targets --keep-going -- -D warnings && cargo fmt --all -- --check
   bun scripts/caps.mjs     # budgets: 1,500 lines per source file, document caps
   bun scripts/boot.mjs     # counts the module graph before first pixel
