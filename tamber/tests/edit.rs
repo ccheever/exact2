@@ -618,3 +618,75 @@ fn a_rename_that_would_fold_differently_is_refused_and_a_role_is_found_by_its_sp
         "tamber t\n\ntheme\n  base = #000000\n  ink = base\n"
     );
 }
+
+#[test]
+fn removing_a_token_keeps_fmts_blanks_and_names_find_roles_as_the_checker_does() {
+    let src = "tamber t\n\ntheme\n  a = #000000\n\n  b = #111111\n\n  c = #222222\n";
+    let vocab = vocab();
+    for name in ["a", "b"] {
+        let out = apply(src, &Op::RemoveToken { name: name.into() }, &vocab)
+            .unwrap()
+            .text;
+        assert_eq!(format(&out).unwrap(), out, "{name}: {out}");
+    }
+    // A system role by any case of its name; a plain token by no `-exact-`.
+    let roles = "tamber t\n\ntheme\n  highlight = #000000\n  ink = #ffffff\n";
+    apply(
+        roles,
+        &Op::SetToken {
+            name: "Highlight".into(),
+            when: vec![],
+            value: "#010101".into(),
+            at: None,
+            comment: None,
+        },
+        &vocab,
+    )
+    .unwrap();
+    assert!(apply(
+        roles,
+        &Op::RemoveToken {
+            name: "-exact-ink".into()
+        },
+        &vocab
+    )
+    .is_err());
+    // A when names each axis once.
+    let when = "tamber t\n\naxes\n  tone = soft | hard\n\ntheme\n  ink = #ffffff\n    when tone=soft: #000000\n";
+    let twice = Op::UnsetTokenWhen {
+        name: "ink".into(),
+        when: vec![
+            ("tone".into(), "soft".into()),
+            ("tone".into(), "soft".into()),
+        ],
+    };
+    assert!(apply(when, &twice, &vocab).is_err());
+    // A keyword is never renamed; an edit's inverse restores a design that did not check.
+    let kw = "tamber t\n\ntheme\n  r = #ff0000\n  ink = #000000\n";
+    assert!(apply(
+        kw,
+        &Op::RenameToken {
+            from: "r".into(),
+            to: "red".into()
+        },
+        &vocab
+    )
+    .is_err());
+    let broken = "tamber t\n\ntheme\n  ink = missing\n";
+    let fixed = apply(
+        broken,
+        &Op::SetToken {
+            name: "ink".into(),
+            when: vec![],
+            value: "#000000".into(),
+            at: None,
+            comment: None,
+        },
+        &vocab,
+    )
+    .unwrap();
+    assert_eq!(
+        undo(&fixed.text, &fixed.inverse, &vocab).unwrap().text,
+        broken
+    );
+}

@@ -134,27 +134,43 @@ pub fn undo(src: &str, inverse: &[Op], vocab: &Vocab) -> Result<Edited, Vec<Diag
     if inverse.iter().any(|op| !matches!(op, Op::Restore { .. })) {
         return Err(refuse("an inverse is the restores an edit returned"));
     }
-    run(src, inverse, vocab)
+    // The preimage as it was, even a design that did not check.
+    let mut text = src.to_string();
+    let mut undone = Vec::new();
+    for op in inverse {
+        let (next, back) = step(&text, op, vocab)?;
+        text = next;
+        undone.insert(0, back);
+    }
+    Ok(Edited {
+        text,
+        inverse: undone,
+    })
 }
 
 /// One edit, unchecked: the new text and the `restore` that undoes it.
 fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnostic>> {
     valid(op)?;
     let design = crate::parse(src)?;
-    if let Op::RenameToken { from, .. } = op {
+    if let Op::RenameToken { from, to } = op {
+        // A word colour syntax reads (a channel, a space, a hue method) is
+        // never renamed from or to, whatever it folds to now.
+        for n in [from, to] {
+            if KEYWORDS.contains(&n.to_ascii_lowercase().as_str()) {
+                return Err(refuse(format!(
+                    "`{n}` is a word colour syntax reads: rename it by hand"
+                )));
+            }
+        }
         // A role override keeps its role's name, which rows spell three ways:
         // a name the schema's roles have, whether or not the design checks.
-        let bare = from.strip_prefix("-exact-").unwrap_or(from);
-        if vocab
+        let roles: Vec<(String, bool)> = vocab
             .roles
             .iter()
-            .any(|r| r.name.eq_ignore_ascii_case(bare))
-        {
-            let line = design
-                .tokens
-                .iter()
-                .find(|t| t.name.value == *from)
-                .map_or(1, |t| t.name.line);
+            .map(|r| (r.name.clone(), r.system))
+            .collect();
+        if role_key(&roles, from).is_some() {
+            let line = token_index(&design, &roles, from).map_or(1, |i| design.tokens[i].name.line);
             return Err(refuse_at(
                 line,
                 format!("`{from}` overrides a role: a role keeps its name"),
@@ -163,6 +179,11 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
     }
     let before = Doc::new(src);
     let mut doc = Doc::new(src);
+    doc.roles = vocab
+        .roles
+        .iter()
+        .map(|r| (r.name.clone(), r.system))
+        .collect();
     doc.apply(&design, op)?;
     let (a, b) = (&before.lines, &doc.lines);
     let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
@@ -180,10 +201,13 @@ fn step(src: &str, op: &Op, vocab: &Vocab) -> Result<(String, Op), Vec<Diagnosti
                 .ok()
                 .map(|f| f.tokens.into_iter().map(|t| t.values).collect::<Vec<_>>())
         };
-        if let Some(was) = folded(src) {
-            if folded(&doc.text()).is_some_and(|now| now != was) {
-                return Err(refuse("the rename would change what a value folds to (a word it reads that is no token): rename it by hand"));
+        // Proved only where both sides check and fold the same.
+        match (folded(src), folded(&doc.text())) {
+            (Some(was), Some(now)) if was == now => {}
+            (Some(_), Some(_)) => {
+                return Err(refuse("the rename would change what a value folds to (a word it reads that is no token): rename it by hand"))
             }
+            _ => return Err(refuse("a rename needs a design that checks before and after it")),
         }
     }
     let undo = Op::Restore {
@@ -232,6 +256,12 @@ fn valid(op: &Op) -> Result<(), Vec<Diagnostic>> {
         ))),
     };
     let conds = |c: &[(String, String)]| {
+        if c.iter()
+            .enumerate()
+            .any(|(i, (a, _))| c[..i].iter().any(|(b, _)| b == a))
+        {
+            return Err(refuse("a `when` names each axis once"));
+        }
         c.iter()
             .try_for_each(|(a, v)| ident(a).and_then(|_| ident(v)))
     };
@@ -341,11 +371,55 @@ fn refuse_at(line: u32, message: impl Into<String>) -> Vec<Diagnostic> {
     vec![Diagnostic::new("tamber-edit", message, line, 1)]
 }
 
+/// Words relative colours, `color()` and `color-mix()` read (channels,
+/// spaces, hue methods), which a rename never touches.
+const KEYWORDS: &[&str] = &[
+    "r",
+    "g",
+    "b",
+    "h",
+    "s",
+    "l",
+    "w",
+    "c",
+    "a",
+    "x",
+    "y",
+    "z",
+    "alpha",
+    "from",
+    "in",
+    "srgb",
+    "srgb-linear",
+    "display-p3",
+    "a98-rgb",
+    "prophoto-rgb",
+    "rec2020",
+    "xyz",
+    "xyz-d50",
+    "xyz-d65",
+    "lab",
+    "lch",
+    "oklab",
+    "oklch",
+    "hsl",
+    "hwb",
+    "shorter",
+    "longer",
+    "increasing",
+    "decreasing",
+    "transparent",
+    "currentcolor",
+];
+
 /// The design's lines, which an edit splices.
 struct Doc {
     lines: Vec<String>,
     /// Whether the text ended with a newline.
     newline: bool,
+    /// The schema's roles, by their row spelling, which a role override
+    /// answers to in any case.
+    roles: Vec<(String, bool)>,
 }
 
 impl Doc {
@@ -355,6 +429,7 @@ impl Doc {
         Doc {
             lines: body.split('\n').map(str::to_string).collect(),
             newline,
+            roles: Vec::new(),
         }
     }
 
@@ -442,7 +517,7 @@ impl Doc {
                 at,
                 comment,
             } => {
-                let i = token_index(design, name)?;
+                let i = token_index(design, &self.roles, name)?;
                 let t = &design.tokens[i];
                 if when.is_empty() {
                     let (indent, code, trailing) = self.parts(t.name.line);
@@ -494,7 +569,7 @@ impl Doc {
                 }])
             }
             Op::UnsetTokenWhen { name, when } => {
-                let t = &design.tokens[token_index(design, name)?];
+                let t = &design.tokens[token_index(design, &self.roles, name)?];
                 let (k, w) = t
                     .whens
                     .iter()
@@ -551,7 +626,7 @@ impl Doc {
                 }
                 let at = match before {
                     Some(b) => {
-                        let t = &design.tokens[token_index(design, b)?];
+                        let t = &design.tokens[token_index(design, &self.roles, b)?];
                         t.name.line as usize - 1
                     }
                     // After the block's last line, a comment closing it too;
@@ -594,7 +669,7 @@ impl Doc {
                 Ok(vec![Op::RemoveToken { name: name.clone() }])
             }
             Op::RemoveToken { name } => {
-                let i = token_index(design, name)?;
+                let i = token_index(design, &self.roles, name)?;
                 let t = &design.tokens[i];
                 let (_, _, comment) = self.parts(t.name.line);
                 let whens = t
@@ -603,7 +678,16 @@ impl Doc {
                     .map(|w| (w.conds.clone(), w.value.value.clone(), self.parts(w.line).2))
                     .collect();
                 let last = t.whens.last().map_or(t.name.line, |w| w.line);
-                self.lines.drain(t.name.line as usize - 1..last as usize);
+                let at = t.name.line as usize - 1;
+                self.lines.drain(at..last as usize);
+                // fmt's blanks: none opening a block, never two together.
+                let blank = |l: Option<&String>| l.is_some_and(|l| l.trim().is_empty());
+                let opens = at == 0
+                    || blank(self.lines.get(at - 1))
+                    || !self.lines[at - 1].starts_with(' ');
+                if blank(self.lines.get(at)) && opens && at < self.lines.len() {
+                    self.lines.remove(at);
+                }
                 Ok(vec![Op::AddToken {
                     name: t.name.value.clone(),
                     kind: t.kind.clone(),
@@ -615,7 +699,7 @@ impl Doc {
                 }])
             }
             Op::RenameToken { from, to } => {
-                token_index(design, from)?;
+                token_index(design, &self.roles, from)?;
                 if !lex::is_name(to) {
                     return Err(refuse(format!(
                         "`{to}`: a token's name is identifiers joined by `.`"
@@ -768,22 +852,46 @@ fn line(indent: usize, code: &str, comment: Option<&str>) -> String {
 }
 
 /// A token by its name as declared, or a role override by any spelling of
-/// its role (the IR names one `-exact-label` that a design declares
-/// `label`).
-fn token_index(design: &Design, name: &str) -> Result<usize, Vec<Diagnostic>> {
-    let bare = |n: &str| n.strip_prefix("-exact-").map(str::to_ascii_lowercase);
+/// its role, as the checker reads one: a system role's name in any case
+/// (`Canvas`, `canvas`), an Exact role's `-exact-` spelling or bare name in
+/// any case (the IR's `-exact-label` for a declared `label`).
+fn token_index(
+    design: &Design,
+    roles: &[(String, bool)],
+    name: &str,
+) -> Result<usize, Vec<Diagnostic>> {
+    let key = |n: &str| role_key(roles, n);
     design
         .tokens
         .iter()
         .position(|t| t.name.value == name)
         .or_else(|| {
-            design.tokens.iter().position(|t| {
-                let (a, b) = (&t.name.value, name);
-                bare(a).is_some_and(|x| x == b.to_ascii_lowercase())
-                    || bare(b).is_some_and(|x| x == a.to_ascii_lowercase())
-            })
+            let k = key(name)?;
+            design
+                .tokens
+                .iter()
+                .position(|t| key(&t.name.value).as_ref() == Some(&k))
         })
         .ok_or_else(|| refuse(format!("no token `{name}`")))
+}
+
+/// The role a name spells, by its schema name, or `None` for a plain name.
+fn role_key(roles: &[(String, bool)], n: &str) -> Option<String> {
+    let lower = n.to_ascii_lowercase();
+    let found = match lower.strip_prefix("-exact-") {
+        Some(bare) => roles
+            .iter()
+            .find(|(r, system)| !system && r.eq_ignore_ascii_case(bare)),
+        None => roles
+            .iter()
+            .find(|(r, system)| *system && r.eq_ignore_ascii_case(&lower))
+            .or_else(|| {
+                roles
+                    .iter()
+                    .find(|(r, system)| !system && r.eq_ignore_ascii_case(&lower))
+            }),
+    };
+    found.map(|(r, _)| r.clone())
 }
 
 /// `when a=b c=d: value`.
@@ -794,7 +902,7 @@ fn when_code(conds: &[(String, String)], value: &str) -> String {
 
 /// The same conditions, in any order.
 fn same_conds(a: &[(String, String)], b: &[(String, String)]) -> bool {
-    a.len() == b.len() && a.iter().all(|c| b.contains(c))
+    a.len() == b.len() && a.iter().all(|c| b.contains(c)) && b.iter().all(|c| a.contains(c))
 }
 
 /// A metadata word as a token line writes it, quoting a value that needs it.
