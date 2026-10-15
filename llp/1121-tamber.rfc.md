@@ -2234,3 +2234,16 @@ refusing nameless or repeated themes in one DTCG group, landed in `451015da5`.
 
 (Also: after `scheme=fixed`, the Bluesky clone marked 12 tokens and builds with 0
 `lower-colour-one-scheme` warnings, down from 168: b41, clone `b8a7dc8`.)
+
+### The protocol's reference, `docs/tamber-protocol.md` (2026-10-15)
+
+D13 named this reference, and stage 3 didn't write it. It now describes `tamber/1.1` as built:
+- the transport (POST, the streamed response and the long poll; no WebSocket);
+- the token;
+- every request and its reply;
+- the operations;
+- the change stream's events;
+- what the later stages add.
+
+Each stage that changes the wire changes this page in the same commit. Stage 4 commit 5 adds the
+build channel.

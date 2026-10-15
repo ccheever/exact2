@@ -67,3 +67,4 @@ What to know:
   `http://127.0.0.1:7740`, so one runs per machine, on one project: to
   switch, stop it with ctrl-c and run `tamber tool <other app>`, adding
   `--via <its URL>` when that app's dev loop is running.
+  The protocol's reference is `docs/tamber-protocol.md`.
