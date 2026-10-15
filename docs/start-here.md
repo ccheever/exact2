@@ -224,7 +224,7 @@ none listens. Start `snapback4 dev` on that origin’s port, seeded if needed;
 
 Each test opens empty app storage; backend rows survive tests and runs unless
 `fresh` at the file’s top (or leading a test) empties `snapback4 dev` before each
-test. This uses `POST /dev/reset` (Snapback4 **0.4.25**, `dev` only).
+test. This uses `POST /dev/reset` (Snapback4 **0.4.28**, `dev` only).
 `fresh "seed.json"` then seeds it with `[{"table": …, "row": {…}}]`, from a path
 relative to the test file. A server lacking reset fails the test.
 

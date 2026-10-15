@@ -50,7 +50,7 @@ fn filesystem_helper() -> Option<&'static std::ffi::OsString> {
             }
             let script =
                 std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../scripts/filesystem.mjs");
-            let output = std::process::Command::new(program)
+            let output = std::process::Command::new(bun_program())
                 .arg(script)
                 .arg("--helper")
                 .output()

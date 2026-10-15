@@ -19,7 +19,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > **Exact + Snapback checklist.** Each line is a pair that must agree; a
 > mismatch fails late, as data that never loads.
 >
-> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.25`)
+> - **Directories.** The backend (`snapback/schema.q`, `snapback4@0.4.28`)
 >   is the directory above the app (the one holding `app.json`). Run
 >   `snapback4` there and `bun exact.mjs …` (`snapback` among them) in the
 >   app; `assets/snapback4.wasm` is built into the app's `assets/`.
@@ -49,7 +49,7 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 > - **Tests.** `epoch now` in the test file (the server keeps real time);
 >   `snapback4 dev` listening before `test web`; `clock data` before `fail
 >   fetch`; `fresh` for an empty dev server before each test through
->   0.4.25's `POST /dev/reset`
+>   0.4.28's `POST /dev/reset`
 >   (["Tests share the server"](#tests-share-the-server)).
 
 ## From TypeScript
@@ -57,8 +57,8 @@ is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
 ### Set it up: one command
 
 A new app: from the backend's directory (`snapback/schema.q`, and
-`snapback4@0.4.25` installed there: `bun add snapback4@0.4.25` or `npm i
-snapback4@0.4.25`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
+`snapback4@0.4.28` installed there: `bun add snapback4@0.4.28` or `npm i
+snapback4@0.4.28`), `bun /path/to/exact2/scripts/exact.mjs new app --snapback`
 (`--port <n>` for an origin other than 4400). With no backend schema yet, it writes the guestbook below as
 the app (`app.contract`, `app.ts` at that origin with its grants,
 `app.test.contract`) and `snapback/schema.q` when there is none, then wires it. With an existing schema it keeps the greeting app and mounts
@@ -95,7 +95,7 @@ above it): `bun exact.mjs snapback`. Either one:
 4. **Builds the device** the page loads into `assets/snapback4.wasm` (`node
    <exact2>/snapback4/web/build.mjs assets/snapback4.wasm` by hand) and its
    glue, which every host's bake type-checks. Every default `snapback` run asks Cargo to rebuild when inputs changed, including
-   when the existing stamp is missing or stale. It refuses an edited driver or backend
+   if the existing stamp is missing or stale. It refuses an edited driver or backend
    mount with a before/after diff before changing files. The first build compiles the
    client for a few minutes; later ones take seconds. The web host serves it
    at `/assets/snapback4.wasm`, the driver's default (`Snapback.open`'s
@@ -105,7 +105,7 @@ above it): `bun exact.mjs snapback`. Either one:
 It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 `"app": { "id" }`, which `exact new` set from the directory's name. Last it
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
-pinned to published Snapback4 0.4.25: install that version for the server.
+pinned to published Snapback4 0.4.28: install that version for the server.
 The reset and generic file cases use the same release and matched device build.
 
 ### Upgrading a wave-10-era app
@@ -221,7 +221,7 @@ shape Clock
 
   resource time = exactTime() as shape Clock
   state sampledAt = 0
-  resource inbox = inbox(time.epochAtZero + sampledAt) as list<Message>
+  resource inbox = inbox(time.epochAtZero + sampledAt) as Message[]
   action reloadInbox
     sampledAt = performanceNow()
     refresh inbox
@@ -448,7 +448,7 @@ schema and wires their mounts and device.
 
 ### A complete online app
 
-For a schema that syncs nothing, install `snapback4@0.4.27` in the backend,
+For a schema that syncs nothing, install `snapback4@0.4.28` in the backend,
 write this `snapback/schema.q`, then run
 `bun <exact2>/scripts/exact.mjs new app --snapback --online --port 30100`.
 It mounts the online adapter and generated operations, and writes a query/mutation
@@ -488,7 +488,7 @@ shape Note
 shape Board
   complete: bool
   latest: string
-  notes: list<Note>
+  notes: Note[]
 shape Post
   id: string
 
@@ -503,7 +503,7 @@ component App
   action edit(value: string)
     draft = value
   action post
-    send posted = post(persona, trim(draft))
+    send posted = post(persona, draft.trim())
   view
     column gap=8 padding=16
       select value=persona change=choosePersona testId="persona" aria-label="Persona"
@@ -512,16 +512,16 @@ component App
         option value="bob"
           text "Bob"
       input value=draft input=edit submit=post testId="draft" aria-label="Note"
-      button press=post disabled=(trim(draft) == "" or pending(posted)) testId="post"
+      button press=post disabled=(draft.trim() == "" or pending(posted)) testId="post"
         text "Post"
       text problem testId="problem"
       text (match posted { case some(p) => "Posted.", case none => "" }) testId="notice"
-      when failed(board)
+      if failed(board)
         text (match failure(board) { case some(f) => f.code, case none => "" }) testId="unavailable"
-      when not pending(board) and not failed(board) and not board.complete
+      if not pending(board) and not failed(board) and not board.complete
         text "Partial answer; more rows may exist." testId="partial"
       text board.latest testId="latest"
-      each note, i in board.notes key=note.id
+      for note, i in board.notes key=note.id
         text `${note.author}: ${note.body}` testId=`note-${i}`
 ```
 
@@ -618,7 +618,7 @@ shape Note
 shape Board
   principal: string
   complete: bool
-  notes: list<Note>
+  notes: Note[]
 shape Ack
   ok: bool
 
@@ -651,12 +651,12 @@ component App
   action logout
     send signed = logout(time.epochAtZero + performanceNow())
   action post
-    send posted = post(trim(draft), time.epochAtZero + performanceNow())
+    send posted = post(draft.trim(), time.epochAtZero + performanceNow())
   view
     column gap=8 padding=16
       text (account.principal == "" ? "Signed out" : "Signed in") testId="session"
       text (match failure(signed) { case some(f) => f.code, case none => "" }) testId="auth-error"
-      when account.principal == ""
+      if account.principal == ""
         input value=email input=editEmail type="email" testId="email" aria-label="Email"
         input value=password input=editPassword type="password" testId="password" aria-label="Password"
         button "Sign up" press=signup disabled=pending(signed) testId="signup"
@@ -664,13 +664,13 @@ component App
       else
         button "Log out" press=logout disabled=pending(signed) testId="logout"
         input value=draft input=editDraft testId="draft" aria-label="Note"
-        button "Post" press=post disabled=(pending(posted) or trim(draft) == "") testId="post"
-      when failed(board)
+        button "Post" press=post disabled=(pending(posted) or draft.trim() == "") testId="post"
+      if failed(board)
         text (match failure(board) { case some(f) => f.code, case none => "" }) testId="read-error"
-      when not pending(account) and not failed(account) and account.principal != "" and not failed(board) and board.principal == account.principal
-        when not board.complete
+      if not pending(account) and not failed(account) and account.principal != "" and not failed(board) and board.principal == account.principal
+        if not board.complete
           text "Partial answer; more rows may exist." testId="partial"
-        each note, i in board.notes key=note.id
+        for note, i in board.notes key=note.id
           text note.body testId=`note-${i}`
 ```
 
@@ -828,7 +828,7 @@ those from earlier tests in it. Two ways out:
     expect tree missing "note-0"
   ```
 
-  Snapback4 0.4.25 has this door in `dev`; `serve` has no development
+  Snapback4 0.4.28 has this door in `dev`; `serve` has no development
   reset. `fresh` is for tests against `dev`.
 - **Each test owns its rows.** It writes a code or name no other test uses
   and asserts on that: newest first (`note-0` in a `last … by byTime` list),
@@ -1011,7 +1011,7 @@ const renewed = await db.refreshSession(now);          // near expiresAt: keep r
   largest id as the newest: give the table a `time` the mutation sets (`at:
   now`) and read in its index's order (`last 50 by byTime`). A test file
   cannot know a minted id either, so a `testId` built from one is out of
-  its reach. Reach a row by position, from `each`'s index (`each note, i in
+  its reach. Reach a row by position, from `for`'s index (`each note, i in
   board.notes key=note.id` with ``testId=`note-${i}` ``, as the guestbook
   does: `expect text "note-0" == …`), by what it shows (`tap "<its exact
   text or label>"`), or through a derive of the row the test made (the
@@ -1038,7 +1038,7 @@ does for a query:
 ```ts
 export const grants = `net.fetch ${origin}\nsqlite.open app:/data\nfs.read app:/tmp\nfs.write app:/cache`;
 
-// A source given the picked file's path (`picked(files: list<Picked>)`, `f.path`):
+// A source given the picked file's path (`picked(files: Picked[])`, `f.path`):
 const sent = await db.upload(path);                    // the host sends the file; or bytes
 if (!sent.ok) return { message: `Upload refused: ${sent.why.code}` };   // E_ASSET_TYPE, E_ASSET_TOO_LARGE, E_OFFLINE …
 const fate = await db.send(api.addPhoto, { photo: { id: sent.asset.id } }, now);

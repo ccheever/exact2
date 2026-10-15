@@ -777,7 +777,10 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty).filter(|_| !declared.contains_enum() || checks::can_unify(&declared, &ty)) else {
+                                    let Some(unified) = declared.unify(&ty).filter(|_| {
+                                        !declared.contains_enum()
+                                            || checks::can_unify(&declared, &ty)
+                                    }) else {
                                         if !counted {
                                             continue;
                                         }

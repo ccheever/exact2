@@ -114,15 +114,13 @@ async function openWebUnlocked({ browser = 'chrome', plan, world, size = VIEWPOR
     serveStatic(dist, req, res);
   });
   // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
-  // Under the drive's env, as `runTests` places and removes it (review b5-c 3).
   const kept = storage === undefined ? null : driveStore(selected, storage, env);
   if (kept && fresh) await removeBrowserProfile(kept.profile);
-  // `--port`/EXACT_PORT, else a named store's own port, else any free one; said once a run, on stderr (stdout is the reply).
   const pagePort = drivePagePort(fixed, pageURL ? null : kept, env?.EXACT_AGENT_EPHEMERAL_PORT === '1', env);
   await listenOn(server, pagePort, '127.0.0.1', undefined, !!fixed, env).catch((e) => {
     throw e.code !== 'EADDRINUSE' || fixed || pagePort !== kept?.port ? e : new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open (a store is one drive's at a time), or another program holds the port: try another store name, or --port <n>`);
   });
-    const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);
+  const port = server.address().port; if (!openWeb.said) console.error(`${openWeb.said = `web: ${selected.name} served at http://127.0.0.1:${port}/`}${fixed ? '' : ' (--port <n> or EXACT_PORT picks the port)'}`);
   const chrome = chromium().executable, scale = Number(env?.EXACT_SCALE ?? process.env.EXACT_SCALE) || 0; // LLP 1115.000 D10.3: EXACT_SCALE, the Linux host's variable, launches Chrome at that device scale factor too, its own and not CDP's emulated one (which leaves a 0.5px border 1px): an override's 0 keeps it
   const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
@@ -559,7 +557,6 @@ const REPLY_MS = 120000;
 /** A refused boot; a format refusal usually means a host binary built before the plan's format changed. */
 const bootRefusal = (error) => 'the app booted with an error: ' + error +
   (/UnsupportedVersion|FormatDigestMismatch|KernelSchemaMismatch/.test(error) ? ' (the plan and the host binary were built from different formats: rebuild the host)' : '');
-
 /** One JSON-lines protocol over stdio on desktop hosts, or a phone's outbound socket. */
 async function openStdio({ host, plan, world, size, app, env: extra = {}, session, documents = [], device = false, phone: pick, onProcess }) {
   const a = resolveApp(app);

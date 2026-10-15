@@ -1,5 +1,4 @@
 //! The abstract syntax tree.
-
 pub use crate::colours::{ColorProfileDecl, DesignSource, ThemeDecl};
 use crate::Span;
 use std::collections::BTreeMap;
@@ -468,7 +467,6 @@ pub enum Step {
         span: Span,
     },
 }
-
 /// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TapForm {
@@ -502,7 +500,6 @@ pub enum TapForm {
         seconds: Option<f64>,
     },
 }
-
 /// `fn name(param: type, …): type = expr` — a pure function written in
 /// Contract: one expression over its parameters and the roster, expanded
 /// inline wherever it is called (LLP 1017 P5). No recursion, no loops, no
@@ -521,7 +518,6 @@ pub struct FnDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `use A, B as C from "./file.contract"` — declarations of another Contract
 /// file, named one by one, each optionally renamed in this file (LLP 1017 P8,
 /// LLP 1091 D1/D2); never anything else (`contract-no-imports`).
@@ -534,7 +530,6 @@ pub struct UseDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One name a `use` brings: `Card`, or `Card as UiCard`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseName {
@@ -545,14 +540,12 @@ pub struct UseName {
     /// The declaration's name as written.
     pub span: Span,
 }
-
 impl UseName {
     /// The name this file reads it by.
     pub fn local(&self) -> &str {
         self.alias.as_deref().unwrap_or(&self.name)
     }
 }
-
 /// `style Name` with lines of `attr=literal` — a named set of style rows a
 /// node applies with `class=Name`; its own attributes win (LLP 1017 P6).
 #[derive(Debug, Clone, PartialEq)]
@@ -564,7 +557,6 @@ pub struct StyleDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `keyframes Name`: CSS `@keyframes` (LLP 1055 D5).
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframesDecl {
@@ -575,7 +567,6 @@ pub struct KeyframesDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `timeline Name`: a clock timeline (LLP 1055.002 D1). Every animation on
 /// it starts in step with the others.
 #[derive(Debug, Clone, PartialEq)]
@@ -585,7 +576,6 @@ pub struct TimelineDecl {
     /// Where.
     pub span: Span,
 }
-
 /// One line of a `keyframes` declaration.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KeyframeDecl {
@@ -596,7 +586,6 @@ pub struct KeyframeDecl {
     /// Where.
     pub span: Span,
 }
-
 /// `shape Name` with its fields.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapeDecl {
@@ -607,7 +596,6 @@ pub struct ShapeDecl {
     /// Where it was declared.
     pub span: Span,
 }
-
 /// One shape field.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Field {
@@ -618,7 +606,6 @@ pub struct Field {
     /// Where.
     pub span: Span,
 }
-
 /// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `T[]`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
@@ -631,7 +618,6 @@ pub enum TypeExpr {
     /// `T[]`.
     List(Box<TypeExpr>, Span),
 }
-
 impl TypeExpr {
     /// Whether this type carries a finite string vocabulary.
     pub fn contains_enum(&self) -> bool {
@@ -641,7 +627,6 @@ impl TypeExpr {
             Self::Named(..) => false,
         }
     }
-
     /// Where it was written.
     pub fn span(&self) -> Span {
         match self {
@@ -652,7 +637,6 @@ impl TypeExpr {
         }
     }
 }
-
 /// A component.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Component {
@@ -691,7 +675,6 @@ pub struct Component {
     /// Where.
     pub span: Span,
 }
-
 impl Component {
     /// Describe every required prop absent from a use, in declaration order.
     /// Called only after a missing argument is found; valid uses allocate nothing.
@@ -706,7 +689,6 @@ impl Component {
         format!("`{}` needs {missing}", self.name)
     }
 }
-
 /// `state name = expr persist` (LLP 1116 D5): a root state the host keeps
 /// across launches; the state's name, and where `persist` is written.
 #[derive(Debug, Clone, PartialEq)]
@@ -716,14 +698,12 @@ pub struct Persist {
     /// Where `persist` is written.
     pub span: Span,
 }
-
 impl Component {
     /// Whether the state `name` says `persist`.
     pub fn persists(&self, name: &str) -> bool {
         self.persist.iter().any(|p| p.name == name)
     }
 }
-
 /// `name = expr`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Binding {
@@ -734,7 +714,6 @@ pub struct Binding {
     /// Where.
     pub span: Span,
 }
-
 /// `resource name = source(args) [with context, …] as shape T [else source(args)]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceDecl {
@@ -755,7 +734,6 @@ pub struct ResourceDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A resource's placeholder: a source call, as a resource's value is (a
 /// record comes from a source), whose arguments are values — it reads no
 /// state, so the build answers it once for every launch.
@@ -768,7 +746,6 @@ pub struct Placeholder {
     /// Where.
     pub span: Span,
 }
-
 /// `mutation name as shape T` (LLP 1016): an `option<T>` slot, `none` at
 /// boot, that a `send` fills from an action.
 #[derive(Debug, Clone, PartialEq)]
@@ -788,7 +765,6 @@ pub struct MutationDecl {
     /// Where.
     pub span: Span,
 }
-
 /// A typed parameter (`props` entry or action parameter).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
@@ -799,7 +775,6 @@ pub struct Param {
     /// Where.
     pub span: Span,
 }
-
 /// `action name(params)` with a body of statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Action {
@@ -812,7 +787,6 @@ pub struct Action {
     /// Where.
     pub span: Span,
 }
-
 /// One slot an action body assigns (`x = …`) or sends (`send m = …`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Effect<'a> {
@@ -826,7 +800,6 @@ pub struct Effect<'a> {
     /// span), when a called action makes it (LLP 1089 D5).
     pub call: Option<(&'a str, Span)>,
 }
-
 impl Action {
     /// Every slot the body assigns or sends, through every branch of its
     /// `if`s and `match`es, in statement order with repeats. An action's
@@ -873,7 +846,6 @@ impl Action {
         out
     }
 }
-
 /// A statement in an action body.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {

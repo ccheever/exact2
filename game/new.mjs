@@ -4,7 +4,6 @@ import { randomBytes } from 'node:crypto';
 import { chmodSync, cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { capturedLockDrift, gameDefaults, gameShells } from './app/shells.mjs';
-import { ensureBun } from '../scripts/bun.mjs';
 import { cargoEnvironment, pathFrom, patchLines } from '../scripts/app.mjs';
 
 /** Type names a game's generated type may not take: the engine's public items
@@ -192,7 +191,7 @@ shape Board
   message: string
   latest: string
   sending: number
-  notes: list<Note>
+  notes: Note[]
 shape Ack
   ok: bool
   message: string
@@ -220,7 +219,7 @@ component ${title.replaceAll(' ', '')}
   action editDraft(value: string)
     draft = value
   action postNote
-    send posted = post(persona, trim(draft), time.epochAtZero + performanceNow())
+    send posted = post(persona, draft.trim(), time.epochAtZero + performanceNow())
   action afterPost
     match posted
       case some(result)
@@ -237,17 +236,17 @@ component ${title.replaceAll(' ', '')}
             text "Alice"
           option value="bob"
             text "Bob"
-        when banner != ""
+        if banner != ""
           text banner testId="banner"
         text (board.online ? "Synced" : board.message) testId="status"
         text \`\${board.sending} sending\` testId="sending"
         row gap=8
           input value=draft input=editDraft testId="draft" placeholder="Say something" aria-label="Note" flex=1
-          button appearance="auto" press=postNote disabled=(trim(draft) == "") testId="post"
+          button appearance="auto" press=postNote disabled=(draft.trim() == "") testId="post"
             text "Post"
         text notice testId="notice"
         text board.latest testId="latest"
-        each note, i in board.notes key=note.id
+        for note, i in board.notes key=note.id
           text \`\${note.author}: \${note.body}\${note.pending ? " (sending)" : ""}\` testId=\`note-\${i}\`
 `,
     'app.ts': `import type { Answer, Result, Sources } from './app.contract.d.ts';
@@ -395,11 +394,11 @@ component App
       text "Query: ${query}" role="heading" aria-level=1
       textarea value=queryArgs input=editQuery testId="query-args" aria-label="Query arguments as JSON"
       button "Refresh" press=reloadQuery testId="refresh"
-      when failed(result)
+      if failed(result)
         text (match failure(result) { case some(f) => f.code, case none => "" }) testId="query-error"
       else
         text result.text testId="query-result"
-        when not result.complete
+        if not result.complete
           text "Partial answer; more rows may exist." testId="partial"
       text "Mutation: ${mutation}" role="heading" aria-level=2
       textarea value=mutationArgs input=editMutation testId="mutation-args" aria-label="Mutation arguments as JSON"
@@ -1063,13 +1062,14 @@ function commandsFor(dir, name, {game = false} = {}) {
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-(${ensureBun.toString()})(${JSON.stringify(JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace('bun@', ''))});
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const cli = resolve(EXACT2, 'scripts/app-cli.mjs');
 if (!existsSync(cli)) {
   console.error(\`no exact2 at \${EXACT2} (no scripts/app-cli.mjs): EXACT2 names the checkout\`);
   process.exit(1);
 }
+const { ensureBun } = await import(resolve(EXACT2, 'scripts/bun.mjs'));
+ensureBun(${JSON.stringify(JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.replace('bun@', ''))});
 const { run } = await import(cli);
 process.exit(await run({ dir: import.meta.dir, name: ${JSON.stringify(name)},${game ? ' game: true,' : ''} exact2: EXACT2, args: process.argv.slice(2) }));
 `;

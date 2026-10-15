@@ -78,7 +78,7 @@ mutation post(body: text 1..200):
   value: enum<"a", "b">
 shape Board
   latest: string
-  choices: list<Choice>
+  choices: Choice[]
 shape Post
   id: string
   status: enum<"sent", "failed">
@@ -96,7 +96,7 @@ component App
       input value=draft input=edit testId="draft"
       button "Post" press=post("send") testId="post"
       text board.latest testId="latest"
-      each choice in board.choices key=choice.value
+      for choice in board.choices key=choice.value
         text choice.value
       text (match failure(posted) { case some(f) => f.code, case none => "ok" }) testId="failure"
       text (match posted { case some(p) => p.status, case none => "" }) testId="fate"
@@ -249,7 +249,7 @@ test('registry online scaffold and complete password example work through test w
   };
   try {
     writeFileSync(join(project, 'package.json'), JSON.stringify({type: 'module', dependencies: {snapback4: '0.4.28'}}));
-    run(['install', '--registry', process.env.SNAPBACK4_REGISTRY ?? 'http://127.0.0.1:4873/']);
+    run(['install', '--registry', process.env.SNAPBACK4_REGISTRY ?? 'https://registry.npmjs.org/']);
     const binary = join(project, `node_modules/snapback4-${process.platform}-${process.arch}/snapback4`);
     env.SNAPBACK4_BIN = binary;
     assert.equal(JSON.parse(readFileSync(join(project, `node_modules/snapback4-${process.platform}-${process.arch}/package.json`))).version, '0.4.28');

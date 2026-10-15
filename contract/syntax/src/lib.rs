@@ -174,6 +174,16 @@ impl std::fmt::Display for TypeExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TypeExpr::Named(n, _) => write!(f, "{n}"),
+            TypeExpr::Enum(values, _) => {
+                write!(f, "enum<")?;
+                for (i, value) in values.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{value:?}")?;
+                }
+                write!(f, ">")
+            }
             TypeExpr::Option(t, _) => write!(f, "option<{t}>"),
             TypeExpr::List(t, _) => write!(f, "{t}[]"),
         }

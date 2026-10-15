@@ -140,7 +140,6 @@ function endAll(rows) {
 // force, and a count of what commits changed (an edge's no-op, runner/collection.rs).
 export { scope, end, untracked, write, onEnd };
 export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTicket = () => ++Ticket;
-
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
@@ -374,7 +373,6 @@ export function paint() {
 let NowRead = false, Parked = -1;
 /** After a commit that wrote: a parked frame loop runs again. */
 function unpark() { if (Parked >= 0 && Rev !== Parked) { Parked = -1; paint(); } }
-
 // ---------------------------------------------------------------- the data seam
 /** The app's data sources (LLP 1016). `answer(source, args, store)` gives
  * `{v}` now, `{req}` (an HTTP request the host runs, then `parse`s),
@@ -951,7 +949,6 @@ export const onFocus = (e, kind, f, l) => { const own = Owner, run = () => e.isC
 export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 export const onToggle = (e, kind, f, l) => l(kind, ev => f([ev.oldState, ev.newState]));
 export const onSelectionChange = (e, kind, f, l) => { return textField(e) ? l(kind, () => f(inputRecord(e, e.value, false))) : onSelection(e, (text, a, b, rects) => f([text, a, b, rects])); };
-
 // ---------------------------------------------------------------- presence (LLP 1063)
 // `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
@@ -992,7 +989,6 @@ export function pr(e) {
     })
     .catch(err => say(`presence: unavailable; motion skipped: ${err.message}`)).finally(() => inflight.n--);
 }
-
 /** The motion piece (motion.js over `motion.wasm` and the web host's
  * `motion-glue.js`), fetched after the first painted frame by a plan that
  * uses motion; `f(m)` runs at once when it is here, else once it is. */
@@ -1158,7 +1154,6 @@ export function hd(p, fields) {
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
   onEnd(head(t, fields, effect, After));
 }
-
 function range(p) {
   if (Adopt) return [mark(p), null];
   const a = document.createComment(""), b = document.createComment("");
@@ -1308,7 +1303,6 @@ export function each(p, list, key, row, pure) {
     });
   }).$r = () => [a, b]; // the region's range, for shared.js
 }
-
 /** The indices of `list`'s kept rows (`old`, their former places) on a
  * longest run in increasing former order: the rows that need not move. */
 function inOrder(list) {
@@ -1325,7 +1319,6 @@ function inOrder(list) {
   for (let i = tails.length ? tails[tails.length - 1] : -1; i >= 0; i = prev[i]) stay.add(i);
   return stay;
 }
-
 // Adoption in slices (LLP 1048.001): a keyed list's rows adopt in the
 // adoption's own task until its budget runs out, then in tasks of a few
 // milliseconds after it, so no one task holds the page. A press, key or
@@ -1430,7 +1423,6 @@ export function mount(f) {
   for (const [e, v, c] of shown) if (e.isConnected) { if (e.type === "checkbox" || e.type === "radio") e.checked = c; else if (e.type !== "file") e.value = v; }
   for (const t of early) if (t.target.isConnected) t.type === "click" ? t.target.click() : t.target.dispatchEvent(new Event(t.type, { bubbles: true }));
 }
-
 /** The page's checkpoint (LLP 1048.000 D4): the answers its document used,
  * by resource name, so a resource admits the rendered value while its
  * arguments match, and the time the render stopped at. */

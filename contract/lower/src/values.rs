@@ -1,13 +1,11 @@
 //! Attribute values checked against what they set, at compile time: a
 //! literal style value by the kernel's own row parser, a computed one and a
 //! prop by type (LLP 1017 P1a).
-
 use crate::{edits, err, media, symbols, tags, vocab, FontUse, LowerError};
 use contract_syntax::{Attr, Expr, Span, UnOp};
 use contract_types::{Ref, Scope, Shapes, Ty};
 use exact_kernel::{PropId, StyleId, StyleProps, StyleValue, StyleValueError};
 use std::{cell::Cell, rc::Rc};
-
 /// A literal, as an author wrote it, for a message.
 fn literal_text(e: &Expr) -> String {
     match e {
@@ -17,7 +15,6 @@ fn literal_text(e: &Expr) -> String {
         _ => "…".into(),
     }
 }
-
 /// `navigationSplit`'s column width written as a number: its text, as the
 /// prop carries it (LLP 1116.004 D1.2).
 pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
@@ -28,7 +25,6 @@ pub(crate) fn split_width(prop: PropId, e: &Expr) -> Option<Expr> {
         _ => None,
     }
 }
-
 /// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
 /// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
 /// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
@@ -91,7 +87,6 @@ pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
         }
     }
 }
-
 /// Whether a value is a spacing as written: `"auto"`, a number, or a choice
 /// of them.
 fn spacing_tree(e: &Expr) -> bool {
@@ -102,7 +97,6 @@ fn spacing_tree(e: &Expr) -> bool {
         _ => numeric_literal(e).is_some(),
     }
 }
-
 pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
     match e {
         Expr::Number(n, _) => Some(*n),
@@ -110,11 +104,9 @@ pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
         _ => None,
     }
 }
-
 fn whole_i64(n: f64) -> bool {
     n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
-
 /// A CSS-text row's refusal with the kernel's own reason (LLP 1077).
 fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static str> {
     let exact_kernel::StyleValue::Text(t) = v else {
@@ -131,7 +123,6 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
         _ => None,
     }
 }
-
 /// The kernel's refusal of a style value, in an author's words.
 pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
@@ -176,7 +167,6 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
-
 /// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
 /// order — `border-radius`'s corners in top-left, top-right, bottom-right,
 /// bottom-left order, which CSS fills from fewer values the same way
@@ -232,12 +222,10 @@ const FOUR_SIDED: [[StyleId; 4]; 9] = [
         StyleId::BorderRadiusBottomLeft,
     ],
 ];
-
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
 pub(crate) fn four_sided(rows: &[StyleId]) -> bool {
     FOUR_SIDED.iter().any(|sides| rows == sides)
 }
-
 /// A box shorthand's one to four values, split where CSS splits them: at
 /// white space outside parentheses, so `light-dark(#fff, #000)` and
 /// `calc(50% - 4px)` are one value.
@@ -262,7 +250,6 @@ fn side_values(text: &str) -> Vec<&str> {
     }
     values
 }
-
 /// A box shorthand (`padding: <length>{1,4}`, `border-color: <color>{1,4}`,
 /// …) as four longhand expressions (top, right, bottom, left): every literal
 /// the value can produce — a string, or an arm of a conditional — is split
@@ -352,7 +339,6 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
     }
     Ok(Some([0, 1, 2, 3].map(|i| side(value, i))))
 }
-
 /// A literal style value is checked now by the kernel's own parser
 /// (`StyleProps::set_dynamic`), so `width=true` and `align-items="middle"`
 /// are refused at compile time, not at the first frame; a computed value
@@ -416,7 +402,6 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
         *span,
     )
 }
-
 /// Whether `e` puts a `-exact-platform-color(` literal into a value it computes.
 fn builds_platform_color(e: &Expr) -> bool {
     let named = |t: &str| t.contains("-exact-platform-color(");
@@ -450,7 +435,6 @@ fn builds_platform_color(e: &Expr) -> bool {
         Expr::Number(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => false,
     }
 }
-
 /// `position-area` places a popover against the invoker that opens it (its
 /// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
 /// node it would name nothing to place against.
@@ -470,7 +454,6 @@ pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
         a.span,
     )
 }
-
 impl crate::Lowerer<'_> {
     /// `check_style_value` with this lowering's shapes.
     pub(crate) fn check_style(
@@ -484,7 +467,6 @@ impl crate::Lowerer<'_> {
         check_style_value(a, rows, ty, fonts, scope, &self.types.shapes)
     }
 }
-
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -501,7 +483,6 @@ pub(crate) fn check_style_value(
     style_value(a, rows, ty, fonts, scope, shapes)
         .map_err(|e| crate::theme::token_error(a, rows, e))
 }
-
 fn style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -940,7 +921,6 @@ fn style_value(
     }
     Ok(())
 }
-
 fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
     match e {
         Expr::Str(s, _) => rows
@@ -954,7 +934,6 @@ fn css_wide_branches(e: &Expr, rows: &[StyleId]) -> bool {
         _ => false,
     }
 }
-
 #[derive(Clone)]
 struct Bound<'a> {
     name: &'a str,
@@ -962,7 +941,6 @@ struct Bound<'a> {
     scope: Scope,
     checked: Rc<Cell<Option<Option<Span>>>>,
 }
-
 fn computed_string_arm<'a>(
     e: &'a Expr,
     scope: &Scope,
@@ -1044,7 +1022,6 @@ fn computed_string_arm<'a>(
         },
     }
 }
-
 /// HTML's enumerated attributes whose IDL attributes are bools, as the words
 /// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
 /// `on`/`off`.
@@ -1065,7 +1042,6 @@ pub(crate) fn aria_words(prop: PropId) -> Option<(&'static str, &'static [&'stat
         _ => return None,
     })
 }
-
 pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> {
     match (prop, value) {
         (PropId::AccessibilityDisabled, Expr::Str(s, span)) if s == "true" || s == "false" => {
@@ -1074,7 +1050,6 @@ pub(crate) fn aria_disabled_literal(prop: PropId, value: &Expr) -> Option<Expr> 
         _ => None,
     }
 }
-
 pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
     match prop {
         PropId::Spellcheck => Some(("true", "false")),
@@ -1082,7 +1057,6 @@ pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
         _ => None,
     }
 }
-
 /// A prop attribute's value by the prop's type: text for most, a bool for
 /// `disabled`, a whole number for `aria-level`, either for [`bool_words`].
 pub(crate) fn check_prop_value(
@@ -1268,7 +1242,6 @@ pub(crate) fn check_prop_value(
     }
     Ok(())
 }
-
 /// @ref LLP 1053.000.000 D6 — where a glass group cannot be: beside the
 /// element's own material (the group's glass would fuse with it), on a
 /// scroll (its content belongs to the scroll and its rows), on a canvas
@@ -1305,7 +1278,6 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
     }
     Ok(())
 }
-
 /// CSS flex shorthand, projected into the three longhands before bytecode.
 pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerError> {
     let mut out = value.clone();
@@ -1391,7 +1363,6 @@ pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerEr
     }
     Ok(out)
 }
-
 /// A literal `flex` (a number or the CSS shorthand's text) as its three
 /// longhands; `None` for a computed one, which the bake's measured-layout
 /// lint judges.
@@ -1407,7 +1378,6 @@ pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
     };
     Some((grow, shrink, basis))
 }
-
 /// Whether a `flex` bounds its box on the main axis by itself: a positive
 /// grow (it takes the container's free space), or a definite length basis,
 /// zero included (`flex="0 0 0px"` is an empty scrollport, as `height=0`
@@ -1428,7 +1398,6 @@ pub(crate) fn flex_bounds(value: &Expr) -> bool {
         .is_some_and(|n| n.trim().parse::<f64>().is_ok_and(|n| n == 0.0));
     grow > 0.0 || !(intrinsic || zero_percent)
 }
-
 /// A shrinking flex item with a zero minimum fits a bounded flex column.
 /// Its shrink is the `flex-shrink` longhand's, or else the `flex`
 /// shorthand's (`flex="none"` does not shrink).
@@ -1448,7 +1417,6 @@ pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
             .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
         && shrink.is_none_or(|n| n.is_none_or(|n| n > 0.0))
 }
-
 pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
     let word = |name: &str| {
         attrs
@@ -1470,7 +1438,6 @@ pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool
                 && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
         }) || shrinking_scroll(attrs, inherited))
 }
-
 /// Why a multi-column or break value is refused (LLP 1093 §1), if it is.
 fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     let has = |row| rows.contains(&row);
@@ -1510,6 +1477,5 @@ fn multicol_value(rows: &[StyleId], v: &str) -> Option<&'static str> {
     }
     None
 }
-
 #[cfg(test)]
 mod tests;

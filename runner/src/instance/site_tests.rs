@@ -25,6 +25,7 @@ fn reused_frames_preserve_nested_scopes_and_release_rows_on_error() {
         failed_resources: &[],
         failed_why: &[],
         pending_mutations: &[],
+        failed_mutations: &[],
         store_dependent_derives: &[],
         store_dependent_resources: &[],
     };

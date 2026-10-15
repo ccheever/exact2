@@ -473,7 +473,7 @@ fn nested_enum_parameters_keep_membership_and_enum_keys_and_overrides_work() {
     ] {
         assert!(contract::compile(&app.replace(good, bad)).is_err(), "{bad}");
     }
-    let keyed = "shape Choice\n  value: enum<\"a\", \"b\">\ncomponent App\n  resource choices = choices() as shape list<Choice> else empty()\n  resource choice = choice() as shape Choice else empty(value=\"b\")\n  view\n    column\n      text choice.value\n      each x in choices key=x.value\n        text x.value testId=\"enum-row\"\n";
+    let keyed = "shape Choice\n  value: enum<\"a\", \"b\">\ncomponent App\n  resource choices = choices() as shape Choice[] else empty()\n  resource choice = choice() as shape Choice else empty(value=\"b\")\n  view\n    column\n      text choice.value\n      for x in choices key=x.value\n        text x.value testId=\"enum-row\"\n";
     let plan = contract::compile(keyed).unwrap();
     assert!(contract::compile(&keyed.replace("value=\"b\"", "value=\"bad\"")).is_err());
     struct Choices;

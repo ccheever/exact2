@@ -11,7 +11,7 @@ import { applyPattern, createApp, createGame, patternFiles, patterns, wireSnapba
 
 /** A fake exact2 at `sdk` runs the real app-cli.mjs that an app's exact.mjs hands its verb to (LLP 1116.006 D7), and the
  * verify.mjs whose server `test` runs for an app that has one (LLP 1116.007 D2). */
-const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
+const withCli = (sdk) => { mkdirSync(resolve(sdk, 'scripts'), { recursive: true }); for (const file of ['app-cli', 'verify', 'help', 'bun']) copyFileSync(resolve(import.meta.dir, `../scripts/${file}.mjs`), resolve(sdk, `scripts/${file}.mjs`)); };
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -34,7 +34,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // The runner is a few lines a builder can read (LLP 1116.006 D7): where the verbs are, and the checkout's app-cli.mjs.
     const launcher = readFileSync(resolve(dir, 'exact.mjs'), 'utf8');
     assert.ok(launcher.trimEnd().split('\n').length <= 25, `exact.mjs is ${launcher.split('\n').length} lines`);
-    assert.match(launcher.split('\n')[1], /`bun exact\.mjs --help` lists the verbs/);
+    assert.match(launcher.split('\n')[2], /`bun exact\.mjs --help` lists the verbs/);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');

@@ -56,6 +56,12 @@ const OPTIMIZE = ['--optimize speed|size', 'the Rust archive\'s (default speed, 
 const PREBUILD = ['--prebuild', 'start the build apart from this shell and return; its log: .exact/<ios|macos>-build.log'];
 
 export const HELP = {
+  backend: {
+    line: 'start the app’s Snapback backend at its authored origin',
+    usage: 'bun exact.mjs backend [dev|serve <release>] [flags]',
+    flags: [],
+    body: 'Runs the backend package installed above the app, on app.ts’s loopback origin. Use snapback --port <n> to move it.',
+  },
   snapback: {
     line: 'wire the Snapback backend above the app',
     usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',

@@ -11,7 +11,7 @@ import { createApp } from '../game/new.mjs';
 import { HELP, helpText, indexText, knownFlags } from './help.mjs';
 
 const ROOT = resolve(import.meta.dir, '..');
-const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'pattern', 'feedback'];
+const APP_VERBS = ['web', 'web-build', 'test', 'agent', 'verify', 'ios', 'mac', 'linux', 'android', 'update', 'contract', 'tamber', 'hatch', 'snapback', 'backend', 'pattern', 'feedback'];
 const timed = (args, options) => {
   const t = performance.now(), r = spawnSync(process.execPath, args, { encoding: 'utf8', timeout: 15_000, ...options });
   return { ...r, ms: performance.now() - t };
@@ -26,7 +26,7 @@ test('each verb of a new app\'s exact.mjs, and no verb, answers help from exact2
     writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { seed: ['bun', 'seed.mjs'] } }, null, 2));
     // A fake exact2 whose every script, run, leaves a mark: a help that built or served anything would.
     mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
-    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
+    for (const file of ['scripts/help.mjs', 'scripts/app-cli.mjs', 'scripts/bun.mjs']) copyFileSync(resolve(ROOT, file), resolve(sdk, file));
     for (const file of ['host/web/dev.mjs', 'host/web/build.mjs', 'host/apple/build.mjs', 'scripts/agent.mjs', 'scripts/verify.mjs', 'scripts/build-linux.mjs', 'scripts/agent-android.mjs', 'scripts/exact.mjs', 'scripts/feedback.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), `require('node:fs').appendFileSync(${JSON.stringify(started)}, ${JSON.stringify(file)} + '\\n');`);
