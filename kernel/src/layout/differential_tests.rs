@@ -256,3 +256,159 @@ fn unpublished_layout_writes_are_bounded_by_live_nodes() {
     tree.remove(node);
     assert!(tree.taffy.take_layout_changes().is_empty());
 }
+
+#[test]
+fn definite_stretched_columns_do_not_probe_unused_text_intrinsics() {
+    use std::{cell::RefCell, rc::Rc};
+    struct Count(Rc<RefCell<Vec<AxisOffer>>>);
+    impl TextMeasurer for Count {
+        fn height_free(&self) -> bool {
+            true
+        }
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            if request.runs.iter().any(|r| r.text.starts_with("alpha")) {
+                self.0.borrow_mut().push(request.width);
+            }
+            MonospaceMeasurer::default().measure(request)
+        }
+    }
+    fn fixture(
+        explicit_width: bool,
+        align: &str,
+        baseline_parent: bool,
+    ) -> (Kernel, Rc<RefCell<Vec<AxisOffer>>>) {
+        let calls = Rc::new(RefCell::new(Vec::new()));
+        let mut k = Kernel::new(Box::new(Count(calls.clone())));
+        let mut ops: Vec<_> = (1..=4)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: if id <= 2 {
+                    NodeType::View
+                } else {
+                    NodeType::Text
+                },
+            })
+            .collect();
+        ops.extend([
+            style(
+                1,
+                &[
+                    (StyleId::Display, t("flex")),
+                    (StyleId::Width, n(300.0)),
+                    (
+                        StyleId::FlexDirection,
+                        t(if baseline_parent { "row" } else { "column" }),
+                    ),
+                    (
+                        StyleId::AlignItems,
+                        t(if baseline_parent {
+                            "baseline"
+                        } else {
+                            "stretch"
+                        }),
+                    ),
+                ],
+            ),
+            style(
+                2,
+                &[
+                    (StyleId::Display, t("flex")),
+                    (StyleId::FlexDirection, t("column")),
+                    (StyleId::Width, n(80.0)),
+                ],
+            ),
+            style(
+                3,
+                &[
+                    (StyleId::FontSize, n(16.0)),
+                    (StyleId::LineHeight, n(1.25)),
+                    (StyleId::AlignSelf, t(align)),
+                ],
+            ),
+            style(4, &[(StyleId::FontSize, n(24.0))]),
+            Op::SetProp {
+                id: 3,
+                prop: PropId::Text,
+                value: "alpha beta gamma delta".into(),
+            },
+            Op::SetProp {
+                id: 4,
+                prop: PropId::Text,
+                value: "baseline".into(),
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3],
+            },
+            Op::SetChildren {
+                id: 1,
+                children: vec![2, 4],
+            },
+            Op::AttachRoot { id: 1 },
+        ]);
+        if explicit_width {
+            ops.push(style(3, &[(StyleId::Width, StyleValue::Percent(100.0))]));
+        }
+        k.apply(0, 1, &ops).unwrap();
+        (k, calls)
+    }
+    for baseline_parent in [false, true] {
+        let (mut automatic, calls) = fixture(false, "stretch", baseline_parent);
+        let (mut explicit, explicit_calls) = fixture(true, "stretch", baseline_parent);
+        for (epoch, body) in [
+            (2, "alpha beta gamma delta"),
+            (3, "alpha exceptionallylongunbreakableword beta"),
+        ] {
+            for k in [&mut automatic, &mut explicit] {
+                k.apply(
+                    0,
+                    epoch,
+                    &[Op::SetProp {
+                        id: 3,
+                        prop: PropId::Text,
+                        value: body.into(),
+                    }],
+                )
+                .unwrap();
+                k.compute_layout(1, Offer::definite(300.0, 600.0)).unwrap();
+            }
+            for id in 1..=4 {
+                let a = automatic.node(id).unwrap();
+                let b = explicit.node(id).unwrap();
+                assert_eq!(a.frame, b.frame, "node {id}, epoch {epoch}");
+                assert_eq!(a.content, b.content, "overflow node {id}, epoch {epoch}");
+            }
+            // The outer baseline row may legitimately ask the whole column for
+            // intrinsic contributions. Only the fully definite column case is
+            // allowed to assert that every target paragraph offer is finite.
+            if !baseline_parent {
+                assert!(
+                    calls
+                        .borrow()
+                        .iter()
+                        .all(|w| matches!(w, AxisOffer::Definite(_))),
+                    "unused intrinsic probes in a fully definite column: {:?}",
+                    calls.borrow()
+                );
+                assert_eq!(
+                    *calls.borrow(),
+                    *explicit_calls.borrow(),
+                    "auto/stretch must need the same native offers as equivalent explicit width"
+                );
+            }
+            assert!(
+                !calls.borrow().is_empty(),
+                "final native text measurement must remain"
+            );
+            calls.borrow_mut().clear();
+            explicit_calls.borrow_mut().clear();
+        }
+    }
+    // An unstretched child's intrinsic width still determines its used width.
+    let (mut centered, calls) = fixture(false, "center", false);
+    centered
+        .compute_layout(1, Offer::definite(300.0, 600.0))
+        .unwrap();
+    assert!(calls.borrow().contains(&AxisOffer::MinContent));
+    assert!(calls.borrow().contains(&AxisOffer::MaxContent));
+}

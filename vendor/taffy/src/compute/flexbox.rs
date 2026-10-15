@@ -1964,6 +1964,17 @@ fn determine_hypothetical_cross_size(
     available_space: Size<AvailableSpace>,
 ) {
     for child in line.items.iter_mut() {
+        // A definite single-line column fixes its line width without these
+        // hypothetical widths. Stretch overwrites this child's width below;
+        // column baselines do not read it either. Keep all other probes.
+        if !constants.is_row && !constants.is_wrap && constants.has_definite_cross_size
+            && child.align_self == AlignSelf::STRETCH && child.size_style.width.is_auto()
+            && child.aspect_ratio.is_none()
+            && !child.margin_is_auto.left && !child.margin_is_auto.right
+            && !tree.get_flexbox_child_style(child.node).is_compressible_replaced()
+        {
+            continue;
+        }
         let padding_border_sum = (child.padding + child.border).cross_axis_sum(constants.dir);
 
         let child_known_main = constants.container_size.main(constants.dir).into();
