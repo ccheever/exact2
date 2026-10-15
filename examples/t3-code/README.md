@@ -391,11 +391,29 @@ could not, the comment at the fix says what happened and why the code is so.
 
 ## Work left
 
-As of 2026-10-15. Each item says what is wrong or missing; the open framework issues that
-someone using the app runs into are in the section above.
+As of 2026-10-15, after a session with real keys, pointer and VoiceOver on this state. Each
+item says what is wrong or missing; the open framework issues that someone using the app runs
+into are in the section above.
 
 **Fails:**
 
+- While a confirm dialog, the keybinding recorder, a save panel, the colour picker or a
+  Connections "More actions" menu is open, the window's accessibility tree is one empty scroll
+  area, so VoiceOver reads "empty, scroll area" and no slider value. The cause is not found yet.
+- Terminal, Korean 2-Set: ⌃C while ㅎ composes prints `ㅎ^C` and ends the program, and ⌥Return
+  while 한 composes sends Escape and runs the line; the reference commits the syllable alone and
+  hands ⌥Return to the input method. Composed text is drawn on the line below the prompt.
+- The composer's file preview: Tab stays on "Disable word wrap" (Shift-Tab reaches Close); a
+  `target="_blank"` link in an HTML file opens nothing; after a backdrop click the accessibility
+  focus is the window, not the prompt.
+- After Escape on a remove-confirm dialog the focus is the window, not its "More actions" trigger.
+- VoiceOver: VO-Right skips the composer's chips (and the Appearance preview's skill chip);
+  VO-Space on a file chip opens it only on the second press.
+- The composer's image preview does not move between images with ← and →.
+- The legacy sidebar: a thread's machine glyph shows no tooltip; Mark unread shows no change;
+  its thread menu has no Archive item (to compare with the reference).
+- The font picker's search field is not focused when the picker opens.
+- A hover action on a sidebar row once answered "The server returned HTTP 404".
 - Return on a focused row does nothing in most painted menus (the pull request pages, Usage,
   the Files crumbs, the Browser's own menus, the snapshot sounds and others). The Mac host gives
   Return to a dialog's default button only (`host/apple/Sources/ExactKit/Mac/NativeButtonsMac.swift`,
@@ -403,38 +421,21 @@ someone using the app runs into are in the section above.
   Snooze, the Settings and Connections row kits, and the composer's Run on and Workspace menus
   do. A host change for a focused `menuitem` or `option` in an open popover would cover every
   menu ([`issues/20261015-macos-return-on-a-focused-menu.md`](../../issues/20261015-macos-return-on-a-focused-menu.md)).
+- An accessibility press lands once but answers an error
+  ([`issues/20261013-macos-axpress-on-a-button-whose.md`](../../issues/20261013-macos-axpress-on-a-button-whose.md)).
 
-**Fixed, not checked with real input or VoiceOver.** The fixes of 2026-10-14 and 2026-10-15
-passed in-process and agent-drive checks only. VoiceOver was last turned on before them; it
-then misread the theme editor's sliders and the accent picker as percentages, did not reach the
-composer's skill chip, and its show menu (VO-⇧-M) opened nothing on a reply link, a thread row
-or chat media. To check with real input, VoiceOver, or both:
+**Passed with real keys, pointer or VoiceOver** (2026-10-15): the keybinding recorder's Escape,
+Snooze's focus return, Return on the fixed menus, the launcher's letters after a remount, the
+mention, citation, image, video, PDF and audio chips, Cite by double-click, Tab and drag, the
+reply's table and linked images, split view's stripes while scrolling, the PR pages' refocus and
+thread picker, route order across launches, the Browser's Appearance submenu by hover, fonts
+kept across launches, wheel settling, VoiceOver's show menu on links, rows and media, and the
+legacy sidebar's background rows, project menu and a Finder drop onto a background thread.
 
-- Settings › Keybindings: one Escape after a recorded chord restores the binding and leaves
-  Settings open; a second Escape closes Settings.
-- Snooze closed with Escape while the pointer is elsewhere: the focus returns to its trigger.
-- Return on a row of the + menu, a Settings select and a Connections machine menu.
-- The surface launcher's letter after the launcher is mounted again (⌘⌥B twice, then a letter).
-- Composer chips: each press and its popover, by pointer and by VoiceOver; a video chip.
-- The composer's file chip: its preview by pointer and by VoiceOver, Save file, a draft's audio,
-  and a draft HTML page's links (in place; `_blank` opens the browser; `_top` does nothing).
-- In full screen, one accessibility press on "Toggle thread details panel" (an agent's press
-  toggled it twice; `issues/20261013-macos-axpress-on-a-button-whose.md` may be why).
-- Terminal: Korean 2-Set composition, middle-click paste, link opening, closing a terminal.
-- The composer's context popover under VoiceOver.
-- Chat: Cite by double-click, Tab and drag; Markdown media and code; a linked image's menu.
-- Sidebar: hover, archive and its undo, the branch's PR glyph; the legacy sidebar's drop into a
-  second environment, its background rows, each item of its project and thread menus, and the
-  tooltip of a thread row's machine glyph.
-- Device player: every pointer gesture, and the cursor of each of its eight edge zones.
-- Split view: the empty side's stripes while scrolling.
-- Pull Requests: refocus, the scheme switch, the thread picker.
-- Dialogs: focus return and Tab traps of every dialog.
-- Connections: route order kept across launches, a physical drag of the grip.
-- Menus: the Browser's Appearance submenu by hover.
-- Settings › Appearance: font faces, bold and italic, Files and PR typography, persistence.
-- Timeline: trackpad and wheel settling, reduced motion.
-- The permission helper: a real grant, and Finder coming to the front.
+**Not checked yet:** the device player (needs a device), Reduce motion and trackpad momentum,
+the thread, pull request, review comment and annotation chips by pointer, every chip kind by
+VO-Space, the context popover and progress bars under VoiceOver, the branch's PR glyph, bold
+and italic font faces, the permission helper's real grant (the user's), and a tailnet.
 
 **Checked by tests and agent drives only:** Home's choice of the most recent project across
 environments (driven with `tools/second-environment`), and Settings › Projects for a project
