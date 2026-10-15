@@ -11,6 +11,7 @@ import { chmodSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, write
 import { connect as netConnect } from "node:net";
 import { join, resolve } from "node:path";
 import { connect, ensureProject } from "../github-lane/lib.mjs";
+import { AGENT, install as installStandin, status as standinStatus } from "../acp-standin/install.mjs";
 
 export const checkout = resolve(import.meta.dir, "../../../..");
 export const example = join(checkout, "examples/t3-code");
@@ -218,12 +219,14 @@ export function pairingUrl(paths, name, label) {
 /**
  * The seeded content: "shared-notes" (one Git origin in every environment, so the clone groups it
  * as one logical project across machines) and, in `second` only, "background-only". Threads are
- * created with `thread.create` and never get a turn, so none has a completed run.
+ * created with `thread.create` and never get a turn. `turns` are threads with one completed turn,
+ * seeded only with `seed --turns` (`seedTurns`): the ACP stand-in answers them.
  */
 export const SEEDS = {
   second: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on second"] },
-    { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"] },
+    { repo: "background-only", origin: "https://github.com/t3-fixture/background-only.git", threads: ["Background thread (no run)", "Background follow-up"],
+      turns: [{ title: "Background thread (completed turn)", prompt: "Say hello from the stand-in" }] },
   ],
   third: [
     { repo: "shared-notes", origin: "https://github.com/t3-fixture/shared-notes.git", threads: ["Shared notes on third"] },
@@ -252,8 +255,63 @@ async function shellSnapshot(conn) {
   return response.json();
 }
 
+/** The provider instance the stand-in's turns run on (an `acpRegistry` instance of its agent id). */
+export const STANDIN_INSTANCE = "acpRegistry_fixture-acp-standin";
+export const standinInstance = () => ({ driver: "acpRegistry", displayName: AGENT.name, config: { agentId: AGENT.id } });
+
+/**
+ * Makes the ACP stand-in a provider of `name`'s server: installed into its home (with no sign-in
+ * when it is not installed yet; an installed one keeps its mode and must be signed in) and added as
+ * the `STANDIN_INSTANCE` provider instance through server.updateSettings, as Add provider does.
+ * `bun ../acp-standin/install.mjs forget --home <t3home>` (server stopped) removes the instance.
+ */
+export async function addStandin(paths, name, conn, { timeoutMs = 20_000 } = {}) {
+  const t3home = join(envDir(paths, name), "t3home");
+  if (!standinStatus(t3home).installed) installStandin(t3home, { methods: "none" });
+  await conn.request("server.updateSettings", { patch: {}, providerInstanceMutation: { operation: "upsert", instanceId: STANDIN_INSTANCE, instance: standinInstance() } });
+  // The server registers the instance's adapter once its probe is done; a turn sent before then is refused.
+  const started = Date.now();
+  for (;;) {
+    const provider = ((await conn.request("server.getConfig", {})).providers ?? []).find((entry) => entry.instanceId === STANDIN_INSTANCE);
+    if (provider?.status === "ready") return;
+    if (Date.now() - started > timeoutMs) throw new Error(`the ACP stand-in is not ready (${provider?.status ?? "not listed"}: ${provider?.message ?? "no message"}); sign it in or reinstall it with --mode none`);
+    await Bun.sleep(250);
+  }
+}
+
+/** A thread's turn is done when its shell row has a completion time for its latest run. */
+export const turnCompleted = (thread) => !!thread?.latestRunId && !!thread?.latestRunCompletedAt && !thread?.activeRunId;
+
+/**
+ * One completed turn: a thread on the stand-in's instance (`existing`, else a new one) is sent
+ * `prompt` (message.dispatch, as the composer's Send), waited for until its run completes, then
+ * visited at that time, so it starts read, as a thread one has looked at; Mark unread is then the
+ * only way to its "Completed" status.
+ */
+async function seedTurn(conn, projectId, { title, prompt }, existing, { timeoutMs = 30_000 } = {}) {
+  const threadId = existing ?? crypto.randomUUID();
+  if (!existing) await conn.request("orchestration.dispatchCommand", {
+    type: "thread.create", commandId: crypto.randomUUID(), createdBy: "user", creationSource: "web", threadId, projectId, title,
+    modelSelection: { instanceId: STANDIN_INSTANCE, model: "default" }, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null,
+  });
+  await conn.request("orchestration.dispatchCommand", {
+    type: "message.dispatch", commandId: crypto.randomUUID(), threadId, messageId: crypto.randomUUID(), text: prompt, attachments: [],
+    createdBy: "user", creationSource: "web", deliveryIntent: "auto", dispatchMode: { type: "start_immediately" },
+  });
+  const started = Date.now();
+  for (;;) {
+    const thread = ((await shellSnapshot(conn)).threads ?? []).find((entry) => entry.id === threadId);
+    if (turnCompleted(thread)) {
+      await conn.request("orchestration.dispatchCommand", { type: "thread.visit", commandId: crypto.randomUUID(), threadId, visitedAt: thread.latestRunCompletedAt });
+      return threadId;
+    }
+    if (thread?.status === "error" || Date.now() - started > timeoutMs) throw new Error(`${title}: no completed turn (status ${thread?.status ?? "missing"}${thread?.lastError ? `: ${thread.lastError}` : ""})`);
+    await Bun.sleep(250);
+  }
+}
+
 /** Projects and threads for `name`, through the running server's API. Idempotent by title. */
-export async function seed(paths, name, seeds = SEEDS[name] ?? []) {
+export async function seed(paths, name, seeds = SEEDS[name] ?? [], { turns = false } = {}) {
   const running = recorded(paths, name);
   if (!running) throw new Error(`${name}: no fixture server running`);
   const conn = await connect(`http://127.0.0.1:${running.port}`, pairingToken(paths, name, "Fixture seed"));
@@ -263,7 +321,8 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? []) {
       const workspaceRoot = seedRepository(paths, name, entry);
       const projectId = await ensureProject(conn, workspaceRoot, { title: entry.repo });
       const shell = await shellSnapshot(conn);
-      const have = new Set((shell.threads ?? []).filter((t) => t.projectId === projectId && !t.archivedAt && !t.deletedAt).map((t) => t.title));
+      const live = (shell.threads ?? []).filter((t) => t.projectId === projectId && !t.archivedAt && !t.deletedAt);
+      const have = new Set(live.map((t) => t.title));
       for (const title of entry.threads) {
         if (have.has(title)) continue;
         await conn.request("orchestration.dispatchCommand", {
@@ -271,7 +330,11 @@ export async function seed(paths, name, seeds = SEEDS[name] ?? []) {
           modelSelection: { instanceId: "codex", model: "gpt-5.4" }, runtimeMode: "full-access", interactionMode: "default", branch: null, worktreePath: null,
         });
       }
-      out.push({ project: entry.repo, projectId, threads: entry.threads });
+      // A turn thread is done once it holds a completed turn; one an interrupted seed left without it gets its turn now.
+      const turnThreads = turns ? entry.turns ?? [] : [], pending = turnThreads.filter((turn) => !live.some((t) => t.title === turn.title && turnCompleted(t)));
+      if (pending.length) await addStandin(paths, name, conn);
+      for (const turn of pending) await seedTurn(conn, projectId, turn, live.find((t) => t.title === turn.title)?.id);
+      out.push({ project: entry.repo, projectId, threads: [...entry.threads, ...turnThreads.map((turn) => turn.title)] });
     }
     return out;
   } finally { conn.close(); }

@@ -7,7 +7,8 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FINISH_WELCOME, pairOps, redact } from "./env.mjs";
-import { ENVIRONMENTS, LOCAL_PORT, SEEDS, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, welcomeWait } from "./lib.mjs";
+import { forget as forgetStandin } from "../acp-standin/install.mjs";
+import { ENVIRONMENTS, LOCAL_PORT, SEEDS, STANDIN_INSTANCE, assertOfflinePortClosed, checkPort, envDir, fixturePaths, offlineEnv, run, seedRepository, seedSettings, serverEnv, setupEnvironment, standinInstance, turnCompleted, welcomeWait } from "./lib.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "t3-fixture-env-test-"));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -72,6 +73,29 @@ describe("a lane server's environment", () => {
     expect(run("/usr/bin/git", ["rev-list", "--count", "HEAD"], { env, cwd: path }).stdout.trim()).toBe("1");
     expect(seedRepository(paths, "second", entry)).toBe(path);
     expect(existsSync(join(path, "README.md"))).toBe(true);
+  });
+});
+
+describe("threads with a completed turn (seed --turns)", () => {
+  test("only `second`'s background-only project has one, on the stand-in's provider instance", () => {
+    expect(SEEDS.second.flatMap((entry) => (entry.turns ?? []).map((turn) => [entry.repo, turn.title]))).toEqual([["background-only", "Background thread (completed turn)"]]);
+    expect(SEEDS.third.some((entry) => entry.turns)).toBe(false);
+    expect(STANDIN_INSTANCE).toMatch(/^[a-zA-Z][a-zA-Z0-9_-]*$/); // ProviderInstanceId
+  });
+
+  test("a turn is done once the latest run has completed and none is active", () => {
+    expect(turnCompleted({ latestRunId: "r1", latestRunCompletedAt: "2026-10-16T00:00:00Z", activeRunId: null })).toBe(true);
+    expect(turnCompleted({ latestRunId: null, latestRunCompletedAt: null })).toBe(false);
+    expect(turnCompleted({ latestRunId: "r1", latestRunCompletedAt: null, activeRunId: "r1" })).toBe(false);
+    expect(turnCompleted(undefined)).toBe(false);
+  });
+
+  test("the stand-in's instance is one install.mjs forget removes", () => {
+    const home = join(root, "forget-home");
+    seedSettings(home);
+    const file = join(home, "userdata/settings.json");
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, "utf8")), providerInstances: { [STANDIN_INSTANCE]: standinInstance() } }));
+    expect(forgetStandin(home)).toEqual([STANDIN_INSTANCE]);
   });
 });
 

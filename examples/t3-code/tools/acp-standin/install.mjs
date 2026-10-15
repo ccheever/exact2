@@ -20,7 +20,7 @@ export const AGENT = {
   id: "fixture-acp-standin",
   name: "ACP Stand-in",
   version: "0.0.1",
-  description: "A local stand-in agent for checking the Add provider dialog. It signs in to no account and runs no turns.",
+  description: "A local stand-in agent for checking the Add provider dialog and a completed turn. It signs in to no account and answers a prompt with one line.",
   authors: ["T3 Code clone fixture"],
   license: "MIT",
   website: "https://example.invalid/acp-standin",
