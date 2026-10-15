@@ -368,6 +368,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (request.method === 'propose' && request.hold !== undefined) {
       if (request.hold !== true) return { status: 400, error: { message: '`hold` is true when given' } };
       if (request.review !== undefined && !reviewShaped(request.review)) return { status: 400, error: { message: '`review` is an object; its `offers` a list of objects with `items` (indices), its `tokens` a count' } };
+      // A revert's review is the server's own: it is planned again from it.
+      if (request.review?.revert !== undefined) return { status: 400, error: { message: '`review.revert` is the server\'s: ask for `revert`' } };
       return needsClient(request) ?? hold(request.client, request.ops, request.files, undefined, request.review);
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
@@ -441,14 +443,14 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   const held = () => [...proposals].map(([id, p]) => p.shown);
   async function hold(client, ops, files, replaces, review) {
     expire();
-    const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }) });
+    const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
+    // The digests of files it was planned on but does not edit (a revert's
+    // file already as before) are its preconditions too.
+    const guards = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
+    const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }), ...(Object.keys(guards).length ? { requires: guards } : {}) });
     if (!planned.ok) return planned;
     const id = `prop-${epoch}-${++proposalCount}`;
-    const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
-    // The digests of files it was planned on but does not edit (a revert's
-    // file that is already as before): moved, the plan is stale too.
-    const guards = Object.fromEntries(Object.entries(files ?? {}).filter(([path]) => !touched.has(path)));
     const expires = Date.now() + HOLD_MS;
     // The operations by index, as `accept`'s items name them.
     const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })), ...(replaces ? { replaces } : {}), ...(review ? { review } : {}) };
@@ -499,11 +501,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       let fresh;
       // Some of a revert's items: on the files it was planned on, or that
       // selection planned again.
-      if (reverted) {
-        const only = ops.map(revertKey);
-        if (await guardsMoved(p)) return replan(only);
-        review.revert = { ...review.revert, only };
-      }
+      if (reverted) review.revert = { ...review.revert, only: ops.map(revertKey) };
       try { fresh = await hold(p.client, ops, reverted ? { ...p.base, ...p.guards } : undefined, id, review); } catch (e) { restore(id, p); throw e; }
       if (reverted && fresh.error?.conflict) return replan(review.revert.only);
       return replaced(fresh);
@@ -513,7 +511,6 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const kept = [...new Set(items)].sort((a, b) => a - b);
       return recompute(kept.map(i => p.ops[i]), kept);
     }
-    if (reverted && await guardsMoved(p)) return replan();
     // The write's own end, whenever the server answers (a client told it
     // timed out included): accepted, or held again unless it went stale.
     let waiting = true;
@@ -522,18 +519,12 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       else if (!v?.error?.conflict) restore(id, p);
       else if (!waiting) send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, client: null, reason: 'stale' });
     };
-    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops }, { acceptedBy: request.client, proposal: id }, settled);
+    const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops, ...(Object.keys(p.guards).length ? { requires: p.guards } : {}) }, { acceptedBy: request.client, proposal: id }, settled);
     waiting = false;
     if (done.error?.conflict) return reverted ? replan() : recompute(p.ops);
     return done;
   }
 
-  /** Whether a file `p` was planned on but does not edit has moved. */
-  async function guardsMoved(p) {
-    if (!Object.keys(p.guards).length) return false;
-    const now = await ask({ method: 'hello' });
-    return !now.ok || Object.entries(p.guards).some(([path, d]) => now.ok.files[path] !== d);
-  }
   // The design as app.json names it, whether or not it is there now.
   const designRel = () => {
     let named = null;
@@ -584,7 +575,9 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       // Only the edits a person kept, when they kept some.
       const kept = key => !only || only.includes(key);
       ops.push(...planned.ok.ops.filter(o => kept(revertKey(o)))); already.push(...planned.ok.already);
-      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? kept(editKey(x.file, x.edit)) : only.some(k => k.startsWith(`${x.file}\0`))))); moved.push(...planned.ok.moved);
+      // An edit's conflict counts for a kept item on it (any of an axis's values).
+      const on = (x, prefix) => only.some(k => k.startsWith(prefix));
+      conflicts.push(...planned.ok.conflicts.filter(x => !only || (x.edit ? (x.edit.what === 'axis' ? on(x, `${x.file}\0axis\0${x.edit.name}\0`) : kept(editKey(x.file, x.edit))) : on(x, `${x.file}\0`)))); moved.push(...planned.ok.moved);
       if (planned.ok.files[file] !== undefined) files[file] = planned.ok.files[file];
     }
     const short = c.ok.commit.slice(0, 12);
@@ -699,7 +692,8 @@ const editKey = (file, e) => `${file}\0${e.what}\0${e.name}\0${whenKey(e.when)}`
 const revertKey = o => editKey(o.file, {
   what: o.op === 'set-dial' ? 'dial' : /axis/.test(o.op) ? 'axis' : 'token',
   name: o.op === 'add-axis' ? o.name : o.axis ?? o.name,
-  when: ['set-token', 'unset-token-when'].includes(o.op) ? o.when : [],
+  // An axis's values each their own item, as a token's `when`s are.
+  when: ['set-token', 'unset-token-when'].includes(o.op) ? o.when : /axis-value/.test(o.op) ? [{ axis: o.axis, value: o.value }] : [],
 });
 
 /** An importer's proposal (`contract tamber import`'s JSON) as one held

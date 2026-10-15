@@ -677,6 +677,19 @@ test("a held revert keeps its untouched files' digests and a person's selection 
     expect(again.ok.ops.map(o => o.op.name)).toEqual(['ink']);
     expect((await call({ method: 'accept', client: 'ada', proposal: again.ok.proposal })).status).toBe(200);
     expect(readFileSync(join(repo, 'app.tamber'), 'utf8')).toBe(A1.replace('#101010', '#2b2b2b'));
+    // An axis's values are each their own item: only `dim` kept stays only `dim`.
+    const AX = v => `tamber b\n\naxes\n  tone = ${v}\n\ntheme\n  b.ink = #010101\n`;
+    for (const v of ['black | dim | navy', 'black']) { writeFileSync(join(repo, 'b.tamber'), AX(v)); g('add', 'b.tamber'); g('commit', '-q', '-m', `tone ${v}`); }
+    // The server reads the checkout.
+    for (let i = 0; i < 100 && !(await call({ method: 'hello' })).ok.files['b.tamber']?.startsWith(digest('b.tamber').slice(0, 8)); i++) await Bun.sleep(50);
+    const axes = await call({ method: 'revert', client: 'ada', commit: g('rev-parse', 'HEAD').stdout.trim() });
+    expect(axes.ok.ops.map(o => o.op.value)).toEqual(['dim', 'navy']);
+    const dimOnly = await call({ method: 'accept', client: 'ada', proposal: axes.ok.proposal, items: [0] });
+    await set('b.tamber', 'b.ink', '#040404');
+    const again2 = await call({ method: 'accept', client: 'ada', proposal: dimOnly.ok.proposal });
+    expect(again2.ok?.ops.map(o => o.op.value), JSON.stringify(again2)).toEqual(['dim']);
+    // A client's own review cannot pose as a revert.
+    expect((await call({ method: 'propose', hold: true, client: 'agent', ops: [{ op: 'set-token', name: 'ink', value: '#090909' }], review: { revert: { commit, only: {} } } })).status).toBe(400);
   } finally {
     await wire.close();
     listener.close();

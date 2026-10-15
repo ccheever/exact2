@@ -33,6 +33,8 @@
 //! - **`propose`** plans without writing: the diff, the tokens it changes
 //!   (by file), `live` or `rebuild`, and the digests it planned against; a
 //!   digest it carries is checked as a transaction's is.
+//! - **`requires`** (`tamber/1.1`), on a transaction or a propose: digests
+//!   of files it does not edit but was planned on, checked with the rest.
 //! - **Reads:** `hello`, `describe`, `resolve`, `explain`, each of the
 //!   design or of the `file` it names.
 //! - **The wire's own** (LLP 1122 T1; `tamber/1.1`): `compare` and
@@ -694,7 +696,10 @@ impl Server {
     /// carries).
     fn transaction(&mut self, request: &Value, write: bool) -> Result<Value, Value> {
         let ops = parse_ops(&request["ops"], &self.design)?;
-        let seen = seen_files(request)?;
+        let seen = seen_files(request, "files")?;
+        // Files it does not edit but was planned on (a revert's file already
+        // as before), each as the plan read it.
+        let requires = seen_files(request, "requires")?;
         let client = match write {
             true => Some(self.writer(request)?),
             false => None,
@@ -710,6 +715,11 @@ impl Server {
                     }
             })
             .map(|(p, _, _)| p)
+            .chain(requires.keys().filter(|p| {
+                snap.iter()
+                    .find(|(f, _, _)| f == *p)
+                    .is_none_or(|(_, _, d)| Some(d) != requires.get(*p))
+            }))
             .collect();
         if !stale.is_empty() {
             return Err(
@@ -1016,10 +1026,10 @@ fn required(v: &Value, key: &str) -> Result<String, Value> {
     optional(v, key)?.ok_or_else(|| json!({"message": format!("`{key}` is a string, and needed")}))
 }
 
-/// A request's `files`, each path's digest as the client saw it.
-fn seen_files(request: &Value) -> Result<HashMap<String, String>, Value> {
-    let bad = || json!({"message": "`files` is an object of digests"});
-    match &request["files"] {
+/// A request's `files` (or `requires`), each path's digest as the client saw it.
+fn seen_files(request: &Value, key: &str) -> Result<HashMap<String, String>, Value> {
+    let bad = || json!({"message": format!("`{key}` is an object of digests")});
+    match &request[key] {
         Value::Null => Ok(HashMap::new()),
         Value::Object(m) => m
             .iter()

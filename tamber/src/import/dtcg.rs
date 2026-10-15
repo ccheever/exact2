@@ -406,6 +406,25 @@ fn read(files: &[(String, String)]) -> Result<Read, String> {
                 .map_err(|e| format!("{name}: {e}"))
         })
         .collect::<Result<_, _>>()?;
+    // One themes document or one resolver: a second would be read as
+    // nothing, so it is refused, named.
+    let roots: Vec<&String> = parsed
+        .iter()
+        .filter(|(n, v)| {
+            stem(n) == "$themes" || v.get("$themes").is_some() || v.get("resolutionOrder").is_some()
+        })
+        .map(|(n, _)| n)
+        .collect();
+    if roots.len() > 1 {
+        return Err(format!(
+            "more than one themes or resolver document ({}); import them one at a time",
+            roots
+                .iter()
+                .map(|n| n.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
     let themes_file = parsed.iter().find(|(n, _)| stem(n) == "$themes");
     let single = parsed.iter().find(|(_, v)| v.get("$themes").is_some());
     if themes_file.is_some() || single.is_some() {

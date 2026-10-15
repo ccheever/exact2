@@ -517,6 +517,16 @@ fn compare_revert_plan_and_import_plan() {
         .as_str()
         .unwrap()
         .contains("created"));
+    // `requires`: a file the write does not edit, as it was read.
+    std::fs::write(
+        dir.join("brand.tamber"),
+        "tamber b\n\ntheme\n  b.ink = #010101\n",
+    )
+    .unwrap();
+    let app_digest = digest(&dir.join("app.tamber"));
+    let (guarded, _) = s.ask(json!({"method": "transaction", "client": "t", "files": {"app.tamber": app_digest}, "requires": {"brand.tamber": "0".repeat(64)}, "ops": [{"op": "set-token", "name": "ink", "value": "#000001"}]}));
+    assert_eq!(guarded["error"]["conflict"], true, "{guarded}");
+    assert_eq!(guarded["error"]["stale"], json!(["brand.tamber"]));
     let css = include_str!("../../../../tamber/tests/import/shadcn-neutral.css");
     let (imported, _) = s.ask(json!({"method": "import-plan", "kind": "shadcn", "source": css}));
     assert_eq!(
