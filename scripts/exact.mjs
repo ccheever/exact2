@@ -599,7 +599,7 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
                                a new app wired to a Snapback backend in the
                                directory above (a guestbook to start from; the
                                origin's port, 4400 unless --port)
-  exact snapback <app> [--port <n>] [--online]
+  exact snapback <app> [--port <n>] [--online] [--rebuild [--artifact-only]]
                                wire an app to the backend above it; --port moves
                                its loopback origin, grants and test fetch prefixes
   exact new <path> --game      a new game (game/README.md): a Rust world under
@@ -933,10 +933,11 @@ async function main(argv) {
   }
   if (verb === 'snapback') {
     if (!name) { console.error('exact snapback: name the app\'s directory (its exact.mjs passes it: bun exact.mjs snapback)'); process.exit(2); }
+    if (argv.includes('--artifact-only') && !argv.includes('--rebuild')) throw new Error('exact snapback: --artifact-only requires --rebuild');
     const args = guardFlags('snapback', argv.slice(1)), port = args.indexOf('--port');
     const dir = resolve(args[0]), app = { dir, manifest: JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')) };
     // Always ask Cargo to validate its inputs; cached or unstamped bytes never block repair.
-    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null }));
+    console.log(wireSnapback(dir, { port: port < 0 ? null : args[port + 1] ?? '', online: args.includes('--online') ? true : null, artifactOnly: args.includes('--artifact-only') }));
     app.manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     const updated = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     const nextOrigin = /const origin\s*=\s*['"`](https?:\/\/[^'"`]+)['"`]/.exec(updated)?.[1];

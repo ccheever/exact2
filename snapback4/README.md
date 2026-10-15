@@ -5,9 +5,9 @@ the device (its partition in SQLite, its outbox, local queries and
 predictions) and the client protocol over it (opening, sync rounds, store
 identity and generation adoption, at-most-once sends with receipts, the
 change poll), written once in Rust and performing no I/O. Each HTTP exchange
-is handed to whoever drives it. Pinned to Snapback4 **0.4.25**
-(`a0bb11bde6`); the npm CLI in the root `package.json` matches.
-The published release includes `fresh` dev reset and generic `file`/PDF assets.
+is handed to whoever drives it. Pinned to Snapback4 **0.4.28**
+(engine sources in `snapback4/Cargo.toml`); the npm CLI in the root
+`package.json` matches.
 
 | | |
 |---|---|
@@ -31,7 +31,7 @@ The published release includes `fresh` dev reset and generic `file`/PDF assets.
 > - **The device version.** `bun exact.mjs snapback --rebuild` repairs an
 >   unstamped or incompatible artifact. The device crate emits `snapback4.engine`
 >   with its real `{format:1, version, capabilities}`. Wiring and web drives read
->   that section and compare the server's public `GET /` compatibility floor and
+>   that section and compare the server's compatibility floor and
 >   capabilities, as `check` does. `.wasm.json` is derived diagnostic output.
 >   Compatible version skew is allowed; empty, malformed or duplicate stamps refuse.
 > - **One origin setting** (["Ports"](#ports-the-snapback-origin-and-the-pages-own)):
@@ -68,8 +68,8 @@ which `snapback` and `update` preserve. It exports `Snapback` with typed `read(a
 Reads return the server's `data` envelope; mutations return `sent` with `result` or
 `failed` with `why`. An interrupted write throws: its server fate may be unknown,
 so read before retrying. There is no offline prediction, queue or automatic retry.
-Snapback's current `check` still incorrectly gates a backend-only mount; see `QUEUE.md`
-for the coordinated upstream correction. Exact's web preflight gates only the device mount.
+Snapback `check` and Exact's web preflight gate actual device consumers; the online
+mount and generated backend operations need no device artifact.
 
 An existing app (the one holding `app.json`, the backend in the directory
 above it): `bun exact.mjs snapback`. Either one:
@@ -105,6 +105,35 @@ It names the `appId` line `app.ts` needs when the two disagree: `app.json`'s
 says the server to start, `bunx snapback4 dev --port <n>` above. The driver is
 pinned to published Snapback4 0.4.25: install that version for the server.
 The reset and generic file cases use the same release and matched device build.
+
+### Upgrading a wave-10-era app
+
+Delete app-local stamp scripts (such as `stamp-device.mjs`) and their build hooks.
+Delete `x-snapback-device` header shims; keep persona or bearer credentials.
+The linked device supplies its real identity on the device-to-server leg, including
+its first schema request. The TypeScript driver discards app-supplied identity
+headers and forwards the device's; an app-to-Exact-host request is a separate leg.
+Preflight names a leftover shim in `app.ts` as obsolete.
+
+After upgrading the backend package, run in the app:
+
+```sh
+bun exact.mjs snapback --rebuild --artifact-only
+# In the backend directory above the app:
+bunx snapback4 check
+```
+
+`--artifact-only` rebuilds `assets/snapback4.wasm` and its derived `.wasm.json`,
+without editing sources, mounts, tests or notes. It works with custom mounts;
+`--port` and `--online` cannot accompany it. Ordinary `snapback --rebuild` also
+refreshes wiring and refuses divergent mounts. No restamping step is needed.
+An online app needs no wasm rebuild: upgrade the package and run `check`.
+
+Production `serve` answers unauthenticated `GET /` with `401 E_AUTH`.
+Ask it with the same bearer credentials as data requests; it is not a public
+readiness probe. Preflight can validate the embedded device identity offline but
+cannot compare a production server floor without authentication. The device's
+first authenticated exchange and backend `check` enforce compatibility too.
 
 ### Personas and password accounts
 
@@ -753,7 +782,7 @@ change poll; LLP 1110), and the 0.2.32 legacy fallback. `round.rs` names its sou
 
 ## Device identity (HS, 2026-10-13)
 
-The device crate emits canonical compact UTF-8 `snapback4.engine` JSON into every linked wasm artifact: `{format:1, version, capabilities}`. Build tooling preserves it and derives `assets/snapback4.wasm.json` for diagnostics; preflight reads the embedded section, including when offline. It compares the same server floor and schema capabilities as Snapback `check`, via the public `GET /` compatibility record on dev and serve. Compatible version differences are allowed. Missing or malformed identity names `bun exact.mjs snapback --rebuild`.
+The device crate emits canonical compact UTF-8 `snapback4.engine` JSON into every linked wasm artifact: `{format:1, version, capabilities}`. Build tooling preserves it and derives `assets/snapback4.wasm.json` for diagnostics; preflight reads the embedded section, including when offline. It compares the same server floor and schema capabilities as Snapback `check`, via `/dev/status` on dev or an authenticated `GET /` on serve. Compatible version differences are allowed. Missing or malformed identity names `bun exact.mjs snapback --rebuild`.
 
 Web and native wrappers expose `engine_info` and `engine_headers` before partition open. Every Rust Fetch carries headers from `snapback4_device::engine::headers()`, and both transport drivers forward them automatically, including the first schema request. Applications supply credentials only. Generated backend operations typecheck using Snapback's DOM-free public declarations.
 

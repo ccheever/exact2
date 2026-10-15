@@ -1377,20 +1377,8 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **Caltrain Mac dark capture can retain the light body immediately after `clock settle`** (2026-10-14, integrated `5b1b2a8e5`): `prefer color-scheme dark`, settle, screenshot changed only 515 titlebar pixels. A separate drive with `tree`, `layout`, `state` between settle and screenshot produced a dark body; identical operations on the isolated `b9819a929` product baseline produced byte-identical light and dark images. The operation sequences differ, so this does not establish the cause or a timing guarantee. Investigate capture settlement; preserve the existing inverted text and dark-card contrast findings separately. Evidence: `~/audits/exact2-no-tells-2026-10-11/linux-neutral-chrome/integrated-tabbar-paint/5b1b2a8e5/`.
 - **Wave 9 EX4 — durable upload-and-place intents (E4)** (2026-10-12): the analysis requires device-owned bytes, metadata, stable intent ids and a dependency on the placing mutation, but defines no callable outbox ABI or recovery/cancellation protocol. Implement the Exact adapter once Snapback exposes that contract; keep the current online-only upload behavior explicit. No app-local queue was promoted into a second durable outbox.
-- **Wave 9 EX4 — engine stamp/capability integration (E1)** (2026-10-12): Published 0.4.25 supplies the compiled device’s `{format, version, capabilities}` through `engine_info` and the `snapback4.engine` wasm section; Exact stamps that identity and sends it as `x-snapback-device`. The server admits it against `device_compatibility` (minimum version and required capabilities). Exact’s CLI still conservatively requires matched installed/server/device versions; a floor-aware CLI preflight and incompatible-read cancellation remain follow-up work.
-- **Wave 9 EX4 — enum parameters (E5)** (2026-10-12): Contract currently has only primitive/named, list and option type syntax. Literal enum types need a compiler/plan/shape-validation design and both native and JS execution tests. Keep explicit checked narrowing in the adapter source until then. Mutation time remains an explicit source argument; slots retain their last reply, so use each mutation's `then` action. `expect enabled` would widen the test grammar; state/disabled assertions remain the supported route.
 - **Wave 9 EX4 — native/media and layout remainder (E4/E8)** (2026-10-12): `device: 'web'` now selects the wasm adapter beside an unrelated camera hatch. HTML capture awaits its governing admission (LLP 1114.002); document pickers need accept plus file_handlers. Reproduce lane 097's grouped-list layout on an Apple presenter; this Linux lane cannot establish native layout parity.
-- **Wave 9 EX4 — device-free online executor (E7) and Bun image pin (E9)** (2026-10-12): a ~2.4 MB device remains; deleting it requires the previously queued cross-executor design. The farm must put /home/ccheever/.bun-1.4.2/bin first on PATH (as this lane did); its inherited 1.3.14 is a harness-image fix, not an adapter capability.
 
-- **EX5 / Snapback device gate (2026-10-13):** `snapback4/crates/snapback4/src/exact_device.rs::inspect`
-  currently gates every `typescript.sources.backend` resolving to `snapback/generated`.
-  Gate only actual device consumers (the Exact `snapback4/ts` adapter, or a declared
-  custom device artifact identified by content). A `snapback4/online` adapter or a
-  generated-operations-only mount must not require assets/snapback4.wasm. Keep HS’s
-  canonical embedded identity and public floor/capability check for real consumers.
-  Add a zero-synced-table Exact fixture: online mount + generated backend + no wasm;
-  `check` passes, dev and serve query/write work. EX5 cannot edit the commissioned
-  Snapback worktree; its Exact adapter/browser proof covers the working HTTP path.
 - **EX5 upload progress (2026-10-13):** Exact fetch has no loaded/total upload events.
   Determinate adapter progress needs a transport event surface shared by web/native
   executors (including exactBodyFrom); keep current progress indeterminate until then.

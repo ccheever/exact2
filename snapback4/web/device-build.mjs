@@ -52,6 +52,10 @@ export async function serverDeviceVersion(origin, ms = 1500) {
 /** Read the same embedded fact and floor/capability contract as Snapback check. */
 export async function devicePreflight(app, origins = []) {
   if (!mountsSnapback(app)) return;
+  // Old apps supplied the handshake as a credential header. The device owns it now.
+  const source = resolve(app.dir, 'app.ts');
+  if (existsSync(source) && /x-snapback-device/i.test(readFileSync(source, 'utf8')))
+    console.warn('Snapback4: obsolete x-snapback-device shim in app.ts; delete it. The device sends its own identity on the device-to-server leg; app headers supply credentials only.');
   const stamp = readDeviceStamp(resolve(app.dir, 'assets/snapback4.wasm'));
   for (const origin of origins) {
     const server = await serverDeviceVersion(origin);

@@ -143,7 +143,11 @@ test('device preflight refuses server skew, stale provenance and empty wasm befo
     writeFileSync(path + '.json', JSON.stringify({engineVersion: engineVersion(), sha256: deviceHash(wasm)}));
     await expect(devicePreflight(app, [origin])).rejects.toThrow(/E_DEVICE_VERSION.*server.*1.2.4.*snapback --rebuild/);
     version = engineVersion();
-    await devicePreflight(app, [origin]);
+    writeFileSync(resolve(dir, 'app.ts'), "const headers = { 'X-Snapback-Device': 'old' };\n");
+    const warnings = [], warn = console.warn;
+    console.warn = message => warnings.push(message);
+    try { await devicePreflight(app, [origin]); } finally { console.warn = warn; }
+    expect(warnings.join('\n')).toMatch(/obsolete x-snapback-device shim in app.ts.*device-to-server leg/);
     version = 'x';
     await expect(devicePreflight(app, [origin])).rejects.toThrow('invalid server device_compatibility');
     version = '1.2.2'; // compatible skew above floor is allowed

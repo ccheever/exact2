@@ -127,7 +127,7 @@ export function createApp(destination, options = {}) {
     else {
       const source = resolve(dir, 'app.ts');
       const ts = readFileSync(source, 'utf8');
-      writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}\\nsqlite.open app:/data\`;`));
+      writeFileSync(source, ts.replace("export const grants = '';", `const origin = 'http://127.0.0.1:${port}';\nexport const grants = \`net.fetch \${origin}${options.snapback.online ? '' : '\\nsqlite.open app:/data'}\`;`));
     }
   } catch (error) {
     rmSync(dir, { recursive: true, force: true });
@@ -329,10 +329,15 @@ const onlineMount = path => /(?:^|\/)snapback4\/online\/?$/.test((path ?? '').re
 /** `bun exact.mjs snapback` (and the end of \`exact new --snapback\`): what the README's setup block did. Generates the backend's
  * operations once its server is installed above, mounts the driver and those operations in app.json, builds the
  * device the page loads, and says what is left: the server to install or start, an appId that disagrees. */
-export function wireSnapback(dir, { build = true, port = null, online = null } = {}) {
+export function wireSnapback(dir, { build = true, port = null, online = null, artifactOnly = false } = {}) {
   dir = resolve(dir);
   const manifestPath = resolve(dir, 'app.json');
   if (!existsSync(manifestPath)) throw new Error(`${dir}: no app.json here (bun exact.mjs snapback runs in the app's directory, the backend's above it)`);
+  if (artifactOnly) {
+    if (port !== null || online !== null) throw new Error('exact snapback --artifact-only: cannot also change --port or --online');
+    if (build) buildSnapbackDevice(dir);
+    return 'assets/snapback4.wasm: rebuilt; app sources and mounts kept unchanged.';
+  }
   const parent = dirname(dir), said = [], version = snapbackVersion();
   const existing = JSON.parse(readFileSync(manifestPath, 'utf8')).typescript?.sources ?? {};
   online ??= onlineMount(existing.snapback4);
@@ -354,9 +359,9 @@ export function wireSnapback(dir, { build = true, port = null, online = null } =
       if (!grants.test(ts)) throw new Error('exact snapback --port: app.ts needs a literal export const grants; write its net.fetch grant explicitly');
       origin = `http://127.0.0.1:${port}`;
       ts = `const origin = '${origin}';\n` + ts.replace(grants, (_, quote, value) =>
-        `export const grants = ${quote}${value}${quote} + \`\\nnet.fetch \${origin}\\nsqlite.open app:/data\`;`);
+        `export const grants = ${quote}${value}${quote} + \`\\nnet.fetch \${origin}${online ? '' : '\\nsqlite.open app:/data'}\`;`);
       writeFileSync(source, ts);
-      said.push(`Snapback origin: added ${origin} and its net.fetch/sqlite.open grants to app.ts.`);
+      said.push(`Snapback origin: added ${origin} and its ${online ? 'net.fetch' : 'net.fetch/sqlite.open'} grants to app.ts.`);
     }
     const next = new URL(origin);
     if (!['127.0.0.1', 'localhost', '[::1]'].includes(next.hostname)) throw new Error(`exact snapback --port: ${origin} is not a loopback backend`);
@@ -404,8 +409,7 @@ export function wireSnapback(dir, { build = true, port = null, online = null } =
   const appId = /export const appId\s*=\s*['"`]([^'"`]*)['"`]/.exec(ts)?.[1];
   if (appId !== app.app?.id) said.push(`app.ts must say: export const appId = ${JSON.stringify(app.app?.id)};${appId ? ` (it says ${JSON.stringify(appId)})` : ''}`);
   if (build && !online) {
-    const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
-    if (built.status !== 0) throw new Error('the device did not build (above); bun exact.mjs snapback --rebuild builds it again');
+    buildSnapbackDevice(dir);
     said.push('assets/snapback4.wasm: built with assets/snapback4.wasm.json (the device the page loads)');
   }
   if (online) said.push('Online-only adapter: no wasm or SQLite partition; mutations go to the server, with no outbox or automatic retry.');
@@ -415,6 +419,12 @@ export function wireSnapback(dir, { build = true, port = null, online = null } =
   // The notes' backend paragraph now describes a wired app.
   if (existsSync(resolve(dir, 'AGENTS.md'))) updateNotes(dir, basename(dir));
   return said.join('\n');
+}
+
+function buildSnapbackDevice(dir) {
+  const built = spawnSync(process.execPath, [resolve(ROOT, 'snapback4/web/build.mjs'), 'assets/snapback4.wasm'], { cwd: dir, stdio: ['ignore', 'inherit', 'inherit'] });
+  if (built.error) throw built.error;
+  if (built.status !== 0) throw new Error('the device did not build (above); bun exact.mjs snapback --rebuild builds it again');
 }
 
 /** The app's Linux host crate (LLP 1086): one executable with the runner, the kernel, the

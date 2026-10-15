@@ -559,6 +559,10 @@ test('a new Snapback app is wired to the backend above it, and update follows a 
     const beforeMountRefusal = readFileSync(resolve(dir, 'app.ts'), 'utf8');
     assert.throws(() => wireSnapback(dir, { build: false, port: 9999 }), /refusing to rewrite an edited mount[^]*- snapback4:[^]*\+ snapback4:/);
     assert.equal(readFileSync(resolve(dir, 'app.ts'), 'utf8'), beforeMountRefusal);
+    const beforeArtifact = ['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8'));
+    assert.match(wireSnapback(dir, {build: false, artifactOnly: true}), /mounts kept unchanged/);
+    assert.deepEqual(['app.json', 'app.ts', 'app.test.contract', 'AGENTS.md', '.gitignore'].map(file => readFileSync(resolve(dir, file), 'utf8')), beforeArtifact);
+    assert.throws(() => wireSnapback(dir, {build: false, artifactOnly: true, port: 4410}), /cannot also change/);
     createApp(dir, { update: true });
     assert.equal(realpathSync(resolve(dir, manifest().typescript.sources.snapback4)), resolve(root, 'snapback4/ts'));
     // A plain app's notes say how to wire one.

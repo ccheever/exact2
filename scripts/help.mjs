@@ -61,6 +61,7 @@ export const HELP = {
     usage: 'bun exact.mjs snapback [--port <n>] [--rebuild]',
     flags: [['--port <n>', 'add or move a loopback backend origin, matching grants and test fetch prefixes'],
       ['--online', 'use the server without a local device'],
+      ['--artifact-only', 'with --rebuild: repair the device without changing wiring'],
       ['--rebuild', 'rebuild a missing or stale device after updating Snapback4']],
     body: 'Mounts the driver and generated operations, builds assets/snapback4.wasm, and names the server to start.',
   },
