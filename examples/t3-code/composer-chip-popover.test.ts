@@ -15,7 +15,7 @@ const skills: Obj[] = [{ name: 'imagegen', displayName: 'Image Gen', description
 describe('a skill chip\'s details popover', () => {
   test('the composer\'s chip: its label, the skill\'s description and its instructions file, at the chip', () => {
     expect(chipPopover(press(), skills)).toEqual({ seq: 3, open: true, surface: 'composer', label: 'Frontend Design', title: 'Skill Frontend Design', description: 'Design web pages.',
-      path: '/Users/me/.codex/skills/frontend-design/SKILL.md', x: 120, y: 640, width: 128, height: 19.5, kind: 'skill', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0 });
+      path: '/Users/me/.codex/skills/frontend-design/SKILL.md', x: 120, y: 640, width: 128, height: 19.5, kind: 'skill', comment: '', anchor: '', ax: 0, ay: 0, aw: 0, ah: 0, message: '', quote: '', at: -1, lines: '', rows: 0, diff: '', image: '', aspect: 0, act: '' });
   });
 
   test('the Settings sample and a skill the provider does not list: no description, no View instructions', () => {

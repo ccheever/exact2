@@ -29,6 +29,7 @@ import { settingsPickerCatalog } from './settings-model-picker'; // General's mo
 import { look } from './settings-appearance-look';
 import { composerOverlaySnapshot } from './r4-composer-overlay';
 import { composerVideoSnapshot } from './r4-composer-attachments';
+import { composerImagePreview } from './composer-chip-details';
 import { alertClip } from './r6-polish-measure';
 import { tableMenuSnapshot } from './r8-keys-table-menu';
 import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width';
@@ -146,6 +147,7 @@ export function snapshot(client: T3Client, now = 0, displayMode = '') {
     transcriptAway: client.presentation.owner === `${client.origin}:${client.projectId}:${client.threadId}` && client.presentation.atEnd === false,
     ...composerOverlaySnapshot(client, transcript), // the composer over the transcript (r4-composer-overlay.ts)
     ...composerVideoSnapshot(client), // the shelf's videos and their preview (r4-composer-attachments.ts)
+    composerImagePreview: composerImagePreview(client), // an image chip's expanded preview (composer-chip-details.ts)
     providerDriver: str(selectedProvider?.driver), ...providerBadge(selectedProvider, providers), optionId: str(option?.id),
     optionLabel: str(arr(option?.options).find(choice => choice.id === selectedOption)?.label, 'Default'),
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),

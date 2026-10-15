@@ -1,0 +1,48 @@
+// A composer image chip's expanded preview, adapted from T3 Code 1e2ecbd975 (MIT, see LICENSE-T3):
+// composerContextPresentation.tsx ImageContextChip (`expandImage`), ChatComposer.tsx's buildExpandedImagePreview over the
+// draft's images and ExpandedImageDialog (the window dimmed, the image at its natural size up to 92% of the window less
+// 6rem wide and min(86vh, 100vh − 160pt) high, Previous and Next wrapping around the draft's images, the close button
+// 40pt above the top-right corner, the name and position below). The draft image is a local file the host's `image`
+// does not load (only http(s) and assets), so the snapshot tile hatch paints it (T3SnapShot.swift `fit:`): the box is
+// the largest the image may take and the picture sits in its centre, so the close button is at that box's corner.
+use FocusGuard from "./dialog-trap.contract"
+use DialogOpenFocus from "./dialog-trap.contract"
+use PreviewStep from "./timeline-attachments.contract"
+
+shape ComposerImagePreview
+  open: bool
+  id: string
+  name: string
+  // "(2/3)" over several draft images, else "".
+  position: string
+  many: bool
+
+component ComposerImageDialog
+  inject
+    dialogEntered: action
+    dialogFallback: action
+    rem: number
+  props
+    preview: ComposerImagePreview
+    windowWidth: number
+    windowHeight: number
+    command: action
+  derive maxWidth = windowWidth * 0.92 - 6 * rem
+  derive maxHeight = min(windowHeight * 0.86, windowHeight - 160)
+  derive dialogTargets = [(preview.many ? "chip-image-previous" : ""), "chip-image-close", (preview.many ? "chip-image-next" : "")]
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 align-items="center" justify-content="center" background-color="#000000bf" role="dialog" aria-label="Expanded image preview" testId="chip-image-preview" id="chip-image-preview" tabindex=-1 data-dialog-focus="open" focusin=dialogEntered("chip-image-preview") key=dialogFallback("chip-image-preview", dialogTargets)
+      FocusGuard(guardId="chip-image-preview-guard-start", targets=dialogTargets, popup="chip-image-preview")
+      DialogOpenFocus(target="chip-image-close")
+      button press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" aria-keyshortcuts="Escape" tabindex=-1 position="absolute" left=0 right=0 top=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="chip-image-backdrop" title=""
+      row width=(windowWidth * 0.92) align-items="center" justify-content="space-between"
+        PreviewStep(label="Previous media", shown=preview.many, flip=true, press=command("editorlocal:chip-image-previous", "", "", 0), elementId="chip-image-previous", testId="chip-image-previous")
+        column min-width=0 align-items="center"
+          box position="relative" width=maxWidth height=maxHeight
+            box hatch="t3-snapshot-tile" data-snapshot-id=`fit:${preview.id}` position="absolute" left=0 top=0 right=0 bottom=0 role="img" aria-label=preview.name testId="chip-image-picture"
+            button id="chip-image-close" press=command("editorlocal:chip-image-close", "", "", 0) aria-label="Close image preview" testId="chip-image-close" position="absolute" right=0 top="-2.5rem" width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#ffffff33" background-color="#000000a6" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center" title="" data-focus-stop="enabled"
+              svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" color="#ffffff" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                path d="M18 6 6 18M6 6l12 12"
+          text (preview.position != "" ? `${preview.name} ${preview.position}` : preview.name) margin-top="0.5rem" max-width=maxWidth line-clamp=1 font-size="0.75rem" line-height="1rem" color="#ffffffcc"
+        PreviewStep(label="Next media", shown=preview.many, flip=false, press=command("editorlocal:chip-image-next", "", "", 0), elementId="chip-image-next", testId="chip-image-next")
+      FocusGuard(guardId="chip-image-preview-guard-end", targets=dialogTargets, popup="chip-image-preview")
