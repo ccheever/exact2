@@ -121,7 +121,7 @@ pub fn check_design(design: Design, vocab: &Vocab) -> Result<Folding, Vec<Diagno
 }
 
 /// A value's fallback pair (D7): light and dark, roles at theirs.
-fn fallback(value: &Folded, vocab: &Vocab) -> Option<[String; 2]> {
+pub fn fallback(value: &Folded, vocab: &Vocab) -> Option<[String; 2]> {
     match value {
         Folded::One(h) => Some([h.clip(), h.clip()]),
         Folded::Pair(l, d) => Some([l.clip(), d.clip()]),
