@@ -46,14 +46,14 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     let b = caltrain::compile().unwrap();
     assert_eq!(a.encode(), b.encode(), "compiling twice is byte-identical");
     assert_eq!(a.kernel_schema_digest, exact_kernel::SCHEMA_DIGEST);
-    // nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
+    // seededEpoch, nowMs, screen, stationId, query; material, deck, focus (LLP 1014: the
     // sky's material, the card deck and its focus); sky (whether the app is
     // inside the aurora canvas at all — a phone's frame-rate switch);
     // hoverId, hoverOn, searchFocused, lastKey (the events beyond press and
     // change, LLP 1005 §3); deckLoaded, deckLoads, and deckMessage (the
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
     // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
-    assert_eq!(a.slots.len(), 16);
+    assert_eq!(a.slots.len(), 17);
     // Seven data-crate resources, `delivery` — the runner's own
     // `exactDelivery` (LLP 1030 D7), read by the update banner — and
     // `viewport`, whose `pointer` says a TV.
@@ -151,8 +151,8 @@ fn the_home_screen_shows_both_boards_with_live_countdowns() {
 fn the_home_screen_explains_when_service_has_ended() {
     let now = caltrain_data::DAY_START_MS + 24.0 * 60.0 * 60_000.0;
     let plan = contract::compile(&caltrain::SOURCE.replace(
-        "state nowMs = 1787915400000",
-        &format!("state nowMs = {now}"),
+        "state seededEpoch = 1787915400000",
+        &format!("state seededEpoch = {now}"),
     ))
     .unwrap();
     let r = caltrain::boot(plan, Kernel::with_monospace()).unwrap();
@@ -251,7 +251,7 @@ fn a_reload_keeps_its_place_and_re_requests_only_what_changed() {
         Some("San Francisco")
     );
     let carried = r.carry();
-    assert_eq!(carried.slots.len(), 16);
+    assert_eq!(carried.slots.len(), 17);
     assert_eq!(carried.now_ms, 30_000.0);
 
     // The edited plan: unbaked (no compiled data) and with a visible change.

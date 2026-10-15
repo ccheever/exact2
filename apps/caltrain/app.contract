@@ -51,7 +51,10 @@ shape Viewport
   pointer: string
 
 component Caltrain
-  state nowMs = 1787915400000
+  // The seeded schedule's day; `tick` reads the clock from it, so a tick a
+  // suspension skipped leaves the time right
+  state seededEpoch = 1787915400000
+  state nowMs = seededEpoch
   state screen = "home"
   state stationId = none
   state query = ""
@@ -84,7 +87,7 @@ component Caltrain
   derive tv = viewport.pointer == "none"
 
   action tick
-    nowMs = nowMs + 1000
+    nowMs = seededEpoch + performanceNow()
   action activateUpdate
     deliveryActivate()
   action reloadApp
