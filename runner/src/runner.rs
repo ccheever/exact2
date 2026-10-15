@@ -11,6 +11,7 @@ mod advance;
 mod background;
 mod commit;
 mod control;
+mod errors;
 mod event;
 pub mod faults;
 mod field;
@@ -227,27 +228,6 @@ pub enum RunnerError {
     StringTooLong {
         name: String,
     },
-}
-
-impl From<Trap> for RunnerError {
-    fn from(t: Trap) -> Self {
-        RunnerError::Trap(t)
-    }
-}
-
-impl From<InstanceError> for RunnerError {
-    fn from(e: InstanceError) -> Self {
-        match e {
-            InstanceError::SlotType { slot } => RunnerError::SlotType { slot },
-            other => RunnerError::Instance(other),
-        }
-    }
-}
-
-impl From<KernelError> for RunnerError {
-    fn from(e: KernelError) -> Self {
-        RunnerError::Kernel(e)
-    }
 }
 
 #[derive(Clone)]
