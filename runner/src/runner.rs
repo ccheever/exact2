@@ -7,6 +7,7 @@
 //! Kernel validation precedes every write; a refusal leaves the kernel untouched.
 
 mod admission;
+mod advance;
 mod background;
 mod commit;
 mod control;
