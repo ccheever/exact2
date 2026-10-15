@@ -226,9 +226,42 @@ internal object NativeRenewalTest {
         check(bitmap.isRecycled)
         return "SessionImageVisibilityTest: PASS (hidden session drops cache while preserving active pixels)"
     }
+    private fun runLogicalRowGeometry(context: Context) {
+        val fixture = Fixture(context)
+        try {
+            fixture.populate(flat = true)
+            val p = fixture.presenter
+            val density = context.resources.displayMetrics.density
+            val firstY = 0.49f / density; val height = 20.49f / density; val nextY = firstY + height
+            p.begin()
+            for (id in 90..91) p.cold(create(id, "view", JSONObject().put("id", "fractional-$id").put("testId", "fractional-$id")))
+            p.cold(JSONObject().put("op", "children").put("id", 1).put("ids", JSONArray(listOf(2, 90, 91))))
+            p.frame(90, 0f, firstY, 100f, height); p.frame(91, 0f, nextY, 100f, height)
+            p.finish(); p.resolveControls { _, _ -> JSONObject() }; fixture.layout()
+            @Suppress("UNCHECKED_CAST") val rowGeometry = field(checkNotNull(field(p, "collections")), "rowGeometry") as (Int) -> NativeCollections.RowBox?
+            val first = checkNotNull(rowGeometry(90)); val next = checkNotNull(rowGeometry(91))
+            check(first.start == firstY.toDouble() && next.start == nextY.toDouble()) { "fractional row start was rounded" }
+            check(first.main == height.toDouble() && next.main == height.toDouble()) { "fractional row height was rounded" }
+            check(kotlin.math.abs(first.start + first.main - next.start) <= Math.ulp(nextY).toDouble()) { "raw CSS adjacent edges differ beyond float32 rounding" }
+            val a = checkNotNull(first.view); val b = checkNotNull(next.view)
+            check(a.parent === b.parent) { "fractional rows need a common native coordinate space" }
+            check(a.top == (firstY * density).roundToInt() && b.top == (nextY * density).roundToInt()) { "native y differs from prescribed rounding" }
+            check(a.height == (height * density).roundToInt() && b.height == (height * density).roundToInt()) { "native height differs from prescribed rounding" }
+            val predictedPixelGap = (nextY * density).roundToInt() - (firstY * density).roundToInt() - (height * density).roundToInt()
+            check(predictedPixelGap == 1) { "test lacks the independent one-pixel quantization gap" }
+            check(b.top - a.bottom == predictedPixelGap) { "physical row gap differs from exact View quantization" }
+            val mixedGap = b.top / density.toDouble() - (a.top / density.toDouble() + height.toDouble())
+            check(mixedGap > 0.5 / density) { "test lacks the mixed-facts false-gap counterexample" }
+            fixture.commit(renew(90))
+            check(checkNotNull(rowGeometry(90)).start == firstY.toDouble()) { "renew lost logical y" }
+            p.frame(90, 0f, nextY, 100f, height); p.finish(); fixture.layout()
+            check(checkNotNull(rowGeometry(90)).start == nextY.toDouble()) { "frame update retained stale logical y" }
+        } finally { fixture.close() }
+    }
     fun run(context: Context): String {
         check(Looper.myLooper() == Looper.getMainLooper())
         runCacheBudget(context)
+        runLogicalRowGeometry(context)
         val renewed = Fixture(context); val fresh = Fixture(context); val flat = Fixture(context)
         try {
             renewed.populate(); fresh.populate("new-button"); flat.populate(flat = true)
@@ -276,7 +309,8 @@ internal object NativeRenewalTest {
             @Suppress("UNCHECKED_CAST") val rowGeometry = field(collections, "rowGeometry") as (Int) -> NativeCollections.RowBox?
             val row = checkNotNull(rowGeometry(1)); val geometry = checkNotNull(p.geometry("row"))
             check(row.main == 197.29f.toDouble() && row.cross == 241.17f.toDouble()) { "fractional row dimensions were rounded" }
-            check(row.start == geometry.frame.top / context.resources.displayMetrics.density.toDouble())
+            check(row.start == 0f.toDouble()) { "row start differs from authored CSS y" }
+            check(geometry.frame.top == 0) { "native row placement differs from authored y rounding" }
             val down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
             try {
                 oldContact(down)

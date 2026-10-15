@@ -92,7 +92,7 @@ internal class Presenter(
         } }
     }, { id -> nodes[id]?.let { n ->
         NativeCollections.RowBox(n.logicalHeight.toDouble(), n.logicalWidth.toDouble(),
-            n.frame.top / scale.toDouble(), n.nativeBox())
+            n.logicalY.toDouble(), n.nativeBox())
     } }, collectionReport)
     fun flushCollectionScroll() = collections.flushDeferredScroll()
     fun begin() = collections.beginBatch()
@@ -337,6 +337,7 @@ internal class Presenter(
         val frame = Rect()
         var logicalWidth = 0f
         var logicalHeight = 0f
+        var logicalY = 0f
         private var logicalTextInset = 0f
         var incarnation: Any = this
             private set
@@ -1366,7 +1367,7 @@ internal class Presenter(
         // Like Apple, geometry needs an existing presentation target.
         val n = nodes[id] ?: return
         val textWidthChanged = n.kind == "text" && n.logicalWidth != w
-        n.logicalWidth = w; n.logicalHeight = h
+        n.logicalWidth = w; n.logicalHeight = h; n.logicalY = y
         val left = (x * scale).roundToInt(); val top = (y * scale).roundToInt()
         val width = (w * scale).roundToInt(); val height = (h * scale).roundToInt()
         n.frame.set(left, top, left + width, top + height)
