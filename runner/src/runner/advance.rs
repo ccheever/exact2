@@ -5,6 +5,21 @@
 
 use super::*;
 
+/// The runner's clock while a host's live clock owns it (D1); none is a seek
+/// clock.
+#[derive(Default)]
+pub(super) struct Clock {
+    sample: Option<Box<dyn FnMut() -> f64>>,
+    /// The scheduling instant of the callback running, which the `then`s and
+    /// queue `next`s it arms inherit (D2)
+    instant: Option<f64>,
+    /// When the commit running started, or the input or reply it serves
+    /// arrived
+    started: f64,
+    /// An input or reply is running: its commits keep its arrival
+    arrived: bool,
+}
+
 impl<D: DataSource> Runner<D> {
     /// Move the clock to `now_ms`, firing every timer due, in order — the
     /// commits alone, or the refusal that stopped it. Tests use this; a host
@@ -41,30 +56,58 @@ impl<D: DataSource> Runner<D> {
     /// far are returned with their times, the clock stays at the refusing
     /// timer's due time, and the refusal rides along. Frame tasks fire their
     /// virtual frames here unless the host presents frames
-    /// ([`Runner::present_frames`]; LLP 1073 D3).
+    /// ([`Runner::present_frames`]; LLP 1073 D3). That is a seek clock; a
+    /// live one is [`Runner::set_live_clock`]'s.
     pub fn advance_timed(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, false, true, None)
+        self.advance_within(now_ms, false, true)
     }
 
-    /// [`Runner::advance_timed`] on a live clock, the host's own rather than
-    /// a seek's (the timers RFC, D1–D3): what is due by `cutoff_ms` runs in
-    /// the order it was scheduled, but a repeating timer that missed beats
-    /// fires once, and each callback observes `sample()`, the clock as it
-    /// runs, never earlier than the last. A repeat's next beat is the first
-    /// of its phase after its callback completes; one its callback cancelled
-    /// stays cancelled, and one it rekeyed starts from that completion.
-    pub fn advance_live(&mut self, cutoff_ms: f64, sample: &mut dyn FnMut() -> f64) -> Advanced {
-        // A sample that is no clock time (not finite, or past the clock's
-        // range) moves nothing.
-        let mut checked = || {
-            let t = sample();
+    /// Give the runner the host's live clock, or `None` (the default) for a
+    /// seek clock: the agent's, a test's, a replay's (the timers RFC, D1). On
+    /// a live clock every commit observes `sample()`, the clock as it starts,
+    /// never earlier than the last, and ends with another sample. An advance
+    /// runs what is due by its cutoff in the order it was scheduled, a `then`
+    /// or queue `next` a callback arms taking the callback's place (D2); a
+    /// repeating timer that missed beats fires once, and its next beat is the
+    /// first of its phase after its callback completes, while one its
+    /// callback cancelled stays cancelled and one it rekeyed starts from that
+    /// completion (D3). Virtual frames restart from the completion too.
+    pub fn set_live_clock(&mut self, sample: Option<Box<dyn FnMut() -> f64>>) {
+        self.clock.sample = sample;
+    }
+
+    /// On a live clock, move the clock to a fresh sample; a sample that is no
+    /// clock time (not finite, or past [`MAX_CLOCK_MS`]) moves nothing.
+    pub(super) fn sample(&mut self) {
+        if let Some(t) = self.clock.sample.as_mut().map(|sample| sample()) {
             if t.is_finite() && t <= MAX_CLOCK_MS {
-                t
-            } else {
-                f64::NEG_INFINITY
+                self.now_ms = self.now_ms.max(t);
             }
-        };
-        self.advance_within(cutoff_ms, false, true, Some(&mut checked))
+        }
+    }
+
+    /// When a `then` or queue `next` armed now is due: with its parent
+    /// callback's place, or the arrival of the commit that armed it (D2).
+    pub(super) fn armed_at(&self) -> f64 {
+        self.clock.instant.unwrap_or(self.clock.started)
+    }
+
+    /// Before a commit: sample the clock, and keep when it started.
+    pub(super) fn start_commit(&mut self) {
+        self.sample();
+        if !self.clock.arrived {
+            self.clock.started = self.now_ms;
+        }
+    }
+
+    /// Run an input or a reply that arrives now: what its commits arm takes
+    /// its arrival's place (D2), and its handler's arguments observe it.
+    pub(super) fn arrived<T>(&mut self, run: impl FnOnce(&mut Self) -> T) -> T {
+        self.start_commit();
+        let arrived = std::mem::replace(&mut self.clock.arrived, true);
+        let result = run(self);
+        self.clock.arrived = arrived;
+        result
     }
 
     /// Whether the host presents frames (LLP 1073 D4): while it does, frame
@@ -80,9 +123,17 @@ impl<D: DataSource> Runner<D> {
     /// fire as [`Runner::advance_timed`] fires them, then every frame task
     /// once, at `now_ms`, in plan order; a frame missed is never caught up.
     /// Each task's virtual frames restart from `now_ms` (`super::virtual_frame`).
+    /// On a live clock, timers due by the clock's sample fire, not by the
+    /// presentation target `now_ms`.
     pub fn frame(&mut self, now_ms: f64) -> Advanced {
+        let cutoff = if self.clock.sample.is_some() {
+            self.sample();
+            self.now_ms
+        } else {
+            now_ms
+        };
         let presenting = std::mem::replace(&mut self.presenting, true);
-        let mut a = self.advance_timed(now_ms);
+        let mut a = self.advance_timed(cutoff);
         self.presenting = presenting;
         // A refused `next` is journaled and the frame goes on: its frame
         // tasks fire, and the `next` waits for a later wake (LLP 1092 D3).
@@ -107,8 +158,11 @@ impl<D: DataSource> Runner<D> {
             self.timers[i].next_ms = super::virtual_frame(at, 1);
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
-            match self.run_action(action, Vec::new(), &[]) {
-                Ok(receipt) => a.receipts.push(Timed { at_ms: at, receipt }),
+            match self.scheduled(at, |r| r.run_action(action, Vec::new(), &[])) {
+                Ok(receipt) => a.receipts.push(Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }),
                 Err(e) => {
                     let what = format!(
                         "frame {} ({})",
@@ -118,6 +172,7 @@ impl<D: DataSource> Runner<D> {
                     let failed = Err(e);
                     self.log_outcome(&what, &failed, was_poisoned);
                     a.error = failed.err();
+                    a.now_ms = self.now_ms;
                     return a;
                 }
             }
@@ -133,7 +188,7 @@ impl<D: DataSource> Runner<D> {
     /// send would drop it. An agent's clock jump advances this way (LLP
     /// 1012); on the wall clock, replies land between ticks by themselves.
     pub fn advance_until_request(&mut self, now_ms: f64) -> Advanced {
-        self.advance_within(now_ms, true, true, None)
+        self.advance_within(now_ms, true, true)
     }
 
     /// The `then` of every answer already landed, each its own commit, with
@@ -142,17 +197,11 @@ impl<D: DataSource> Runner<D> {
     /// a wall-clock host runs them at once by itself (`timer_due_ms`).
     /// trivia F3, kanban F19.
     pub fn land_then(&mut self) -> Advanced {
-        self.advance_within(self.now_ms, false, false, None)
+        self.advance_within(self.now_ms, false, false)
     }
 
-    /// `live`: the live clock's sampler, `None` for a seek clock (D4).
-    fn advance_within(
-        &mut self,
-        now_ms: f64,
-        until_request: bool,
-        timers: bool,
-        mut live: Option<&mut dyn FnMut() -> f64>,
-    ) -> Advanced {
+    fn advance_within(&mut self, now_ms: f64, until_request: bool, timers: bool) -> Advanced {
+        let live = self.clock.sample.is_some();
         // A host that presents frames fires frame tasks at `frame`; else
         // their virtual frames are timers (LLP 1073 D3).
         let frames = !self.presenting;
@@ -166,7 +215,7 @@ impl<D: DataSource> Runner<D> {
         }
         // A live clock's cutoff may be behind what its last callback
         // observed: the work due by the cutoff still runs (D2).
-        if now_ms < self.now_ms && live.is_none() {
+        if now_ms < self.now_ms && !live {
             return Advanced {
                 receipts,
                 now_ms: self.now_ms,
@@ -220,10 +269,9 @@ impl<D: DataSource> Runner<D> {
                         }),
                     };
                 }
-                self.now_ms = observe(self.now_ms.max(at), &mut live);
+                self.now_ms = self.now_ms.max(at);
                 let ticket = self.next_ticket;
-                let result = self.run_next(m);
-                self.now_ms = observe(self.now_ms, &mut live);
+                let result = self.scheduled(at, |r| r.run_next(m));
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -254,13 +302,12 @@ impl<D: DataSource> Runner<D> {
                         }),
                     };
                 }
-                self.now_ms = observe(self.now_ms.max(at), &mut live);
+                self.now_ms = self.now_ms.max(at);
                 self.then_due[m] = f64::INFINITY;
                 let action = self.plan.mutations[m].then.expect("armed only with a then");
                 let was_poisoned = self.poisoned;
                 let ticket = self.next_ticket;
-                let result = self.run_action(action, Vec::new(), &[]);
-                self.now_ms = observe(self.now_ms, &mut live);
+                let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -293,9 +340,11 @@ impl<D: DataSource> Runner<D> {
                 .reorder_deadline()
                 .filter(|at| timers && *at <= now_ms && due.is_none_or(|(_, t)| *at <= t))
             {
-                self.now_ms = observe(self.now_ms.max(at), &mut live);
+                self.now_ms = self.now_ms.max(at);
+                // Its commit takes no checkpoint, so it samples for itself
+                self.sample();
                 let result = self.reorder_timeout();
-                self.now_ms = observe(self.now_ms, &mut live);
+                self.sample();
                 match result {
                     Ok(receipt) => receipts.push(Timed {
                         at_ms: self.now_ms,
@@ -322,59 +371,60 @@ impl<D: DataSource> Runner<D> {
                 };
             }
             let row = &self.plan.timers[i];
+            let (once, frame, interval) = (row.once, row.frame, row.interval_ms as f64);
+            // On a live clock a repeat fires once for every beat it missed,
+            // and a virtual frame once for every frame (D2): its firing is
+            // consumed before its callback, so a refused commit (whose
+            // checkpoint keeps this) still consumes it.
+            let coalesce = live && !once;
             // A one-shot timer is spent: an infinite deadline is never due
             // and never reported (`timer_due_ms`), so it keeps no host awake.
-            let next_ms = if row.once {
+            let next_ms = if once {
                 f64::INFINITY
-            } else if row.frame {
+            } else if coalesce && frame {
+                self.timers[i].base = self.now_ms.max(now_ms);
+                self.timers[i].k = 1;
+                super::virtual_frame(self.timers[i].base, 1)
+            } else if coalesce {
+                beat_after(at, interval, self.now_ms.max(now_ms))
+            } else if frame {
                 self.timers[i].k = self.timers[i].k.saturating_add(1);
                 super::virtual_frame(self.timers[i].base, self.timers[i].k)
             } else {
-                at + row.interval_ms as f64
+                at + interval
             };
-            if !row.once && (!next_ms.is_finite() || next_ms <= at) {
+            if !once && (!next_ms.is_finite() || next_ms <= at) {
                 return Advanced {
                     receipts,
                     now_ms: self.now_ms,
                     error: Some(RunnerError::ClockDidNotAdvance { timer: i }),
                 };
             }
-            // On a live clock a timer observes when it runs, never earlier
-            // than the last callback did (D2). A repeat fires once for every
-            // beat it missed: its firing is consumed before its callback, so a
-            // refused commit (whose checkpoint keeps this) still consumes it.
-            let repeat =
-                (live.is_some() && !row.once && !row.frame).then_some(row.interval_ms as f64);
-            let start = match live.is_some() && !row.frame {
-                true => observe(self.now_ms.max(at), &mut live),
-                false => at,
-            };
-            let next_ms = repeat.map_or(next_ms, |interval| {
-                beat_after(at, interval, start.max(now_ms))
-            });
-            self.now_ms = start;
+            self.now_ms = if live { self.now_ms.max(at) } else { at };
             self.timers[i].next_ms = next_ms;
             let instance = self.timers[i].key.clone();
             let action = self.plan.timers[i].action;
             let was_poisoned = self.poisoned;
             let ticket = self.next_ticket;
-            let result = self.run_action(action, Vec::new(), &[]);
-            // Every live callback ends with a sample of the clock (D2).
-            let done = observe(self.now_ms, &mut live);
-            self.now_ms = done;
+            let result = self.scheduled(at, |r| r.run_action(action, Vec::new(), &[]));
             // D3: its next beat follows its callback's completion, unless the
             // callback cancelled it; one it rekeyed starts from there.
-            if let Some(interval) = repeat {
-                let t = &mut self.timers[i];
-                if t.armed && t.key == instance && t.next_ms == next_ms {
-                    t.next_ms = beat_after(at, interval, done.max(now_ms));
-                } else if t.armed {
-                    t.next_ms = done + interval;
-                }
+            let done = self.now_ms;
+            let t = &mut self.timers[i];
+            if coalesce && t.armed {
+                let same = t.key == instance && t.next_ms == next_ms;
+                t.next_ms = if frame {
+                    (t.base, t.k) = (done, 1);
+                    super::virtual_frame(done, 1)
+                } else if same {
+                    beat_after(at, interval, done.max(now_ms))
+                } else {
+                    done + interval
+                };
             }
             match result {
                 Ok(receipt) => receipts.push(Timed {
-                    at_ms: start,
+                    at_ms: self.now_ms,
                     receipt,
                 }),
                 Err(e) => {
@@ -393,11 +443,11 @@ impl<D: DataSource> Runner<D> {
                 }
             }
             if until_request && self.next_ticket != ticket {
-                landed = start;
+                landed = self.now_ms;
                 break;
             }
         }
-        self.now_ms = if live.is_some() {
+        self.now_ms = if live {
             self.now_ms.max(landed)
         } else {
             landed
@@ -415,11 +465,15 @@ impl<D: DataSource> Runner<D> {
             error: None,
         }
     }
-}
 
-/// The live clock's time now, never earlier than `at`; `at` on a seek clock.
-fn observe(at: f64, live: &mut Option<&mut dyn FnMut() -> f64>) -> f64 {
-    live.as_mut().map_or(at, |sample| at.max(sample()))
+    /// Run a callback scheduled at `at`; on a live clock what it arms takes
+    /// its place (D2).
+    fn scheduled<T>(&mut self, at: f64, run: impl FnOnce(&mut Self) -> T) -> T {
+        self.clock.instant = self.clock.sample.is_some().then_some(at);
+        let result = run(self);
+        self.clock.instant = None;
+        result
+    }
 }
 
 /// The first beat of a timer's phase (beats at `beat + k·interval`) strictly

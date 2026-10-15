@@ -64,6 +64,7 @@ impl<D: DataSource> Runner<D> {
     /// Before a commit. `resources`: the commit edits the settled caches
     /// before settling (a reply does).
     pub(super) fn checkpoint(&mut self, resources: bool) -> Checkpoint {
+        self.start_commit();
         self.derives_evaluated = 0;
         self.copied_at_checkpoint = self.store.copied_bytes();
         Checkpoint {
@@ -193,6 +194,7 @@ impl<D: DataSource> Runner<D> {
                 .collect();
             self.data.forgotten(&self.store, &in_flight);
         }
+        self.sample();
     }
 
     /// Run an action by name with `args` — what a test or an agent does.
@@ -243,7 +245,7 @@ impl<D: DataSource> Runner<D> {
     pub(super) fn arm_then(&mut self, stood: bool) {
         for m in std::mem::take(&mut self.landed) {
             if stood && self.plan.mutations[m].then.is_some() {
-                self.then_due[m] = self.now_ms;
+                self.then_due[m] = self.armed_at();
             }
         }
     }
@@ -941,6 +943,15 @@ impl<D: DataSource> Runner<D> {
     /// Fulfill with elapsed wall milliseconds measured by the executor, never
     /// by the seekable agent clock. Missing measurements stay unnamed.
     pub fn fulfill_measured(
+        &mut self,
+        ticket: u64,
+        outcome: Outcome,
+        elapsed_ms: Option<u64>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
+        self.arrived(|r| r.fulfill_now(ticket, outcome, elapsed_ms))
+    }
+
+    fn fulfill_now(
         &mut self,
         ticket: u64,
         outcome: Outcome,
