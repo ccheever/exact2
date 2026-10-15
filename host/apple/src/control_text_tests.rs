@@ -530,6 +530,7 @@ fn grouped_native_button_measurement_includes_its_host_slot_once() {
     let mut request = exact_kernel::ButtonMeasureRequest {
         face: Default::default(),
         style: exact_kernel::ButtonFaceStyle {
+            neutral_tab_root: None,
             title: Default::default(),
             subtitle: None,
             symbol: Default::default(),
