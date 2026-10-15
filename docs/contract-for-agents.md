@@ -1758,8 +1758,10 @@ restarts it, as a new `for` key makes a new row
 runs when the gate changes: turning true arms the timer from that commit's time,
 turning false drops it, and an idle task keeps no host awake and commits
 nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
-at its deadline exactly, so its action sees `performanceNow()` equal to the deadline: clear
-without re-testing the time (a strict `performanceNow() > until` does nothing there). The
+at its deadline, its action seeing `performanceNow()` equal to it under a test's or the agent's
+clock and no earlier on a device: clear without re-testing the time (a strict
+`performanceNow() > until` can do nothing there). A repeat that missed ticks while the app was
+suspended fires once on a device, so measure time with `performanceNow()`, never by ticks. The
 gate is a bool and the key a string, number or bool; neither may read `performanceNow()`
 (`analyze-task-gate-clock`): gate on state and let the timer measure time. A
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a

@@ -101,7 +101,7 @@ component Weatherlight
   state units = "F"
   state selected = "now"
   state revision = 0
-  state ticks = 0
+  state refreshedAt = -600000
   state searching = false
   state query = ""
   state submitted = ""
@@ -155,10 +155,13 @@ component Weatherlight
     hoursRight = e.scrollWidth - e.scrollLeft - e.clientWidth > 1
   action toggleMotion
     animated = not animated
+  // Refresh every ten minutes by the clock, not by counting ticks, which a
+  // suspension skips
   action tick
-    if ticks == 0
+    let now = performanceNow()
+    if now - refreshedAt >= 600000
       revision = revision + 1
-    ticks = (ticks + 1) % 600
+      refreshedAt = now
   task updates mount
     every(1000, tick)
 

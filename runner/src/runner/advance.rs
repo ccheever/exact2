@@ -126,7 +126,7 @@ impl<D: DataSource> Runner<D> {
     /// once, at `now_ms`, in plan order; a frame missed is never caught up.
     /// Each task's virtual frames restart from `now_ms` (`super::virtual_frame`).
     /// On a live clock, timers due by the clock's sample fire, not by the
-    /// presentation target `now_ms`.
+    /// presentation target `now_ms`, and frame tasks observe the clock.
     pub fn frame(&mut self, now_ms: f64) -> Advanced {
         let cutoff = if self.clock.sample.is_some() {
             self.sample();

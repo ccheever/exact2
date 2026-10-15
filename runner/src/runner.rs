@@ -116,10 +116,10 @@ pub struct Timed {
     pub receipt: CommitReceipt,
 }
 
-/// What one `advance_timed` or collection feedback call did: the commits in order, each at its due
-/// time; the clock afterwards — the requested time, or the last time reached
-/// before a refusal (or, advancing until a request, the due time of the timer
-/// that sent it); and that refusal, if any. Commits before a refusal are
+/// What one `advance_timed` or collection feedback call did: the commits in order, each at the time
+/// it committed (on a seek clock its due time); the clock afterwards — the requested time, or the
+/// last time reached before a refusal or, advancing until a request, at the timer that sent it
+/// (on a live clock, the last sample if later); and that refusal, if any. Commits before a refusal are
 /// kept: they are in the kernel, and a host must show them.
 #[derive(Debug)]
 pub struct Advanced {
