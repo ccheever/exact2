@@ -378,7 +378,7 @@ could not, the comment at the fix says what happened and why the code is so.
 As of 2026-10-15. Each item says what is wrong or missing; the open framework issues that
 someone using the app runs into are in the section above.
 
-**Fails** (the first four with real keys and pointer):
+**Fails with real keys and pointer:**
 
 - In Settings › Keybindings, one Escape after a recorded chord ends the recording and also
   closes Settings. The reference ends only the recording.
@@ -386,8 +386,6 @@ someone using the app runs into are in the section above.
   and no ring shows.
 - Return on a row of the sidebar's + menu does nothing (Space works).
 - The surface launcher's letter shortcut stops working after the launcher is mounted again.
-- The `timeline-keyboard` AppKit test fails: Tab does not leave the result region. The test
-  links the app's archive but uses none of its code, so the cause is in the host; no issue is filed yet.
 
 **Not built:**
 

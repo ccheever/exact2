@@ -4,6 +4,9 @@
 import AppKit
 
 _ = NSApplication.shared
+// Tab reaches buttons only with Keyboard Navigation on (LLP 1115.000 D7.2); fix the
+// mode so the result does not depend on the machine's setting.
+KeyboardNavigation.agent = true
 let presenter = Presenter()
 let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 500),
                       styleMask: [.titled], backing: .buffered, defer: false)
