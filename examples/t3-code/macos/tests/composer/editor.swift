@@ -21,6 +21,13 @@ final class InnerDelegate: NSObject, NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) { selections += 1 }
 }
 
+/// VO-Space on `element`: its AXPress, then the run loop turn the chip's press waits for (it runs after the request).
+func axPress(_ element: NSAccessibilityElement) -> Bool {
+    let pressed = element.accessibilityPerformPress()
+    RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.005))
+    return pressed
+}
+
 final class EditorFixture {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     let hooks: ExactHatches
