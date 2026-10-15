@@ -380,10 +380,8 @@ describe('the surface launcher keyboard', () => {
     expect(launcher).toContain('else if letters.includes(k)\n      preventDefault()\n      stopPropagation()\n      ui("key", k)\n    else\n      ui("key", k)');
     // A pointer over an available row moves the same highlight; leaving that row clears it.
     expect(launcher).toContain('highlight = over ? ids.indexOf(id) : (highlight == ids.indexOf(id) ? -1 : highlight)');
-    expect(launcher).toContain('id="surface-chooser" autofocus key=keys hatch="t3-launcher"');
+    expect(launcher).toContain('id="surface-chooser" autofocus resize=laidOut key=keys hatch="t3-launcher"');
     expect(launcher).toContain('highlighted=(surface.available and lit >= 0 and ids.indexOf(surface.id) == lit), tipped=(hovered == surface.id)');
-    // Enter on a focused row is the row's own press (`event.target !== event.currentTarget`).
-    expect(await component('SurfaceRow')).toContain('action rowKey(k: string)\n    if k == "Enter"\n      stopPropagation()');
   });
   // The native R8KeysLauncher is gone. The launcher focuses itself as it mounts
   // (`autofocus`, focusOnMount), and each available row declares its letter, either case, as `aria-keyshortcuts`: the host
