@@ -149,6 +149,50 @@ export class CompositionKeys {
     this.marks.splice(0, index + 1);
     return true;
   }
+
+  /** Whether a mark still waiting for its keydown is ⌥Return's, the Korean input method's Hanja key. */
+  awaitsOptionReturn(): boolean {
+    const now = this.now();
+    return this.marks.some(({ key, at }) => now - at < COMPOSITION_KEY_LIFETIME_MS && key.altKey && !key.metaKey &&
+      !key.ctrlKey && (key.code === "Enter" || key.code === "NumpadEnter"));
+  }
+}
+
+type ConversionInput = EventTarget & { value: string };
+
+/** Leaves the text an input method commits for ⌥Return in the input until the input method has read it.
+ * For ⌥Return the Korean input method commits the composing syllable, reads the text before the caret,
+ * and replaces it with a marked Hanja candidate (韓 for 한) while its candidate list is open. The surface
+ * empties its input on every commit (surface.ts onCompositionEnd); Chromium answers the read from the text
+ * it last knew, so under the reference 한 goes out at the commit and the list opens on 韓. WebKit answers
+ * from the page, where the input is empty by then: the input method finds nothing, declines the key, and
+ * no list opens. So the committed text goes back into the input after the surface has sent it; the
+ * candidate's composition replaces it, and any other key, or leaving the input, empties it again, so
+ * it is never sent twice. */
+export function keepConversionContext(input: ConversionInput, converting: () => boolean): () => void {
+  let kept = false;
+  const end = (event: Event) => {
+    const data = (event as CompositionEvent).data;
+    if (!data || !converting()) return;
+    input.value = data;
+    kept = true;
+  };
+  const start = () => { kept = false; };
+  const release = () => {
+    if (!kept) return;
+    kept = false;
+    input.value = "";
+  };
+  input.addEventListener("compositionend", end);
+  input.addEventListener("compositionstart", start);
+  input.addEventListener("keydown", release);
+  input.addEventListener("blur", release);
+  return () => {
+    input.removeEventListener("compositionend", end);
+    input.removeEventListener("compositionstart", start);
+    input.removeEventListener("keydown", release);
+    input.removeEventListener("blur", release);
+  };
 }
 
 const LIGHT: GhosttyTheme = {
@@ -322,6 +366,7 @@ class TerminalPage {
       surface.input.addEventListener("blur", () => post({ type: "focus", focused: false }));
       // After the surface's own listeners, so a commit's data goes out before the state ends.
       observeComposition(surface.input, (composing) => post({ type: "composition", composing }));
+      keepConversionContext(surface.input, () => this.compositionKeys.awaitsOptionReturn());
       for (const message of this.pending.splice(0)) this.receive(message);
       post({ type: "ready", cols: surface.cols, rows: surface.rows });
     } catch (error) {

@@ -18,12 +18,19 @@ import XCTest
 ///   still acts on the key, and the keyboard layout's command for a declined key follows.
 /// - 2-Set: g ㅎ, k ㅏ, s ㄴ, r ㄱ, m ㅡ, f ㄹ compose 한 and 글 (r commits 한 and starts ㄱ); a key
 ///   the input method does not compose commits the syllable and is declined, unless the test says the
-///   method keeps composing (as the Korean one did for a chord re-issued with a Latin letter) or consumes it (Hanja's ⌥Return, Kotoeri's ⌃K).
+///   method keeps composing (as the Korean one did for a chord re-issued with a Latin letter), consumes it
+///   (Kotoeri's ⌃K), or converts (the Korean one's ⌥Return, below).
+/// - Hanja (⌥Return), in the order the Korean input method took under WebKit with a person's keys: it
+///   commits the syllable, reads the selection and the text before it through WebKit's asynchronous
+///   client calls (answered by the page), and, when that text is the syllable, replaces it with its first
+///   candidate, marked while the list is open, and consumes the key. Finding no text, it declines the key.
+///   Return picks the candidate.
 final class FakeHangulInputMethod {
-    enum Answer { case commitsAndDeclines, keepsAndDeclines, consumes }
+    enum Answer { case commitsAndDeclines, keepsAndDeclines, consumes, convertsToHanja }
     var control = Answer.commitsAndDeclines
     var optionReturn = Answer.commitsAndDeclines
     private(set) var marked = ""
+    private var choosing = false
     /// Key-down codes offered to the input method, and the times the view asked the input context itself.
     private(set) var offered: [UInt16] = []
     private(set) var synchronousAsks = 0
@@ -43,27 +50,64 @@ final class FakeHangulInputMethod {
     }
 
     /// The input method's answer to one key, with the client calls it makes before answering.
-    private func answer(_ event: NSEvent, _ client: NSTextInputClient) -> Bool {
-        guard event.type == .keyDown else { return false }
+    private func answer(_ event: NSEvent, _ client: NSTextInputClient, _ done: @escaping (Bool) -> Void) {
+        guard event.type == .keyDown else { return done(false) }
         offered.append(event.keyCode)
         let none = NSRange(location: NSNotFound, length: 0)
         let flags = event.modifierFlags.intersection([.command, .control, .option])
+        let returnKey = event.keyCode == 36 || event.keyCode == 76
+        let choosing = self.choosing
+        self.choosing = false
+        if choosing, flags.isEmpty, returnKey {
+            client.insertText(marked, replacementRange: none)
+            marked = ""
+            return done(true)
+        }
         if flags.isEmpty, let jamo = Self.jamo[event.keyCode] {
             let (commit, next) = compose(jamo)
             if !commit.isEmpty { client.insertText(commit, replacementRange: none) }
             if !next.isEmpty || !marked.isEmpty { client.setMarkedText(next, selectedRange: NSRange(location: (next as NSString).length, length: 0), replacementRange: none) }
             marked = next
-            return true
+            return done(true)
         }
-        guard !marked.isEmpty else { return false }
-        let returnKey = event.keyCode == 36 || event.keyCode == 76
+        guard !marked.isEmpty else { return done(false) }
         switch flags.contains(.control) ? control : flags.contains(.option) && returnKey ? optionReturn : .commitsAndDeclines {
-        case .consumes: return true
-        case .keepsAndDeclines: return false
+        case .consumes: done(true)
+        case .keepsAndDeclines: done(false)
         case .commitsAndDeclines:
             client.insertText(marked, replacementRange: none)
             marked = ""
-            return false
+            done(false)
+        case .convertsToHanja:
+            let syllable = marked
+            client.insertText(syllable, replacementRange: none)
+            marked = ""
+            readBeforeSelection(client, length: (syllable as NSString).length) { [unowned self] text, range in
+                guard text == syllable, let candidate = Self.hanja[syllable] else { return done(false) }
+                client.setMarkedText(candidate, selectedRange: NSRange(location: (candidate as NSString).length, length: 0), replacementRange: range)
+                marked = candidate
+                self.choosing = true
+                done(true)
+            }
+        }
+    }
+
+    private static let hanja = ["한": "韓"]
+
+    /// The selection, then the `length` units before it, as WebKit's asynchronous text input client
+    /// answers them: from the page, after the calls made before.
+    private func readBeforeSelection(_ client: NSTextInputClient, length: Int, _ done: @escaping (String?, NSRange) -> Void) {
+        typealias Selected = @convention(c) (AnyObject, Selector, @escaping @convention(block) (NSRange) -> Void) -> Void
+        typealias Substring = @convention(c) (AnyObject, Selector, NSRange, @escaping @convention(block) (NSAttributedString?, NSRange) -> Void) -> Void
+        let object = client as! NSObject
+        let selectedName = NSSelectorFromString("selectedRangeWithCompletionHandler:")
+        let substringName = NSSelectorFromString("attributedSubstringForProposedRange:completionHandler:")
+        let selected = unsafeBitCast(object.method(for: selectedName), to: Selected.self)
+        selected(object, selectedName) { range in
+            guard range.location != NSNotFound, range.location >= length else { return done(nil, range) }
+            let before = NSRange(location: range.location - length, length: length)
+            let substring = unsafeBitCast(object.method(for: substringName), to: Substring.self)
+            substring(object, substringName, before) { text, _ in done(text?.string, before) }
         }
     }
 
@@ -76,7 +120,7 @@ final class FakeHangulInputMethod {
             return original
         }
         let byInputMethod: @convention(block) (NSTextInputContext, NSEvent, @escaping (Bool) -> Void) -> Void = { [unowned self] context, event, done in
-            DispatchQueue.main.async { done(self.answer(event, context.client)) }
+            DispatchQueue.main.async { self.answer(event, context.client, done) }
         }
         _ = replace("handleEventByInputMethod:completionHandler:", byInputMethod)
         typealias Layout = @convention(c) (AnyObject, Selector, NSEvent) -> Bool
@@ -84,7 +128,7 @@ final class FakeHangulInputMethod {
         let layout = unsafeBitCast(method_getImplementation(class_getInstanceMethod(context, layoutSelector)!), to: Layout.self)
         let synchronous: @convention(block) (NSTextInputContext, NSEvent) -> Bool = { [unowned self] context, event in
             synchronousAsks += 1
-            DispatchQueue.main.async { if !self.answer(event, context.client) { _ = layout(context, layoutSelector, event) } }
+            DispatchQueue.main.async { self.answer(event, context.client) { if !$0 { _ = layout(context, layoutSelector, event) } } }
             return false
         }
         _ = replace("handleEvent:", synchronous)
@@ -92,6 +136,7 @@ final class FakeHangulInputMethod {
         var discardOriginal: Discard?
         let discard: @convention(block) (NSTextInputContext) -> Void = { [unowned self] context in
             marked = ""
+            choosing = false
             discardOriginal?(context, NSSelectorFromString("discardMarkedText"))
         }
         discardOriginal = unsafeBitCast(replace("discardMarkedText", discard), to: Discard.self)
@@ -249,36 +294,50 @@ final class TerminalInputMethodTests: XCTestCase {
         XCTAssertEqual(Array(method.offered.filter { [8, 37].contains($0) }), [8, 37], "the input method sees each composing ⌃ key once")
     }
 
-    /// ⌥Return with 한 composing is the input method's (its Hanja list): the terminal never encodes it as
-    /// ESC CR, and the input method sees it once. One that commits and declines it sends the syllable alone.
-    func testOptionReturnIsTheInputMethods() {
-        method.optionReturn = .consumes
+    /// ⌥Return with 한 composing opens the Korean input method's Hanja list. 한 goes out when the input method
+    /// commits it and the picked 韓 after it, as under T3 Code's Chromium page, whose surface sends every
+    /// commit (surface.ts onCompositionEnd); the input method finds 한 before the caret because the page
+    /// leaves it in the input (entry.ts keepConversionContext). The terminal never encodes the key.
+    func testOptionReturnOpensTheHanjaList() {
+        method.optionReturn = .convertsToHanja
         compose("gks")
         press(36, "\r", .option)
         settle()
-        print("terminal ⌥Return while 한 composes (Hanja): typed \(hex(typed)) composing \(view.composing) offered \(method.offered)")
-        XCTAssertEqual(typed, "")
-        XCTAssertTrue(view.composing, "the Hanja list keeps 한 composing")
-        XCTAssertEqual(method.offered.filter { $0 == 36 }.count, 1)
-        // The person picks nothing and types on: r commits 한.
-        press(15, "r")
-        settle()
+        print("terminal ⌥Return while 한 composes (Hanja): typed \(hex(typed)) composing \(view.composing) marked \(method.marked)")
         XCTAssertEqual(typed, "한")
-
-        method.optionReturn = .commitsAndDeclines
-        press(46, "m"); press(3, "f")
+        XCTAssertEqual(method.marked, "韓", "the input method found no 한 before the caret, so no list opened")
+        XCTAssertTrue(view.composing, "韓 composes while the list is open")
+        XCTAssertEqual(method.offered.filter { $0 == 36 }.count, 1)
+        // Return picks 韓; the next syllable goes out alone.
+        press(36, "\r")
         settle()
+        XCTAssertEqual(typed, "한韓")
+        XCTAssertFalse(view.composing)
+        press(5, "g"); press(49, " ")
+        settle()
+        XCTAssertEqual(typed, "한韓ㅎ ")
+        XCTAssertEqual(method.synchronousAsks, 0, "the view asked the input context itself")
+    }
+
+    /// An input method that commits and declines ⌥Return sends the syllable alone, once: the terminal never
+    /// encodes the key (ESC CR is the terminal's encoding, a line break the layout's), and the syllable the
+    /// page left for a conversion does not go out again with the next key. Without a composition ⌥Return
+    /// is the terminal's: Ghostty's ESC CR.
+    func testDeclinedOptionReturnSendsTheSyllableAlone() {
+        compose("gks")
         press(36, "\r", .option)
         settle()
-        print("terminal ⌥Return while 글 composes (declined): typed \(hex(typed)) composing \(view.composing)")
-        XCTAssertEqual(typed, "한글", "⌥Return reached the shell (ESC CR is the terminal's encoding, a line break the layout's)")
-        XCTAssertEqual(method.offered.filter { $0 == 36 }.count, 2)
+        print("terminal ⌥Return while 한 composes (declined): typed \(hex(typed)) composing \(view.composing)")
+        XCTAssertEqual(typed, "한")
+        XCTAssertFalse(view.composing)
+        XCTAssertEqual(method.offered.filter { $0 == 36 }.count, 1)
+        press(49, " ")
+        settle()
+        XCTAssertEqual(typed, "한 ")
 
-        // Without a composition ⌥Return is the terminal's again: Ghostty's ESC CR.
-        let before = typed
         press(36, "\r", .option)
         settle()
-        XCTAssertEqual(String(typed.dropFirst(before.count)), "\u{1b}\r")
+        XCTAssertEqual(typed, "한 \u{1b}\r")
         XCTAssertEqual(method.synchronousAsks, 0, "the view asked the input context itself")
     }
 
