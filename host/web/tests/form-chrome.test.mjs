@@ -16,6 +16,7 @@ import { Cdp } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { withLook } from '../look.mjs';
 import { need } from '../../../scripts/coverage.mjs';
+import { standIns } from './stand-ins.mjs';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
@@ -62,18 +63,10 @@ const page = withLook(readFileSync(resolve(WEB, 'index.html'), 'utf8')).match(/<
 
 // rt.js beside the modules it imports: the real ones it binds with, stand-ins for the rest (as js-link-press.test.mjs).
 const REAL = ['rt.js', 'font-family.js', 'observers.js', 'grid.js', 'overlay.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js'];
-const STUBS = {
-  'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'editMenu', 'settleRadios', 'installFits', 'contextAt', 'animationClocks', 'launchLocation'],
-  'shape.js': ['conforms', 'eq', 'equal', 'failureCode'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
-  'focus.js': ['autofocus', 'press', 'hold', 'within'], 'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'],
-  'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'], 'svg-transform.js': ['svgTransform', 'svgGeometry'], 'backdrop.js': ['backdropValue'],
-  'dataset.js': ['ds', 'x_querySelectorAll'], 'hatches.js': ['ht'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'],
-  'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'],
-};
+const STUBS = standIns(REAL);
 const module = name => name === 'input-glue.js' ? readFileSync(resolve(WEB, name))
   : REAL.includes(name) ? readFileSync(resolve(WEB_JS, name))
-  : STUBS[name] ? STUBS[name].map(n => `export const ${n} = () => {};`).join('\n') + (name === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : '')
-  : null;
+  : STUBS.get(name) ?? null;
 
 /** The page in headless Chrome: `test(evaluate, call)` with its `Runtime.evaluate` and its CDP session. */
 async function inChrome(test) {
