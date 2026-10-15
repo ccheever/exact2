@@ -725,6 +725,10 @@ component App
       button "Toggle" press=toggle testId="toggle"
       button appearance="auto" testId="standalone"
         text "Native button"
+      button appearance="auto" width=100 testId="standalone-width"
+        text "Native button"
+      button appearance="auto" testId="standalone-icon" aria-label="Info"
+        image "symbol:info"
       row testId="ordinary" padding-left=(changed ? 24 : 16)
         text "Ordinary"
       list appearance="auto" width=320 height=280
@@ -745,6 +749,10 @@ component App
           row width=100 height=52 padding-left=inset padding-right=(changed ? "calc(93px - 20%)" : "calc(93px - 10%)") border-width=0 border-left-width=2 border-right-width=3 border-style="solid" background-color="#ffffff" border-bottom-color="#0000ff" testId="percent-row"
           row width=100 height=52 padding-left="10%" padding-right="calc(100px - 10%)" background-color="#ffffff" border-bottom-color="#0000ff" testId="static-percent"
           row width=100 height=52 testId="percent-last"
+          button appearance="auto" width=100 testId="fixed-button-row"
+            text "Native button"
+          button appearance="auto" testId="icon-button-row" aria-label="Info"
+            image "symbol:info"
           if changed
             row width=100 height=52 padding-left="10%" testId="conditional-percent"
 "##;
@@ -780,6 +788,7 @@ import {rolldown} from 'rolldown';
 import {chromium as playwright} from 'playwright-core';
 import {chromium} from './scripts/agent-launch.mjs';
 import {decodePng} from './scripts/png.mjs';
+import {withLook} from './host/web/look.mjs';
 const dir=process.argv[1],root=process.cwd(),gen=resolve(dir,'.gen');
 mkdirSync(gen,{recursive:true});
 for(const folder of ['host/web','host/web-js'])for(const f of readdirSync(resolve(root,folder)).filter(f=>f.endsWith('.js')))copyFileSync(resolve(root,folder,f),resolve(gen,f));
@@ -787,7 +796,7 @@ for(const f of ['app.js','names.js','paint.js','symbol-roles.js'])copyFileSync(r
 writeFileSync(resolve(gen,'entry.js'),`import app from './app.js';app();globalThis.ready=true;`);
 const bundle=await rolldown({input:resolve(gen,'entry.js'),logLevel:'silent',external:['./draw.js']});
 await bundle.write({file:resolve(dir,'client.js'),format:'iife',codeSplitting:false});await bundle.close();
-const base=readFileSync(resolve(root,'host/web/index.html'),'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+const base=withLook(readFileSync(resolve(root,'host/web/index.html'),'utf8')).match(/<style>([\s\S]*?)<\/style>/)[1];
 const css=base+readFileSync(resolve(dir,'app.css'),'utf8');
 const shell=content=>`<!doctype html><html><style>${css}</style><div id="exact-root">${content}</div>`;
 const rustMarkup=readFileSync(resolve(dir,'rust.html'),'utf8');
@@ -798,7 +807,7 @@ const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>{const path=new U
 const {executable,unavailable}=chromium();if(unavailable)throw Error(unavailable);
 const browser=await playwright.launch({executablePath:executable,headless:true,args:['--no-sandbox']});
 try{
- const page=await browser.newPage();
+ const page=await browser.newPage({colorScheme:'light'});
  await page.addInitScript(()=>{const Native=ResizeObserver;globalThis.insetObservers={created:0,delivered:0,active:new Set()};globalThis.ResizeObserver=class extends Native{constructor(f){super(e=>{insetObservers.delivered++;f(e)});insetObservers.created++}observe(e,o){insetObservers.active.add(e);super.observe(e,o)}unobserve(e){insetObservers.active.delete(e);super.unobserve(e)}}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  const settled=()=>page.waitForFunction(()=>{const e=document.querySelector('[data-testid="percent-row"]'),s=getComputedStyle(e);return s.getPropertyValue('--exact-grouped-inset-resolved').trim()===s.paddingLeft});
@@ -818,6 +827,8 @@ try{
  assert.deepEqual(await pixel('image-row',-2),[0,128,0],'a replaced image row draws its separator');
  assert.deepEqual(await pixel('covered',-2),[255,0,0],'opaque row content covers the separator');
  assert.equal(await page.evaluate(()=>{const style=id=>getComputedStyle(document.querySelector(`[data-testid="${id}"]`));return parseFloat(style('last').paddingLeft)-parseFloat(style('standalone').paddingLeft)}),16,'native face fitting includes exactly one leading inset');
+
+ for(const [row,plain] of [['fixed-button-row','standalone-width'],['icon-button-row','standalone-icon']])assert.equal(await page.evaluate(([row,plain])=>{const left=id=>parseFloat(getComputedStyle(document.querySelector(`[data-testid="${id}"]`)).paddingLeft);return left(row)-left(plain)},[row,plain]),16,`${row} keeps one leading inset with the neutral look`);
 
  await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());
  await settled();await percentage('percent-row',2);
