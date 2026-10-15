@@ -30,6 +30,7 @@ import { openPendingPort, watchRowPorts } from './legacy-sidebar-ports';
 import { closeThreadTerminals, detachThreadSessions, removeOrphanedWorktree, setWorktreePrompt, worktreePlan, worktreePrompt, type WorktreePrompt } from './worktree-cleanup';
 import { deleteSelectedThreadEntries, getFallbackThreadIdAfterDelete } from './sidebar-delete-logic';
 import { openHome } from './home-landing';
+import { focusFleetThread, parseFleetThreadId } from './settings-b-fleet';
 import { letGo } from './let-go';
 
 const failure = (error: unknown) => error instanceof Error ? error.message : 'An error occurred.';
@@ -248,7 +249,12 @@ function planForward(client: T3Client, nativeHandle: Native, id: string, coParki
   const thread = threadOf(client, id), navigator = client as unknown as Navigator;
   return async () => {
     if (client.threadId !== id) return;
-    if (next) await navigator.openSelected?.(nativeHandle, next);
+    // The next card may be a background environment's: it opens there, as its row's press does (a `fleet:` id is no
+    // thread of this environment's shell, so openSelected would show the empty state and fetch nothing).
+    if (next && parseFleetThreadId(next)) {
+      const focused = await focusFleetThread(client, nativeHandle, next);
+      (client as unknown as { adoptStatus?(value: Obj, generation: number): void }).adoptStatus?.(focused.value, focused.generation);
+    } else if (next) await navigator.openSelected?.(nativeHandle, next);
     else if (thread) await navigator.openDraft?.(nativeHandle, str(thread.projectId));
   };
 }
