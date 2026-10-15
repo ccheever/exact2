@@ -2,16 +2,19 @@
 // the files this session wrote, committed to git with a message naming each
 // edit and its author, through a temporary index, never pushed.
 //
-// - **The baseline.** When the session first writes a file it records HEAD,
-//   whether the file's index entry or its working tree (as the write read
-//   it) differed from HEAD, and from then on every change it did not make.
+// - **The baseline.** Before the session first writes a file it records
+//   HEAD and whether the file's index entry or its working tree (content
+//   or mode) differed from HEAD; the write's own reading of the file must
+//   then be HEAD's text. From then on every change it did not make.
 // - **The guard.** A file is refused, named, when it differed from HEAD at
 //   its baseline, HEAD has moved since, a change the server did not make was
 //   seen (even one a later write overwrote), or the file now differs from
 //   the server's last write. Such a file is committed by hand.
 // - **The index.** HEAD plus exactly those files, in a temporary index; then
 //   the real index's entries for those paths, and no other, take the new
-//   blobs, so the developer's other staging stays.
+//   blobs, so the developer's other staging stays. The real index moves
+//   before HEAD does (and is put back if HEAD cannot move), so a failure
+//   never leaves HEAD ahead of an index that would undo it.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
@@ -36,27 +39,41 @@ export function designSession(dir) {
   let appDir = dir;
   try { appDir = realpathSync(dir); } catch { /* not there yet */ }
   const files = new Map(); // path → { head, dirty, foreign, last, edits: [{client, tokens}] }
+  const pending = new Map(); // path → { head, dirty, atHead }, read before a first write
   const top = () => tryGit(appDir, ['rev-parse', '--show-toplevel']);
+
+  /** Before a write that may touch `paths`: the git facts of each the
+   * session has not written yet, as they are now. */
+  function prepare(paths) {
+    const root = top();
+    const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
+    for (const path of paths) {
+      if (files.has(path)) continue;
+      const repoPath = root && relative(root, resolve(appDir, path));
+      let dirty = null, atHead = null;
+      if (!head) dirty = 'the repository has no commit to start from';
+      else if (tryGit(root, ['diff', '--cached', '--quiet', 'HEAD', '--', repoPath]) === null) dirty = 'it was staged when the session first wrote it';
+      else if (tryGit(root, ['diff', '--quiet', 'HEAD', '--', repoPath]) === null) dirty = 'it differed from HEAD when the session first wrote it';
+      else {
+        const shown = spawnSync('git', ['show', `HEAD:${repoPath}`], { cwd: root });
+        atHead = shown.status === 0 ? sha(shown.stdout) : null;
+      }
+      pending.set(path, { head, dirty, atHead });
+    }
+  }
 
   /** A write the server made: `before` and `after` are the file's digests
    * as the write read it and as it left it. */
   function wrote(path, { before, after, client, tokens }) {
     let f = files.get(path);
     if (!f) {
-      const root = top();
-      const head = root && tryGit(root, ['rev-parse', '--verify', '-q', 'HEAD']);
-      const repoPath = root && relative(root, resolve(appDir, path));
-      let dirty = null;
-      if (!head) dirty = 'the repository has no commit to start from';
-      else {
-        // Its text at HEAD, against the text the first write read.
-        const atHead = spawnSync('git', ['show', `HEAD:${repoPath}`], { cwd: root });
-        if (atHead.status !== 0 || sha(atHead.stdout) !== before) dirty = 'it differed from HEAD when the session first wrote it';
-        else if (tryGit(root, ['diff', '--cached', '--quiet', 'HEAD', '--', repoPath]) === null) dirty = 'it was staged when the session first wrote it';
-      }
-      f = { head, dirty, foreign: false, last: before, edits: [] };
+      const facts = pending.get(path) ?? { head: null, dirty: 'the session did not read it before writing it', atHead: null };
+      // The text the write read is HEAD's, or something moved in between.
+      const dirty = facts.dirty ?? (facts.atHead !== before ? 'it differed from HEAD when the session first wrote it' : null);
+      f = { head: facts.head, dirty, foreign: false, last: before, edits: [] };
       files.set(path, f);
     }
+    pending.delete(path);
     // A write that read other bytes than the last one left: a change
     // between them that was not the server's.
     if (f.last !== before) f.foreign = true;
@@ -82,14 +99,15 @@ export function designSession(dir) {
     const refused = [], chosen = [];
     for (const [path, f] of files) {
       const repoPath = relative(root, resolve(appDir, path));
-      let now = '';
-      try { now = sha(readFileSync(resolve(appDir, path))); } catch { /* gone */ }
+      // Read once: these bytes are the ones checked and the ones committed.
+      let bytes = null;
+      try { bytes = readFileSync(resolve(appDir, path)); } catch { /* gone */ }
       const why = f.dirty
         ?? (f.head !== head ? 'HEAD has moved since the session first wrote it' : null)
         ?? (f.foreign ? 'it was changed by someone other than this server' : null)
-        ?? (now !== f.last ? "it differs from the server's last write" : null);
+        ?? (!bytes || sha(bytes) !== f.last ? "it differs from the server's last write" : null);
       if (why) refused.push({ file: path, why });
-      else chosen.push({ path, repoPath, f });
+      else chosen.push({ path, repoPath, f, bytes });
     }
     if (refused.length) return { error: { message: `commit refused: ${refused.map(r => `${r.file}: ${r.why}`).join('; ')}`, refused } };
     if (!chosen.length) return { error: { message: 'the session has written nothing to commit' } };
@@ -98,8 +116,8 @@ export function designSession(dir) {
     try {
       git(root, ['read-tree', 'HEAD'], { env });
       const blobs = [];
-      for (const { path, repoPath } of chosen) {
-        const blob = git(root, ['hash-object', '-w', '--', resolve(appDir, path)]).trim();
+      for (const { repoPath, bytes } of chosen) {
+        const blob = git(root, ['hash-object', '-w', '--stdin'], { input: bytes }).trim();
         const mode = (tryGit(root, ['ls-tree', 'HEAD', '--', repoPath]) ?? '').split(/\s/)[0] || '100644';
         git(root, ['update-index', '--add', '--cacheinfo', `${mode},${blob},${repoPath}`], { env });
         blobs.push({ mode, blob, repoPath });
@@ -109,10 +127,18 @@ export function designSession(dir) {
       const lines = chosen.flatMap(({ path, f }) => f.edits.map(e => `- ${e.client}: ${e.tokens?.length ? e.tokens.join(', ') : 'edited'} (${path})`));
       const text = `${message || `design: ${lines.length} edit${lines.length === 1 ? '' : 's'}`}\n\n${lines.join('\n')}\n\nCommitted by the design server for ${client}.\n`;
       const made = git(root, ['commit-tree', tree, '-p', head], { input: text }).trim();
-      // HEAD moves only from the HEAD the guard checked.
-      git(root, ['update-ref', '-m', 'tamber commit', 'HEAD', made, head]);
-      // The real index: those paths' entries, and no other.
-      for (const { mode, blob, repoPath } of blobs) git(root, ['update-index', '--add', '--cacheinfo', `${mode},${blob},${repoPath}`]);
+      // The real index first: those paths' entries, and no other, all in
+      // one update (it fails whole, with HEAD unmoved).
+      const saved = git(root, ['ls-files', '-s', '-z', '--', ...blobs.map(b => b.repoPath)]);
+      git(root, ['update-index', '--add', '--index-info'], { input: blobs.map(b => `${b.mode} ${b.blob}\t${b.repoPath}\n`).join('') });
+      // HEAD moves only from the HEAD the guard checked; if it cannot, the
+      // index entries go back as they were.
+      try { git(root, ['update-ref', '-m', 'tamber commit', 'HEAD', made, head]); } catch (e) {
+        const back = saved.split('\0').filter(Boolean).map(line => `${line}\n`).join('');
+        const absent = blobs.filter(b => !saved.includes(`\t${b.repoPath}\0`)).map(b => `0 ${'0'.repeat(40)}\t${b.repoPath}\n`).join('');
+        try { git(root, ['update-index', '--index-info'], { input: back + absent }); } catch { /* said below */ }
+        throw e;
+      }
       // A new session begins for them at the new HEAD.
       for (const { path } of chosen) files.delete(path);
       return { ok: { commit: made, files: chosen.map(c => c.path) } };
@@ -128,5 +154,5 @@ export function designSession(dir) {
     return Object.fromEntries([...files].map(([path, f]) => [path, { edits: f.edits.length, dirty: f.dirty, foreign: f.foreign }]));
   }
 
-  return { wrote, seen, commit, state };
+  return { prepare, wrote, seen, commit, state };
 }

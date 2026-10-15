@@ -24,10 +24,12 @@
 //   - `commit` `{client, message?}`: the files this session wrote, committed
 //     to git as scripts/tamber-commit.mjs guards it; never pushed.
 //   - `propose` with `hold: true` and a `client`: kept 15 min for review
-//     and announced (`proposal`). `accept` `{proposal, client, items?}`
-//     applies it against the digests it was planned with; a file moved
-//     since, or only some items, recomputes it as a new proposal for a fresh
-//     accept. `drop` `{proposal}` forgets it.
+//     (64 at most) and announced (`proposal`, its operations by index).
+//     `accept` `{proposal, client, items?}` applies it against the digests
+//     it was planned with; a file moved since, or only some items,
+//     recomputes it as a new proposal for a fresh accept. `drop` `{proposal,
+//     client}` forgets it. The ones held now come with `subscribed` and
+//     each long poll's answer.
 //   - A conflict names who last changed each file that moved (`by`: a
 //     client, or "changed on disk").
 // - Every POST carries the token as `x-exact-tamber-token`, never in a URL.
@@ -49,7 +51,7 @@ const ROOT = resolve(new URL('..', import.meta.url).pathname);
 // The server's own line limit, less room for the id this adds.
 const LINE_LIMIT = 1 << 20;
 const BODY_LIMIT = LINE_LIMIT - 64;
-const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000;
+const ANSWER_MS = 120_000, POLL_MS = 25_000, KEPT = 256, HOLD_MS = 15 * 60_000, HELD = 64;
 const METHODS = new Set(['hello', 'describe', 'resolve', 'explain', 'propose', 'transaction', 'undo', 'commit', 'accept', 'drop']);
 const WRITES = new Set(['transaction', 'undo']);
 
@@ -161,12 +163,13 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // The design's files as the server has them now, announced where a
   // digest moved, and every directory holding one watched. A file that
   // appears (a new design, a checkout) is found by asking again.
-  const refresh = async () => {
-    const reply = await ask({ method: 'hello' }, { wait: first ? 0 : ANSWER_MS });
+  // Taken as the server answers, in order with its writes' replies, so an
+  // older read never lands after a newer write.
+  const read = reply => {
     // A failed read is said, and read again at the next change; until the
     // first succeeds, every 2 s too.
-    if (!reply.ok) {
-      log(`tamber: ${reply.error?.message}`);
+    if (!reply?.ok) {
+      log(`tamber: ${reply?.error?.message ?? 'no answer'}`);
       if (first && !down) setTimeout(rescan, 2000).unref?.();
       return;
     }
@@ -175,6 +178,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     else publish(reply.ok.files, { changed: null, client: null }, [...known.keys()].filter(path => !(path in reply.ok.files)));
     watchAll(Object.keys(reply.ok.files));
   };
+  const refresh = () => ask({ method: 'hello' }, { wait: first ? 0 : ANSWER_MS, done: read });
   // The app's directory (where a new design beside it appears) and the
   // design's, whatever the first read gave, and any other holding a file.
   // A directory removed and made again is watched again (by its inode).
@@ -248,7 +252,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (url.pathname === '/__tamber/subscribe') {
       if (down) { json(res, 503, { error: { message: down } }); return true; }
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known) })}\n\n`);
+      res.write(`data: ${JSON.stringify({ event: 'subscribed', seq, epoch, files: Object.fromEntries(known), proposals: held() })}\n\n`);
       subscribers.add(res);
       res.on('close', () => subscribers.delete(res));
       return true;
@@ -265,7 +269,7 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
         // started: the client missed some, and reads again.
         const missed = (request?.epoch !== undefined && request.epoch !== epoch) || after > seq || after < seq && (events[0]?.seq ?? seq + 1) > after + 1;
         // Missed: no events to apply, the files to start again from.
-        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known) });
+        json(res, 200, { events: missed ? [] : since, seq, epoch, missed, files: Object.fromEntries(known), proposals: held() });
       };
       if (events.some(e => e.seq > after) || after > seq || (request?.epoch !== undefined && request.epoch !== epoch) || down) { answer(); return true; }
       await new Promise(ok => {
@@ -298,6 +302,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       const refused = needsClient(request);
       if (refused) return refused;
       if (request.message !== undefined && typeof request.message !== 'string') return { status: 400, error: { message: '`message` is a string' } };
+      // A write in flight would land beside the commit's reading of the files.
+      if (writing) return { status: 409, error: { message: 'a write is in flight; commit again once it lands' } };
       const done = session.commit({ client: request.client, message: request.message });
       if (done.ok) send({ event: 'committed', seq: ++seq, epoch, client: request.client, ...done.ok });
       return done;
@@ -308,10 +314,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     }
     if (request.method === 'accept') return needsClient(request) ?? accept(request);
     if (request.method === 'drop') {
-      const p = proposals.get(request.proposal);
-      if (!p) return { status: 404, error: { message: `no held proposal \`${request.proposal}\`` } };
-      proposals.delete(request.proposal);
-      send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: request.proposal });
+      const refused = needsClient(request);
+      if (refused) return refused;
+      if (!proposals.has(request.proposal)) return { status: 404, error: { message: `no held proposal \`${request.proposal}\`` } };
+      forget(request.proposal, { client: request.client, reason: 'dropped' });
       return { ok: { dropped: request.proposal } };
     }
     return ask(request);
@@ -337,9 +343,15 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
       if (--writing === 0 && again) { again = false; rescan(); }
     };
     writing++;
+    // The git facts of each file it may touch, before it does (commit's
+    // baseline).
+    const designFile = relative(appDir, designPath(appDir) ?? resolve(appDir, design));
+    session.prepare(request.method === 'undo' ? [...known.keys()] : (Array.isArray(request.ops) ? request.ops : []).map(o => (typeof o?.file === 'string' ? o.file : designFile)));
     const reply = await ask(request, { done: announce });
     if (reply.error?.conflict) {
-      reply.error.by = Object.fromEntries((reply.error.stale ?? []).map(path => [path, lastBy.get(path) ?? 'changed on disk']));
+      // A file whose digest is not the last announced moved by hand, though
+      // the watcher has not said so yet.
+      reply.error.by = Object.fromEntries((reply.error.stale ?? []).map(path => [path, reply.error.files?.[path] === known.get(path) ? lastBy.get(path) ?? 'changed on disk' : 'changed on disk']));
     }
     return reply;
   }
@@ -348,7 +360,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
   // with the digests it was planned against, until accepted, dropped or
   // expired.
   const proposals = new Map();
-  const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) proposals.delete(id); };
+  const forget = (id, why) => { proposals.delete(id); send({ event: 'proposal-dropped', seq: ++seq, epoch, proposal: id, ...why }); };
+  const expire = () => { for (const [id, p] of proposals) if (p.expires < Date.now()) forget(id, { client: null, reason: 'expired' }); };
+  setInterval(expire, 30_000).unref?.();
+  /** The proposals held now, as a reconnecting client reads them. */
+  const held = () => [...proposals].map(([id, p]) => p.shown);
   async function hold(client, ops, files) {
     expire();
     const planned = await ask({ method: 'propose', ops, ...(files === undefined ? {} : { files }) });
@@ -357,8 +373,11 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     const touched = new Set((Array.isArray(ops) ? ops : []).map(o => o?.file ?? relative(appDir, designPath(appDir) ?? resolve(appDir, design))));
     const base = Object.fromEntries(Object.entries(planned.ok.files).filter(([path]) => touched.has(path)));
     const expires = Date.now() + HOLD_MS;
-    proposals.set(id, { client, ops, base, expires });
-    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), items: ops.length };
+    // The operations by index, as `accept`'s items name them.
+    const shown = { proposal: id, client, diff: planned.ok.diff, changed: planned.ok.changed, class: planned.ok.class, expires: new Date(expires).toISOString(), ops: ops.map((op, index) => ({ index, op })) };
+    proposals.set(id, { client, ops, base, expires, shown });
+    // At most 64 held: the oldest goes.
+    while (proposals.size > HELD) forget(proposals.keys().next().value, { client: null, reason: 'too many held' });
     send({ event: 'proposal', seq: ++seq, epoch, ...shown });
     return { ok: { ...planned.ok, ...shown } };
   }
@@ -373,8 +392,10 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (items !== undefined && (!Array.isArray(items) || items.some(i => !Number.isInteger(i) || i < 0 || i >= p.ops.length))) {
       return { status: 400, error: { message: `\`items\` lists indices of the proposal's ${p.ops.length} operations` } };
     }
+    // Taken out before anything waits: a second accept or a drop meanwhile
+    // finds nothing.
+    proposals.delete(request.proposal);
     const recompute = async ops => {
-      proposals.delete(request.proposal);
       const fresh = await hold(p.client, ops);
       return fresh.ok ? { ok: { recomputed: true, replaces: request.proposal, ...fresh.ok } } : fresh;
     };
@@ -382,7 +403,8 @@ export function tamberServer({ appDir, spawnServe = spawnContract, log = console
     if (some) return recompute([...new Set(items)].sort((a, b) => a - b).map(i => p.ops[i]));
     const done = await write({ method: 'transaction', client: p.client, files: p.base, ops: p.ops }, { acceptedBy: request.client, proposal: request.proposal });
     if (done.error?.conflict) return recompute(p.ops);
-    if (done.ok) proposals.delete(request.proposal);
+    // Not applied for another reason (the server down, refused): still held.
+    if (!done.ok && p.expires > Date.now()) proposals.set(request.proposal, p);
     return done;
   }
 
