@@ -74,8 +74,14 @@ final class R10Connect {
                                 isARepeat: event.isARepeat, keyCode: event.keyCode)
     }
     /// Internal so tests can drive it: what the local monitor returns for `event`.
+    /// A ⌃ chord that begins while the terminal composes goes on as it was typed. The Korean input
+    /// method then commits the syllable itself, and T3 Code's drawer reads its clear shortcut from
+    /// `KeyboardEvent.key` on that "Process" key (keybindings.ts isTerminalClearShortcut), so ⌃L
+    /// ("ㅣ") ends the composition without clearing the screen.
     func route(_ event: NSEvent) -> NSEvent {
-        let composing = (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
+        let responder = event.window?.firstResponder
+        let composing = (responder as? NSTextInputClient)?.hasMarkedText() == true
+            || (responder as? T3TerminalView.WebView)?.composesKey?(event) == true
         return Self.latinChord(event, composing: composing) ?? event
     }
     private func installMonitor() {

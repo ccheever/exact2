@@ -18,7 +18,7 @@ import XCTest
 ///   still acts on the key, and the keyboard layout's command for a declined key follows.
 /// - 2-Set: g ㅎ, k ㅏ, s ㄴ, r ㄱ, m ㅡ, f ㄹ compose 한 and 글 (r commits 한 and starts ㄱ); a key
 ///   the input method does not compose commits the syllable and is declined, unless the test says the
-///   method keeps composing (WebKit's Korean ⌃C) or consumes it (Hanja's ⌥Return, Kotoeri's ⌃K).
+///   method keeps composing (as the Korean one did for a chord re-issued with a Latin letter) or consumes it (Hanja's ⌥Return, Kotoeri's ⌃K).
 final class FakeHangulInputMethod {
     enum Answer { case commitsAndDeclines, keepsAndDeclines, consumes }
     var control = Answer.commitsAndDeclines
@@ -108,6 +108,7 @@ final class TerminalInputMethodTests: XCTestCase {
     private var window: NSWindow!
     private var view: T3TerminalView!
     private var method: FakeHangulInputMethod!
+    private var latin: R10Connect!
 
     override func setUpWithError() throws {
         let app = try XCTUnwrap(ProcessInfo.processInfo.environment["T3_APP_DIR"], "set T3_APP_DIR to examples/t3-code")
@@ -124,10 +125,12 @@ final class TerminalInputMethodTests: XCTestCase {
         spin(until: { self.view.focused && self.view.web.inputContext != nil }, timeout: 5)
         method = FakeHangulInputMethod()
         method.install()
+        latin = R10Connect(agent: true)
     }
 
     override func tearDown() {
         method?.uninstall()
+        latin?.destroy()
         view?.destroy()
         window?.orderOut(nil)
     }
@@ -143,15 +146,18 @@ final class TerminalInputMethodTests: XCTestCase {
         }.joined()
     }
 
-    /// A key down and up as AppKit dispatches a person's: the terminal's local monitor, then
-    /// `-[NSApplication sendEvent:]`, which offers a key down with ⌘, ⌃ or fn to the key window's
-    /// `performKeyEquivalent:` first and sends it to the window (the first responder's keyDown) only
-    /// if no view takes it. The test app is never active, so its own sendEvent: would skip that pass.
-    private func press(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], plain: String? = nil) {
+    /// A key down and up as AppKit dispatches a person's: the local monitors (the module's re-issue of
+    /// a ⌃ or ⌘ chord typed under a non-Latin layout with its key's Latin letter, R10Connect, when
+    /// `monitors`; then the terminal's), then `-[NSApplication sendEvent:]`, which offers a key down
+    /// with ⌘, ⌃ or fn to the key window's `performKeyEquivalent:` first and sends it to the window
+    /// (the first responder's keyDown) only if no view takes it. The test app is never active, so its
+    /// own sendEvent: would skip that pass.
+    private func press(_ code: UInt16, _ characters: String, _ flags: NSEvent.ModifierFlags = [], plain: String? = nil, monitors: Bool = false) {
         for type in [NSEvent.EventType.keyDown, .keyUp] {
-            let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+            var event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
                                          windowNumber: window.windowNumber, context: nil, characters: characters,
                                          charactersIgnoringModifiers: plain ?? characters, isARepeat: false, keyCode: code)!
+            if monitors, type == .keyDown { event = latin.route(event) }
             let equivalent = type == .keyDown && !flags.isDisjoint(with: [.command, .control, .function])
             if !view.routeTerminalKey(event), !(equivalent && window.performKeyEquivalent(with: event)) { window.sendEvent(event) }
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -186,7 +192,7 @@ final class TerminalInputMethodTests: XCTestCase {
 
     /// ⌃C with ㅎ composing: ㅎ goes out once and ^C does not, as T3 Code's Chromium page gets the key as
     /// "Process" and ignores it; with nothing composing ⌃C is the shell's. Whether the input method
-    /// commits ㅎ itself or keeps composing (as the Korean one does under WebKit), the result is the same.
+    /// commits ㅎ itself or keeps composing, the result is the same.
     func testControlCCommitsTheCompositionAlone() {
         for answer in [FakeHangulInputMethod.Answer.commitsAndDeclines, .keepsAndDeclines] {
             method.control = answer
@@ -205,8 +211,8 @@ final class TerminalInputMethodTests: XCTestCase {
         }
     }
 
-    /// ⌃L with 하 composing commits 하 and clears the screen (the reference's handleBeforeKey still
-    /// runs on a "Process" key); nothing else goes out.
+    /// ⌃L under a Latin layout's input method ("l") with 하 composing commits 하 and clears the screen:
+    /// the reference's handleBeforeKey still runs on a "Process" key and reads its `key`.
     func testControlLCommitsAndClears() {
         compose("gk")
         press(37, "\u{c}", .control, plain: "l")
@@ -214,6 +220,33 @@ final class TerminalInputMethodTests: XCTestCase {
         print("terminal ⌃L while 하 composes: typed \(hex(typed)) composing \(view.composing)")
         XCTAssertEqual(typed.sorted(), "하\u{c}".sorted())
         XCTAssertFalse(view.composing)
+    }
+
+    /// ⌃C and ⌃L under Korean 2-Set, in the order a person's keys took in the app: the module's monitor
+    /// sees the key down first (its characters are the layout's: ⌃C is "ㅊ", ⌃L "ㅣ"), AppKit offers it
+    /// to the terminal's key equivalents, and WebKit to the input method, which commits the syllable and
+    /// declines the key. ⌃C sends ㅎ alone. ⌃L sends 하 alone and does not clear: T3 Code's drawer reads
+    /// "ㅣ" on its "Process" key, which is not its clear shortcut (keybindings.ts
+    /// isTerminalClearShortcut). Without a composition ⌃L clears, as the module re-issues it as "l".
+    func testKoreanControlKeysInTheAppsOrder() {
+        compose("g")
+        press(8, "\u{3}", .control, plain: "ㅊ", monitors: true)
+        settle()
+        print("terminal 2-Set ⌃C while ㅎ composes, app order: typed \(hex(typed)) composing \(view.composing)")
+        XCTAssertEqual(typed, "ㅎ")
+        XCTAssertFalse(view.composing)
+
+        compose("gk")
+        press(37, "\u{c}", .control, plain: "ㅣ", monitors: true)
+        settle()
+        print("terminal 2-Set ⌃L while 하 composes, app order: typed \(hex(typed)) composing \(view.composing)")
+        XCTAssertEqual(typed, "ㅎ하", "⌃L cleared the screen while the input method's key")
+        XCTAssertFalse(view.composing)
+
+        press(37, "\u{c}", .control, plain: "ㅣ", monitors: true)
+        settle()
+        XCTAssertEqual(typed, "ㅎ하\u{c}", "without a composition ⌃L clears")
+        XCTAssertEqual(Array(method.offered.filter { [8, 37].contains($0) }), [8, 37], "the input method sees each composing ⌃ key once")
     }
 
     /// ⌥Return with 한 composing is the input method's (its Hanja list): the terminal never encodes it as

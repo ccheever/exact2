@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { CompositionKeys, eventKeyNames, matchesChord, observeComposition, parseChords, parseCommandBindings, preventRepeatedTerminalCloseShortcut, preventTerminalCloseShortcut,
-  terminalInputShortcutData } from "./entry";
+  terminalInputShortcutData, terminalKeyShortcutData } from "./entry";
 
 const key = (init: Partial<KeyboardEvent> & { key: string; code: string }) => ({
   metaKey: false,
@@ -64,6 +64,15 @@ describe("terminal readline key policy", () => {
     }
     expect(terminalInputShortcutData(key({ key: "c", code: "KeyC", ctrlKey: true }))).toBeNull();
     expect(terminalInputShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", ctrlKey: true }))).toBeNull();
+  });
+
+  test("a key that began while text composed matches by its key alone, as the reference's Process key", () => {
+    // Korean 2-Set: ⌃L is "ㅣ"; it ends the composition and leaves the screen.
+    expect(terminalKeyShortcutData(key({ key: "ㅣ", code: "KeyL", ctrlKey: true }), true)).toBeNull();
+    expect(terminalKeyShortcutData(key({ key: "ㅣ", code: "KeyL", ctrlKey: true }), false)).toBe("\u000c");
+    // A Latin layout's input method (Kotoeri romaji): ⌃L is "l" and still clears.
+    expect(terminalKeyShortcutData(key({ key: "l", code: "KeyL", ctrlKey: true }), true)).toBe("\u000c");
+    expect(terminalKeyShortcutData(key({ key: "ArrowLeft", code: "ArrowLeft", altKey: true }), true)).toBe("\u001bb");
   });
 });
 
