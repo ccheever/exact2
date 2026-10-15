@@ -584,6 +584,9 @@ function sdkStage(source, lock, use) {
     writeFileSync(resolve(stage, 'union/lib.rs'), '');
     writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}${cargo.workspace.dependencies.serde_json ? '' : 'serde_json = "1"\n'}`);
     if (lock !== null) writeFileSync(resolve(stage, 'Cargo.lock'), lock);
+    // The SDK's pinned toolchain, as a shell has (above): in a temporary directory rustup otherwise wants a default
+    const toolchain = resolve(source, '../rust-toolchain.toml');
+    if (existsSync(toolchain)) writeFileSync(resolve(stage, 'rust-toolchain.toml'), readFileSync(toolchain));
     return use(stage);
   } finally { rmSync(stage, {recursive:true, force:true}); }
 }
