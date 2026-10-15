@@ -494,6 +494,7 @@ fn grouped_separator_stays_above_an_authored_border() {
     p.host_mut().apply_test_ops(&[exact_kernel::Op::ClearStyle {
         id,
         mask: StyleMask::of(StyleId::BorderColorBottom),
+        written: false,
     }]);
     let frame = scene_frame(&p, false, Box::new(crate::raster::Raster::new())).pixmap;
     let border = ((row.y + row.height - 1.0) as usize * frame.width() as usize
