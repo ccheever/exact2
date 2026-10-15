@@ -22,6 +22,21 @@ shape Change
   files: string[]
   tokens: string[]
 
+// A held proposal (LLP 1122 D10): its proposer, diff, the tokens it
+// changes and its operations; a recomputed one names the one it replaces.
+shape HeldItem
+  index: number
+  text: string
+
+shape Held
+  proposal: string
+  client: string
+  tint: string
+  diff: string
+  tokens: string[]
+  replaces: string
+  items: HeldItem[]
+
 shape Changes
   ok: bool
   error: string
@@ -35,6 +50,7 @@ shape Changes
   undo: number
   redo: number
   session: number
+  held: Held[]
 
 // A control drawn from a dial's declared metadata (LLP 1122 D7, LLP 1121
 // D4): `control` is `color`, `slider`, `stepper` or `select`.
@@ -76,6 +92,14 @@ shape TokenRow
   kind: string
   follows: string
   cells: Cell[]
+
+// The tokens changed since the last highlight faded, each by its latest
+// client and in that client's colour (LLP 1122 D10).
+shape Lit
+  seq: number
+  names: string[]
+  whos: string[]
+  tints: string[]
 
 shape TokenGroup
   name: string
@@ -141,12 +165,15 @@ shape Written
   last: string
   key: string
   session: number
+  // What an accept or a drop did, in words.
+  note: string
 
 // The session changeset (LLP 1122 D9): each write since the tool opened,
 // in plain words, with the diff under the tool's own.
 shape ChangeEntry
   seq: number
   who: string
+  tint: string
   mine: bool
   text: string
   diff: string
@@ -251,7 +278,12 @@ component DesignTool
   resource proposal = proposeEdit(file, editKind, editTarget, editWhen, editValue, since, epoch) as shape Proposal else empty(ok=true)
   // The changeset follows the long poll and each design read (which
   // measures what changed); history is read when shown.
-  resource changeset = loadChangeset(since, design.answer) as shape Changeset else empty(ok=true)
+  resource changeset = loadChangeset(file, since, design.answer) as shape Changeset else empty(ok=true)
+  // The items of held proposals picked for "Accept picked"
+  // (`<proposal>:<index>`), and the last change whose highlight has faded.
+  state picked: string[] = []
+  state faded = 0
+  resource lit = loadLit(file, design.answer, faded) as shape Lit else empty(seq=0)
   state historyShown = false
   state historyPages = 1
   resource history = loadHistory(historyShown, historyPages, since) as shape History else empty(ok=true)
@@ -260,14 +292,16 @@ component DesignTool
   // One slot for a write, an undo or a redo: its reply holds the stacks.
   mutation written as shape Written refreshes design then afterWrite
   // The stacks as the last write left them, unless a new run of the
-  // server has emptied them since (a write that found the restart itself is
-  // newer than the poll, and says so).
-  derive stack = match written { case some(w) => (w.session >= changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session)), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session) }
+  // server has emptied them since.
+  derive stack = match written { case some(w) => (w.session == changes.session ? w : Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="")), case none => Written(ok=true, error="", undo=changes.undo, redo=changes.redo, last="", key="", session=changes.session, note="") }
   derive draftKey = `${file}␟${editKind}␟${editTarget}␟${editWhen}␟${editValue}`
   // A cell's edit whose branch the grid no longer shows (another client
   // changed it): not applied, lest it make a `when` no one asked for.
   derive draftStale = editKind == "set-token" and not scopeOwn and (branch.token != editTarget or branch.when != editWhen)
 
+  // A change's highlight lasts 3 s.
+  task fading when lit.seq > faded and lit.names.length > 0 key=lit.seq
+    after(3000, fade)
   // Each answer asks again: at once after one, after 3 s after a failure.
   task follow when not pending(changes) and changes.ok key=changes.answer
     after(1, advance)
@@ -384,6 +418,19 @@ component DesignTool
       send written = redoLast(client)
   action reloadDesign
     refresh design
+  action togglePick(id: string, checked: bool)
+    picked = checked ? picked.filter(p => p != id).concat([id]) : picked.filter(p => p != id)
+  action acceptAll(proposal: string)
+    if not pending(written)
+      send written = acceptHeld(client, proposal, "")
+  action acceptPicked(proposal: string, items: string)
+    if not pending(written) and items != ""
+      send written = acceptHeld(client, proposal, items)
+  action dropProposal(proposal: string)
+    if not pending(written)
+      send written = dropHeld(client, proposal)
+  action fade
+    faded = lit.seq
   action commit
     if not pending(committed)
       send committed = commitSession(client)
@@ -486,10 +533,12 @@ component DesignTool
                         row gap=8 align-items="center" testId=`token-${t.name}`
                           column width=200 flex-shrink=0
                             text t.name
+                            if lit.names.includes(t.name)
+                              text `changed by ${lit.whos.filter((w, i) => lit.names.indexOf(t.name) == i).join("")}` font="-exact-caption1" color=lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") testId=`changed-by-${t.name}`
                             if t.follows != ""
                               text `follows ${t.follows}` font="-exact-caption1" color="-exact-secondary-label" testId=`follows-${t.name}`
                           for cell in t.cells key=cell.column
-                            column width=96 flex-shrink=0 gap=2 press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
+                            column width=96 flex-shrink=0 gap=2 padding=2 border-radius=6 border-width=2 border-style="solid" border-color=(lit.names.includes(t.name) ? lit.tints.filter((c, i) => lit.names.indexOf(t.name) == i).join("") : "transparent") press=selectCell(t.name, cell.column) role="button" aria-label=cell.label testId=`cell-${t.name}-${cell.column}`
                               view height=24 border-radius=4 background-color=cell.swatch border="1px solid -exact-separator"
                               if cell.residual
                                 text "fallback" font="-exact-caption2" color="-exact-system-orange" testId=`cell-fallback-${t.name}-${cell.column}`
@@ -563,6 +612,8 @@ component DesignTool
                   text `Redo (${stack.redo})`
                 if not stack.ok
                   text stack.error color="-exact-system-red" white-space="pre-wrap" flex=1 testId="write-error"
+                else if stack.note != ""
+                  text stack.note color="-exact-secondary-label" flex=1 testId="write-note"
               column gap=8 testId="contrast"
                 text "Contrast" role="heading" aria-level=2
                 text "Text over background, between the stored values: a role or platform colour is its fallback until a running app reports it." color="-exact-secondary-label" font="-exact-footnote"
@@ -581,13 +632,36 @@ component DesignTool
                   row gap=12
                     text r.label width=160
                     text r.ratio testId=`ratio-${r.column}`
+            column gap=8 testId="inbox"
+              text "Proposals" role="heading" aria-level=2
+              if changes.held.length == 0
+                text "No proposal is waiting." color="-exact-secondary-label" testId="no-proposals"
+              for h in changes.held key=h.proposal
+                column gap=6 padding=12 border-radius=10 border-width=2 border-style="solid" border-color=h.tint testId=`held-${h.proposal}`
+                  text `${h.client} proposes ${h.tokens.join(", ")}` testId=`held-title-${h.proposal}`
+                  if h.replaces != ""
+                    text `Recomputed from ${h.replaces} on the files as they are now: review it again.` color="-exact-system-orange" font="-exact-footnote" testId=`held-replaces-${h.proposal}`
+                  text h.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" testId=`held-diff-${h.proposal}`
+                  for it in h.items key=`${it.index}`
+                    row gap=8 align-items="center"
+                      input type="checkbox" checked=picked.includes(`${h.proposal}:${it.index}`) change=togglePick(`${h.proposal}:${it.index}`) aria-label=it.text testId=`pick-${h.proposal}-${it.index}`
+                      text it.text font="-exact-footnote"
+                  row gap=8
+                    button press=acceptAll(h.proposal) disabled=pending(written) buttonStyle="filled" testId=`accept-${h.proposal}`
+                      text "Accept"
+                    button press=acceptPicked(h.proposal, h.items.filter(it => picked.includes(`${h.proposal}:${it.index}`)).map(it => `${it.index}`).join(",")) disabled=(pending(written) or not h.items.map(it => picked.includes(`${h.proposal}:${it.index}`)).includes(true)) testId=`accept-picked-${h.proposal}`
+                      text "Accept picked"
+                    button press=dropProposal(h.proposal) disabled=pending(written) destructive=true testId=`drop-${h.proposal}`
+                      text "Drop"
             column gap=8 testId="changeset"
               text "Changes" role="heading" aria-level=2
               if changeset.entries.length == 0
                 text "Nothing has changed since the tool opened." color="-exact-secondary-label" testId="no-changes"
               for e in changeset.entries key=`${e.seq}`
                 column gap=2 testId=`entry-${e.seq}`
-                  text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") testId=`entry-text-${e.seq}`
+                  row gap=6 align-items="center"
+                    view width=8 height=8 border-radius=4 background-color=e.tint
+                    text e.text color=(e.committed ? "-exact-secondary-label" : "-exact-label") flex=1 testId=`entry-text-${e.seq}`
                   if e.mine and e.diff != ""
                     text e.diff font="-exact-caption1" font-family="ui-monospace, monospace" white-space="pre" color="-exact-secondary-label" testId=`entry-diff-${e.seq}`
               row gap=8 align-items="center"

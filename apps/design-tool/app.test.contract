@@ -262,3 +262,33 @@ test "history reads as edits, and revert holds a proposal"
   tap "revert-beef01234567"
   clock data
   expect text "reverted" == "Held for review as prop-stub-1: the revert of beef01234567."
+
+test "held proposals: each with its proposer, diff and items; accepted in part, recomputed, then whole; or dropped"
+  type "name" "Ada"
+  tap "save-name"
+  clock data
+  expect tree has "no-proposals"
+  request POST "/__stub/hold" {"proposal": "p1", "client": "agent:codex", "diff": "--- app.tamber\n+++ app.tamber\n+  surface.card = #eeeeee\n", "changed": [{"file": "app.tamber", "token": "surface.card"}, {"file": "app.tamber", "token": "ink.on-brand"}], "ops": [{"index": 0, "op": {"op": "set-token", "name": "surface.card", "value": "#eeeeee"}}, {"index": 1, "op": {"op": "set-token", "name": "ink.on-brand", "value": "#fefefe"}}]} as ada
+  request POST "/__stub/hold" {"proposal": "p2", "client": "agent:claude", "diff": "", "changed": [], "ops": [{"index": 0, "op": {"op": "remove-token", "name": "tone.deep"}}]} as ada
+  clock +1
+  clock data
+  expect text "held-title-p1" == "agent:codex proposes surface.card, ink.on-brand"
+  expect tree has "pick-p1-1"
+  expect disabled "accept-picked-p1"
+  tap "pick-p1-0"
+  tap "accept-picked-p1"
+  clock data
+  expect text "write-note" == "p1 was recomputed on the files as they are now, as p1-r: review its diff and accept it again."
+  clock +1
+  clock data
+  expect tree missing "held-p1"
+  expect text "held-replaces-p1-r" == "Recomputed from p1 on the files as they are now: review it again."
+  tap "accept-p1-r"
+  clock data
+  expect text "write-note" == "Accepted p1-r."
+  expect text "undo" == "Undo (1)"
+  tap "drop-p2"
+  clock data
+  clock +1
+  clock data
+  expect tree has "no-proposals"

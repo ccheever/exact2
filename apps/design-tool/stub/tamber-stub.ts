@@ -16,6 +16,8 @@ let TOKEN = 'stub-token';
 let EPOCH = 'stub-epoch', restarts = 0, writes = 0;
 // The next commit's answer: refused, naming why, when a test asks.
 let refuseCommit = '';
+// Held proposals, as a test holds them (`/__stub/hold`).
+let held: Record<string, unknown>[] = [];
 let FILES: Record<string, string> = { 'app.tamber': 'a'.repeat(64), 'brand.tamber': 'b'.repeat(64) };
 type Event = Record<string, unknown> & { seq: number };
 const log: Event[] = existsSync(DB) ? JSON.parse(readFileSync(DB, 'utf8') || '[]') : [];
@@ -60,6 +62,19 @@ Bun.serve({ hostname, port: Number(port), routes: {
         { file: 'app.tamber', status: 'M', repoPath: 'app.tamber', edits: [{ what: 'token', name: 'surface.card', when: [], before: 'light-dark(#f1f3f5, #16181c)', after: 'light-dark(#f3f1ef, #16181c)' }, { what: 'dial', name: 'hue', when: [], before: '200', after: '210' }] },
       ] }] } });
       if (request.method === 'revert') return send({ ok: { proposal: 'prop-stub-1', client: request.client, diff: '', changed: [], class: 'live', ops: [] } });
+      if (request.method === 'accept') {
+        const p = held.find(h => h.proposal === request.proposal);
+        if (!p) return send({ error: { message: `no held proposal \`${request.proposal}\`` } }, 404);
+        held = held.filter(h => h !== p);
+        // Some of it: held again as a new proposal of those items.
+        if (request.items) {
+          const fresh = { ...p, proposal: `${p.proposal}-r`, replaces: p.proposal, ops: (p.ops as { index: number; op: unknown }[]).filter(o => request.items.includes(o.index)).map((o, index) => ({ index, op: o.op })) };
+          held.push(fresh);
+          return send({ ok: { recomputed: true, replaces: p.proposal, proposal: fresh.proposal } });
+        }
+        return send({ ok: { files: FILES, written: ['app.tamber'], client: p.client, inverse: `inv-stub-${++writes}`, changed: [], class: 'live', diff: '' } });
+      }
+      if (request.method === 'drop') { held = held.filter(h => h.proposal !== request.proposal); return send({ ok: { dropped: request.proposal } }); }
       if (request.method === 'undo') return send({ ok: { files: FILES, written: ['app.tamber'], client: request.client, inverse: null, changed: [], class: 'live', diff: '' } });
       return send({ error: { message: `the stub answers no ${request.method}` } }, 400);
     },
@@ -71,7 +86,7 @@ Bun.serve({ hostname, port: Number(port), routes: {
       if (!authorized(req)) return send({ message: 'Not found.' }, 404);
       const { after = 0, epoch } = await req.json().catch(() => ({}));
       const missed = epoch !== undefined && epoch !== EPOCH;
-      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: [] });
+      return send({ events: missed ? [] : log.filter(e => e.seq > after), seq: seq(), epoch: EPOCH, missed, files: FILES, proposals: held });
     },
   },
   // A new run of the server: a new epoch, its numbers from 0 again.
@@ -81,7 +96,15 @@ Bun.serve({ hostname, port: Number(port), routes: {
       EPOCH = `stub-epoch-${++restarts}`;
       TOKEN = `stub-token-${restarts}`;
       log.length = 0;
+      held = [];
       save();
+      return send({ ok: true });
+    },
+  },
+  '/__stub/hold': {
+    POST: async (req) => {
+      if (!driver(req)) return send({ message: 'Not found.' }, 404);
+      held.push(await req.json().catch(() => ({})));
       return send({ ok: true });
     },
   },

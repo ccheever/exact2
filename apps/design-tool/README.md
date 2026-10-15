@@ -28,6 +28,12 @@ whose design the port serves.
   and who made it; the server refuses a file that was not only the
   session's, and never pushes. History reads the design files' git log as
   token edits; Revert holds a past commit's inverse for review.
+- Agents are clients like the tool (LLP 1122 D10): each change says who
+  made it, in that client's colour, and the grid outlines the cells it
+  changed for 3 s. Proposals lists the held proposals, each with its
+  proposer, diff and items: Accept, Accept picked (some items) or Drop. A
+  proposal accepted in part, or whose files moved since it was held, comes
+  back recomputed on today's files, to be reviewed and accepted again.
 - `app.test.contract` runs against `stub/tamber-stub.ts`, canned replies;
   `scripts/design-tool.test.mjs` drives the built tool against a real
   server on a copy of `apps/theme-fixture`.

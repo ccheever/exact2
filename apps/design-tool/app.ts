@@ -333,8 +333,6 @@ let liveTable = false;
 /** One consistent read of a design: `describe`, each token's `resolve`, and
  * the files' digests again after them; if a write landed between, the
  * replies may be of two revisions, so it reads again. */
-/** A set of files' digests as one comparable string. */
-const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
 async function readDesign(file: string): Promise<{ error: string; ir?: any; resolved?: { tuples: any[] }[]; files?: Record<string, string> }> {
   const which = file ? { file } : {};
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -389,13 +387,7 @@ const keyOf = (file: string, kind: string, target: string, when: string, value: 
 type Entry = { inverse: string; ops: Record<string, unknown>[]; label: string; token: string };
 const undoStack: Entry[] = [], redoStack: Entry[] = [];
 let session = 0;
-/** The stacks emptied: another run of the server has none of their
- * inverses. `session` counts these, and an operation that began before one
- * changes neither stack when it ends. */
-function forget() {
-  undoStack.length = 0; redoStack.length = 0; session += 1;
-}
-const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session });
+const stacks = (ok: boolean, error: string, last: string, key = '') => ({ ok, error, undo: undoStack.length, redo: redoStack.length, last, key, session, note: '' });
 /** Who moved a file a refused write or undo found moved: its client, or
  * "changed on disk". */
 const byWhom = (reply: Reply) => {
@@ -408,16 +400,44 @@ const conflict = (reply: Reply) => (reply.error as { conflict?: boolean } | unde
 
 // The session changeset (LLP 1122 D9): every write since the tool opened,
 // its own and others', newest first. Each says its files, who, and the
-// token values before and after, read off the design reads either side of
-// it; under the tool's own, the diff its proposal showed. `mine` queues the
-// tool's own writes (an undo and a redo among them) in the order they were
-// sent, which is the order their events come.
-type Noted = { seq: number; who: string; files: string[]; tokens: string[]; mine: boolean; diff: string; values: string[] | null; committed: boolean };
+// token values before and after; under the tool's own, the diff its
+// proposal showed. `mine` queues the tool's own writes (an undo and a redo
+// among them) in the order they were sent, which is the order their events
+// come.
+//
+// Before and after are the design files' digests either side of the event
+// (each event carries the digests after it; the one before is the last
+// event's, or the first answer's). A design read is kept by the digests it
+// read, so a change is measured between two reads of exactly those
+// states, whenever each was read; a state no read saw leaves its tokens
+// unmeasured, named only.
+type Noted = { seq: number; who: string; files: string[]; tokens: string[]; mine: boolean; diff: string; values: string[] | null; committed: boolean; before: string; after: string };
 let changeset: Noted[] = [];
 const mine: { client: string; diff: string }[] = [];
-// The stored values of the last design read, by file, that the next read's
-// changes are measured from.
-const measured = new Map<string, { since: number; stored: Map<string, Stored[][]> }>();
+let lastFiles = '';
+const digestKey = (files: Record<string, string> = {}) => JSON.stringify(Object.keys(files).sort().map(f => [f, files[f]]));
+// Each read's stored values and columns, by `<file>|<digests>`; a few.
+const reads = new Map<string, { stored: Map<string, Stored[][]>; columns: Column[] }>();
+
+
+/** A client's colour, the same each time (LLP 1122 D10: each client's
+ * edits in its own colour). */
+const TINTS = ['-exact-system-blue', '-exact-system-green', '-exact-system-orange', '-exact-system-purple', '-exact-system-pink', '-exact-system-teal', '-exact-system-indigo', '-exact-system-brown'];
+export const tintOf = (who: string) => TINTS[[...who].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % TINTS.length];
+
+// Held proposals, as the last poll answer listed them (LLP 1122 D10).
+type Held = Result<'waitChanges'>['held'][number];
+let held: Held[] = [];
+// Each held proposal's operations, for redoing one accepted.
+let heldOps = new Map<string, unknown[]>();
+/** An operation in plain words, as a held proposal lists its items. */
+const opText = (o: any): string =>
+  o?.op === 'set-token' ? `${o.name}${o.when?.length ? ` when ${whenText(o.when)}` : ''} = ${o.value}`
+  : o?.op === 'set-dial' ? `${o.name} = ${o.value}`
+  : o?.op === 'add-token' ? `add ${o.name} = ${o.value}`
+  : o?.op === 'rename-token' ? `rename ${o.from} → ${o.to}`
+  : o?.op === 'remove-token' ? `remove ${o.name}`
+  : JSON.stringify(o);
 
 /** An event as the changeset keeps it. */
 function noted(e: any) {
@@ -428,7 +448,9 @@ function noted(e: any) {
   if (e.event !== 'changed') return;
   const who = typeof e.client === 'string' ? e.client : 'changed on disk';
   const own = mine.length > 0 && mine[0].client === e.client ? mine.shift()! : null;
-  changeset.unshift({ seq: e.seq, who, files: e.edited ?? [], tokens: [...new Set<string>((e.changed ?? []).map((c: { token: string }) => c.token))], mine: !!own, diff: own?.diff ?? '', values: null, committed: false });
+  const before = lastFiles, after = digestKey(e.files);
+  lastFiles = after;
+  changeset.unshift({ seq: e.seq, who, files: e.edited ?? [], tokens: [...new Set<string>((e.changed ?? []).map((c: { token: string }) => c.token))], mine: !!own, diff: own?.diff ?? '', values: null, committed: false, before, after });
   changeset = changeset.slice(0, 200);
 }
 
@@ -446,23 +468,17 @@ function moved(token: string, before: Stored[][] | undefined, after: Stored[][] 
   return `${token} ${before[i]?.[0]?.value ?? ''} → ${after[i][0]?.value ?? ''}${where}`;
 }
 
-/** After a design read of `file` that saw the events up to `since`, the
- * value changes of each changeset entry it is the first read after. */
-function valuesFor(file: string, since: number, columns: Column[], stored: Map<string, Stored[][]>) {
-  const last = measured.get(file);
-  // A read again at the same place (after the tool's own write, before its
-  // event) may hold changes not yet announced: the place's first read stays
-  // what they are measured from.
-  if (last && since <= last.since) return;
-  if (last) {
-    for (const n of changeset) {
-      if (n.values !== null || n.seq > since || n.seq <= last.since) continue;
-      const said = n.tokens.map(t => moved(t, last.stored.get(t), stored.get(t), columns)).filter((v): v is string => v !== null);
-      // A token of another file than the one read stays unmeasured.
-      if (said.length || n.tokens.every(t => last.stored.has(t) || stored.has(t))) n.values = said;
-    }
+/** Each entry not yet measured whose states either side `file` has been
+ * read at: its tokens' value changes. */
+function measure(file: string) {
+  for (const n of changeset) {
+    if (n.values !== null) continue;
+    const a = reads.get(`${file}|${n.before}`), b = reads.get(`${file}|${n.after}`);
+    if (!a || !b) continue;
+    const said = n.tokens.map(t => moved(t, a.stored.get(t), b.stored.get(t), b.columns)).filter((v): v is string => v !== null);
+    // A token this file does not have stays unmeasured.
+    if (said.length || n.tokens.every(t => a.stored.has(t) || b.stored.has(t))) n.values = said;
   }
-  measured.set(file, { since, stored });
 }
 /** An entry in plain words: its files, what moved, who. */
 const plain = (n: Noted) => `${n.files.join(', ') || 'the design'}: ${n.values?.length ? n.values.join('; ') : n.tokens.join(', ') || 'edited'} · ${n.who}`;
@@ -475,7 +491,7 @@ const sources: Sources = {
     liveTable = ok.live === true;
     return { ok: true, error: '', protocol: String(ok.protocol ?? ''), format: Number(ok.format ?? 0), app: String(ok.app ?? ''), files: files(ok.files) };
   },
-  loadDesign: async ([file, since]) => {
+  loadDesign: async ([file]) => {
     const number = ++issued;
     try {
       const read = await readDesign(file);
@@ -483,6 +499,9 @@ const sources: Sources = {
       const ir = read.ir, resolved = read.resolved!;
       const axes: Axis[] = ir.axes;
       const columns = columnsOf(axes);
+      // The first read after changes arrived highlights the tokens they
+      // changed, in their client's colour; a read again at the same place
+      // does not.
       // Each token's stored value per tuple and scheme, a residual as its
       // fallback (no running app reports it until T2).
       const stored = new Map<string, Stored[][]>();
@@ -518,7 +537,9 @@ const sources: Sources = {
       if (number === issued) {
         snapshots.set(number, { file, axes, columns, stored, dials, digests: digestKey(read.files) });
         for (const old of snapshots.keys()) if (old < number - 4) snapshots.delete(old);
-        valuesFor(file, since, columns, stored);
+        reads.set(`${file}|${digestKey(read.files)}`, { stored, columns });
+        while (reads.size > 24) reads.delete(reads.keys().next().value!);
+        measure(file);
       }
       return {
         ok: true, error: '', file: file || '', answer: number, groups: panel,
@@ -649,9 +670,17 @@ const sources: Sources = {
     // The first asks, at once, from the start of what the server keeps.
     const { error, reply, used } = await call('/__tamber/events', epoch ? { after: since, epoch } : { after: 0, wait: false }, 40000);
     answers += 1;
-    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session });
+    const state = () => ({ answer: answers, seq: place.seq, epoch: place.epoch, recent, undo: undoStack.length, redo: redoStack.length, session, held });
     if (error) return { ok: false, error, missed: false, ...state() };
-    const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean };
+    const r = reply as { events?: unknown[]; seq?: number; epoch?: string; missed?: boolean; proposals?: any[] };
+    // The open proposals, each with its proposer, diff and tokens; a
+    // recomputed one says which it replaces, and is reviewed afresh.
+    heldOps = new Map((r.proposals ?? []).map(p => [String(p.proposal), (p.ops ?? []).map((o: { op: unknown }) => o.op)]));
+    held = (r.proposals ?? []).map(p => ({
+      proposal: String(p.proposal), client: String(p.client ?? ''), tint: tintOf(String(p.client ?? '')), diff: String(p.diff ?? ''),
+      tokens: [...new Set<string>((p.changed ?? []).map((c: { token: string }) => c.token))], replaces: String(p.replaces ?? ''),
+      items: (p.ops ?? []).map((o: { index: number; op: unknown }) => ({ index: Number(o.index), text: opText(o.op) })),
+    }));
     // Another run of the server (or another app's, on this port), or more
     // missed than it keeps: its sequence numbers start again, or the list
     // has a gap, so the list starts again. Another run has none of this
@@ -661,14 +690,22 @@ const sources: Sources = {
     // The session's changeset: every write since the tool opened (not the
     // backlog the first answer carries).
     if (epoch) for (const e of (r.events ?? []) as any[]) noted(e);
+    else lastFiles = digestKey((r as { files?: Record<string, string> }).files);
     const fresh = (r.events ?? []).map(change).filter((c): c is Change => c !== null).reverse();
     recent = [...fresh, ...recent].slice(0, 50);
     place = { seq: Number(r.seq ?? 0), epoch: String(r.epoch ?? '') };
     return { ok: true, error: '', missed: r.missed === true, ...state() };
   },
-  loadChangeset: async () => ({
+  loadLit: async ([file, , faded]) => {
+    // The tokens changed after `faded` whose new values a read has shown,
+    // each by its latest client, for a short highlight in its colour.
+    const by = new Map<string, string>();
+    for (const n of [...changeset].reverse()) if (n.seq > faded && reads.has(`${file}|${n.after}`)) for (const t of n.tokens) by.set(t, n.who);
+    return { seq: changeset[0]?.seq ?? 0, names: [...by.keys()], whos: [...by.values()], tints: [...by.values()].map(tintOf) };
+  },
+  loadChangeset: async ([file]) => (measure(file), {
     ok: true, error: '',
-    entries: changeset.map(n => ({ seq: n.seq, who: n.who, mine: n.mine, text: plain(n), diff: n.diff, committed: n.committed })),
+    entries: changeset.map(n => ({ seq: n.seq, who: n.who, tint: tintOf(n.who), mine: n.mine, text: plain(n), diff: n.diff, committed: n.committed })),
   }),
   commitSession: async ([client]) => {
     // The message: what the session changed and who, in plain words; the
@@ -702,6 +739,23 @@ const sources: Sources = {
         files: (c.files ?? []).map((f: any) => ({ file: String(f.file), refused: f.refused ? String(f.refused) : '', edits: (f.edits ?? []).map(edit) })),
       })),
     };
+  },
+  acceptHeld: async ([client, proposal, items]) => {
+    // All, or the items picked (indices of its operations). Some, or a
+    // file moved since it was held: the server recomputes it on today's
+    // files and holds that instead, to be reviewed and accepted afresh.
+    const some = items ? items.split(',').map(Number) : undefined;
+    const { error, reply } = await call('/__tamber', { method: 'accept', client, proposal, ...(some ? { items: some } : {}) }, 30000);
+    if (error) return { ...stacks(false, error, ''), note: '' };
+    const ok = reply.ok as { recomputed?: boolean; proposal?: string; inverse?: string | null; changed?: { token: string }[] };
+    if (ok.recomputed) return { ...stacks(true, '', 'recomputed'), note: `${proposal} was recomputed on the files as they are now, as ${ok.proposal}: review its diff and accept it again.` };
+    // Accepted: written as its proposer's, and one step of this session's undo.
+    if (ok.inverse) { undoStack.push({ inverse: ok.inverse, ops: (heldOps.get(proposal) ?? []) as Record<string, unknown>[], label: `the proposal ${proposal}` }); redoStack.length = 0; }
+    return { ...stacks(true, '', 'accepted'), note: `Accepted ${proposal}.` };
+  },
+  dropHeld: async ([client, proposal]) => {
+    const { error } = await call('/__tamber', { method: 'drop', client, proposal });
+    return { ...stacks(!error, error, error ? '' : 'dropped'), note: error ? '' : `Dropped ${proposal}.` };
   },
   revertCommit: async ([client, commit]) => {
     // Held, never written: reviewed and accepted like any held proposal.

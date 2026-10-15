@@ -227,7 +227,7 @@ async function proxied(app, before = () => {}) {
     headers.delete('host'); headers.delete('content-length');
     const res = await fetch(`${origin}${url.pathname}${url.search}`, { method: req.method, headers, body, redirect: 'manual' });
     const bytes = await res.arrayBuffer();
-    if (request.method === 'transaction' || request.method === 'undo') {
+    if (request.method === 'transaction' || request.method === 'undo' || request.method === 'accept') {
       const reply = JSON.parse(new TextDecoder().decode(bytes));
       writes.push({ method: request.method, ok: !!reply.ok, error: reply.error, after: readFileSync(join(app, 'app.tamber'), 'utf8') });
     }
@@ -237,7 +237,7 @@ async function proxied(app, before = () => {}) {
   } });
   const tool = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'tool', app, '--via', `http://127.0.0.1:${proxy.port}`, '--no-open'], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await lines(tool).until(l => l.startsWith(`${TOOL_ORIGIN}/__tamber/tool/`), 600_000);
-  return { url, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
+  return { url, origin, writes, close: async () => { await stop(tool); proxy.stop(true); await stop(serve); } };
 }
 
 /** Where two texts differ, in order: the first line that differs, the
@@ -463,6 +463,72 @@ test('commit refuses a file dirty or staged at its baseline, or edited by hand b
       await tool.close();
       rmSync(r.app, { recursive: true, force: true });
     }
+  }
+}, 900_000);
+
+test('an agent\'s write arrives attributed within one poll, and held proposals are accepted whole, in part and recomputed when stale', async () => {
+  const { app } = repo('agents');
+  const read = () => readFileSync(join(app, 'app.tamber'), 'utf8');
+  let tool, accepts = 0;
+  const agentWrite = async () => {
+    const digest = createHash('sha256').update(readFileSync(join(app, 'app.tamber'))).digest('hex');
+    const op = spawn(process.execPath, [resolve(ROOT, 'scripts/exact.mjs'), 'tamber', 'op', tool.origin, JSON.stringify({ method: 'transaction', client: 'agent:codex', files: { 'app.tamber': digest }, ops: [{ op: 'set-token', name: 'surface.card', value: 'light-dark(#f1f3f5, #17191d)' }] })], { cwd: ROOT, stdio: 'ignore' });
+    expect(await new Promise(ok => op.once('close', ok))).toBe(0);
+  };
+  let explains = 0;
+  tool = await proxied(app, async request => {
+    // The agent writes just before the tool's first explain; a hand edit
+    // lands just before the third accept, so that proposal is stale.
+    if (request.method === 'explain' && ++explains === 1) await agentWrite();
+    if (request.method === 'accept' && ++accepts === 3) writeFileSync(join(app, 'app.tamber'), read().replace('tone.warm = oklch(0.7 0.1 warmth)', 'tone.warm = oklch(0.71 0.1 warmth)'));
+  });
+  try {
+    const { token } = await (await fetch(`${tool.origin}/__tamber/token`)).json();
+    const ask = async request => (await fetch(`${tool.origin}/__tamber`, { method: 'POST', headers: { 'x-exact-tamber-token': token }, body: JSON.stringify(request) })).json();
+    const p1 = (await ask({ method: 'propose', hold: true, client: 'agent:codex', ops: [{ op: 'set-token', name: 'text.primary', value: 'light-dark(#101010, #e7e9ea)' }, { op: 'set-token', name: 'ink.on-brand', value: '#fefefe' }] })).ok.proposal;
+    const p2 = (await ask({ method: 'propose', hold: true, client: 'agent:claude', ops: [{ op: 'set-token', name: 'accent.fill', value: '#2070f0' }] })).ok.proposal;
+    const id = n => p1.replace(/-1$/, `-${n}`);
+    expect(p2).toBe(id(2));
+    const replies = await drive(tool.url, `design-tool-agents-${process.pid}`, [
+      'type name Ada', 'tap save-name', 'clock data',
+      'tap cell-surface.page-0-light', 'clock data', 'clock +1', 'clock data', 'clock +1', 'clock data', 'state',
+      // Part of p1: the server recomputes it as a new proposal, reviewed afresh.
+      `tap pick-${p1}-0`, `tap accept-picked-${p1}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(3)}`, 'clock data', 'clock +1', 'clock data', 'state',
+      // p2, with the file moved since: recomputed, then accepted.
+      `tap accept-${p2}`, 'clock data', 'clock +1', 'clock data', 'state',
+      `tap accept-${id(4)}`, 'clock data', 'clock +1', 'clock data', 'state',
+    ]);
+    const states = replies.filter(r => r.resources);
+    const [first, part, whole, stale, fresh] = states;
+    expect(first.resources.changeset.entries[0]).toMatchObject({ who: 'agent:codex', mine: false });
+    expect(first.resources.changeset.entries[0].text).toBe('app.tamber: surface.card light-dark(#f1f3f5ff, #16181cff) → light-dark(#f1f3f5ff, #17191dff) · agent:codex');
+    expect(first.resources.lit).toMatchObject({ names: ['surface.card'], whos: ['agent:codex'] });
+    // Each with the tokens it changes (a role that follows one among them).
+    expect(first.resources.changes.held.map(h => [h.proposal, h.client, [...h.tokens].sort(), h.items.map(i => i.text)])).toEqual([
+      [p1, 'agent:codex', ['-exact-label', 'ink.on-brand', 'text.primary'], ['text.primary = light-dark(#101010, #e7e9ea)', 'ink.on-brand = #fefefe']],
+      [p2, 'agent:claude', ['accent.fill'], ['accent.fill = #2070f0']],
+    ]);
+    expect(part.slots.written.note).toContain(`as ${id(3)}`);
+    const recomputed = part.resources.changes.held.find(h => h.proposal === id(3));
+    expect(recomputed).toMatchObject({ replaces: p1 });
+    expect([...recomputed.tokens].sort()).toEqual(['-exact-label', 'text.primary']);
+    expect(recomputed.diff).toContain('#101010');
+    expect(recomputed.diff).not.toContain('#fefefe');
+    expect(whole.slots.written.note).toBe(`Accepted ${id(3)}.`);
+    expect(stale.slots.written.note).toContain(`as ${id(4)}`);
+    expect(stale.resources.changes.held.find(h => h.proposal === id(4))).toMatchObject({ replaces: p2, client: 'agent:claude' });
+    expect(fresh.slots.written.note).toBe(`Accepted ${id(4)}.`);
+    expect(fresh.resources.changes.held).toEqual([]);
+    expect(tool.writes.map(w => [w.method, w.ok])).toEqual([['accept', true], ['accept', true], ['accept', true], ['accept', true]]);
+    const now = read();
+    expect(now).toContain('text.primary = light-dark(#101010, #e7e9ea)');
+    expect(now).not.toContain('#fefefe');
+    expect(now).toContain('accent.fill = #2070f0');
+    expect(now).toContain('oklch(0.71 0.1 warmth)');
+  } finally {
+    await tool.close();
+    rmSync(app, { recursive: true, force: true });
   }
 }, 900_000);
 
