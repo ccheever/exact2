@@ -49,7 +49,7 @@ fn environment(plan: &Plan, id: &str, ids: &[&str]) -> Value {
         .enumerate()
         .map(|(index, route)| {
             Value::record(vec![
-                Value::str(*route),
+                Value::str(route),
                 Value::str(&format!("Route {route}")),
                 Value::str(&format!("https://{route}.invalid/")),
                 Value::Bool(index == 0),
