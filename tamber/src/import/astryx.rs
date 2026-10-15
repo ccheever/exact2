@@ -133,6 +133,9 @@ pub fn import(
     let mut unmapped = Vec::new();
     let mut tokens = Vec::new();
     let mut mapped = 0;
+    // Each token made, by the variable that made it: a second variable to
+    // one token is reported.
+    let mut made: std::collections::BTreeMap<String, String> = Default::default();
     let mut names: Vec<String> = light.keys().cloned().collect();
     names.extend(dark.keys().filter(|k| !light.contains_key(*k)).cloned());
     for var in &names {
@@ -156,11 +159,16 @@ pub fn import(
             Kind::Colour(segs) => {
                 let refs: Vec<&str> = segs.iter().map(String::as_str).collect();
                 let name = tamber_name(prefix, &refs);
+                if let Some(first) = made.get(&name) {
+                    unmapped.push(report(format!("its token is `{first}`'s ({name})"), None));
+                    continue;
+                }
                 let lc = l.as_deref().and_then(colour_literal);
                 let dc = d.as_deref().and_then(colour_literal);
                 match (lc, dc) {
                     (Some(lc), Some(dc)) => {
                         mapped += 1;
+                        made.insert(name.clone(), var.clone());
                         let value = match lc == dc {
                             true => lc,
                             false => format!("light-dark({lc}, {dc})"),

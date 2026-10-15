@@ -5,7 +5,7 @@
 //
 //   bun scripts/astryx-tokens.mjs [--theme @astryxdesign/theme-neutral@0.7.0] [--out <file>]
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -14,17 +14,30 @@ const at = name => { const i = argv.indexOf(name); return i < 0 ? undefined : ar
 const theme = at('--theme') ?? '@astryxdesign/theme-neutral@0.7.0';
 const version = theme.slice(theme.lastIndexOf('@') + 1);
 const name = theme.slice(0, theme.lastIndexOf('@'));
+// Pinned: an exact version, never a range or a tag.
+if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) throw new Error(`--theme pins an exact version (name@1.2.3), not ${JSON.stringify(theme)}`);
 const dir = mkdtempSync(join(tmpdir(), 'exact-astryx-'));
 try {
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'astryx-tokens', private: true }));
-  const added = spawnSync(process.execPath, ['add', '--ignore-scripts', theme, `@astryxdesign/core@${version}`], { cwd: dir, encoding: 'utf8' });
-  if (added.status !== 0) throw new Error(`bun add: ${added.stderr || added.stdout}`);
+  // The theme first; its core at the exact version the theme asks for.
+  const add = pkgs => {
+    const r = spawnSync(process.execPath, ['add', '--ignore-scripts', ...pkgs], { cwd: dir, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`bun add: ${r.stderr || r.stdout}`);
+  };
+  add([theme]);
+  const manifest = JSON.parse(readFileSync(join(dir, 'node_modules', name, 'package.json'), 'utf8'));
+  const wanted = manifest.peerDependencies?.['@astryxdesign/core'] ?? manifest.dependencies?.['@astryxdesign/core'];
+  if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(wanted ?? '')) throw new Error(`${theme} names no exact @astryxdesign/core (it asks for ${JSON.stringify(wanted)})`);
+  add([`@astryxdesign/core@${wanted}`]);
   // The resolution runs where the packages are.
   writeFileSync(join(dir, 'resolve.mjs'), `
 import { resolveThemeTokens } from '@astryxdesign/core/theme/tokens';
 import * as pkg from ${JSON.stringify(name)};
-const theme = Object.values(pkg).find(v => v && typeof v === 'object' && 'tokens' in v) ?? pkg.default;
-const out = { source: ${JSON.stringify(theme)}, light: resolveThemeTokens(theme, { mode: 'light' }), dark: resolveThemeTokens(theme, { mode: 'dark' }) };
+// Exactly one exported theme: none would resolve core's defaults.
+const themes = Object.values(pkg).filter(v => v && typeof v === 'object' && 'tokens' in v);
+if (themes.length !== 1) throw new Error(\`${name} exports \${themes.length} themes; one is needed\`);
+const [theme] = themes;
+const out = { source: ${JSON.stringify(theme)}, core: '@astryxdesign/core@${wanted}', light: resolveThemeTokens(theme, { mode: 'light' }), dark: resolveThemeTokens(theme, { mode: 'dark' }) };
 process.stdout.write(JSON.stringify(out, null, 2) + '\\n');
 `);
   const resolved = spawnSync(process.execPath, ['resolve.mjs'], { cwd: dir, encoding: 'utf8', maxBuffer: 64 << 20 });

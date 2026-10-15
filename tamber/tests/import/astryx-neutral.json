@@ -1,5 +1,6 @@
 {
   "source": "@astryxdesign/theme-neutral@0.7.0",
+  "core": "@astryxdesign/core@0.7.0",
   "light": {
     "--color-accent": "#1b1b1b",
     "--color-accent-muted": "#f1f1f1",

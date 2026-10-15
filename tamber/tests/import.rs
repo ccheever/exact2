@@ -1288,3 +1288,23 @@ fn astryx_neutral_imports_counted_and_reports_its_kinds_probe() {
     assert_eq!(again.ops, []);
     assert!(again.offers.is_empty());
 }
+
+#[test]
+fn astryx_reports_a_second_variable_to_one_token() {
+    use exact_tamber::import::astryx;
+    let json = r##"{ "light": { "--color-data-blue-5": "#000000", "--color-data-blue-s5": "#111111" },
+                    "dark": { "--color-data-blue-5": "#000000", "--color-data-blue-s5": "#111111" } }"##;
+    let import = astryx::import(json, "astryx", &parse(EMPTY).unwrap(), &vocab()).unwrap();
+    assert_eq!(
+        (
+            import.counted.source,
+            import.counted.mapped,
+            import.counted.reported
+        ),
+        (2, 1, 1)
+    );
+    assert!(import.unmapped[0]
+        .why
+        .contains("its token is `--color-data-blue-5`'s"));
+    accepted(EMPTY, &import);
+}
