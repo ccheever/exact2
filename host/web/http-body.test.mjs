@@ -114,14 +114,14 @@ test('a stream delivers each read as its newest event, then its end', async () =
   assert.equal(new TextDecoder().decode(end.body), 'the event stream ended');
 });
 
-// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then
-// `b c d` in one write, then a close; `/binary` a binary frame; `/hold`
-// one message, then waits for the client to go.
+// A local WebSocket peer (LLP 1069.004 slice 3): `/three` sends `a`, then at
+// each `next('/three')` `b c d` in one write, then a close; `/binary` a binary
+// frame; `/hold` one message, then waits for the client to go.
 async function socketPeer() {
   const { createServer } = await import('node:http');
   const { createHash } = await import('node:crypto');
   const frame = (op, payload) => Buffer.concat([Buffer.from([0x80 | op, payload.length]), payload]);
-  const gone = [], closing = new Map();
+  const gone = [], closing = new Map(), steps = new Map();
   const server = createServer((_, res) => res.end());
   server.on('upgrade', (req, socket) => {
     const accept = createHash('sha1').update(req.headers['sec-websocket-key'] + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
@@ -133,15 +133,12 @@ async function socketPeer() {
     if (req.url === '/binary') return socket.write(frame(2, Buffer.from([1, 2, 3])));
     if (req.url === '/hold') return socket.write(frame(1, Buffer.from('held')));
     socket.write(frame(1, Buffer.from('a')));
-    setTimeout(() => {
-      socket.write(Buffer.concat(['b', 'c', 'd'].map((s) => frame(1, Buffer.from(s)))));
-      setTimeout(() => socket.write(frame(8, Buffer.from([0x03, 0xe8]))), 30);
-    }, 30);
+    steps.set(req.url, [() => socket.write(Buffer.concat(['b', 'c', 'd'].map((s) => frame(1, Buffer.from(s))))), () => socket.write(frame(8, Buffer.from([0x03, 0xe8])))]);
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   // `closed(path)`: once the socket of the request for `path` has closed
   const closed = path => gone.includes(path) ? Promise.resolve() : new Promise((ok) => closing.set(path, ok));
-  return { url: `ws://127.0.0.1:${server.address().port}`, closed, close: () => server.close() };
+  return { url: `ws://127.0.0.1:${server.address().port}`, closed, next: path => steps.get(path).shift()(), close: () => server.close() };
 }
 
 test('a socket delivers text messages, coalescing a burst, then its close (LLP 1069.004)', async () => {
@@ -153,8 +150,9 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
   );
   const text = (r) => new TextDecoder().decode(r.body);
   try {
+    // The burst once `a` is delivered, and the close once `d` is, so that neither arrives with what came before
     const sent = [];
-    const end = await open('/three', sent);
+    const end = await open('/three', { push: (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); } });
     assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
     assert.equal(sent.at(-1).data, 'd', 'the newest of a burst');
     assert.equal(sent.reduce((n, m) => n + 1 + m.coalesced, 0), 4, 'every message delivered or counted');
@@ -182,7 +180,7 @@ test('the JS target opens a socket under net.websocket, never net.fetch', async 
   const text = (r) => new TextDecoder().decode(r.body);
   try {
     const sent = [];
-    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => sent.push(m), new AbortController());
+    const end = await streamed({ method: 'GET', url: `${peer.url}/three`, headers: [], maxResponseBytes: 64 }, normalized(`net.websocket ${peer.url}`), (m) => { sent.push(m); if (m.data === 'a' || m.data === 'd') peer.next('/three'); }, new AbortController());
     assert.deepEqual(sent[0], { event: '', id: '', data: 'a', coalesced: 0 });
     assert.deepEqual([end.kind, text(end)], [1, 'the socket closed (1000)']);
     const refused = await streamed({ url: `${peer.url}/three`, maxResponseBytes: 64 }, normalized(`net.fetch ${peer.url.replace('ws:', 'http:')}`), () => {}, new AbortController());
