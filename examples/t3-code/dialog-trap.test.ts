@@ -46,6 +46,7 @@ const GUARDED: Record<string, string> = {
   'providers-wizard.contract "usage-hub-dialog"': 'usage-hub',
   'providers-wizard.contract "usage-hub-remove-dialog"': 'usage-hub-remove',
   'r4-composer.contract "video-preview"': 'video-preview',
+  'composer-chip-image.contract "chip-image-preview"': 'chip-image-preview',
   'r4-git.contract testId': 'r4-dialog',
   'r4-surfaces.contract "device-setup"': 'device-setup',
   'r6-pr.contract "pr-merge-dialog"': 'pr-merge',
@@ -333,7 +334,7 @@ describe('the reference\'s order of stops', () => {
   });
 
   test('what the reference never stops at is no Tab stop: a preview\'s backdrop, Autocomplete items, the palette\'s accessory', () => {
-    for (const [file, testId] of [['timeline-attachments.contract', 'testId="image-preview-backdrop"'], ['r4-composer.contract', 'testId="video-preview-backdrop"'], ['timeline-mermaid.contract', 'testId="diagram-preview-backdrop"']] as const)
+    for (const [file, testId] of [['timeline-attachments.contract', 'testId="image-preview-backdrop"'], ['r4-composer.contract', 'testId="video-preview-backdrop"'], ['composer-chip-image.contract', 'testId="chip-image-backdrop"'], ['timeline-mermaid.contract', 'testId="diagram-preview-backdrop"']] as const)
       expect(source(file).split('\n').find(line => line.includes(testId))).toContain('aria-keyshortcuts="Escape" tabindex=-1');
     const palette = source('palette.contract').split('\n');
     const options = palette.filter(line => /^\s*button\b/.test(line) && line.includes('role="option"'));
@@ -487,6 +488,7 @@ describe('every modal dialog gives focus back through a surviving observer or it
     'providers-wizard.contract "usage-hub-remove-dialog"': ['app-settings.contract', ['usage-hub-remove-dialog']],
     'providers-wizard.contract "chatgpt-account-dialog"': ['app-settings.contract', ['chatgpt-account-dialog']],
     'r4-composer.contract "video-preview"': ['app-overlays.contract', ['video-preview']],
+    'composer-chip-image.contract "chip-image-preview"': ['app-overlays.contract', ['chip-image-preview']],
     'r4-git.contract testId': ['app-overlays.contract', ['git-commit-dialog', 'git-confirm-dialog', 'git-publish-dialog']],
     'r4-surfaces.contract "device-setup"': ['app-overlays.contract', ['device-setup']],
     'r6-pr.contract "pr-merge-dialog"': ['r6-pr.contract', ['pr-merge-dialog']],
