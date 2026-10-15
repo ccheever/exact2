@@ -12,14 +12,12 @@
 //!   answers the feed.
 //!
 //! Record sharing (LLP 1053 §0, G8): every answer is a fresh list, but its
-//! items are the previous answer's `Rc` records for every message that did
+//! items are the previous answer's shared records for every message that did
 //! not change, so the runner's identity checks (`compare::same`) hold for
 //! them. A tick builds exactly two records: the inserted `live-k` (which
 //! shares its copied content's fields) and the bumped message (which shares
 //! every field but its reactions).
 #![forbid(unsafe_code)]
-
-
 
 use exact_plan::Value;
 use exact_runner::{DataError, DataSource};
@@ -40,8 +38,8 @@ struct Message {
     reactions: Vec<(String, f64)>,
 }
 
-// The JSON parses straight into these typed rows on a background thread, so
-// the source never holds a generic `serde_json::Value` tree (~86 MB here).
+// The fallback parser uses typed rows, never a generic serde_json::Value tree.
+// Device boot adopts the already-decoded baked Value and does not parse again.
 #[derive(serde::Deserialize)]
 struct Doc {
     messages: Vec<Raw>,
@@ -106,7 +104,13 @@ impl Message {
                 let runs = p
                     .iter()
                     .enumerate()
-                    .map(|(j, r)| Value::record(vec![Value::str(&j.to_string()), Value::str(&r.t), Value::str(&r.s)]))
+                    .map(|(j, r)| {
+                        Value::record(vec![
+                            Value::str(&j.to_string()),
+                            Value::str(&r.t),
+                            Value::str(&r.s),
+                        ])
+                    })
                     .collect();
                 Value::record(vec![Value::str(&i.to_string()), Value::list(runs)])
             })
@@ -137,10 +141,17 @@ impl Message {
             None => Value::Option(None),
         };
         let quote = match &m.quote {
-            Some(q) => some(Value::record(vec![Value::str(&q.author), Value::str(&q.excerpt)])),
+            Some(q) => some(Value::record(vec![
+                Value::str(&q.author),
+                Value::str(&q.excerpt),
+            ])),
             None => Value::Option(None),
         };
-        let reactions = m.reactions.into_iter().map(|r| (r.emoji, r.count)).collect();
+        let reactions = m
+            .reactions
+            .into_iter()
+            .map(|r| (r.emoji, r.count))
+            .collect();
         Message {
             id: m.id,
             author: m.author,
@@ -201,116 +212,177 @@ const ID: usize = 0;
 const MINUTES_AGO: usize = 3;
 const REACTIONS: usize = 8;
 
-/// The feed: live messages (newest first) above the 10,000, each with its row value.
+/// Retain the runner's exact outer lease until the first mutation, so its
+/// compiled-resource release check also sees the source's ownership.
+enum Rows {
+    Adopted(Value),
+    Owned(Vec<Value>),
+}
+
+impl Rows {
+    fn values(&self) -> &[Value] {
+        match self {
+            Rows::Adopted(value) => match &fields(value)[0] {
+                Value::List(rows) => rows,
+                _ => unreachable!("adopted feed was validated"),
+            },
+            Rows::Owned(rows) => rows,
+        }
+    }
+    fn make_owned(&mut self) -> &mut Vec<Value> {
+        if matches!(self, Rows::Adopted(_)) {
+            *self = Rows::Owned(self.values().to_vec());
+        }
+        match self {
+            Rows::Owned(rows) => rows,
+            _ => unreachable!(),
+        }
+    }
+}
+
+/// The feed owns shared row values, including the baked answer the runner adopts.
 struct Feed {
-    messages: Vec<Message>,
-    rows: Vec<Value>,
-    live: Vec<(Message, Value)>,
+    rows: Rows,
+    live: Vec<Value>,
     ticks: usize,
 }
 
 impl Feed {
     fn load(doc: Doc) -> Feed {
-        let messages: Vec<Message> = doc.messages.into_iter().map(Message::parse).collect();
-        let rows = messages.iter().map(Message::value).collect();
-        Feed { messages, rows, live: Vec::new(), ticks: 0 }
+        let rows = doc
+            .messages
+            .into_iter()
+            .map(|m| Message::parse(m).value())
+            .collect();
+        Feed {
+            rows: Rows::Owned(rows),
+            live: Vec::new(),
+            ticks: 0,
+        }
+    }
+
+    fn adopted(value: &Value) -> Option<Feed> {
+        let Value::Record(fields) = value else {
+            return None;
+        };
+        let [Value::List(_)] = &**fields else {
+            return None;
+        };
+        Some(Feed {
+            rows: Rows::Adopted(value.clone()),
+            live: Vec::new(),
+            ticks: 0,
+        })
     }
 
     fn value(&self) -> Value {
-        let mut rows = Vec::with_capacity(self.live.len() + self.rows.len());
-        rows.extend(self.live.iter().rev().map(|(_, v)| v.clone()));
-        rows.extend(self.rows.iter().cloned());
+        let mut rows = Vec::with_capacity(self.live.len() + self.rows.values().len());
+        rows.extend(self.live.iter().rev().cloned());
+        rows.extend(self.rows.values().iter().cloned());
         Value::record(vec![Value::list(rows)])
     }
 
+    fn reactions(row: &Value) -> &[Value] {
+        match &fields(row)[REACTIONS] {
+            Value::List(items) => items,
+            _ => unreachable!("rows are this source's own records"),
+        }
+    }
+
+    fn bump(row: &Value, at: usize) -> Value {
+        let mut reactions = Self::reactions(row).to_vec();
+        let count = fields(&reactions[at])[1]
+            .as_number()
+            .expect("reaction count");
+        reactions[at] = with(&reactions[at], &[(1, Value::Number(count + 1.0))]);
+        with(row, &[(REACTIONS, Value::list(reactions))])
+    }
+
     fn react(&mut self, id: &str, emoji: &str) -> bool {
-        let bump = |m: &mut Message| match m.reactions.iter_mut().find(|(e, _)| e == emoji) {
-            Some((_, c)) => {
-                *c += 1.0;
-                true
-            }
-            None => false,
-        };
-        if let Some(i) = id.strip_prefix('m').and_then(|n| n.parse::<usize>().ok()).filter(|&i| i < self.messages.len()) {
-            if self.messages[i].id == id && bump(&mut self.messages[i]) {
-                self.rows[i] = with(&self.rows[i], &[(REACTIONS, self.messages[i].reactions_value())]);
-                return true;
-            }
+        let regular = id
+            .strip_prefix('m')
+            .and_then(|n| n.parse::<usize>().ok())
+            .filter(|&i| {
+                i < self.rows.values().len()
+                    && fields(&self.rows.values()[i])[ID].as_str() == Some(id)
+            });
+        let (live, index) = if let Some(i) = regular {
+            (false, i)
+        } else if let Some(i) = self
+            .live
+            .iter()
+            .position(|row| fields(row)[ID].as_str() == Some(id))
+        {
+            (true, i)
+        } else {
             return false;
+        };
+        let row = if live {
+            &self.live[index]
+        } else {
+            &self.rows.values()[index]
+        };
+        let Some(at) = Self::reactions(row)
+            .iter()
+            .position(|r| fields(r)[0].as_str() == Some(emoji))
+        else {
+            return false;
+        };
+        let changed = Self::bump(row, at);
+        if live {
+            self.live[index] = changed
+        } else {
+            self.rows.make_owned()[index] = changed
         }
-        if let Some((m, v)) = self.live.iter_mut().find(|(m, _)| m.id == id) {
-            if bump(m) {
-                *v = with(v, &[(REACTIONS, m.reactions_value())]);
-                return true;
-            }
-        }
-        false
+        true
     }
 
     fn tick(&mut self) {
         let k = self.ticks + 1;
         self.ticks = k;
-        let n = self.messages.len();
-        let from_at = (k * 37) % n;
-        let from = &self.messages[from_at];
-        let copy = Message {
-            id: format!("live-{k}"),
-            author: from.author.clone(),
-            avatar: from.avatar.clone(),
-            minutes_ago: 0.0,
-            paragraphs: from.paragraphs.clone(),
-            photos: from.photos.clone(),
-            link: from.link.clone(),
-            quote: from.quote.clone(),
-            reactions: from.reactions.clone(),
-        };
-        // The copy shares its source row's fields but the id and the time.
-        let v = with(&self.rows[from_at], &[(ID, Value::str(&copy.id)), (MINUTES_AGO, Value::Number(0.0))]);
-        self.live.push((copy, v));
+        let n = self.rows.values().len();
+        let from = &self.rows.values()[(k * 37) % n];
+        self.live.push(with(
+            from,
+            &[
+                (ID, Value::str(&format!("live-{k}"))),
+                (MINUTES_AGO, Value::Number(0.0)),
+            ],
+        ));
         let start = (k * 101) % n;
-        if let Some(i) = (0..n).map(|d| (start + d) % n).find(|&i| !self.messages[i].reactions.is_empty()) {
-            let m = &mut self.messages[i];
-            let at = k % m.reactions.len();
-            m.reactions[at].1 += 1.0;
-            self.rows[i] = with(&self.rows[i], &[(REACTIONS, m.reactions_value())]);
+        if let Some(i) = (0..n)
+            .map(|d| (start + d) % n)
+            .find(|&i| !Self::reactions(&self.rows.values()[i]).is_empty())
+        {
+            let at = k % Self::reactions(&self.rows.values()[i]).len();
+            let changed = Self::bump(&self.rows.values()[i], at);
+            self.rows.make_owned()[i] = changed;
         }
     }
 }
 
-/// The source. On a device the feed the list first shows is the plan's
-/// baked value; the source's own copy (what a reaction or a live tick edits)
-/// is parsed on a background thread started at launch and turned into row
-/// values on first use.
+/// Runtime boot adopts the runner's decoded baked resource. Baking and a source
+/// without a compiled answer parse on its first messages request instead.
+#[derive(Default)]
 pub struct Heavy {
-    parsed: Option<std::thread::JoinHandle<Doc>>,
     feed: Option<Feed>,
-}
-
-impl Default for Heavy {
-    fn default() -> Self {
-        // wasm32 has no threads: the web module parses on first use instead.
-        #[cfg(target_arch = "wasm32")]
-        let parsed = None;
-        #[cfg(not(target_arch = "wasm32"))]
-        let parsed = Some(std::thread::spawn(|| serde_json::from_slice::<Doc>(JSON).expect("messages.json")));
-        Heavy { parsed, feed: None }
-    }
 }
 
 impl Heavy {
     fn feed(&mut self) -> &mut Feed {
-        if self.feed.is_none() {
-            let doc = match self.parsed.take() {
-                Some(thread) => thread.join().expect("parse thread"),
-                None => serde_json::from_slice::<Doc>(JSON).expect("messages.json"),
-            };
-            self.feed = Some(Feed::load(doc));
-        }
-        self.feed.as_mut().expect("loaded")
+        self.feed.get_or_insert_with(|| {
+            Feed::load(serde_json::from_slice::<Doc>(JSON).expect("messages.json"))
+        })
     }
 }
 
 impl DataSource for Heavy {
+    fn adopt(&mut self, source: &str, args: &[Value], value: &Value) {
+        if self.feed.is_none() && source == "messages" && args.is_empty() {
+            self.feed = Feed::adopted(value);
+        }
+    }
+
     fn app_id(&self) -> &str {
         "dev.exact.heavybench.exact"
     }
@@ -320,7 +392,9 @@ impl DataSource for Heavy {
             ("messages", []) => Ok(self.feed().value()),
             ("react", [id, emoji]) => {
                 let (Some(id), Some(emoji)) = (id.as_str(), emoji.as_str()) else {
-                    return Err(DataError::BadArguments("react(id: string, emoji: string)".into()));
+                    return Err(DataError::BadArguments(
+                        "react(id: string, emoji: string)".into(),
+                    ));
                 };
                 let feed = self.feed();
                 feed.react(id, emoji);
@@ -339,7 +413,9 @@ impl DataSource for Heavy {
                 feed.tick();
                 Ok(feed.value())
             }
-            ("messages" | "config" | "tick", _) => Err(DataError::BadArguments(format!("{source}()"))),
+            ("messages" | "config" | "tick", _) => {
+                Err(DataError::BadArguments(format!("{source}()")))
+            }
             ("react", _) => Err(DataError::BadArguments("react(id, emoji)".into())),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -347,51 +423,4 @@ impl DataSource for Heavy {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn rows(v: &Value) -> usize {
-        match v {
-            Value::Record(f) => match &f[0] {
-                Value::List(l) => l.len(),
-                _ => 0,
-            },
-            _ => 0,
-        }
-    }
-
-    #[test]
-    fn feed_live_and_reactions() {
-        let mut h = Heavy::default();
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        let t = std::time::Instant::now();
-        let v = h.query("messages", &[]).unwrap();
-        eprintln!("load: {:?}", t.elapsed());
-        assert_eq!(rows(&v), 10_000);
-        let t = std::time::Instant::now();
-        let v = h.query("tick", &[]).unwrap();
-        eprintln!("tick: {:?}", t.elapsed());
-        assert_eq!(rows(&v), 10_001);
-        let f = h.feed.as_ref().unwrap();
-        assert_eq!(f.live[0].0.id, "live-1");
-        assert_eq!(f.live[0].0.author, f.messages[37].author);
-        // Every row but the bumped one is the previous answer's allocation.
-        let before = match &v {
-            Value::Record(f) => f[0].clone(),
-            _ => unreachable!(),
-        };
-        let v2 = h.query("tick", &[]).unwrap();
-        let (Value::List(a), Value::Record(f2)) = (&before, &v2) else { unreachable!() };
-        let Value::List(b) = &f2[0] else { unreachable!() };
-        assert_eq!(b.len(), a.len() + 1);
-        let changed = a.iter().zip(&b[1..]).filter(|(x, y)| !exact_runner::compare::same(x, y)).count();
-        assert_eq!(changed, 1, "only the bumped row is rebuilt");
-        let f = h.feed.as_ref().unwrap();
-        let m = f.messages.iter().find(|m| !m.reactions.is_empty()).unwrap();
-        let (id, (emoji, before)) = (m.id.clone(), m.reactions[0].clone());
-        h.query("react", &[Value::str(&id), Value::str(&emoji)]).unwrap();
-        let f = h.feed.as_ref().unwrap();
-        let m = f.messages.iter().find(|m| m.id == id).unwrap();
-        assert_eq!(m.reactions[0].1, before + 1.0);
-    }
-}
+mod tests;
