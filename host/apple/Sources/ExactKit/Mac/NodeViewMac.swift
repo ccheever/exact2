@@ -1372,10 +1372,13 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // pressable leaves the first responder where it is, as a click on an
     // `NSButton` does, and so does one nothing consumes, which reaches the
     // viewport (LLP 1115.000 D7.1; `takesClickFocus`, FocusMac.swift).
+    // An assistive app's press runs once AppKit's request has returned, as an
+    // inline run's does (`InlineAccessibility.accessibilityPerformPress`).
     package override func accessibilityPerformPress() -> Bool {
         if isSurfaceControl { return control("down") && control("up") }
         guard !disabled, !inert, pressable else { return false }
-        presenter?.press(id); return true
+        DispatchQueue.main.async { [weak self] in if let self { self.presenter?.press(self.id) } }
+        return true
     }
     package override func mouseDown(with event: NSEvent) {
         guard !inert else { return }

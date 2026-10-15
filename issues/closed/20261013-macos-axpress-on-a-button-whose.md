@@ -1,6 +1,7 @@
 # macOS: AXPress on a button whose press changes text answers kAXErrorAttributeUnsupported although the press lands
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** fixed by deferring an assistive press on a button, checkbox or switch until AppKit's request returns
 **Systems:** host/apple macOS, accessibility
 **Severity:** P3
 **Author:** Daehyeon Mun
@@ -73,3 +74,12 @@ Not run: VoiceOver itself; iOS.
 
 - In the repro, `AXUIElementPerformAction(btn, kAXPressAction)` and `AXUIElementPerformAction(flat, kAXPressAction)`
   from another process return 0, `bcount` goes up by one for each, and each element is still the button's afterwards.
+
+## Fix
+
+An assistive app's AXPress now runs after AppKit's request returns (`DispatchQueue.main.async`) on the `NodeView`
+button (`NodeView.accessibilityPerformPress`), the native button's cell (`NativeButtonCellMac`), and AppKit's checkbox
+and radio cells (`AriaButtonCellMac`) and switch (`SwitchMac`): measured from another process, `check` and `switch`
+answered -25205 the same way. In the repro, `btn`, `flat`, `quiet`, `check` and `switch` answer 0 from another
+process, each press lands once, and each element is still the control's. Not measured: other actions that run the
+app inside the request (AXShowMenu, AXIncrement/AXDecrement, a segment's press).

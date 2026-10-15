@@ -24,6 +24,16 @@ final class NativeButtonCellMac: NSButtonCell {
         if attribute.rawValue == "AXEnabled", owner?.ariaUnavailable == true { return false }
         return super.accessibilityAttributeValue(attribute)
     }
+    /// An assistive app's press (VoiceOver's VO-Space, Switch Control)
+    /// clicks once AppKit's request has returned, as an inline run's press
+    /// runs (`InlineAccessibility.accessibilityPerformPress`): AppKit answers
+    /// the request with the first accessibility error recorded while it is
+    /// open, and the update the click makes records one.
+    override func accessibilityPerformPress() -> Bool {
+        guard isEnabled else { return false }
+        DispatchQueue.main.async { _ = super.accessibilityPerformPress() }
+        return true
+    }
 }
 
 /// AppKit's button, as a native button's control.
